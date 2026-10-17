@@ -1,0 +1,1503 @@
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { Screen, Intent, Language } from '../types';
+import { Settings, Bell, Zap, Search, Globe, Clock, MapPin, Rocket, User, Trophy, Wrench, Filter, Star, UserCheck, MessageSquare, Plus, Check, X, Share2, MessageCircle, HelpCircle, Smartphone, RefreshCw, ChevronDown, Sparkles, Trash2, ShieldAlert } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import PostIntentSheet from './PostIntentSheet';
+import { useLanguage, SUPPORTED_LANGUAGES } from '../i18n';
+import { getCurrentUser, supabase } from '../supabase';
+import { CATEGORIES, MASTER_CATEGORIES, getCategoryName, getFreeHelperProfiles } from '../data/categories';
+import UserProfileModal from './UserProfileModal';
+import AppGuideModal from './AppGuideModal';
+import { fetchLiveIntents, deleteIntentOnServer } from '../api';
+import AdBannerSection from '../components/AdBannerSection';
+import PostAdModal from '../components/PostAdModal';
+import LocoHelpLogo from '../components/LocoHelpLogo';
+import RegisterShopModal from '../components/RegisterShopModal';
+import LoginPromptModal from '../components/LoginPromptModal';
+import JobPortalSection from '../components/JobPortalSection';
+import JobSeekerModal from '../components/JobSeekerModal';
+import EmployerVacancyModal from '../components/EmployerVacancyModal';
+import JobPortalBrowseModal from '../components/JobPortalBrowseModal';
+import FreeHelperRegisterModal from '../components/FreeHelperRegisterModal';
+import { isGuestUser } from '../lib/authUtils';
+
+interface HomeScreenProps {
+  onNavigate: (screen: Screen) => void;
+  onOpenChat: (intent?: any) => void;
+  selectedCategory?: string;
+  onSelectCategory?: (category: string) => void;
+}
+
+export default function HomeScreen({ 
+  onNavigate, 
+  onOpenChat,
+  selectedCategory = 'all',
+  onSelectCategory
+}: HomeScreenProps) {
+  const { language, setLanguage, t } = useLanguage();
+  const [isHomeCategoryDropdownOpen, setIsHomeCategoryDropdownOpen] = useState(false);
+  const [isPostSheetOpen, setIsPostSheetOpen] = useState(false);
+  const [isLangModalOpen, setIsLangModalOpen] = useState(false);
+  const [isLoginPromptOpen, setIsLoginPromptOpen] = useState(false);
+  const [loginPromptTitle, setLoginPromptTitle] = useState({ en: 'Sign In with Google Required', hi: 'गूगल से लॉगिन आवश्यक है' });
+  const [loginPromptDesc, setLoginPromptDesc] = useState<{ en?: string; hi?: string }>({});
+  const [loginSuccessAction, setLoginSuccessAction] = useState<(() => void) | undefined>(undefined);
+  const [intents, setIntents] = useState<Intent[]>([]);
+  const initialLoadRef = useRef(true);
+  const previousCountRef = useRef(0);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  // Real-Time Search & Voice Search States across Entire Website
+  const [homeSearchQuery, setHomeSearchQuery] = useState('');
+  const [isVoiceListening, setIsVoiceListening] = useState(false);
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
+
+  const [selectedUserForProfile, setSelectedUserForProfile] = useState<{ name: string; distance: number } | null>(null);
+  const [isGuideOpen, setIsGuideOpen] = useState(false);
+  const [showShareToast, setShowShareToast] = useState(false);
+  const [newlyCreatedId, setNewlyCreatedId] = useState<string | null>(null);
+  const [createdToast, setCreatedToast] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [isPostAdModalOpen, setIsPostAdModalOpen] = useState(false);
+  const [isRegisterShopModalOpen, setIsRegisterShopModalOpen] = useState(false);
+  const [isFreeHelperModalOpen, setIsFreeHelperModalOpen] = useState(false);
+  const [postToDelete, setPostToDelete] = useState<string | null>(null);
+
+  // Active logged-in user state (automatically synced with Supabase Auth and localStorage)
+  const [activeUser, setActiveUser] = useState(() => getCurrentUser());
+
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session?.user) {
+        const u = {
+          uid: session.user.id,
+          displayName: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'Community Member',
+          email: session.user.email || '',
+          photoURL: session.user.user_metadata?.avatar_url || undefined
+        };
+        setActiveUser(u);
+        try {
+          localStorage.setItem('locohelp_user', JSON.stringify(u));
+          localStorage.setItem('locohelp_logged_in', 'true');
+        } catch (e) {}
+      } else {
+        setActiveUser(getCurrentUser());
+      }
+    });
+    return () => {
+      subscription?.unsubscribe();
+    };
+  }, []);
+
+  // Job Portal Modal States (Job Seeker, Employer Vacancy & Live Browse)
+  const [isJobSeekerModalOpen, setIsJobSeekerModalOpen] = useState(false);
+  const [seekerModalInitialTab, setSeekerModalInitialTab] = useState<'registered' | 'new'>('registered');
+  const [isEmployerVacancyModalOpen, setIsEmployerVacancyModalOpen] = useState(false);
+  const [employerModalInitialTab, setEmployerModalInitialTab] = useState<'registered' | 'new'>('registered');
+  const [isJobBrowseModalOpen, setIsJobBrowseModalOpen] = useState(false);
+  const [jobBrowseInitialTab, setJobBrowseInitialTab] = useState<'all' | 'employer_vacancy' | 'job_seeker'>('all');
+
+  // GPS Distance Priority System (Zomato / Swiggy Style Location Auto-Detection)
+  const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number; active: boolean }>({
+    lat: 23.0225, // Ahmedabad center default
+    lng: 72.5714,
+    active: false
+  });
+  const [isGpsLocating, setIsGpsLocating] = useState(false);
+  const [gpsNotificationToast, setGpsNotificationToast] = useState<string | null>(null);
+
+  // Haversine formula for exact GPS distance in KM
+  const getGpsDistanceKm = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+    const R = 6371; // Earth radius in km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return parseFloat((R * c).toFixed(1));
+  };
+
+  const triggerGpsLocate = () => {
+    if ('geolocation' in navigator) {
+      setIsGpsLocating(true);
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setGpsCoords({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+            active: true
+          });
+          setIsGpsLocating(false);
+          setGpsNotificationToast(`⚡ ${t('gps.detectedToast')}`);
+          setTimeout(() => setGpsNotificationToast(null), 4000);
+        },
+        (err) => {
+          console.warn("GPS Detection Notice:", err);
+          setIsGpsLocating(false);
+          setGpsCoords(prev => ({ ...prev, active: true }));
+        },
+        { enableHighAccuracy: true, timeout: 8000 }
+      );
+    }
+  };
+
+  useEffect(() => {
+    triggerGpsLocate();
+  }, []);
+
+  const handleSafeOpenChat = (intent?: any) => {
+    if (isGuestUser()) {
+      setLoginPromptTitle({
+        en: 'Sign In with Google to Chat',
+        hi: 'चैट करने के लिए गूगल से लॉगिन करें'
+      });
+      setLoginPromptDesc({
+        en: 'Connect directly with local helpers and neighbors. Sign in with Google in 1 click!',
+        hi: 'पड़ोसियों और हेल्पर्स से चैट करने के लिए गूगल से 1-क्लिक में लॉगिन करें।'
+      });
+      setLoginSuccessAction(() => () => onOpenChat(intent));
+      setIsLoginPromptOpen(true);
+      return;
+    }
+    onOpenChat(intent);
+  };
+
+  const handleSafeOpenPostSheet = () => {
+    if (isGuestUser()) {
+      setLoginPromptTitle({
+        en: 'Sign In with Google to Post Broadcast',
+        hi: 'ब्रॉडकास्ट पोस्ट करने के लिए गूगल से लॉगिन करें'
+      });
+      setLoginPromptDesc({
+        en: 'Broadcast your urgent requirement to nearby helpers. Sign in with your Google account in 1 click!',
+        hi: 'अपने एरिया में ब्रॉडकास्ट पोस्ट करने के लिए गूगल से 1-क्लिक में लॉगिन करें।'
+      });
+      setLoginSuccessAction(() => () => setIsPostSheetOpen(true));
+      setIsLoginPromptOpen(true);
+      return;
+    }
+    setIsPostSheetOpen(true);
+  };
+
+  const handleSafeProfileClick = () => {
+    if (isGuestUser()) {
+      setLoginPromptTitle({
+        en: 'Sign In with Google to Create / Manage Profile',
+        hi: 'प्रोफाइल बनाने के लिए गूगल से लॉगिन करें'
+      });
+      setLoginPromptDesc({
+        en: 'Create your verified local profile with skills, ratings & phone number. Sign in with Google in 1 click!',
+        hi: 'अपनी रेटिंग, स्किल्स और मोबाइल नंबर के साथ प्रोफाइल बनाने के लिए गूगल से 1-क्लिक में साइन-इन करें।'
+      });
+      setLoginSuccessAction(() => () => onNavigate('profile'));
+      setIsLoginPromptOpen(true);
+      return;
+    }
+    onNavigate('profile');
+  };
+
+  const handleSafeRegisterShop = () => {
+    if (isGuestUser()) {
+      setLoginPromptTitle({
+        en: 'Sign In with Google to Register Business',
+        hi: 'बिज़नेस/दुकान दर्ज करने के लिए गूगल से लॉगिन करें'
+      });
+      setLoginPromptDesc({
+        en: 'List your shop, showroom or local service on the neighborhood radar with 1-click Google sign-in.',
+        hi: 'अपनी दुकान या सर्विस दर्ज करने के लिए गूगल से 1-क्लिक में लॉगिन करें।'
+      });
+      setLoginSuccessAction(() => () => setIsRegisterShopModalOpen(true));
+      setIsLoginPromptOpen(true);
+      return;
+    }
+    setIsRegisterShopModalOpen(true);
+  };
+
+  const handleSafeCreateProfile = () => {
+    if (isGuestUser()) {
+      setLoginPromptTitle({
+        en: 'Sign In Required for Helper Profile',
+        hi: 'प्रोफाइल बनाने के लिए साइन-इन करें'
+      });
+      setLoginPromptDesc({
+        en: 'Create your verified local helper profile with skills, ratings & phone number in 1-click.',
+        hi: 'अपनी रेटिंग, स्किल्स और मोबाइल नंबर के साथ हेल्पर्स लिस्टिंग में प्रोफाइल बनाने के लिए साइन-इन करें।'
+      });
+      setLoginSuccessAction(() => () => setIsFreeHelperModalOpen(true));
+      setIsLoginPromptOpen(true);
+      return;
+    }
+    setIsFreeHelperModalOpen(true);
+  };
+
+  const handleWhatsAppShare = () => {
+    const text = encodeURIComponent(
+      "Namaste! 🙏 Humare mohalle aur area me Plumber, Electrician, Mechanic, emergency madad aur dosti ke liye LocoHelp app use karein. 100% Free & zero commission! Check here: " + window.location.origin
+    );
+    window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
+    setShowShareToast(true);
+    setTimeout(() => setShowShareToast(false), 3500);
+  };
+
+  const handleSharePostToWhatsAppGroup = (intent: Intent, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const km = (intent as any).computedKm || intent.distance;
+    const shareMsg = encodeURIComponent(
+      `📢 *LocoHelp Mohalla Alert* 📢\n\n` +
+      `📌 *Requirement:* "${intent.description}"\n` +
+      `📍 *Distance:* ${km} km away\n\n` +
+      `👉 Response / Help dene ke liye LocoHelp App kholein:\n${window.location.origin}`
+    );
+    window.open(`https://api.whatsapp.com/send?text=${shareMsg}`, '_blank');
+  };
+
+  const categoryKeywords: Record<string, string[]> = {
+    // Master Categories
+    utility_emergency: ['plumb', 'pipe', 'tap', 'water', 'leak', 'electr', 'wire', 'light', 'fan', 'mechanic', 'car', 'bike', 'puncture', 'tyre', 'battery', 'carpent', 'wood', 'door', 'lock', 'paint', 'ac', 'fridge', 'mason', 'mistri'],
+    sports_fitness: ['cricket', 'gym', 'fitness', 'workout', 'badminton', 'running', 'jog', 'marathon', 'football', 'turf', 'sport', 'exercise', 'yoga', 'trainer'],
+    social_casual: ['chai', 'tea', 'coffee', 'meetup', 'walk', 'chess', 'book', 'companion', 'game', 'gaming', 'ps5', 'catan', 'pet', 'dog', 'puppy', 'chat', 'friend'],
+    daily_errands: ['clean', 'maid', 'housekeep', 'deliver', 'parcel', 'luggage', 'shift', 'tutor', 'teach', 'study', 'maths', 'science', 'senior', 'elder', 'medicine'],
+
+    // Subcategories
+    plumber: ['plumb', 'pipe', 'tap', 'water', 'leak', 'flush', 'basin', 'tank'],
+    electrician: ['electr', 'wire', 'wiring', 'switch', 'light', 'fan', 'inverter', 'current', 'fuse', 'short'],
+    mechanic: ['mechanic', 'car', 'bike', 'puncture', 'tyre', 'tire', 'battery', 'jumpstart', 'towing', 'breakdown'],
+    carpenter: ['carpent', 'wood', 'door', 'lock', 'furniture', 'bed', 'sofa', 'table'],
+    painter: ['paint', 'wall', 'putty', 'color', 'polish'],
+    ac_repair: ['ac', 'air condition', 'fridge', 'refrigerator', 'cooling', 'washing machine', 'appliance'],
+    cleaning: ['clean', 'maid', 'sweep', 'dust', 'wash', 'housekeep'],
+    delivery: ['deliver', 'parcel', 'shift', 'tempo', 'luggage', 'courier', 'porter'],
+    tutor: ['tutor', 'teach', 'study', 'maths', 'science', 'english', 'tuition'],
+    mason: ['mason', 'mistri', 'tile', 'plaster', 'cement', 'floor', 'brick'],
+    cricket: ['cricket', 'turf', 'leather ball', 'match', 'batting', 'bowling', 'batsman'],
+    gym_fitness: ['gym', 'fitness', 'workout', 'weightlifting', 'trainer', 'spotter', 'diet'],
+    badminton: ['badminton', 'shuttle', 'racket', 'court', 'doubles'],
+    running: ['running', 'jog', 'jogging', 'marathon', '5k', '10k', 'stamina'],
+    football: ['football', 'soccer', 'turf', 'striker', 'goal'],
+    chai_coffee: ['chai', 'tea', 'coffee', 'tapri', 'cafe', 'evening meetup'],
+    companion: ['companion', 'evening walk', 'chess', 'book club', 'talking', 'senior'],
+    gaming: ['gaming', 'game', 'ps5', 'xbox', 'catan', 'monopoly', 'board game', 'lan'],
+    pet_care: ['pet', 'dog', 'cat', 'puppy', 'dog walking', 'foster'],
+    senior_help: ['senior', 'elder', 'medicine', 'hospital assist', 'bank work', 'volunteer']
+  };
+
+  const currentMasterObj = MASTER_CATEGORIES.find(m => m.id === selectedCategory);
+  const currentCategoryObj = CATEGORIES.find(c => c.id === selectedCategory);
+
+  // 2-Hour Auto-Expiry & GPS Distance Priority System
+  const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
+  const now = Date.now();
+
+  const processedIntents = intents.filter(item => {
+    const createdAtTime = new Date(item.createdAt || Date.now()).getTime();
+    if (now - createdAtTime > TWO_HOURS_MS) return false;
+    return true;
+  }).map((item, index) => {
+    const itemLat = (item as any).lat || (gpsCoords.lat + (index % 5 === 0 ? 0.003 : index % 3 === 0 ? 0.008 : 0.014 * (index + 1)));
+    const itemLng = (item as any).lng || (gpsCoords.lng + (index % 4 === 0 ? 0.002 : index % 2 === 0 ? 0.005 : 0.011 * (index + 1)));
+    
+    const computedKm = getGpsDistanceKm(gpsCoords.lat, gpsCoords.lng, itemLat, itemLng);
+    const finalDistance = Math.min(computedKm, item.distance || 0.8);
+    
+    return {
+      ...item,
+      computedKm: finalDistance,
+      isNearbyPriority: finalDistance <= 2.0
+    };
+  });
+
+  // Filter by category
+  const filteredIntents = processedIntents.filter(item => {
+    if (selectedCategory === 'all') return true;
+    const keywords = categoryKeywords[selectedCategory] || [selectedCategory];
+    const text = (item.description + ' ' + (item.tags ? item.tags.join(' ') : '')).toLowerCase();
+    return keywords.some(k => text.includes(k));
+  });
+
+  // GPS Distance Sorting (Nearest posts first!)
+  filteredIntents.sort((a, b) => a.computedKm - b.computedKm);
+
+  // Fallback to all posts if category filter returns no posts so broadcast posts NEVER disappear
+  const displayIntents = (selectedCategory !== 'all' && filteredIntents.length === 0)
+    ? processedIntents
+    : filteredIntents;
+
+  // Real-time filtered feed for home screen broadcast list
+  const searchedIntents = homeSearchQuery.trim()
+    ? displayIntents.filter(item => {
+        const q = homeSearchQuery.toLowerCase().trim();
+        const text = (
+          (item.description || '') + ' ' + 
+          (item.category || '') + ' ' + 
+          (item.tags ? item.tags.join(' ') : '')
+        ).toLowerCase();
+        return text.includes(q);
+      })
+    : displayIntents;
+
+  // Web Speech API Voice Search Handler
+  const handleStartVoiceSearch = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert(language === 'EN' 
+        ? 'Voice search is not supported in this browser. Please type to search.' 
+        : 'आपके ब्राउज़र में वॉइस सर्च सपोर्ट नहीं है। कृपया टाइप करके खोजें।');
+      return;
+    }
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.lang = language === 'EN' ? 'en-US' : 'hi-IN';
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+
+      setIsVoiceListening(true);
+      recognition.start();
+
+      recognition.onresult = (event: any) => {
+        const transcript = event.results[0]?.[0]?.transcript;
+        if (transcript) {
+          setHomeSearchQuery(transcript);
+        }
+        setIsVoiceListening(false);
+      };
+
+      recognition.onerror = () => {
+        setIsVoiceListening(false);
+      };
+
+      recognition.onend = () => {
+        setIsVoiceListening(false);
+      };
+    } catch (e) {
+      setIsVoiceListening(false);
+    }
+  };
+
+  // Comprehensive Global Search across Entire Website
+  const globalSearchResults = useMemo(() => {
+    if (!homeSearchQuery.trim()) return { posts: [], helpers: [], shops: [], categories: [] };
+    const q = homeSearchQuery.toLowerCase().trim();
+
+    // 1. Broadcast Posts
+    const posts = displayIntents.filter(item => 
+      (item.description || '').toLowerCase().includes(q) ||
+      (item.category || '').toLowerCase().includes(q) ||
+      (item.tags || []).some(t => t.toLowerCase().includes(q))
+    );
+
+    // 2. Local Helpers & Service Providers
+    const helpers = getFreeHelperProfiles().filter(h =>
+      (h.name || '').toLowerCase().includes(q) ||
+      (h.categoryId || '').toLowerCase().includes(q) ||
+      (h.area || '').toLowerCase().includes(q) ||
+      (h.skills || []).some(s => s.toLowerCase().includes(q))
+    );
+
+    // 3. Registered Shops & Businesses
+    let shopsList: any[] = [];
+    try {
+      const stored = localStorage.getItem('locohelp_registered_shops');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) shopsList = parsed;
+      }
+    } catch (e) {}
+    const shops = shopsList.filter((s: any) =>
+      (s.name || '').toLowerCase().includes(q) ||
+      (s.categoryLabel || '').toLowerCase().includes(q) ||
+      (s.area || s.address || '').toLowerCase().includes(q) ||
+      (s.ownerName || '').toLowerCase().includes(q)
+    );
+
+    // 4. Service Categories
+    const categories = CATEGORIES.filter(c =>
+      (c.nameEn || '').toLowerCase().includes(q) ||
+      (c.nameHi || '').toLowerCase().includes(q) ||
+      (c.id || '').toLowerCase().includes(q)
+    );
+
+    return { posts, helpers, shops, categories };
+  }, [homeSearchQuery, displayIntents]);
+
+  // Unified Deduplicating Merger for Multi-Device Broadcast Sync
+  const mergeAndDeduplicateIntents = (incoming: Intent[]) => {
+    setIntents(prev => {
+      let deletedIds: string[] = [];
+      let deletedDescs: string[] = [];
+      try {
+        deletedIds = JSON.parse(localStorage.getItem('locohelp_deleted_posts') || '[]');
+        deletedDescs = JSON.parse(localStorage.getItem('locohelp_deleted_descs') || '[]');
+      } catch (e) {}
+
+      const all = [...incoming, ...prev];
+      const seenIds = new Set<string>();
+      const seenTexts = new Map<string, number>();
+      const result: Intent[] = [];
+
+      for (const item of all) {
+        if (!item || !item.id) continue;
+        if (deletedIds.includes(item.id)) continue;
+        const normDesc = item.description?.trim();
+        if (normDesc && deletedDescs.includes(normDesc)) continue;
+        if (seenIds.has(item.id)) continue;
+
+        const lowerText = normDesc?.toLowerCase() || '';
+        const itemTime = new Date(item.createdAt || 0).getTime();
+
+        // Prevent double broadcast (identical text within 2 minutes)
+        if (lowerText && seenTexts.has(lowerText)) {
+          const existingTime = seenTexts.get(lowerText)!;
+          if (Math.abs(itemTime - existingTime) < 120000) {
+            continue;
+          }
+        }
+
+        seenIds.add(item.id);
+        if (lowerText) seenTexts.set(lowerText, itemTime);
+        result.push(item);
+      }
+
+      result.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+
+      // Update instant offline local cache
+      try {
+        localStorage.setItem('locohelp_cached_intents', JSON.stringify(result.slice(0, 50)));
+      } catch (e) {}
+
+      return result;
+    });
+  };
+
+  const syncServerBroadcasts = async (isManual = false) => {
+    if (isManual) setIsSyncing(true);
+    try {
+      const serverIntents = await fetchLiveIntents();
+      if (serverIntents && Array.isArray(serverIntents) && serverIntents.length > 0) {
+        mergeAndDeduplicateIntents(serverIntents);
+      }
+    } catch (err) {
+      console.warn("Live broadcast sync notice:", err);
+    } finally {
+      if (isManual) {
+        setTimeout(() => setIsSyncing(false), 500);
+      }
+    }
+  };
+
+  // Multi-device real-time sync across all phones (Cloud Firestore + Server fallback)
+  useEffect(() => {
+    // 1. Instant local load for 0ms initial render
+    try {
+      const stored = localStorage.getItem('locohelp_cached_intents') || localStorage.getItem('locohelp_custom_intents');
+      if (stored) {
+        const localItems: Intent[] = JSON.parse(stored);
+        if (localItems.length > 0) {
+          mergeAndDeduplicateIntents(localItems);
+        }
+      }
+    } catch (e) {}
+
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+
+    // 2. Real-time Supabase sync
+    let unsubscribeSupabase = () => {};
+    try {
+      Promise.resolve(supabase.from("intents").select("*").order("created_at", { ascending: false })).then(({ data }) => {
+        if (data && data.length > 0) {
+          const fetched: Intent[] = data.map((d: any) => ({
+            id: d.id,
+            description: d.description,
+            tags: d.tags || [],
+            authorId: d.author_id,
+            authorName: d.author_name || 'Community Member',
+            createdAt: d.created_at,
+            expiresAt: d.expires_at,
+            status: d.status || 'active',
+            hasLocationPin: d.has_location_pin,
+            distance: d.distance || 0.5,
+          }));
+          mergeAndDeduplicateIntents(fetched);
+        }
+      }).catch(() => {});
+
+      const channel = supabase.channel('public:intents')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'intents' }, () => {
+          syncServerBroadcasts();
+        })
+        .subscribe();
+      
+      unsubscribeSupabase = () => {
+        supabase.removeChannel(channel);
+      };
+    } catch (e) {}
+
+    // 3. Central server backup polling (gentle 45s interval to completely avoid rate exceed/quota limits)
+    syncServerBroadcasts();
+    const pollTimer = setInterval(() => {
+      if (!document.hidden) {
+        syncServerBroadcasts(false);
+      }
+    }, 45000);
+
+    return () => {
+      clearInterval(pollTimer);
+      unsubscribeSupabase();
+    };
+  }, []);
+
+  const handlePostCreated = (newIntent: Intent) => {
+    mergeAndDeduplicateIntents([newIntent]);
+    setNewlyCreatedId(newIntent.id);
+    setCreatedToast("⚡ Post Uploaded! Aapki post sabhi phones par live hai.");
+    setTimeout(() => setCreatedToast(null), 5000);
+    // Smoothly scroll to top so user sees their newly created post immediately
+    setTimeout(() => {
+      if (scrollContainerRef.current) {
+        scrollContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    }, 100);
+  };
+
+  const handleDeletePost = (intentId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setPostToDelete(intentId);
+  };
+
+  const confirmDeletePost = (intentId: string) => {
+    const targetPost = intents.find(i => i.id === intentId);
+    const targetDesc = targetPost?.description?.trim();
+
+    // 1. Immediately remove from local UI state
+    setIntents(prev => prev.filter(i => i.id !== intentId && (!targetDesc || i.description?.trim() !== targetDesc)));
+
+    // 2. CLOSE DELETE MODAL IMMEDIATELY! Zero UI delay
+    setPostToDelete(null);
+    setCreatedToast(language === 'EN' ? "🗑️ Post successfully deleted!" : "🗑️ पोस्ट सफलतापूर्वक हटा दी गई!");
+    setTimeout(() => setCreatedToast(null), 3500);
+
+    // 3. Add to local deleted lists
+    try {
+      const deletedIds: string[] = JSON.parse(localStorage.getItem('locohelp_deleted_posts') || '[]');
+      if (!deletedIds.includes(intentId)) {
+        deletedIds.push(intentId);
+        localStorage.setItem('locohelp_deleted_posts', JSON.stringify(deletedIds));
+      }
+      if (targetDesc) {
+        const deletedDescs: string[] = JSON.parse(localStorage.getItem('locohelp_deleted_descs') || '[]');
+        if (!deletedDescs.includes(targetDesc)) {
+          deletedDescs.push(targetDesc);
+          localStorage.setItem('locohelp_deleted_descs', JSON.stringify(deletedDescs));
+        }
+      }
+
+      const storedCustom = localStorage.getItem('locohelp_custom_intents');
+      if (storedCustom) {
+        const arr = JSON.parse(storedCustom).filter((i: any) => i.id !== intentId && (!targetDesc || i.description?.trim() !== targetDesc));
+        localStorage.setItem('locohelp_custom_intents', JSON.stringify(arr));
+      }
+      const storedCached = localStorage.getItem('locohelp_cached_intents');
+      if (storedCached) {
+        const arr = JSON.parse(storedCached).filter((i: any) => i.id !== intentId && (!targetDesc || i.description?.trim() !== targetDesc));
+        localStorage.setItem('locohelp_cached_intents', JSON.stringify(arr));
+      }
+      const myIds = JSON.parse(localStorage.getItem('locohelp_my_post_ids') || '[]');
+      localStorage.setItem('locohelp_my_post_ids', JSON.stringify(myIds.filter((id: string) => id !== intentId)));
+    } catch (e) {}
+
+    // 4. Background server & Firestore delete
+    (async () => {
+      try {
+        await deleteIntentOnServer(intentId, targetDesc);
+      } catch (err) {
+        console.warn("Server delete notice:", err);
+      }
+      try {
+        await supabase.from('intents').delete().eq('id', intentId);
+        if (targetDesc) {
+          await supabase.from('intents').delete().eq('description', targetDesc);
+        }
+      } catch (err) {}
+    })();
+  };
+
+  const currentLangObj = SUPPORTED_LANGUAGES.find(l => l.code === language) || SUPPORTED_LANGUAGES[0];
+
+  return (
+    <div className="flex flex-col h-full min-h-0 bg-violet-50 dark:bg-slate-900 relative overflow-hidden transition-colors">
+      
+      {/* Fixed Top Sticky Header Bar (LocoHelp Logo, Language, Sign In, Notifications, Profile, Settings) */}
+      <header className="sticky top-0 z-30 shrink-0 bg-violet-50/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-violet-200/60 dark:border-slate-800 shadow-2xs px-3.5 sm:px-5 py-2.5 sm:py-3 flex items-center justify-between gap-1 max-w-full overflow-hidden">
+        <button 
+          onClick={() => setIsLangModalOpen(true)} 
+          className="flex items-center gap-1 px-2.5 sm:px-3 py-1 sm:py-1.5 bg-white dark:bg-slate-800 rounded-full hover:bg-violet-100 dark:hover:bg-slate-700 transition-colors border border-slate-200 dark:border-slate-700 shadow-2xs shrink-0 active:scale-95 cursor-pointer"
+          title="Change Language"
+        >
+          <Globe className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-indigo-600 dark:text-indigo-400" />
+          <span className="text-[11px] sm:text-xs font-black text-stone-800 dark:text-slate-200">{currentLangObj.nativeName}</span>
+        </button>
+        
+        <LocoHelpLogo size={36} showText={true} />
+
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          {isGuestUser() ? (
+            <button
+              onClick={() => {
+                setLoginPromptTitle({
+                  en: 'Sign In with Google',
+                  hi: 'गूगल से लॉगिन करें'
+                });
+                setLoginPromptDesc({
+                  en: 'Sign in with Google in 1 click to post broadcasts, chat, or create your verified local profile.',
+                  hi: 'ब्रॉडकास्ट पोस्ट करने, चैट करने और अपनी प्रोफाइल बनाने के लिए गूगल से 1-क्लिक में साइन-इन करें।'
+                });
+                setLoginSuccessAction(undefined);
+                setIsLoginPromptOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-3 py-1 sm:py-1.5 bg-white dark:bg-slate-800 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 transition-all border border-indigo-200 dark:border-indigo-900/60 shadow-xs active:scale-95 cursor-pointer text-slate-800 dark:text-white"
+              title="Sign in with Google"
+            >
+              <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.8-2.4 3.65v3.03h3.88c2.27-2.09 3.665-5.17 3.665-9.12z"/>
+                <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.03c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.13C3.26 21.36 7.33 24 12 24z"/>
+                <path fill="#FBBC05" d="M5.28 14.29c-.25-.72-.38-1.49-.38-2.29s.13-1.57.38-2.29V6.58H1.25C.45 8.18 0 9.99 0 12s.45 3.82 1.25 5.42l4.03-3.13z"/>
+                <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.13c.95-2.83 3.6-4.96 6.72-4.96z"/>
+              </svg>
+              <span className="text-xs font-black">
+                {language === 'EN' ? 'Sign In' : 'लॉगिन करें'}
+              </span>
+            </button>
+          ) : null}
+
+          <button onClick={() => onNavigate('notifications')} className="p-1.5 sm:p-2 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-violet-100 dark:hover:bg-slate-700 transition-colors relative shadow-2xs cursor-pointer" title="Notifications">
+            <Bell className="w-4 h-4 sm:w-5 sm:h-5 text-stone-700 dark:text-slate-300" />
+            <div className="absolute top-1 right-1 w-2 h-2 sm:w-2.5 sm:h-2.5 bg-rose-500 rounded-full border-2 border-white dark:border-slate-800"></div>
+          </button>
+          <button onClick={handleSafeProfileClick} className="p-1.5 sm:p-2 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-violet-100 dark:hover:bg-slate-700 transition-colors shadow-2xs cursor-pointer" title="Profile">
+            {activeUser.photoURL || getCurrentUser()?.photoURL ? (
+              <img src={activeUser.photoURL || getCurrentUser()?.photoURL} alt="" className="w-4 h-4 sm:w-5 sm:h-5 rounded-full object-cover" />
+            ) : (
+              <User className="w-4 h-4 sm:w-5 sm:h-5 text-stone-700 dark:text-pink-400" />
+            )}
+          </button>
+          <button onClick={() => onNavigate('settings')} className="p-1.5 sm:p-2 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-violet-100 dark:hover:bg-slate-700 transition-colors shadow-2xs cursor-pointer" title="Settings">
+            <Settings className="w-4 h-4 sm:w-5 sm:h-5 text-stone-700 dark:text-pink-400" />
+          </button>
+        </div>
+      </header>
+
+      {/* Full Page Scroll Container - Uninhibited smooth scrolling for all posts */}
+      <div ref={scrollContainerRef} className="flex-1 min-h-0 overflow-y-auto scrollbar-hide pb-24">
+
+        {/* GPS Location Notification Alert */}
+        {gpsNotificationToast && (
+          <motion.div 
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="mx-5 mt-3 bg-indigo-600 text-white px-4 py-2.5 rounded-2xl shadow-lg flex items-center justify-between text-xs font-bold"
+          >
+            <div className="flex items-center gap-2">
+              <MapPin className="w-4 h-4 text-amber-300 shrink-0" />
+              <span>{gpsNotificationToast}</span>
+            </div>
+            <button onClick={() => setGpsNotificationToast(null)} className="text-white/80 hover:text-white">
+              <X className="w-4 h-4" />
+            </button>
+          </motion.div>
+        )}
+
+        {/* Live Upload Toast Alert */}
+        {createdToast && (
+          <motion.div 
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="mx-5 mt-3 bg-emerald-600 text-white px-4 py-2.5 rounded-2xl shadow-lg flex items-center justify-between text-xs font-bold"
+          >
+            <div className="flex items-center gap-2">
+              <Check className="w-4 h-4 bg-emerald-500 rounded-full p-0.5" />
+              <span>{createdToast}</span>
+            </div>
+            <button onClick={() => setCreatedToast(null)} className="text-white/80 hover:text-white">
+              <X className="w-4 h-4" />
+            </button>
+          </motion.div>
+        )}
+
+        <div className="px-3.5 sm:px-5 mt-3 sm:mt-4 space-y-3 max-w-full overflow-hidden">
+          
+          {/* 1. Real-Time Interactive Global Search Bar across Entire Website */}
+          <div className="relative z-20">
+            <div className={`bg-white dark:bg-slate-800 border-2 transition-all rounded-2xl p-2 sm:p-2.5 flex items-center gap-2 shadow-xs ${
+              isSearchFocused || homeSearchQuery ? 'border-indigo-600 dark:border-indigo-500 ring-2 ring-indigo-500/20' : 'border-violet-200 dark:border-slate-700 hover:border-indigo-400'
+            }`}>
+              <Search className="w-4 h-4 text-indigo-500 dark:text-indigo-400 shrink-0 ml-1" />
+              
+              <input
+                type="text"
+                value={homeSearchQuery}
+                onChange={(e) => setHomeSearchQuery(e.target.value)}
+                onFocus={() => setIsSearchFocused(true)}
+                placeholder={language === 'EN' ? 'Search anything: Plumber, Mechanic, Job, Shop...' : 'पूरी वेबसाइट में खोजें: प्लंबर, मैकेनिक, दुकान, जॉब...'}
+                className="w-full bg-transparent text-xs font-bold text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-400 focus:outline-none"
+              />
+
+              {homeSearchQuery && (
+                <button 
+                  type="button"
+                  onClick={() => setHomeSearchQuery('')}
+                  className="p-1 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer shrink-0"
+                  title="Clear search"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+
+              {/* Voice Search Button */}
+              <button 
+                type="button"
+                onClick={handleStartVoiceSearch}
+                className={`flex items-center gap-1 text-[10px] font-black px-2.5 py-1 rounded-full border shadow-2xs transition-all cursor-pointer active:scale-95 shrink-0 ${
+                  isVoiceListening
+                    ? 'bg-rose-600 text-white border-rose-500 animate-pulse'
+                    : 'bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-300 border-indigo-300 dark:border-indigo-800 hover:bg-indigo-200'
+                }`}
+                title="Voice Search (Speak to Search)"
+              >
+                <span className="text-xs">{isVoiceListening ? '🎙️' : '🎙️'}</span>
+                <span>{isVoiceListening ? (language === 'EN' ? 'Listening...' : 'सुन रहे हैं...') : 'Voice Search'}</span>
+              </button>
+            </div>
+
+            {/* Live Instant Results Dropdown Overlay */}
+            <AnimatePresence>
+              {homeSearchQuery.trim().length > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, y: -6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  className="absolute left-0 right-0 top-full mt-2 bg-white dark:bg-slate-850 rounded-2xl shadow-2xl border-2 border-indigo-200 dark:border-slate-700 max-h-96 overflow-y-auto z-50 p-3 space-y-3"
+                >
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800 text-xs font-black text-slate-700 dark:text-slate-300">
+                    <span>🔍 Results for "{homeSearchQuery}"</span>
+                    <button onClick={() => setHomeSearchQuery('')} className="text-indigo-600 dark:text-indigo-400 hover:underline text-[11px] cursor-pointer">
+                      Clear Filter ✖
+                    </button>
+                  </div>
+
+                  {/* Broadcast Posts Matches */}
+                  {globalSearchResults.posts.length > 0 && (
+                    <div className="space-y-1.5">
+                      <span className="text-[10px] font-extrabold uppercase text-indigo-600 dark:text-indigo-400 block">
+                        ⚡ Active Broadcast Posts ({globalSearchResults.posts.length})
+                      </span>
+                      <div className="space-y-1">
+                        {globalSearchResults.posts.slice(0, 3).map(post => (
+                          <div 
+                            key={post.id}
+                            onClick={() => {
+                              handleSafeOpenChat(post);
+                            }}
+                            className="p-2 rounded-xl bg-indigo-50/60 dark:bg-slate-800/80 hover:bg-indigo-100/80 dark:hover:bg-slate-800 border border-indigo-100 dark:border-slate-700 cursor-pointer transition-colors flex items-center justify-between text-xs"
+                          >
+                            <span className="font-bold text-slate-900 dark:text-white line-clamp-1">{post.description}</span>
+                            <span className="text-[10px] font-black text-indigo-600 shrink-0 ml-2">Chat &rarr;</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Service Helpers Matches */}
+                  {globalSearchResults.helpers.length > 0 && (
+                    <div className="space-y-1.5">
+                      <span className="text-[10px] font-extrabold uppercase text-emerald-600 dark:text-emerald-400 block">
+                        🛠️ Local Helpers & Mechanics ({globalSearchResults.helpers.length})
+                      </span>
+                      <div className="space-y-1">
+                        {globalSearchResults.helpers.slice(0, 3).map(helper => (
+                          <div 
+                            key={helper.id}
+                            onClick={() => {
+                              onNavigate('categories');
+                            }}
+                            className="p-2 rounded-xl bg-emerald-50/60 dark:bg-slate-800/80 hover:bg-emerald-100/80 dark:hover:bg-slate-800 border border-emerald-100 dark:border-slate-700 cursor-pointer transition-colors flex items-center justify-between text-xs"
+                          >
+                            <div>
+                              <span className="font-bold text-slate-900 dark:text-white block">{helper.name}</span>
+                              <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-medium">{helper.skills?.[0] || helper.categoryId} • {helper.area}</span>
+                            </div>
+                            <span className="text-[10px] font-black text-emerald-600 shrink-0 ml-2">Contact &rarr;</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Shops & Businesses Matches */}
+                  {globalSearchResults.shops.length > 0 && (
+                    <div className="space-y-1.5">
+                      <span className="text-[10px] font-extrabold uppercase text-amber-600 dark:text-amber-400 block">
+                        🏪 Shops & Showrooms ({globalSearchResults.shops.length})
+                      </span>
+                      <div className="space-y-1">
+                        {globalSearchResults.shops.slice(0, 3).map((shop: any) => (
+                          <div 
+                            key={shop.id}
+                            onClick={() => {
+                              setIsRegisterShopModalOpen(true);
+                            }}
+                            className="p-2 rounded-xl bg-amber-50/60 dark:bg-slate-800/80 hover:bg-amber-100/80 dark:hover:bg-slate-800 border border-amber-100 dark:border-slate-700 cursor-pointer transition-colors flex items-center justify-between text-xs"
+                          >
+                            <div>
+                              <span className="font-bold text-slate-900 dark:text-white block">{shop.name}</span>
+                              <span className="text-[10px] text-amber-700 dark:text-amber-400 font-medium">{shop.categoryLabel || 'Business'} • {shop.area}</span>
+                            </div>
+                            <span className="text-[10px] font-black text-amber-600 shrink-0 ml-2">View &rarr;</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Category Matches */}
+                  {globalSearchResults.categories.length > 0 && (
+                    <div className="space-y-1.5">
+                      <span className="text-[10px] font-extrabold uppercase text-blue-600 dark:text-blue-400 block">
+                        📂 Service Categories ({globalSearchResults.categories.length})
+                      </span>
+                      <div className="flex flex-wrap gap-1">
+                        {globalSearchResults.categories.map(cat => (
+                          <button 
+                            key={cat.id}
+                            onClick={() => {
+                              if (onSelectCategory) onSelectCategory(cat.id);
+                              setHomeSearchQuery('');
+                            }}
+                            className="text-xs font-extrabold px-2.5 py-1 rounded-xl bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-800 hover:bg-blue-200 transition-colors cursor-pointer"
+                          >
+                            {cat.icon} {language === 'EN' ? cat.nameEn : cat.nameHi}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* No matches fallback */}
+                  {globalSearchResults.posts.length === 0 && globalSearchResults.helpers.length === 0 && globalSearchResults.shops.length === 0 && globalSearchResults.categories.length === 0 && (
+                    <div className="py-4 text-center space-y-1">
+                      <p className="text-xs font-bold text-slate-600 dark:text-slate-300">
+                        No match found for "{homeSearchQuery}"
+                      </p>
+                      <p className="text-[11px] text-slate-400">
+                        Search plumber, mechanic, job, or post a broadcast requirement directly!
+                      </p>
+                    </div>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          {/* 2. Main Intent Post Broadcast Banner (Clean Minimal) */}
+          <div 
+            onClick={handleSafeOpenPostSheet}
+            className="w-full bg-gradient-to-r from-indigo-600 via-blue-600 to-indigo-700 hover:from-indigo-700 hover:to-blue-700 text-white p-3.5 rounded-2xl shadow-md shadow-indigo-600/20 flex items-center justify-between gap-3 active:scale-[0.98] transition-all cursor-pointer border border-indigo-400/40 group"
+          >
+            <div className="flex items-center gap-2.5">
+              <span className="text-xl">⚡</span>
+              <span className="text-sm sm:text-base font-black tracking-wide">
+                {language === 'EN' ? 'Post' : 'पोस्ट'}
+              </span>
+            </div>
+            <div className="bg-white text-indigo-700 text-xs font-black px-3.5 py-1.5 rounded-xl shrink-0 shadow-xs flex items-center gap-1">
+              <span>{language === 'EN' ? 'Broadcast' : 'ब्रॉडकास्ट'}</span> &rarr;
+            </div>
+          </div>
+
+          {/* 3. Orange Banner ("Browse local helpers") */}
+          <div 
+            onClick={() => onNavigate('categories')}
+            className="w-full bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 rounded-2xl p-3.5 text-white shadow-md shadow-orange-500/20 cursor-pointer active:scale-[0.98] transition-all border-2 border-amber-300 hover:brightness-105 flex items-center justify-between gap-3"
+          >
+            <div className="flex items-center gap-2.5">
+              <span className="text-xl">🔍</span>
+              <span className="text-sm sm:text-base font-black tracking-wide text-white">
+                {language === 'EN' ? 'Browse local helpers' : 'ब्राउज़ लोकल हेल्पर्स'}
+              </span>
+            </div>
+            <div className="text-amber-950 bg-white/90 text-xs font-black px-3.5 py-1.5 rounded-xl shrink-0 shadow-2xs">
+              &rarr;
+            </div>
+          </div>
+
+          {/* 4. Two Side-by-Side Banners: Business Register & Create Profile */}
+          <div className="grid grid-cols-2 gap-2">
+            {/* Banner 1: Business Register */}
+            <div
+              onClick={handleSafeRegisterShop}
+              className="bg-white dark:bg-slate-800 border-2 border-emerald-300 dark:border-emerald-700/80 hover:border-emerald-500 rounded-2xl p-3 flex items-center justify-center shadow-xs cursor-pointer active:scale-95 transition-all text-center"
+              title="Business & Venue Registration"
+            >
+              <span className="text-xs sm:text-sm font-black text-slate-900 dark:text-white truncate">
+                {language === 'EN' ? 'Business Register' : 'बिजनेस रजिस्टर'}
+              </span>
+            </div>
+
+            {/* Banner 2: Create Profile (Registers helper into categories) */}
+            <div
+              onClick={handleSafeCreateProfile}
+              className="bg-white dark:bg-slate-800 border-2 border-indigo-300 dark:border-indigo-700/80 hover:border-indigo-500 rounded-2xl p-3 flex items-center justify-center shadow-xs cursor-pointer active:scale-95 transition-all text-center"
+              title="Create Helper Profile"
+            >
+              <span className="text-xs sm:text-sm font-black text-slate-900 dark:text-white truncate">
+                {language === 'EN' ? 'Create Profile' : 'प्रोफाइल बनाएं'}
+              </span>
+            </div>
+          </div>
+
+          {/* 5. Active Posts Feed Container (Broadcasts show directly under compact banners) */}
+          <div className="relative bg-white dark:bg-slate-800 border border-violet-200 dark:border-slate-700 rounded-3xl overflow-hidden shadow-xs">
+            {/* Scrollable Intent & Helper List */}
+            <div className="relative z-10 p-3 pt-3 space-y-2.5">
+              
+              <div className="text-stone-500 dark:text-slate-400 text-[11px] font-bold uppercase tracking-wider flex items-center justify-between px-1">
+                <span className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                  {selectedCategory === 'all' 
+                    ? t('home.active') 
+                    : `Filtered: ${getCategoryName(currentCategoryObj, language) || selectedCategory}`}
+                </span>
+                
+                <div className="flex items-center gap-2">
+                  {selectedCategory !== 'all' && onSelectCategory && (
+                    <button
+                      onClick={() => onSelectCategory('all')}
+                      className="text-[10px] bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-extrabold px-2 py-0.5 rounded-full border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-200 transition-colors"
+                    >
+                      Show All Posts ✖
+                    </button>
+                  )}
+                  <span className="text-[10px] text-slate-400 font-medium">
+                    {displayIntents.length} {t('home.found')}
+                  </span>
+                </div>
+              </div>
+              
+              {searchedIntents.length === 0 && (
+                <div className="text-center py-6 px-4 space-y-2">
+                  <p className="text-stone-500 dark:text-slate-400 font-medium text-xs">
+                    {homeSearchQuery.trim()
+                      ? `"${homeSearchQuery}" के लिए कोई ब्रॉडकास्ट पोस्ट नहीं मिली।`
+                      : t('home.noRequests')}
+                  </p>
+                  {homeSearchQuery.trim() ? (
+                    <button
+                      onClick={() => setHomeSearchQuery('')}
+                      className="text-xs text-indigo-600 dark:text-indigo-400 font-extrabold hover:underline cursor-pointer"
+                    >
+                      ✖ फिल्टर हटाएं (Clear Search)
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => onNavigate('categories')}
+                      className="text-xs text-indigo-600 dark:text-indigo-400 font-bold hover:underline cursor-pointer"
+                    >
+                      + {t('cat.freeProfileBtn')} ({getCategoryName(currentCategoryObj, language) || t('cat.title')})
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Active Intents with 3D Color Themes */}
+              {(() => {
+                let userPostIds: string[] = [];
+                try {
+                  userPostIds = JSON.parse(localStorage.getItem('locohelp_my_post_ids') || '[]');
+                } catch (e) {}
+                const activeUid = getCurrentUser()?.uid;
+                const activeUidStr = String(activeUid || '');
+
+                return searchedIntents.map((intent, idx) => {
+                  const authorIdStr = String(intent?.authorId || '');
+                  const intentIdStr = String(intent?.id || '');
+                  
+                  const isUserPost = userPostIds.includes(intentIdStr) || 
+                                     intentIdStr === newlyCreatedId || 
+                                     (authorIdStr && activeUidStr && authorIdStr === activeUidStr) || 
+                                     authorIdStr === 'me' || 
+                                     intentIdStr.startsWith('local_') ||
+                                     Boolean(activeUidStr && authorIdStr && activeUidStr.replace(/\D/g, '') && authorIdStr.includes(activeUidStr.replace(/\D/g, '')));
+                
+                // 3D Color Themes
+                const themes = [
+                  {
+                    bg: "bg-gradient-to-br from-indigo-50/90 via-blue-50/60 to-white dark:from-slate-800 dark:to-slate-850",
+                    border: "border-2 border-indigo-200 dark:border-indigo-700/80",
+                    shadow: "shadow-[0_8px_18px_rgba(99,102,241,0.12)]",
+                    badge: "bg-indigo-600 text-white",
+                    icon: "⚡",
+                    accent: "border-l-4 border-l-indigo-600"
+                  },
+                  {
+                    bg: "bg-gradient-to-br from-emerald-50/90 via-teal-50/60 to-white dark:from-slate-800 dark:to-slate-850",
+                    border: "border-2 border-emerald-200 dark:border-emerald-700/80",
+                    shadow: "shadow-[0_8px_18px_rgba(16,185,129,0.12)]",
+                    badge: "bg-emerald-600 text-white",
+                    icon: "🔧",
+                    accent: "border-l-4 border-l-emerald-600"
+                  },
+                  {
+                    bg: "bg-gradient-to-br from-amber-50/90 via-orange-50/60 to-white dark:from-slate-800 dark:to-slate-850",
+                    border: "border-2 border-amber-200 dark:border-amber-700/80",
+                    shadow: "shadow-[0_8px_18px_rgba(245,158,11,0.12)]",
+                    badge: "bg-amber-600 text-white",
+                    icon: "🏪",
+                    accent: "border-l-4 border-l-amber-600"
+                  },
+                  {
+                    bg: "bg-gradient-to-br from-rose-50/90 via-pink-50/60 to-white dark:from-slate-800 dark:to-slate-850",
+                    border: "border-2 border-rose-200 dark:border-rose-700/80",
+                    shadow: "shadow-[0_8px_18px_rgba(244,63,94,0.12)]",
+                    badge: "bg-rose-600 text-white",
+                    icon: "💬",
+                    accent: "border-l-4 border-l-rose-600"
+                  }
+                ];
+
+                const theme = themes[idx % themes.length];
+
+                return (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                    key={intent.id} 
+                    onClick={() => handleSafeOpenChat(intent)}
+                    className={`p-3.5 rounded-2xl transition-all cursor-pointer hover:scale-[1.01] active:scale-[0.98] ${theme.accent} ${theme.bg} ${theme.border} ${theme.shadow} ${
+                      isUserPost 
+                        ? 'ring-2 ring-amber-400 dark:ring-amber-500 shadow-[0_10px_25px_rgba(245,158,11,0.25)]' 
+                        : ''
+                    }`}
+                  >
+                    <div className="flex justify-between items-start gap-3 mb-2">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
+                          <span className="w-5 h-5 rounded-md flex items-center justify-center text-xs bg-white dark:bg-slate-700 shadow-2xs">
+                            {theme.icon}
+                          </span>
+                          {isUserPost && (
+                            <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-amber-500 text-white shadow-2xs animate-pulse">
+                              ✨ {t('post.yourPost')}
+                            </span>
+                          )}
+                          <span className={`text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-md ${theme.badge}`}>
+                            {intent.tags?.[0] || 'Broadcast'}
+                          </span>
+                          {(intent.computedKm && intent.computedKm <= 2.0) && (
+                            <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-600 text-white shadow-2xs flex items-center gap-0.5 animate-pulse">
+                              📍 {t('home.nearbyBadge')}
+                            </span>
+                          )}
+                        </div>
+
+                        <p className="text-slate-900 dark:text-slate-100 text-[13px] leading-snug font-extrabold line-clamp-3">
+                          {intent.description}
+                        </p>
+                      </div>
+
+                      <div className="flex flex-col items-end gap-1.5 shrink-0">
+                        <span className="text-[10px] font-extrabold text-emerald-800 dark:text-emerald-200 bg-emerald-100 dark:bg-emerald-950 border border-emerald-300 dark:border-emerald-800 px-2 py-1 rounded-lg shadow-2xs flex items-center gap-0.5">
+                          📍 {intent.computedKm || intent.distance} km
+                        </span>
+
+                        {isUserPost && (
+                          <button
+                            onClick={(e) => handleDeletePost(intent.id, e)}
+                            title={t('home.deletePost')}
+                            className="p-1.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-black text-[10px] uppercase shadow-md active:scale-95 transition-all flex items-center gap-1 cursor-pointer"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            <span>{t('home.deletePost')}</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div className="flex justify-between items-center mt-2.5 pt-2 border-t border-slate-200/60 dark:border-slate-700/80 gap-2 flex-wrap">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {/* Mohalla WhatsApp Group Sharing Button */}
+                        <button
+                          type="button"
+                          onClick={(e) => handleSharePostToWhatsAppGroup(intent, e)}
+                          className="flex items-center gap-1 text-[9px] font-black text-emerald-800 dark:text-emerald-200 bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-950/80 px-2 py-0.5 rounded-lg border border-emerald-300 dark:border-emerald-800 cursor-pointer active:scale-95 transition-all shadow-2xs"
+                          title="Share post in Society / Mohalla WhatsApp group"
+                        >
+                          <Share2 className="w-2.5 h-2.5 text-emerald-600" />
+                          <span>Mohalla Group Share</span>
+                        </button>
+
+                        {intent.tags && intent.tags.slice(1).map(tag => (
+                          <span key={tag} className="text-[8px] font-extrabold tracking-wide uppercase px-1.5 py-0.5 bg-white/80 dark:bg-slate-800 text-stone-700 dark:text-slate-300 rounded border border-slate-200 dark:border-slate-600">
+                            #{tag}
+                          </span>
+                        ))}
+                      </div>
+                      
+                      <div className="flex items-center gap-1 text-[9px] font-extrabold text-slate-600 dark:text-slate-400 bg-white/80 dark:bg-slate-800 px-2 py-0.5 rounded-md border border-slate-200 dark:border-slate-700">
+                        <Clock className="w-2.5 h-2.5 text-indigo-500" />
+                        <span>{t('home.clickToChat')}</span>
+                      </div>
+                    </div>
+                  </motion.div>
+                );
+              });
+            })()}
+
+            </div>
+          </div>
+
+          {/* 6. Sponsored Ad Banners Section (Moved below Active Broadcast Posts Feed) */}
+          <AdBannerSection 
+            onOpenChat={handleSafeOpenChat}
+            onOpenPostAd={() => {
+              if (isGuestUser()) {
+                setLoginPromptTitle({
+                  en: 'Sign In Required to Post Ad',
+                  hi: 'विज्ञापन पोस्ट करने के लिए लॉगिन करें'
+                });
+                setIsLoginPromptOpen(true);
+                return;
+              }
+              setIsPostAdModalOpen(true);
+            }}
+          />
+
+          {/* 7. Dedicated Job Portal Section (Side-by-side interactive banners: Job Seeker & For Employer) */}
+          <JobPortalSection 
+            onOpenSeekerNew={() => {
+              if (isGuestUser()) {
+                setLoginPromptTitle({
+                  en: 'Sign In Required for Job Profile',
+                  hi: 'नौकरी प्रोफाइल बनाने के लिए लॉगिन करें'
+                });
+                setIsLoginPromptOpen(true);
+                return;
+              }
+              setSeekerModalInitialTab('new');
+              setIsJobSeekerModalOpen(true);
+            }}
+            onOpenSeekerRegistered={() => {
+              setSeekerModalInitialTab('registered');
+              setIsJobSeekerModalOpen(true);
+            }}
+            onOpenEmployerNew={() => {
+              if (isGuestUser()) {
+                setLoginPromptTitle({
+                  en: 'Sign In Required to Post Vacancy',
+                  hi: 'वेकेंसी पोस्ट करने के लिए लॉगिन करें'
+                });
+                setIsLoginPromptOpen(true);
+                return;
+              }
+              setEmployerModalInitialTab('new');
+              setIsEmployerVacancyModalOpen(true);
+            }}
+            onOpenEmployerRegistered={() => {
+              setEmployerModalInitialTab('registered');
+              setIsEmployerVacancyModalOpen(true);
+            }}
+            onBrowseJobs={() => {
+              setJobBrowseInitialTab('all');
+              setIsJobBrowseModalOpen(true);
+            }}
+          />
+
+          {/* 4. Unified Community, Guide & Vision Section (Chhote aur compact buttons) */}
+          <div className="bg-white/90 dark:bg-slate-800/90 border border-violet-200/70 dark:border-slate-700/70 rounded-2xl p-2.5 shadow-xs space-y-2">
+            <div className="flex items-center justify-between px-1">
+              <span className="text-[10px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                {t('home.community')} & Quick Tools
+              </span>
+            </div>
+
+            {/* 3 Compact & Sleek Buttons */}
+            <div className="grid grid-cols-3 gap-1.5">
+              {/* WhatsApp Share */}
+              <button
+                onClick={handleWhatsAppShare}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl py-1.5 px-2 flex items-center justify-center gap-1.5 shadow-2xs active:scale-95 transition-all text-center group cursor-pointer"
+                title="Share on WhatsApp with neighborhood groups"
+              >
+                <Share2 className="w-3.5 h-3.5 text-white shrink-0" />
+                <span className="font-bold text-[10px] truncate">{t('home.whatsapp')}</span>
+              </button>
+
+              {/* App Guide & 20 Real Examples */}
+              <button
+                onClick={() => setIsGuideOpen(true)}
+                className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl py-1.5 px-2 flex items-center justify-center gap-1.5 shadow-2xs active:scale-95 transition-all text-center group cursor-pointer"
+                title="How to use & 20+ real life examples"
+              >
+                <HelpCircle className="w-3.5 h-3.5 text-white shrink-0" />
+                <span className="font-bold text-[10px] truncate">{t('home.appGuide')}</span>
+              </button>
+
+              {/* Future Vision & Roadmap */}
+              <button
+                onClick={() => onNavigate('roadmap')}
+                className="bg-gradient-to-r from-purple-600 to-violet-600 hover:from-purple-700 hover:to-violet-700 text-white rounded-xl py-1.5 px-2 flex items-center justify-center gap-1.5 shadow-2xs active:scale-95 transition-all text-center group cursor-pointer"
+                title="Future Vision & Development Roadmap"
+              >
+                <Rocket className="w-3.5 h-3.5 text-white shrink-0" />
+                <span className="font-bold text-[10px] truncate">{t('home.futureVision')}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* User Profile Request Modal */}
+      {selectedUserForProfile && (
+        <UserProfileModal 
+          isOpen={Boolean(selectedUserForProfile)}
+          onClose={() => setSelectedUserForProfile(null)}
+          userName={selectedUserForProfile.name}
+          distance={selectedUserForProfile.distance}
+        />
+      )}
+
+      {/* Language Picker Modal */}
+      <AnimatePresence>
+        {isLangModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.92, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.92, y: 12 }}
+              className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl p-5 shadow-2xl border border-violet-200 dark:border-slate-800 max-h-[85vh] flex flex-col"
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+                <div className="flex items-center gap-2">
+                  <Globe className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                  <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
+                    {t('home.selectLanguage')}
+                  </h3>
+                </div>
+                <button 
+                  onClick={() => setIsLangModalOpen(false)}
+                  className="p-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="overflow-y-auto py-3 space-y-1.5 flex-1">
+                {SUPPORTED_LANGUAGES.map((langItem) => {
+                  const isSelected = language === langItem.code;
+                  return (
+                    <button
+                      key={langItem.code}
+                      onClick={() => {
+                        setLanguage(langItem.code);
+                        setIsLangModalOpen(false);
+                      }}
+                      className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all text-left ${
+                        isSelected 
+                          ? 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-500 text-indigo-900 dark:text-indigo-200 font-bold'
+                          : 'bg-stone-50/50 dark:bg-slate-800/50 border-slate-200/70 dark:border-slate-700/60 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="w-8 h-8 rounded-lg bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 flex items-center justify-center font-extrabold text-xs text-indigo-600 dark:text-indigo-400 shrink-0 shadow-xs">
+                          {langItem.code}
+                        </span>
+                        <div>
+                          <div className="text-sm font-extrabold">{langItem.nativeName}</div>
+                          <div className="text-xs text-slate-400">{langItem.label}</div>
+                        </div>
+                      </div>
+                      {isSelected && (
+                        <Check className="w-5 h-5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800 text-center">
+                <button
+                  onClick={() => setIsLangModalOpen(false)}
+                  className="w-full py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold hover:bg-slate-200 transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Post Intent Sheet Overlay */}
+      <AnimatePresence>
+        {isPostSheetOpen && (
+          <PostIntentSheet 
+            onClose={() => setIsPostSheetOpen(false)} 
+            onPostCreated={handlePostCreated}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* App Guide & 20 Examples Modal */}
+      <AnimatePresence>
+        {isGuideOpen && (
+          <AppGuideModal 
+            onClose={() => setIsGuideOpen(false)} 
+            onExplore={() => setIsGuideOpen(false)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Register Shop, Showroom or Mall Modal */}
+      <RegisterShopModal 
+        isOpen={isRegisterShopModalOpen}
+        onClose={() => setIsRegisterShopModalOpen(false)}
+        onSuccess={() => {
+          setCreatedToast("⚡ " + (language === 'EN' ? 'Shop / Showroom registered successfully!' : 'दुकान/शोरूम/मॉल सफलतापूर्वक रजिस्टर हुआ!'));
+          setTimeout(() => setCreatedToast(null), 4000);
+        }}
+      />
+
+      {/* Free Helper Registration Profile Modal */}
+      <FreeHelperRegisterModal 
+        isOpen={isFreeHelperModalOpen}
+        onClose={() => setIsFreeHelperModalOpen(false)}
+        onSuccess={() => {
+          setCreatedToast("⚡ " + (language === 'EN' ? 'Helper profile registered successfully!' : 'हेल्पर प्रोफाइल सफलतापूर्वक रजिस्टर हुई!'));
+          setTimeout(() => setCreatedToast(null), 4000);
+        }}
+      />
+
+      {/* Post Sponsored Ad Banner Modal */}
+      <PostAdModal 
+        isOpen={isPostAdModalOpen}
+        onClose={() => setIsPostAdModalOpen(false)}
+      />
+
+      {/* Job Seeker Profile Modal */}
+      <JobSeekerModal 
+        isOpen={isJobSeekerModalOpen}
+        onClose={() => setIsJobSeekerModalOpen(false)}
+        initialTab={seekerModalInitialTab}
+        onSuccess={() => {
+          setCreatedToast("💼 " + (language === 'EN' ? 'Job Seeker profile submitted for Admin approval!' : 'नौकरी प्रोफाइल एडमिन सत्यापन के लिए सबमिट हो गई!'));
+          setTimeout(() => setCreatedToast(null), 4500);
+        }}
+      />
+
+      {/* Employer Job Vacancy Modal */}
+      <EmployerVacancyModal 
+        isOpen={isEmployerVacancyModalOpen}
+        onClose={() => setIsEmployerVacancyModalOpen(false)}
+        initialTab={employerModalInitialTab}
+        onSuccess={() => {
+          setCreatedToast("🏢 " + (language === 'EN' ? 'Job Vacancy submitted for Admin approval!' : 'स्टाफ वेकेंसी एडमिन सत्यापन के लिए सबमिट हो गई!'));
+          setTimeout(() => setCreatedToast(null), 4500);
+        }}
+      />
+
+      {/* Job Portal Browse Live Listings Modal */}
+      <JobPortalBrowseModal 
+        isOpen={isJobBrowseModalOpen}
+        onClose={() => setIsJobBrowseModalOpen(false)}
+        onOpenSeekerForm={() => setIsJobSeekerModalOpen(true)}
+        onOpenEmployerForm={() => setIsEmployerVacancyModalOpen(true)}
+        initialTab={jobBrowseInitialTab}
+      />
+
+      {/* WhatsApp Share Toast */}
+      <AnimatePresence>
+        {showShareToast && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className="fixed bottom-6 inset-x-6 z-50 bg-emerald-600 text-white text-xs font-bold py-3 px-4 rounded-2xl shadow-xl flex items-center justify-between"
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-base">✅</span>
+              <span>WhatsApp invite message ready to send!</span>
+            </div>
+            <button onClick={() => setShowShareToast(false)} className="text-white/80 hover:text-white">
+              <X className="w-4 h-4" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Delete Post In-App Confirmation Modal (Never blocked by iframe sandbox) */}
+      <AnimatePresence>
+        {postToDelete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/65 backdrop-blur-xs">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-3xl p-5 shadow-2xl border border-rose-200 dark:border-rose-900/60 flex flex-col gap-4 text-center"
+            >
+              <div className="w-12 h-12 rounded-2xl bg-rose-100 dark:bg-rose-950/60 text-rose-600 mx-auto flex items-center justify-center text-2xl shadow-inner">
+                🗑️
+              </div>
+              <div>
+                <h3 className="text-base font-black text-slate-900 dark:text-white">
+                  {language === 'EN' ? 'Delete Broadcast Post?' : 'पोस्ट डिलीट करें?'}
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  {language === 'EN' 
+                    ? 'This post will be permanently deleted from the radar.' 
+                    : 'यह पोस्ट लोकल रडार से हमेशा के लिए हटा दी जाएगी।'}
+                </p>
+              </div>
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setPostToDelete(null)}
+                  className="flex-1 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                >
+                  {language === 'EN' ? 'Cancel' : 'रद्द करें'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => confirmDeletePost(postToDelete)}
+                  className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs shadow-md shadow-rose-600/25 active:scale-95 transition-all cursor-pointer"
+                >
+                  {language === 'EN' ? 'Yes, Delete' : 'हाँ, हटाएं'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Guest Mode Google Sign-In Prompt Modal */}
+      <LoginPromptModal
+        isOpen={isLoginPromptOpen}
+        onClose={() => setIsLoginPromptOpen(false)}
+        onGoToLogin={() => onNavigate('login')}
+        onSuccess={() => {
+          if (loginSuccessAction) {
+            loginSuccessAction();
+            setLoginSuccessAction(undefined);
+          }
+        }}
+        actionTitleEn={loginPromptTitle.en}
+        actionTitleHi={loginPromptTitle.hi}
+        actionDescEn={loginPromptDesc.en}
+        actionDescHi={loginPromptDesc.hi}
+      />
+
+    </div>
+  );
+}

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <rect width="512" height="512" rx="128" fill="#4F46E5"/>
+  <g transform="translate(256, 256)">
+    <!-- Outer Glow / Halo -->
+    <circle r="160" fill="#6366F1" opacity="0.4"/>
+    <!-- Location Pin Pin Head -->
+    <path d="M 0 -130 C -70 -130 -120 -80 -120 -10 C -120 60 -10 130 0 160 C 10 130 120 60 120 -10 C 120 -80 70 -130 0 -130 Z" fill="#FFFFFF"/>
+    <!-- Inner Pin Circle -->
+    <circle cx="0" cy="-20" r="45" fill="#4F46E5"/>
+    <!-- Heart / Handshake Helper Accent in center -->
+    <path d="M -15 -25 C -25 -35 -35 -20 -25 -10 L 0 15 L 25 -10 C 35 -20 25 -35 15 -25 Z" fill="#FFFFFF"/>
+  </g>
+</svg>
