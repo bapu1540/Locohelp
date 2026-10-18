@@ -514,9 +514,9 @@ export default function HomeScreen({
 
     // 2. Real-time Supabase sync
     let unsubscribeSupabase = () => {};
-    try {
-      // Fetch initial data from broadcast_posts table
-      const fetchPosts = async () => {
+    
+    const fetchPosts = async () => {
+      try {
         const { data, error } = await supabase
           .from("broadcast_posts")
           .select("*")
@@ -538,11 +538,19 @@ export default function HomeScreen({
           }));
           mergeAndDeduplicateIntents(fetched);
         }
-      };
+      } catch (e) {
+        console.warn("fetchPosts error:", e);
+      }
+    };
 
-      fetchPosts();
+    fetchPosts();
+    syncServerBroadcasts();
 
-      // Subscribe to changes on broadcast_posts table
+    const pollInterval = setInterval(() => {
+      syncServerBroadcasts();
+    }, 20000);
+
+    try {
       const channel = supabase.channel('public:broadcast_posts')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'broadcast_posts' }, (payload) => {
           if (payload.eventType === 'INSERT') {
@@ -569,10 +577,13 @@ export default function HomeScreen({
       unsubscribeSupabase = () => {
         supabase.removeChannel(channel);
       };
-    } catch (e) {}
+    } catch (e) {
+      console.warn("Realtime subscription error:", e);
+    }
 
     return () => {
       unsubscribeSupabase();
+      clearInterval(pollInterval);
     };
   }, []);
 

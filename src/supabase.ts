@@ -21,23 +21,60 @@ export interface AppUser {
  * Helper to trigger real Supabase Google OAuth
  */
 export async function signInWithGoogle() {
+  const origin = window.location.origin;
+  console.log("Initiating Google Sign-in. Target origin:", origin);
+
+  // 1. Open popup window IMMEDIATELY to satisfy browser security (prevents blocking)
+  // We don't access popup.document here because it can cause cross-origin errors in iframed environments
+  const popup = window.open('', 'google-signin', 'width=600,height=700,top=100,left=100');
+  
+  if (!popup) {
+    console.warn("Popup blocked, falling back to direct redirect");
+    await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: origin }
+    });
+    return;
+  }
+
   try {
-    const { error } = await supabase.auth.signInWithOAuth({
+    // 2. Fetch the OAuth URL from Supabase
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: window.location.origin,
+        redirectTo: origin,
+        skipBrowserRedirect: true,
         queryParams: {
           prompt: 'select_account'
         }
       }
     });
+
     if (error) {
-      console.error("Supabase Auth Error:", error.message);
+      if (popup) popup.close();
       throw error;
+    }
+
+    if (data?.url) {
+      // 3. Set the popup location to the actual Google OAuth URL
+      popup.location.href = data.url;
+    } else {
+      if (popup) popup.close();
+      throw new Error("No OAuth URL returned from Supabase");
     }
   } catch (err) {
     console.error("signInWithGoogle fatal error:", err);
-    throw err;
+    // Note: popup.close() is generally allowed even if cross-origin, 
+    // but we wrap in try-catch just in case of strict environment policies
+    try {
+      if (popup) popup.close();
+    } catch (e) {}
+
+    // Final fallback: standard redirect
+    await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: origin }
+    });
   }
 }
 

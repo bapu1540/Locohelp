@@ -876,7 +876,7 @@ async function startServer() {
 
       const aiClient = getAI();
       const response = await aiClient.models.generateContent({
-        model: "gemini-3.8-flash",
+        model: "gemini-1.5-flash",
         contents: prompt,
       });
 
