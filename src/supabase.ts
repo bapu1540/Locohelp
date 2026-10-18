@@ -78,6 +78,39 @@ export function getCurrentUser(): AppUser {
   };
 }
 
+export interface Profile {
+  uid: string;
+  full_name: string;
+  email: string;
+  avatar_url?: string;
+  skills?: string;
+  address?: string;
+  experience?: string;
+  updated_at?: string;
+}
+
+export interface BroadcastPost {
+  id: string;
+  author_id: string;
+  author_name: string;
+  author_avatar?: string;
+  description: string;
+  category?: string;
+  tags?: string[];
+  status?: string;
+  created_at: string;
+  expires_at?: string;
+}
+
+export interface Message {
+  id: string;
+  sender_id: string;
+  receiver_id: string;
+  content: string;
+  intent_id?: string;
+  created_at: string;
+}
+
 /**
  * Saves or updates user profile in Supabase & LocalStorage
  */
@@ -97,10 +130,15 @@ export async function saveUserProfileToSupabase(userData: Record<string, any>): 
       experience: userData.experience || '',
       updated_at: new Date().toISOString(),
     };
+    
+    // Save to localStorage for immediate UI availability
     localStorage.setItem(`locohelp_user_profile_${targetUid}`, JSON.stringify(dataToSave));
-    await supabase.from('profiles').upsert(dataToSave);
+    
+    // UPSERT into Supabase
+    const { error } = await supabase.from('profiles').upsert(dataToSave);
+    if (error) throw error;
   } catch (error) {
-    console.warn('saveUserProfileToSupabase warning:', error);
+    console.error('saveUserProfileToSupabase error:', error);
   }
 }
 
@@ -109,30 +147,42 @@ export async function saveUserProfileToSupabase(userData: Record<string, any>): 
  */
 export async function ensureProfileExists(u: any) {
   if (!u) return;
-  const { data, error } = await supabase.from('profiles').select('uid').eq('uid', u.id).single();
-  if (error || !data) {
-    await saveUserProfileToSupabase({
-      uid: u.id,
-      displayName: u.user_metadata?.full_name || u.email?.split('@')[0] || 'Supabase User',
-      email: u.email || '',
-      photoURL: u.user_metadata?.avatar_url || '',
-    });
+  try {
+    const { data, error } = await supabase.from('profiles').select('uid').eq('uid', u.id).maybeSingle();
+    if (error) {
+      console.warn("Error checking profile existence:", error);
+    }
+    
+    if (!data) {
+      await saveUserProfileToSupabase({
+        uid: u.id,
+        displayName: u.user_metadata?.full_name || u.email?.split('@')[0] || 'Supabase User',
+        email: u.email || '',
+        photoURL: u.user_metadata?.avatar_url || '',
+      });
+    }
+  } catch (err) {
+    console.error("ensureProfileExists fatal error:", err);
   }
 }
 
 /**
- * Fetches user profile from Supabase or LocalStorage
+ * Fetches user profile from Supabase
  */
 export async function getUserProfileFromSupabase(uid: string): Promise<Record<string, any> | null> {
   if (!uid || uid === 'guest_user') return null;
   
-  // 1. Try Profiles table
   try {
-    const { data, error } = await supabase.from('profiles').select('*').eq('uid', uid).single();
-    if (!error && data) return data;
-  } catch (e) {}
+    const { data, error } = await supabase.from('profiles').select('*').eq('uid', uid).maybeSingle();
+    if (!error && data) {
+      localStorage.setItem(`locohelp_user_profile_${uid}`, JSON.stringify(data));
+      return data;
+    }
+  } catch (e) {
+    console.warn("Fetch profile error:", e);
+  }
   
-  // 2. Try LocalStorage
+  // Fallback to local storage if network fails
   try {
     const local = localStorage.getItem(`locohelp_user_profile_${uid}`);
     if (local) return JSON.parse(local);
@@ -145,45 +195,47 @@ export async function getUserProfileFromSupabase(uid: string): Promise<Record<st
  * Broadcast Posts Logic
  */
 export async function saveBroadcastPost(post: any) {
-  const { data, error } = await supabase.from('broadcast_posts').insert({
-    user_id: post.user_id,
-    user_name: post.user_name,
-    user_avatar: post.user_avatar,
+  const payload = {
+    author_id: post.author_id || post.user_id,
+    author_name: post.author_name || post.user_name || 'Community Member',
+    author_avatar: post.author_avatar || post.user_avatar || '',
     description: post.description,
-    category: post.category,
+    category: post.category || 'General',
     tags: post.tags || [],
     status: post.status || 'active',
-    created_at: new Date().toISOString(),
-  }).select().single();
+    created_at: post.created_at || new Date().toISOString()
+  };
+
+  const { data, error } = await supabase.from('broadcast_posts').insert(payload).select().single();
   
   if (error) throw error;
   return data;
 }
 
 export async function getBroadcastPosts() {
-  const { data, error } = await supabase
-    .from('broadcast_posts')
-    .select('*')
-    .order('created_at', { ascending: false });
-  
-  if (error) {
-    console.warn("Error fetching broadcast posts:", error);
+  try {
+    const { data, error } = await supabase
+      .from('broadcast_posts')
+      .select('*')
+      .order('created_at', { ascending: false });
+    
+    if (error) throw error;
+    return data || [];
+  } catch (err) {
+    console.warn("Error fetching broadcast posts:", err);
     return [];
   }
-  return data || [];
 }
 
 /**
  * Messaging Logic
  */
-export async function sendMessage(senderId: string, receiverId: string, content: string, intentId?: string) {
+export async function sendMessage(senderId: string, receiverId: string, content: string) {
   const { data, error } = await supabase.from('messages').insert({
     sender_id: senderId,
     receiver_id: receiverId,
     content: content,
-    intent_id: intentId,
-    created_at: new Date().toISOString(),
-    is_read: false
+    created_at: new Date().toISOString()
   }).select().single();
 
   if (error) throw error;
@@ -191,16 +243,18 @@ export async function sendMessage(senderId: string, receiverId: string, content:
 }
 
 export async function getMessages(userId: string, otherUserId: string) {
-  const { data, error } = await supabase
-    .from('messages')
-    .select('*')
-    .or(`and(sender_id.eq.${userId},receiver_id.eq.${otherUserId}),and(sender_id.eq.${otherUserId},receiver_id.eq.${userId})`)
-    .order('created_at', { ascending: true });
+  try {
+    const { data, error } = await supabase
+      .from('messages')
+      .select('*')
+      .or(`and(sender_id.eq.${userId},receiver_id.eq.${otherUserId}),and(sender_id.eq.${otherUserId},receiver_id.eq.${userId})`)
+      .order('created_at', { ascending: true });
 
-  if (error) {
-    console.warn("Error fetching messages:", error);
+    if (error) throw error;
+    return data || [];
+  } catch (err) {
+    console.warn("Error fetching messages:", err);
     return [];
   }
-  return data || [];
 }
 

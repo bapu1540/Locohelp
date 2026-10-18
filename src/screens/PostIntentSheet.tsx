@@ -138,15 +138,14 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
         // Save to new requested 'broadcast_posts' table
         await supabase.from("broadcast_posts").insert({
           id: newIntent.id,
-          user_id: newIntent.authorId,
-          user_name: newIntent.authorName || 'Community Member',
-          user_avatar: profile.photoURL || '',
+          author_id: newIntent.authorId,
+          author_name: newIntent.authorName || 'Community Member',
+          author_avatar: profile.photoURL || '',
           description: newIntent.description,
           category: newIntent.tags[0]?.replace('#', '') || 'General',
           tags: newIntent.tags,
           status: 'active',
-          created_at: newIntent.createdAt,
-          expires_at: newIntent.expiresAt
+          created_at: newIntent.createdAt
         });
       } catch (supabaseErr) {
         console.warn("Supabase broadcast notice:", supabaseErr);

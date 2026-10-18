@@ -208,7 +208,7 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
         // Also keep legacy sync for compatibility
         sendChatMessage(intent.id, messageData).catch(() => {});
         
-        await sendMessage(activeUid, intent.authorId, trimmed || "📸 Attachment", intent.id);
+        await sendMessage(activeUid, intent.authorId, trimmed || "📸 Attachment");
       } catch (e) {}
     }
 

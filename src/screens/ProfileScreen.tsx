@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, User, Camera, MapPin, Briefcase, Award, CheckCircle2, Star, Wrench, ChevronRight, Trash2, Store, Mail, CloudCheck, Sparkles } from 'lucide-react';
 import { useLanguage } from '../i18n';
 import { getCurrentUser, saveUserProfileToSupabase, getUserProfileFromSupabase, supabase, logoutUser, signInWithGoogle } from '../supabase';
+import { isGuestUser } from '../lib/authUtils';
 import FreeHelperRegisterModal from '../components/FreeHelperRegisterModal';
 import RegisterShopModal from '../components/RegisterShopModal';
 
@@ -147,6 +148,16 @@ export default function ProfileScreen({ onBack, onNavigate }: ProfileScreenProps
   };
 
   const handleSaveProfile = async () => {
+    // PROTECTED ACTION: Trigger login if guest tries to save profile
+    if (isGuestUser()) {
+      try {
+        await signInWithGoogle();
+      } catch (err) {
+        console.error("Sign-in trigger error:", err);
+      }
+      return;
+    }
+
     const activeUser = getCurrentUser();
     const cleanPhone = userPhone.replace(/\D/g, '') || activeUser?.phone || '';
     const userKey = activeUser?.uid || (cleanPhone ? `phone_${cleanPhone}` : 'guest');
