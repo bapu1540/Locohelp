@@ -486,7 +486,7 @@ export default function HomeScreen({
     }
   };
 
-  // Multi-device real-time sync across all phones (Cloud Firestore + Server fallback)
+  // Multi-device real-time sync across all phones (Supabase Realtime)
   useEffect(() => {
     // 1. Instant local load for 0ms initial render
     try {
@@ -506,6 +506,7 @@ export default function HomeScreen({
     // 2. Real-time Supabase sync
     let unsubscribeSupabase = () => {};
     try {
+      // Fetch initial data
       Promise.resolve(supabase.from("intents").select("*").order("created_at", { ascending: false })).then(({ data }) => {
         if (data && data.length > 0) {
           const fetched: Intent[] = data.map((d: any) => ({
@@ -524,9 +525,44 @@ export default function HomeScreen({
         }
       }).catch(() => {});
 
+      // Subscribe to changes
       const channel = supabase.channel('public:intents')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'intents' }, () => {
-          syncServerBroadcasts();
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'intents' }, (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const newItem = payload.new;
+            mergeAndDeduplicateIntents([{
+              id: newItem.id,
+              description: newItem.description,
+              tags: newItem.tags || [],
+              authorId: newItem.author_id,
+              authorName: newItem.author_name || 'Community Member',
+              createdAt: newItem.created_at,
+              expiresAt: newItem.expires_at,
+              status: newItem.status || 'active',
+              hasLocationPin: newItem.has_location_pin,
+              distance: newItem.distance || 0.5,
+            }]);
+          } else {
+            // For updates/deletes, refetch
+            Promise.resolve(supabase.from("intents").select("*").order("created_at", { ascending: false })).then(({ data }) => {
+              if (data) {
+                // Simplified refetch - just update the whole list
+                const fetched: Intent[] = data.map((d: any) => ({
+                  id: d.id,
+                  description: d.description,
+                  tags: d.tags || [],
+                  authorId: d.author_id,
+                  authorName: d.author_name || 'Community Member',
+                  createdAt: d.created_at,
+                  expiresAt: d.expires_at,
+                  status: d.status || 'active',
+                  hasLocationPin: d.has_location_pin,
+                  distance: d.distance || 0.5,
+                }));
+                setIntents(fetched);
+              }
+            });
+          }
         })
         .subscribe();
       
@@ -535,16 +571,7 @@ export default function HomeScreen({
       };
     } catch (e) {}
 
-    // 3. Central server backup polling (gentle 45s interval to completely avoid rate exceed/quota limits)
-    syncServerBroadcasts();
-    const pollTimer = setInterval(() => {
-      if (!document.hidden) {
-        syncServerBroadcasts(false);
-      }
-    }, 45000);
-
     return () => {
-      clearInterval(pollTimer);
       unsubscribeSupabase();
     };
   }, []);

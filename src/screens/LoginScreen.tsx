@@ -91,6 +91,11 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
 
   // Initialize Google Identity Services if available in window
   useEffect(() => {
+    // Forcefully disable auto-select on mount of login screen
+    if (typeof window !== 'undefined' && (window as any).google?.accounts?.id) {
+      (window as any).google.accounts.id.disableAutoSelect();
+    }
+
     if (activeTab === 'google' && typeof window !== 'undefined' && (window as any).google?.accounts?.id) {
       try {
         (window as any).google.accounts.id.initialize({
@@ -121,7 +126,8 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
                 console.error("JWT parse error:", e);
               }
             }
-          }
+          },
+          auto_select: false // Explicitly disable auto-select
         });
 
         if (googleBtnRef.current) {
@@ -154,6 +160,25 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
   const [isGoogleInfoModalOpen, setIsGoogleInfoModalOpen] = useState(false);
   const [googleErrorCode, setGoogleErrorCode] = useState('');
 
+  const handleLogout = async () => {
+    // 1. Clear LocalStorage
+    localStorage.removeItem('locohelp_user');
+    localStorage.removeItem('locohelp_logged_in');
+    localStorage.removeItem('locohelp_last_logged_in_email');
+    localStorage.removeItem('locohelp_last_logged_in_name');
+    localStorage.removeItem('locohelp_last_logged_in_photo');
+    
+    // 2. Sign out of Supabase
+    await supabase.auth.signOut();
+    
+    // 3. Disable Google Auto-Select
+    if (typeof window !== 'undefined' && (window as any).google?.accounts?.id) {
+      (window as any).google.accounts.id.disableAutoSelect();
+    }
+    
+    setLastAccount(null);
+  };
+
   // ==========================================
   // 1. INSTANT REAL GOOGLE AUTHENTICATION & SYNC
   // ==========================================
@@ -162,6 +187,9 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
     setGoogleError('');
 
     try {
+      // Clear previous session data to ensure fresh login
+      await handleLogout();
+
       const userEmail = hintEmail || emailAddress.trim() || 'chauhansanjay932@gmail.com';
       const userName = userEmail.split('@')[0] || 'Verified Google Member';
       const googleUser = {
@@ -184,7 +212,7 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
 
       setIsLoading(false);
       setIsGoogleInfoModalOpen(false);
-      onLogin();
+      onLogin(); // Redirect to home
     } catch (error: any) {
       setIsLoading(false);
       handleContinueWithGoogleAccount();
@@ -473,14 +501,7 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
               <div className="text-right px-1">
                 <button
                   type="button"
-                  onClick={() => {
-                    try {
-                      localStorage.removeItem('locohelp_last_logged_in_email');
-                      localStorage.removeItem('locohelp_last_logged_in_name');
-                      localStorage.removeItem('locohelp_last_logged_in_photo');
-                    } catch (e) {}
-                    setLastAccount(null);
-                  }}
+                  onClick={handleLogout}
                   className="text-[11px] font-bold text-blue-600 hover:text-blue-800 underline cursor-pointer"
                 >
                   {language === 'EN' ? 'Use a different Google account / Switch' : 'दूसरा नया गूगल अकाउंट इस्तेमाल करें'}
