@@ -1,7 +1,7 @@
-import { supabase, getCurrentUser } from "./supabase";
+import { getCurrentUser, saveChatHistory } from "./auth";
 
 /**
- * Sends a prompt to the AI server and saves the chat history to Supabase.
+ * Sends a prompt to the AI server and saves the chat history to PostgreSQL backend.
  */
 export async function askAIAndSave(userPrompt: string) {
   try {
@@ -19,17 +19,12 @@ export async function askAIAndSave(userPrompt: string) {
     const data = await response.json();
     const aiResponse = data.text;
 
-    // 2. Save chat history to Supabase with the user's ID
+    // 2. Save chat history to PostgreSQL database with the user's ID
     const currentUser = getCurrentUser();
     const userId = currentUser?.uid || "anonymous";
     
     try {
-      await supabase.from("chats").insert({
-        prompt: userPrompt,
-        response: aiResponse,
-        user_id: userId,
-        created_at: new Date().toISOString(),
-      });
+      await saveChatHistory(userPrompt, aiResponse, userId);
     } catch (e) {}
     
     return aiResponse;

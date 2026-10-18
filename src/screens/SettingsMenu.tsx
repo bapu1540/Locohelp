@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Screen } from '../types';
 import { ArrowLeft, Shield, Map, LogOut, ChevronRight, LifeBuoy, User, ShieldAlert, Sun, Moon } from 'lucide-react';
 import { useLanguage } from '../i18n';
-import { logoutUser } from '../supabase';
+import { logoutUser } from '../auth';
 
 export default function SettingsMenu({ onNavigate, onBack }: { onNavigate: (s: Screen) => void, onBack: () => void }) {
   const { t } = useLanguage();

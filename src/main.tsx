@@ -8,7 +8,7 @@ if (typeof window !== 'undefined' && window.opener && (window.name === 'google-s
   try {
     window.opener.postMessage({ type: 'LOCOHELP_AUTH_SUCCESS' }, '*');
   } catch (e) {}
-  // Allow Supabase SDK a brief moment to parse URL hash tokens into localStorage before closing
+  // Allow authentication token sync into localStorage before closing
   setTimeout(() => {
     try {
       window.opener.postMessage({ type: 'LOCOHELP_AUTH_SUCCESS' }, '*');

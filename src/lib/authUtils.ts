@@ -1,4 +1,4 @@
-import { supabase, ensureValidUUID } from '../supabase';
+import { ensureValidUUID } from '../auth';
 
 /**
  * Helper utility to check if current user is a Guest or Authenticated.

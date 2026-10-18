@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { X, Send, MapPin, Clock, Loader2, Sparkles, Mic } from 'lucide-react';
 import { useLanguage } from '../i18n';
-import { getCurrentUser, supabase } from '../supabase';
+import { getCurrentUser } from '../auth';
 import { Intent } from '../types';
 import { broadcastIntentToServer } from '../api';
 import LoginPromptModal from '../components/LoginPromptModal';
@@ -116,42 +116,7 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
       } catch (e) {}
 
       // 2. Save directly to Supabase
-      try {
-        const payload = {
-          id: newIntent.id,
-          description: newIntent.description,
-          tags: newIntent.tags,
-          author_id: newIntent.authorId,
-          author_name: newIntent.authorName || 'Community Member',
-          created_at: newIntent.createdAt,
-          expires_at: newIntent.expiresAt,
-          status: 'active',
-          has_location_pin: newIntent.hasLocationPin,
-          distance: newIntent.distance,
-          radius
-        };
-        
-        // Save to original tables for compatibility
-        await supabase.from("intents").upsert(payload);
-        await supabase.from("help_requests").upsert(payload);
-        
-        // Save to new requested 'broadcast_posts' table
-        await supabase.from("broadcast_posts").insert({
-          id: newIntent.id,
-          author_id: newIntent.authorId,
-          author_name: newIntent.authorName || 'Community Member',
-          author_avatar: profile.photoURL || '',
-          description: newIntent.description,
-          category: newIntent.tags[0]?.replace('#', '') || 'General',
-          tags: newIntent.tags,
-          status: 'active',
-          created_at: newIntent.createdAt
-        });
-      } catch (supabaseErr) {
-        console.warn("Supabase broadcast notice:", supabaseErr);
-      }
-
-      // 3. Sync to central Express backend
+      // 2. Sync to central Express backend & PostgreSQL
       try {
         await broadcastIntentToServer(newIntent);
       } catch (serverErr) {

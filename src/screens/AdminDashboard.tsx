@@ -39,7 +39,6 @@ import {
   Download
 } from 'lucide-react';
 import LogoDownloadStudio from '../components/LogoDownloadStudio';
-import { supabase } from '../supabase';
 import { getFreeHelperProfiles } from '../data/categories';
 import { 
   fetchLiveIntents, 
@@ -380,11 +379,7 @@ export default function AdminDashboard({ onBack }: AdminDashboardProps) {
         }
       } catch (e) {}
 
-      // 3. Delete from Supabase if exists
-      try {
-        await supabase.from("intents").delete().eq("id", id);
-        await supabase.from("help_requests").delete().eq("id", id);
-      } catch (e) {}
+
 
       // 4. Update UI
       setIntents(prev => prev.filter(i => i.id !== id));

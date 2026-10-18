@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { UserPlus, X, Wrench, ShieldCheck, CheckCircle2 } from 'lucide-react';
 import { CATEGORIES, CategoryItem, getCategoryName, saveFreeHelperProfile, FreeHelperProfile } from '../data/categories';
 import { useLanguage } from '../i18n';
-import { supabase } from '../supabase';
+import { saveHelper } from '../auth';
 
 interface FreeHelperRegisterModalProps {
   isOpen: boolean;
@@ -65,10 +65,10 @@ export default function FreeHelperRegisterModal({
       localStorage.setItem('locohelp_my_helper_profile', JSON.stringify(newHelper));
     } catch (e) {}
 
-    // Save to Supabase background for cross-device persistence
+    // Save to PostgreSQL backend for cross-device persistence
     try {
       const helperId = newHelper.id || `helper_${Date.now()}`;
-      Promise.resolve(supabase.from("helpers").upsert({ ...newHelper, id: helperId })).catch(() => {});
+      saveHelper({ ...newHelper, id: helperId }).catch(() => {});
     } catch (e) {}
 
     setIsSubmitting(false);

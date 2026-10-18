@@ -2,7 +2,7 @@ import React from 'react';
 import { ShieldAlert, X } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useLanguage } from '../i18n';
-import { getCurrentUser, supabase } from '../supabase';
+import { getCurrentUser } from '../auth';
 
 export default function ReportModal({ onClose }: { onClose: () => void }) {
   const { t } = useLanguage();
@@ -22,8 +22,12 @@ export default function ReportModal({ onClose }: { onClose: () => void }) {
         status: 'pending_admin_review'
       };
 
-      // Save to Supabase
-      await supabase.from("admin_reports").insert(reportPayload);
+      // Save to Backend PostgreSQL & server
+      await fetch('/api/reports', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(reportPayload)
+      });
 
       // Save locally as backup
       const existing = JSON.parse(localStorage.getItem('locohelp_admin_reports') || '[]');

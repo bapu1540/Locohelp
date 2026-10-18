@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Intent } from '../types';
 import { ArrowLeft, ShieldAlert, CheckCircle2, Send, MapPin, UserCheck, Paperclip, Navigation, Mic, Star, Sparkles, Trash2, Home, ShieldCheck, Check, Camera, Image as ImageIcon, X, Share2, Video, PhoneOff, MicOff, RefreshCw, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { getCurrentUser, supabase, sendMessage, getMessages } from '../supabase';
+import { getCurrentUser, sendMessage, getMessages } from '../auth';
 import { useLanguage } from '../i18n';
 import UserProfileModal from './UserProfileModal';
 import LoginPromptModal from '../components/LoginPromptModal';
@@ -146,35 +146,8 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
 
     syncChat();
 
-    let unsubscribeSupabase = () => {};
-    try {
-      const channel = supabase.channel(`public:messages:${intent.id}`)
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `intent_id=eq.${intent.id}` }, (payload) => {
-          const newMsg = payload.new;
-          if (newMsg && isMounted) {
-            setMessages(prev => {
-              if (prev.some(m => m.id === newMsg.id)) return prev;
-              return [...prev, {
-                id: newMsg.id,
-                text: newMsg.content,
-                type: newMsg.type || 'text',
-                authorId: newMsg.sender_id,
-                attachmentUrl: newMsg.attachment_url,
-                createdAt: newMsg.created_at
-              }];
-            });
-          }
-        })
-        .subscribe();
-      
-      unsubscribeSupabase = () => {
-        supabase.removeChannel(channel);
-      };
-    } catch (e) {}
-
     return () => {
       isMounted = false;
-      unsubscribeSupabase();
     };
   }, [intent]);
 
@@ -202,7 +175,7 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
     // Optimistic UI update
     setMessages(prev => [...prev, messageData]);
 
-    // Server & Supabase sync
+    // Server & PostgreSQL sync
     if (intent?.id) {
       try {
         // Also keep legacy sync for compatibility

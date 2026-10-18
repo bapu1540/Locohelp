@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Lock, X, Sparkles, ArrowRight, ShieldCheck, CheckCircle2, User, Mail, KeyRound, Loader2, Check } from 'lucide-react';
 import { useLanguage } from '../i18n';
-import { supabase, signInWithGoogle, sendEmailOtpViaSupabase, verifyEmailOtpViaSupabase } from '../supabase';
+import { signInWithGoogle, sendEmailOtp, verifyEmailOtp } from '../auth';
 
 interface LoginPromptModalProps {
   isOpen: boolean;
@@ -77,7 +77,7 @@ export default function LoginPromptModal({
     setErrorMessage(null);
     setInfoMessage(null);
 
-    const res = await sendEmailOtpViaSupabase(emailInput);
+    const res = await sendEmailOtp(emailInput);
     setIsLoadingOtp(false);
 
     if (res.success) {
@@ -109,7 +109,7 @@ export default function LoginPromptModal({
     setErrorMessage(null);
     setInfoMessage(null);
 
-    const res = await verifyEmailOtpViaSupabase(emailInput, otpCode);
+    const res = await verifyEmailOtp(emailInput, otpCode);
     setIsLoadingOtp(false);
 
     if (res.success) {

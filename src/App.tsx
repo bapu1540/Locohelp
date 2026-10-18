@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Screen, Intent } from './types';
 import { LanguageProvider, useLanguage, SUPPORTED_LANGUAGES } from './i18n';
-import { supabase, logoutUser, ensureProfileExists } from './supabase';
+import { logoutUser, ensureProfileExists, onAuthStateChange } from './auth';
 // import LoginScreen from './screens/LoginScreen';
 import HomeScreen from './screens/HomeScreen';
 import ChatScreen from './screens/ChatScreen';
@@ -69,7 +69,7 @@ function AppContent() {
 
   // Listen to Supabase Auth state for seamless persistent login
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    const { data: { subscription } } = onAuthStateChange(async (event, session) => {
       try {
         if (session?.user) {
           const u = session.user;

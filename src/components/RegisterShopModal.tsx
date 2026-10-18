@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Store, Building, Building2, ShoppingBag, X, Check, Camera, MapPin, Phone, Tag, ShieldCheck, Plus, Search, MessageSquare, Star, ExternalLink, Sparkles } from 'lucide-react';
 import { useLanguage } from '../i18n';
-import { supabase } from '../supabase';
+import { getShops, saveShop } from '../auth';
 
 export interface RegisteredShop {
   id: string;
@@ -123,10 +123,9 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess }: Regist
       }
     } catch (e) {}
 
-    // Supabase background fetch
-    Promise.resolve(supabase.from("shops").select("*")).then(({ data }) => {
-      if (data && data.length > 0) {
-        const cloudShops: RegisteredShop[] = data as RegisteredShop[];
+    // PostgreSQL backend fetch
+    getShops().then((cloudShops) => {
+      if (cloudShops && cloudShops.length > 0) {
         setRegisteredShopsList(prev => {
           const combined = [...cloudShops, ...prev];
           const uniqueMap = new Map<string, RegisteredShop>();
@@ -196,11 +195,11 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess }: Regist
       setRegisteredShopsList(updatedShops);
     } catch (e) {}
 
-    // Save to Supabase background
+    // Save to PostgreSQL backend
     try {
-      await supabase.from("shops").upsert(newShop);
+      await saveShop(newShop);
     } catch (err) {
-      console.warn("Shop cloud save notice:", err);
+      console.warn("Shop backend save notice:", err);
     }
 
     setIsSubmitting(false);

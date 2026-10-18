@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, User, Camera, MapPin, Briefcase, Award, CheckCircle2, Star, Wrench, ChevronRight, Trash2, Store, Mail, CloudCheck, Sparkles } from 'lucide-react';
 import { useLanguage } from '../i18n';
-import { getCurrentUser, saveUserProfileToSupabase, getUserProfileFromSupabase, supabase, logoutUser, signInWithGoogle } from '../supabase';
+import { getCurrentUser, saveUserProfile, getUserProfile, deleteUserProfile, logoutUser, signInWithGoogle } from '../auth';
 import { isGuestUser } from '../lib/authUtils';
 import FreeHelperRegisterModal from '../components/FreeHelperRegisterModal';
 import RegisterShopModal from '../components/RegisterShopModal';
@@ -88,7 +88,7 @@ export default function ProfileScreen({ onBack, onNavigate }: ProfileScreenProps
     const loadProfile = async () => {
       try {
         if (!userKey || userKey === 'guest') return;
-        const data = await getUserProfileFromSupabase(userKey);
+        const data = await getUserProfile(userKey);
         if (data) {
           if (data.full_name || data.name) setUserName(data.full_name || data.name);
           if (data.phone) setUserPhone(data.phone);
@@ -134,7 +134,7 @@ export default function ProfileScreen({ onBack, onNavigate }: ProfileScreenProps
         // Attempt cloud sync
         try {
           if (userKey && userKey !== 'guest') {
-            await saveUserProfileToSupabase({
+            await saveUserProfile({
               uid: userKey,
               avatar_url: base64String
             });
@@ -197,9 +197,9 @@ export default function ProfileScreen({ onBack, onNavigate }: ProfileScreenProps
       }));
     } catch (e) {}
 
-    // 2. Save directly to Supabase with safe fallback
+    // 2. Save directly to Railway PostgreSQL with safe fallback
     try {
-      await saveUserProfileToSupabase(profileData);
+      await saveUserProfile(profileData);
     } catch (err) {
       console.warn("Cloud profile save notice:", err);
     }
@@ -597,13 +597,12 @@ export default function ProfileScreen({ onBack, onNavigate }: ProfileScreenProps
                     const cleanPhone = (userPhone || '').replace(/\D/g, '') || activeUser?.phone || '';
                     const userKey = activeUser?.uid || (cleanPhone ? `phone_${cleanPhone}` : 'guest');
 
-                    // 1. Clear cloud data
+                    // 1. Clear cloud PostgreSQL profile
                     if (userKey && userKey !== 'guest_user') {
                       try {
-                        await supabase.from("profiles").delete().eq("uid", userKey);
-                        await supabase.from("users").delete().eq("uid", userKey);
+                        await deleteUserProfile(userKey);
                       } catch (err) {
-                        console.warn("Cloud delete error (continuing):", err);
+                        console.warn("Delete profile error (continuing):", err);
                       }
                     }
 

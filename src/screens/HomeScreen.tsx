@@ -4,7 +4,7 @@ import { Settings, Bell, Zap, Search, Globe, Clock, MapPin, Rocket, User, Trophy
 import { motion, AnimatePresence } from 'motion/react';
 import PostIntentSheet from './PostIntentSheet';
 import { useLanguage, SUPPORTED_LANGUAGES } from '../i18n';
-import { getCurrentUser, supabase, signInWithGoogle } from '../supabase';
+import { getCurrentUser, signInWithGoogle, onAuthStateChange } from '../auth';
 import { CATEGORIES, MASTER_CATEGORIES, getCategoryName, getFreeHelperProfiles } from '../data/categories';
 import UserProfileModal from './UserProfileModal';
 import AppGuideModal from './AppGuideModal';
@@ -68,7 +68,7 @@ export default function HomeScreen({
   const [activeUser, setActiveUser] = useState(() => getCurrentUser());
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = onAuthStateChange((event, session) => {
       if (session?.user) {
         const u = {
           uid: session.user.id,
@@ -512,77 +512,13 @@ export default function HomeScreen({
       Notification.requestPermission();
     }
 
-    // 2. Real-time Supabase sync
-    let unsubscribeSupabase = () => {};
-    
-    const fetchPosts = async () => {
-      try {
-        const { data, error } = await supabase
-          .from("broadcast_posts")
-          .select("*")
-          .order("created_at", { ascending: false });
-        
-        if (!error && data) {
-          const fetched: Intent[] = data.map((d: any) => ({
-            id: d.id,
-            description: d.description,
-            tags: d.tags || [],
-            authorId: d.author_id || d.user_id,
-            authorName: d.author_name || d.user_name || 'Community Member',
-            authorAvatar: d.author_avatar || d.user_avatar,
-            createdAt: d.created_at,
-            expiresAt: d.expires_at,
-            status: d.status || 'active',
-            hasLocationPin: true,
-            distance: 0.5,
-          }));
-          mergeAndDeduplicateIntents(fetched);
-        }
-      } catch (e) {
-        console.warn("fetchPosts error:", e);
-      }
-    };
-
-    fetchPosts();
+    // 2. Real-time Express & PostgreSQL sync (frequent poll for instant multi-device responsiveness)
     syncServerBroadcasts();
-
     const pollInterval = setInterval(() => {
       syncServerBroadcasts();
-    }, 20000);
-
-    try {
-      const channel = supabase.channel('public:broadcast_posts')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'broadcast_posts' }, (payload) => {
-          if (payload.eventType === 'INSERT') {
-            const newItem = payload.new;
-            mergeAndDeduplicateIntents([{
-              id: newItem.id,
-              description: newItem.description,
-              tags: newItem.tags || [],
-              authorId: newItem.author_id || newItem.user_id,
-              authorName: newItem.author_name || newItem.user_name || 'Community Member',
-              authorAvatar: newItem.author_avatar || newItem.user_avatar,
-              createdAt: newItem.created_at,
-              expiresAt: newItem.expires_at,
-              status: newItem.status || 'active',
-              hasLocationPin: true,
-              distance: 0.5,
-            }]);
-          } else {
-            fetchPosts();
-          }
-        })
-        .subscribe();
-      
-      unsubscribeSupabase = () => {
-        supabase.removeChannel(channel);
-      };
-    } catch (e) {
-      console.warn("Realtime subscription error:", e);
-    }
+    }, 4000);
 
     return () => {
-      unsubscribeSupabase();
       clearInterval(pollInterval);
     };
   }, []);
@@ -599,7 +535,7 @@ export default function HomeScreen({
       }
     };
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = onAuthStateChange((event, session) => {
       if (session?.user) {
         handleAuthChange();
       }
@@ -683,23 +619,13 @@ export default function HomeScreen({
       localStorage.setItem('locohelp_my_post_ids', JSON.stringify(myIds.filter((id: string) => id !== intentId)));
     } catch (e) {}
 
-    // 4. Background server & Firestore delete
+    // 4. Background server & Railway PostgreSQL delete
     (async () => {
       try {
         await deleteIntentOnServer(intentId, targetDesc);
       } catch (err) {
         console.warn("Server delete notice:", err);
       }
-      try {
-        await supabase.from('broadcast_posts').delete().eq('id', intentId);
-        await supabase.from('intents').delete().eq('id', intentId);
-        await supabase.from('help_requests').delete().eq('id', intentId);
-        if (targetDesc) {
-          await supabase.from('broadcast_posts').delete().eq('description', targetDesc);
-          await supabase.from('intents').delete().eq('description', targetDesc);
-          await supabase.from('help_requests').delete().eq('description', targetDesc);
-        }
-      } catch (err) {}
     })();
   };
 
