@@ -587,6 +587,43 @@ export default function HomeScreen({
     };
   }, []);
 
+  // Auto-close login prompt modal & execute pending action when sign-in completes
+  useEffect(() => {
+    const handleAuthChange = () => {
+      if (!isGuestUser() && isLoginPromptOpen) {
+        setIsLoginPromptOpen(false);
+        if (loginSuccessAction) {
+          loginSuccessAction();
+          setLoginSuccessAction(undefined);
+        }
+      }
+    };
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session?.user) {
+        handleAuthChange();
+      }
+    });
+
+    const handleWindowMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'LOCOHELP_AUTH_SUCCESS') {
+        handleAuthChange();
+      }
+    };
+
+    window.addEventListener('message', handleWindowMessage);
+    window.addEventListener('storage', handleAuthChange);
+
+    // Initial check
+    handleAuthChange();
+
+    return () => {
+      subscription?.unsubscribe();
+      window.removeEventListener('message', handleWindowMessage);
+      window.removeEventListener('storage', handleAuthChange);
+    };
+  }, [isLoginPromptOpen, loginSuccessAction]);
+
   const handlePostCreated = (newIntent: Intent) => {
     mergeAndDeduplicateIntents([newIntent]);
     setNewlyCreatedId(newIntent.id);
@@ -687,11 +724,9 @@ export default function HomeScreen({
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           {isGuestUser() ? (
             <button
-              onClick={() => {
-                signInWithGoogle().catch(err => console.error(err));
-              }}
+              onClick={handleSafeProfileClick}
               className="flex items-center gap-1.5 px-3 py-1 sm:py-1.5 bg-white dark:bg-slate-800 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 transition-all border border-indigo-200 dark:border-indigo-900/60 shadow-xs active:scale-95 cursor-pointer text-slate-800 dark:text-white"
-              title="Sign in with Google"
+              title="Sign in with Google or Email OTP"
             >
               <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
                 <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.8-2.4 3.65v3.03h3.88c2.27-2.09 3.665-5.17 3.665-9.12z"/>

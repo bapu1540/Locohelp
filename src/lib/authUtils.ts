@@ -1,4 +1,4 @@
-import { supabase } from '../supabase';
+import { supabase, ensureValidUUID } from '../supabase';
 
 /**
  * Helper utility to check if current user is a Guest or Authenticated.
@@ -44,7 +44,7 @@ export function getUserProfile(): { uid: string; displayName: string; email: str
         if (parsed) {
           const isGuest = !parsed.email && (parsed.uid?.startsWith('guest_') || parsed.isGuest === true);
           return {
-            uid: parsed.uid || 'user_' + Math.random().toString(36).substring(2, 8),
+            uid: isGuest ? 'guest_user' : ensureValidUUID(parsed.uid || parsed.email || 'user'),
             displayName: parsed.displayName || parsed.email?.split('@')[0] || 'Community Member',
             email: parsed.email || '',
             photoURL: parsed.photoURL || undefined,
@@ -62,7 +62,7 @@ export function getUserProfile(): { uid: string; displayName: string; email: str
     const lastPhoto = localStorage.getItem('locohelp_last_logged_in_photo');
     if (lastEmail) {
       return {
-        uid: 'user_' + lastEmail.replace(/[^a-zA-Z0-9]/g, '_'),
+        uid: ensureValidUUID(lastEmail),
         displayName: lastName || lastEmail.split('@')[0] || 'Community Member',
         email: lastEmail,
         photoURL: lastPhoto || undefined,

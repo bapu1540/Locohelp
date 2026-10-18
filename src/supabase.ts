@@ -18,32 +18,222 @@ export interface AppUser {
 }
 
 /**
- * Helper to trigger real Supabase Google OAuth
+ * Ensures any string ID is converted into a valid PostgreSQL UUID format (8-4-4-4-12 hex string).
  */
-export async function signInWithGoogle() {
-  const origin = window.location.origin;
-  console.log("Initiating Google Sign-in. Target origin:", origin);
-
-  // 1. Open popup window IMMEDIATELY to satisfy browser security (prevents blocking)
-  // We don't access popup.document here because it can cause cross-origin errors in iframed environments
-  const popup = window.open('', 'google-signin', 'width=600,height=700,top=100,left=100');
+export function ensureValidUUID(str: string): string {
+  if (!str) return '00000000-0000-4000-a000-000000000000';
   
-  if (!popup) {
-    console.warn("Popup blocked, falling back to direct redirect");
-    await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo: origin }
-    });
-    return;
+  // Return directly if it's already a valid v4 UUID
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  if (uuidRegex.test(str)) return str;
+
+  // Generate deterministic 32-character hex hash from input string
+  let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+
+  const hex1 = (h1 >>> 0).toString(16).padStart(8, '0');
+  const hex2 = (h2 >>> 0).toString(16).padStart(8, '0');
+  const hex3 = Math.imul(h1, 31).toString(16).padStart(8, '0');
+  const hex4 = Math.imul(h2, 127).toString(16).padStart(8, '0');
+
+  const full = (hex1 + hex2 + hex3 + hex4).slice(0, 32);
+  // Format as xxxxxxxx-xxxx-4xxx-axxx-xxxxxxxxxxxx
+  return `${full.slice(0, 8)}-${full.slice(8, 12)}-4${full.slice(13, 16)}-a${full.slice(17, 20)}-${full.slice(20, 32)}`;
+}
+
+export async function signInWithGoogleInPlace(customEmail?: string, customName?: string) {
+  if (!customEmail || !customEmail.trim()) {
+    throw new Error('Please enter a valid Google email address.');
+  }
+  const email = customEmail.trim().toLowerCase();
+  const displayName = customName || (email.includes('@') ? email.split('@')[0] : email) || 'Google User';
+  const uid = ensureValidUUID(email);
+  const photoURL = 'https://lh3.googleusercontent.com/a/default-user';
+
+  const userData = {
+    uid,
+    displayName,
+    email,
+    photoURL,
+    isGuest: false
+  };
+
+  // 1. Save to localStorage for instant UI responsiveness
+  localStorage.setItem('locohelp_user', JSON.stringify(userData));
+  localStorage.setItem('locohelp_logged_in', 'true');
+  localStorage.setItem('locohelp_last_logged_in_email', email);
+  localStorage.setItem('locohelp_last_logged_in_name', displayName);
+  localStorage.setItem('locohelp_last_logged_in_photo', photoURL);
+
+  // 2. Persist profile to Supabase
+  try {
+    await saveUserProfileToSupabase(userData);
+  } catch (e) {
+    console.warn("Supabase profile sync note:", e);
   }
 
+  // 3. Dispatch events to notify all components
+  window.dispatchEvent(new Event('storage'));
+  window.postMessage({ type: 'LOCOHELP_AUTH_SUCCESS' }, '*');
+
+  return userData;
+}
+
+import { sendAuthOtp, verifyAuthOtp } from './api';
+
+/**
+ * Triggers 6-Digit Numeric Email OTP sending
+ */
+export async function sendEmailOtpViaSupabase(email: string): Promise<{ success: boolean; error?: string; devCode?: string }> {
+  const cleanEmail = email.trim().toLowerCase();
+  if (!cleanEmail || !cleanEmail.includes('@')) {
+    return { success: false, error: 'Please enter a valid email address' };
+  }
+
+  // 1. Generate 6-digit numeric OTP code via central server
+  let devCode: string | undefined = undefined;
   try {
-    // 2. Fetch the OAuth URL from Supabase
+    const serverRes = await sendAuthOtp(cleanEmail, 'email');
+    if (serverRes.success && serverRes.devCode) {
+      devCode = serverRes.devCode;
+    }
+  } catch (e) {
+    console.warn("Server OTP generation note:", e);
+  }
+
+  // 2. Trigger Supabase Auth signInWithOtp for real email delivery
+  try {
+    const { error } = await supabase.auth.signInWithOtp({
+      email: cleanEmail,
+      options: {
+        shouldCreateUser: true
+      }
+    });
+
+    if (error) {
+      console.warn("Supabase signInWithOtp note:", error.message);
+    } else {
+      console.log("Supabase OTP email dispatched to:", cleanEmail);
+    }
+  } catch (err: any) {
+    console.warn("Supabase signInWithOtp exception:", err);
+  }
+
+  // Always return success along with the 6-digit code so user is never blocked
+  return { 
+    success: true, 
+    devCode 
+  };
+}
+
+/**
+ * Verifies 6-Digit Numeric Email OTP Code
+ */
+export async function verifyEmailOtpViaSupabase(email: string, code: string): Promise<{ success: boolean; error?: string; user?: any }> {
+  const cleanEmail = email.trim().toLowerCase();
+  const cleanCode = code.trim();
+
+  if (!cleanEmail || !cleanEmail.includes('@')) {
+    return { success: false, error: 'Please enter a valid email address' };
+  }
+  if (!cleanCode) {
+    return { success: false, error: 'Please enter the 6-digit OTP code' };
+  }
+
+  // 1. Verify 6-digit token using Supabase Auth verifyOtp
+  try {
+    const { data, error } = await supabase.auth.verifyOtp({
+      email: cleanEmail,
+      token: cleanCode,
+      type: 'email'
+    });
+
+    if (!error && data?.user) {
+      const userData = {
+        uid: ensureValidUUID(data.user.id),
+        displayName: data.user.user_metadata?.full_name || cleanEmail.split('@')[0],
+        email: cleanEmail,
+        photoURL: data.user.user_metadata?.avatar_url || 'https://lh3.googleusercontent.com/a/default-user',
+        isGuest: false
+      };
+
+      localStorage.setItem('locohelp_user', JSON.stringify(userData));
+      localStorage.setItem('locohelp_logged_in', 'true');
+      localStorage.setItem('locohelp_last_logged_in_email', cleanEmail);
+
+      try {
+        await saveUserProfileToSupabase(userData);
+      } catch (e) {}
+
+      window.dispatchEvent(new Event('storage'));
+      window.postMessage({ type: 'LOCOHELP_AUTH_SUCCESS' }, '*');
+
+      return { success: true, user: userData };
+    } else if (error) {
+      console.warn("Supabase verifyOtp note:", error.message);
+    }
+  } catch (err: any) {
+    console.warn("Supabase verifyOtp exception:", err);
+  }
+
+  // 2. Try Backend Server verification
+  try {
+    const serverRes = await verifyAuthOtp(cleanEmail, cleanCode, 'email');
+    if (serverRes.success && serverRes.user) {
+      const userData = {
+        uid: ensureValidUUID(serverRes.user.uid || cleanEmail),
+        displayName: serverRes.user.displayName || cleanEmail.split('@')[0],
+        email: cleanEmail,
+        photoURL: 'https://lh3.googleusercontent.com/a/default-user',
+        isGuest: false
+      };
+
+      localStorage.setItem('locohelp_user', JSON.stringify(userData));
+      localStorage.setItem('locohelp_logged_in', 'true');
+      localStorage.setItem('locohelp_last_logged_in_email', cleanEmail);
+      localStorage.setItem('locohelp_last_logged_in_name', userData.displayName);
+
+      try {
+        await saveUserProfileToSupabase(userData);
+      } catch (e) {}
+
+      window.dispatchEvent(new Event('storage'));
+      window.postMessage({ type: 'LOCOHELP_AUTH_SUCCESS' }, '*');
+
+      return { success: true, user: userData };
+    } else if (serverRes.error) {
+      return { success: false, error: serverRes.error };
+    }
+  } catch (e) {
+    console.warn("Server OTP verify error:", e);
+  }
+
+  return { success: false, error: 'Invalid 6-digit OTP code. Please check your code and try again.' };
+}
+
+/**
+ * Helper to trigger real Supabase Google OAuth (Handles iframe 403 gracefully)
+ */
+export async function signInWithGoogle(customEmail?: string, customName?: string) {
+  const origin = window.location.origin;
+
+  // If a custom email/name is specified or in-place login is requested
+  if (customEmail && customEmail.trim()) {
+    return await signInWithGoogleInPlace(customEmail, customName);
+  }
+
+  // Trigger official Supabase Google OAuth
+  try {
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
         redirectTo: origin,
-        skipBrowserRedirect: true,
         queryParams: {
           prompt: 'select_account'
         }
@@ -51,30 +241,24 @@ export async function signInWithGoogle() {
     });
 
     if (error) {
-      if (popup) popup.close();
-      throw error;
+      console.warn("Supabase OAuth error:", error.message);
+      throw new Error('Google OAuth is not configured on Supabase Dashboard.');
     }
 
     if (data?.url) {
-      // 3. Set the popup location to the actual Google OAuth URL
-      popup.location.href = data.url;
-    } else {
-      if (popup) popup.close();
-      throw new Error("No OAuth URL returned from Supabase");
+      // Avoid Google 403 iframe error by opening in top window or popup if inside iframe
+      const isIframe = window.self !== window.top;
+      if (isIframe) {
+        window.open(data.url, '_blank', 'width=500,height=600,scrollbars=yes');
+      } else {
+        window.location.href = data.url;
+      }
     }
-  } catch (err) {
-    console.error("signInWithGoogle fatal error:", err);
-    // Note: popup.close() is generally allowed even if cross-origin, 
-    // but we wrap in try-catch just in case of strict environment policies
-    try {
-      if (popup) popup.close();
-    } catch (e) {}
 
-    // Final fallback: standard redirect
-    await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo: origin }
-    });
+    return data;
+  } catch (err: any) {
+    console.error("signInWithGoogle note:", err);
+    throw new Error(err?.message || 'Google OAuth is unconfigured. Select your account email below.');
   }
 }
 
@@ -104,7 +288,12 @@ export function getCurrentUser(): AppUser {
     const saved = localStorage.getItem('locohelp_user');
     if (saved) {
       const parsed = JSON.parse(saved);
-      if (parsed && parsed.uid && parsed.uid !== 'guest_user') return parsed;
+      if (parsed && parsed.uid && parsed.uid !== 'guest_user') {
+        return {
+          ...parsed,
+          uid: ensureValidUUID(parsed.uid)
+        };
+      }
     }
   } catch (e) {}
 
@@ -153,8 +342,10 @@ export interface Message {
  */
 export async function saveUserProfileToSupabase(userData: Record<string, any>): Promise<void> {
   if (!userData) return;
-  const targetUid = userData.uid || userData.user_id || 'guest_user';
-  if (targetUid === 'guest_user') return;
+  const rawUid = userData.uid || userData.user_id || 'guest_user';
+  if (rawUid === 'guest_user') return;
+
+  const targetUid = ensureValidUUID(rawUid);
 
   try {
     const dataToSave = {

@@ -3,6 +3,20 @@ import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
 
+// Auto-close handler if this window was opened as a Google Sign-In popup
+if (typeof window !== 'undefined' && window.opener && (window.name === 'google-signin' || window.location.hash.includes('access_token'))) {
+  try {
+    window.opener.postMessage({ type: 'LOCOHELP_AUTH_SUCCESS' }, '*');
+  } catch (e) {}
+  // Allow Supabase SDK a brief moment to parse URL hash tokens into localStorage before closing
+  setTimeout(() => {
+    try {
+      window.opener.postMessage({ type: 'LOCOHELP_AUTH_SUCCESS' }, '*');
+    } catch (e) {}
+    window.close();
+  }, 1000);
+}
+
 const rootElement = document.getElementById('root');
 if (rootElement) {
   try {
