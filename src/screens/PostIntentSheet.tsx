@@ -14,7 +14,7 @@ interface PostIntentSheetProps {
 }
 
 export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSheetProps) {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [text, setText] = useState('');
   const [radius, setRadius] = useState(2);
   const [hasPin, setHasPin] = useState(false);
@@ -24,14 +24,14 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
   const [isLoginPromptOpen, setIsLoginPromptOpen] = useState(false);
 
   const QUICK_TEMPLATES = [
-    { label: '🔧 Plumber', text: 'Urgent Plumber chahiye - Nal / Pipe leak ho raha hai', tag: '#Plumber' },
-    { label: '⚡ Electrician', text: 'Electrician ki zarurat hai - Light / Fuse kharab hai', tag: '#Electrician' },
-    { label: '🚗 Mechanic', text: 'Car / Bike Mechanic & Towing help chahiye', tag: '#Mechanic' },
-    { label: '🧹 Cleaning', text: 'Ghar ki safai / Maid helper chahiye', tag: '#Cleaning' },
-    { label: '💊 Emergency', text: 'Emergency Dawa / Hospital assist helper', tag: '#Urgent' },
-    { label: '🎓 Tutor', text: 'Home Tutor / Teaching help chahiye', tag: '#Tutor' },
-    { label: '🏏 Cricket', text: 'Cricket match ke liye players chahiye', tag: '#Cricket' },
-    { label: '☕ Chai Meet', text: 'Chai / Coffee meetup for casual chat in neighborhood', tag: '#General' },
+    { label: '🔧 ' + (language === 'EN' ? 'Plumber' : 'प्लंबर'), text: t('post.tmpl.plumber'), tag: '#Plumber' },
+    { label: '⚡ ' + (language === 'EN' ? 'Electrician' : 'इलेक्ट्रीशियन'), text: t('post.tmpl.electrician'), tag: '#Electrician' },
+    { label: '🚗 ' + (language === 'EN' ? 'Mechanic' : 'मैकेनिक'), text: t('post.tmpl.mechanic'), tag: '#Mechanic' },
+    { label: '🧹 ' + (language === 'EN' ? 'Cleaning' : 'सफाई'), text: t('post.tmpl.cleaning'), tag: '#Cleaning' },
+    { label: '💊 ' + (language === 'EN' ? 'Emergency' : 'इमरजेंसी'), text: t('post.tmpl.emergency'), tag: '#Urgent' },
+    { label: '🎓 ' + (language === 'EN' ? 'Tutor' : 'ट्यूटर'), text: t('post.tmpl.tutor'), tag: '#Tutor' },
+    { label: '🏏 ' + (language === 'EN' ? 'Cricket' : 'क्रिकेट'), text: t('post.tmpl.cricket'), tag: '#Cricket' },
+    { label: '☕ ' + (language === 'EN' ? 'Chai Meet' : 'चाय मीटअप'), text: t('post.tmpl.chai'), tag: '#General' },
   ];
 
   const QUICK_TAGS = ['#Plumber', '#Electrician', '#Mechanic', '#Carpenter', '#Painter', '#AC_Repair', '#Cleaning', '#Delivery', '#Urgent', '#Cricket', '#Gym', '#Tutor'];
@@ -199,7 +199,7 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
             </div>
             <div>
               <h2 className="text-base font-black text-slate-900 dark:text-white leading-none">{t('post.title')}</h2>
-              <p className="text-[11px] text-slate-400 font-medium mt-0.5">Nearby helpers ko turant alert jayega</p>
+              <p className="text-[11px] text-slate-400 font-medium mt-0.5">{t('post.alertDesc')}</p>
             </div>
           </div>
           <button 
@@ -216,7 +216,7 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
           {/* 1-CLICK QUICK NEED TEMPLATES */}
           <div className="space-y-1.5">
             <label className="text-[11px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-wider flex items-center gap-1">
-              <span>⚡ 1-Click Need Templates (Bina Type Kiye Chuno)</span>
+              <span>{t('post.quickNeeds')}</span>
             </label>
             <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide">
               {QUICK_TEMPLATES.map((tmpl) => (
@@ -249,10 +249,12 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
                     ? 'bg-red-500 text-white animate-pulse shadow-md' 
                     : 'bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-200'
                 }`}
-                title="Bolkar type karein (Voice Search)"
+                title={t('post.voiceSearch')}
               >
-                <Mic className="w-3.5 h-3.5" />
-                <span>{isListening ? 'Listening...' : 'Bolkar Likhein'}</span>
+                <button type="button" className="flex items-center gap-1 outline-none">
+                  <Mic className="w-3.5 h-3.5" />
+                  <span>{isListening ? t('post.voiceListening') : t('post.voiceBtn')}</span>
+                </button>
               </button>
             </div>
             <textarea 
@@ -318,14 +320,14 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
             <div className="flex justify-between items-center">
               <label className="text-[11px] font-black text-emerald-800 dark:text-emerald-300 uppercase tracking-wider flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                <span>Public Post Scope</span>
+                <span>{t('post.scopeTitle')}</span>
               </label>
               <span className="text-[11px] font-black text-emerald-700 dark:text-emerald-300 bg-white dark:bg-slate-900 px-2 py-0.5 rounded-md border border-emerald-300 dark:border-emerald-700 shadow-2xs">
-                🌐 All India Public
+                {t('post.scopeBadge')}
               </span>
             </div>
             <p className="text-[10px] text-stone-600 dark:text-slate-300 font-medium">
-              Aapki post LocoHelp app par sabhi users aur helpers ko live dikhegi.
+              {t('post.scopeDesc')}
             </p>
           </div>
         </div>

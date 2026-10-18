@@ -507,14 +507,6 @@ export function getCategoryName(category: CategoryItem | undefined, lang: Langua
   if (!category) return '';
   switch (lang) {
     case 'HI': return category.nameHi || category.nameEn;
-    case 'GU': return category.nameGu || category.nameEn;
-    case 'MR': return category.nameMr || category.nameEn;
-    case 'BN': return category.nameBn || category.nameEn;
-    case 'TA': return category.nameTa || category.nameEn;
-    case 'TE': return category.nameTe || category.nameEn;
-    case 'KN': return category.nameKn || category.nameEn;
-    case 'PA': return category.namePa || category.nameEn;
-    case 'ML': return category.nameMl || category.nameEn;
     default: return category.nameEn;
   }
 }
@@ -523,14 +515,6 @@ export function getMasterCategoryName(master: MasterCategory | undefined, lang: 
   if (!master) return '';
   switch (lang) {
     case 'HI': return master.nameHi || master.nameEn;
-    case 'GU': return master.nameGu || master.nameEn;
-    case 'MR': return master.nameMr || master.nameEn;
-    case 'BN': return master.nameBn || master.nameEn;
-    case 'TA': return master.nameTa || master.nameEn;
-    case 'TE': return master.nameTe || master.nameEn;
-    case 'KN': return master.nameKn || master.nameEn;
-    case 'PA': return master.namePa || master.nameEn;
-    case 'ML': return master.nameMl || master.nameEn;
     default: return master.nameEn;
   }
 }
@@ -539,7 +523,6 @@ export function getMasterCategorySubtitle(master: MasterCategory | undefined, la
   if (!master) return '';
   switch (lang) {
     case 'HI': return master.subtitleHi || master.subtitleEn;
-    case 'GU': return master.subtitleGu || master.subtitleEn;
     default: return master.subtitleEn;
   }
 }

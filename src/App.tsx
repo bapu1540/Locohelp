@@ -65,8 +65,7 @@ function AppContent() {
   const [prevScreen, setPrevScreen] = useState<Screen>('home');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   
-  // Default view mode on larger screens: 'desktop' layout vs 'mobile' phone simulator frame
-  const [viewMode, setViewMode] = useState<'desktop' | 'mobile'>('desktop');
+
 
   // Listen to Supabase Auth state for seamless persistent login
   useEffect(() => {
@@ -125,100 +124,50 @@ function AppContent() {
   const topHelpers = getFreeHelperProfiles().slice(0, 4);
 
   return (
-    <div className="min-h-screen h-dvh w-full bg-slate-100 dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-sans antialiased flex flex-col overflow-x-hidden">
+    <div className="min-h-screen h-dvh w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-sans antialiased flex flex-col overflow-x-hidden">
 
-
-      {/* Main Page Content Area */}
-      <main className="flex-1 flex justify-center w-full h-full min-h-0 py-0 sm:py-4 px-0 sm:px-4 max-w-7xl mx-auto overflow-hidden">
-        {viewMode === 'mobile' ? (
-          /* MOBILE FRAME MODE */
-          <div className="w-full max-w-[420px] bg-violet-50 dark:bg-slate-900 sm:rounded-[36px] sm:shadow-2xl sm:border sm:border-slate-300 dark:sm:border-slate-800 relative overflow-hidden flex flex-col h-full max-h-[850px] text-slate-900 dark:text-slate-100">
-            {/* Active Screen */}
-            {/* {currentScreen === 'login' && <LoginScreen onLogin={() => navigate('home')} />} */}
-            {currentScreen === 'home' && (
-              <HomeScreen 
-                onNavigate={navigate} 
-                onOpenChat={(intent) => { setActiveIntent(intent); navigate('chat'); }} 
-                selectedCategory={selectedCategory}
-                onSelectCategory={setSelectedCategory}
-              />
-            )}
-            {currentScreen === 'categories' && (
-              <CategoriesScreen 
-                onBack={() => navigate('home')}
-                selectedCategory={selectedCategory}
-                onSelectCategory={setSelectedCategory}
-                onOpenChat={(intent) => { setActiveIntent(intent); navigate('chat'); }}
-              />
-            )}
-            {currentScreen === 'directory' && <SearchDirectoryScreen onBack={() => navigate('home')} onOpenChat={() => navigate('chat')} />}
-            {currentScreen === 'chat' && <ChatScreen intent={activeIntent} onBack={() => navigate('home')} onReport={() => setIsReportModalOpen(true)} />}
-            {currentScreen === 'notifications' && <NotificationsScreen onBack={() => navigate('home')} />}
-            {currentScreen === 'pro' && <ProScreen onBack={() => navigate('home')} />}
-            {currentScreen === 'settings' && <SettingsMenu onNavigate={navigate} onBack={() => navigate('home')} />}
-            {currentScreen === 'guidelines' && <GuidelinesScreen onBack={() => navigate('settings')} />}
-            {currentScreen === 'roadmap' && <RoadmapScreen onBack={() => navigate(prevScreen === 'settings' ? 'settings' : 'home')} />}
-            {currentScreen === 'profile' && <ProfileScreen onBack={() => navigate('home')} onNavigate={navigate} />}
-            {currentScreen === 'support' && <SupportScreen onBack={() => navigate('settings')} />}
-            {currentScreen === 'mesh' && <MeshScreen onBack={() => navigate('settings')} />}
-            {currentScreen === 'leaderboard' && <LeaderboardScreen onBack={() => navigate('home')} />}
-            {currentScreen === 'professionals' && <ProfessionalsScreen onBack={() => navigate('home')} onHire={() => navigate('chat')} />}
-            {currentScreen === 'admin' && <AdminDashboard onBack={() => navigate('settings')} />}
-
-            {/* Top Phone Notch Bezel */}
-            <div className="hidden sm:block absolute top-0 inset-x-0 h-6 w-full pointer-events-none z-50">
-              <div className="w-36 h-6 bg-slate-900 mx-auto rounded-b-2xl"></div>
-            </div>
-          </div>
-        ) : (
-          /* DESKTOP & MOBILE RESPONSIVE WEB PORTAL LAYOUT */
-          <div className="w-full max-w-3xl mx-auto px-0 sm:px-2 overflow-x-hidden h-full flex flex-col">
-            {/* Main Screen Container */}
-            <div className="w-full bg-violet-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 rounded-none sm:rounded-3xl border-0 sm:border border-slate-300 dark:border-slate-800 shadow-xl overflow-hidden h-full max-h-[880px] min-h-0 relative flex flex-col">
-              {/* {currentScreen === 'login' && <LoginScreen onLogin={() => navigate('home')} />} */}
-              {currentScreen === 'home' && (
-                <HomeScreen 
-                  onNavigate={navigate} 
-                  onOpenChat={(intent) => { setActiveIntent(intent); navigate('chat'); }} 
-                  selectedCategory={selectedCategory}
-                  onSelectCategory={setSelectedCategory}
-                />
-              )}
-              {currentScreen === 'categories' && (
-                <CategoriesScreen 
-                  onBack={() => navigate('home')}
-                  selectedCategory={selectedCategory}
-                  onSelectCategory={setSelectedCategory}
-                  onOpenChat={(intent) => { setActiveIntent(intent); navigate('chat'); }}
-                />
-              )}
-              {currentScreen === 'directory' && <SearchDirectoryScreen onBack={() => navigate('home')} onOpenChat={() => navigate('chat')} />}
-              {currentScreen === 'chat' && <ChatScreen intent={activeIntent} onBack={() => navigate('home')} onReport={() => setIsReportModalOpen(true)} />}
-              {currentScreen === 'notifications' && <NotificationsScreen onBack={() => navigate('home')} />}
-              {currentScreen === 'pro' && <ProScreen onBack={() => navigate('home')} />}
-              {currentScreen === 'settings' && <SettingsMenu onNavigate={navigate} onBack={() => navigate('home')} />}
-              {currentScreen === 'guidelines' && <GuidelinesScreen onBack={() => navigate('settings')} />}
-              {currentScreen === 'roadmap' && <RoadmapScreen onBack={() => navigate(prevScreen === 'settings' ? 'settings' : 'home')} />}
-              {currentScreen === 'profile' && <ProfileScreen onBack={() => navigate('home')} onNavigate={navigate} />}
-              {currentScreen === 'support' && <SupportScreen onBack={() => navigate('settings')} />}
-              {currentScreen === 'mesh' && <MeshScreen onBack={() => navigate('settings')} />}
-              {currentScreen === 'leaderboard' && <LeaderboardScreen onBack={() => navigate('home')} />}
-              {currentScreen === 'professionals' && <ProfessionalsScreen onBack={() => navigate('home')} onHire={() => navigate('chat')} />}
-              {currentScreen === 'admin' && <AdminDashboard onBack={() => navigate('settings')} />}
-            </div>
-          </div>
+      {/* Main Page Content Area - Now Full Page */}
+      <main className="flex-1 w-full h-full min-h-0 relative flex flex-col overflow-hidden">
+        {currentScreen === 'home' && (
+          <HomeScreen 
+            onNavigate={navigate} 
+            onOpenChat={(intent) => { setActiveIntent(intent); navigate('chat'); }} 
+            selectedCategory={selectedCategory}
+            onSelectCategory={setSelectedCategory}
+          />
         )}
+        {currentScreen === 'categories' && (
+          <CategoriesScreen 
+            onBack={() => navigate('home')}
+            selectedCategory={selectedCategory}
+            onSelectCategory={setSelectedCategory}
+            onOpenChat={(intent) => { setActiveIntent(intent); navigate('chat'); }}
+          />
+        )}
+        {currentScreen === 'directory' && <SearchDirectoryScreen onBack={() => navigate('home')} onOpenChat={() => navigate('chat')} />}
+        {currentScreen === 'chat' && <ChatScreen intent={activeIntent} onBack={() => navigate('home')} onReport={() => setIsReportModalOpen(true)} />}
+        {currentScreen === 'notifications' && <NotificationsScreen onBack={() => navigate('home')} />}
+        {currentScreen === 'pro' && <ProScreen onBack={() => navigate('home')} />}
+        {currentScreen === 'settings' && <SettingsMenu onNavigate={navigate} onBack={() => navigate('home')} />}
+        {currentScreen === 'guidelines' && <GuidelinesScreen onBack={() => navigate('settings')} />}
+        {currentScreen === 'roadmap' && <RoadmapScreen onBack={() => navigate(prevScreen === 'settings' ? 'settings' : 'home')} />}
+        {currentScreen === 'profile' && <ProfileScreen onBack={() => navigate('home')} onNavigate={navigate} />}
+        {currentScreen === 'support' && <SupportScreen onBack={() => navigate('settings')} />}
+        {currentScreen === 'mesh' && <MeshScreen onBack={() => navigate('settings')} />}
+        {currentScreen === 'leaderboard' && <LeaderboardScreen onBack={() => navigate('home')} />}
+        {currentScreen === 'professionals' && <ProfessionalsScreen onBack={() => navigate('home')} onHire={() => navigate('chat')} />}
+        {currentScreen === 'admin' && <AdminDashboard onBack={() => navigate('settings')} />}
       </main>
 
       {/* Footer */}
-      <footer className="bg-slate-900 border-t border-slate-800/80 py-4 px-4 text-center text-xs text-slate-500">
+      <footer className="bg-slate-900 border-t border-slate-800/80 py-4 px-4 text-center text-xs text-slate-500 shrink-0">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
-          <span>LocoHelp &copy; {new Date().getFullYear()} • 100% Free Neighborhood Mesh</span>
+          <span>{t('footer.copyright').replace('{year}', new Date().getFullYear().toString())}</span>
           <div className="flex items-center gap-4 text-[11px]">
-            <button onClick={() => navigate('guidelines')} className="hover:text-slate-300">Community Guidelines</button>
-            <button onClick={() => navigate('roadmap')} className="hover:text-slate-300">Feature Roadmap</button>
-            <button onClick={() => navigate('support')} className="hover:text-slate-300">Help & Support</button>
-            <button onClick={() => navigate('admin')} className="text-amber-400 hover:text-amber-300 font-bold flex items-center gap-1 cursor-pointer">🛡️ Admin Panel</button>
+            <button onClick={() => navigate('guidelines')} className="hover:text-slate-300">{t('footer.guidelines')}</button>
+            <button onClick={() => navigate('roadmap')} className="hover:text-slate-300">{t('footer.roadmap')}</button>
+            <button onClick={() => navigate('support')} className="hover:text-slate-300">{t('footer.support')}</button>
+            <button onClick={() => navigate('admin')} className="text-amber-400 hover:text-amber-300 font-bold flex items-center gap-1 cursor-pointer">🛡️ {t('footer.admin')}</button>
           </div>
         </div>
       </footer>

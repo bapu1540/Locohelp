@@ -253,10 +253,10 @@ export default function ProfileScreen({ onBack, onNavigate }: ProfileScreenProps
               </div>
               <div>
                 <h4 className="text-xs sm:text-sm font-black leading-tight">
-                  {language === 'EN' ? 'Sign in with Google' : 'गूगल से प्रोफाइल लिंक करें'}
+                  {t('prof.googleConnect')}
                 </h4>
                 <p className="text-[10px] text-blue-100 font-medium">
-                  {language === 'EN' ? 'Save ratings & contact info to the cloud' : 'क्लाउड पर अपनी रेटिंग और प्रोफाइल डेटा सुरक्षित रखें'}
+                  {t('prof.googleConnectDesc')}
                 </p>
               </div>
             </div>
@@ -264,7 +264,7 @@ export default function ProfileScreen({ onBack, onNavigate }: ProfileScreenProps
               onClick={handleGoogleSignInProfile}
               className="bg-white hover:bg-blue-50 text-blue-700 font-black text-xs px-3.5 py-2 rounded-xl shrink-0 shadow-xs active:scale-95 transition-all cursor-pointer"
             >
-              {language === 'EN' ? 'Sign In' : 'लॉगिन करें'}
+              {t('prof.googleLoginBtn')}
             </button>
           </div>
         )}
@@ -366,12 +366,12 @@ export default function ProfileScreen({ onBack, onNavigate }: ProfileScreenProps
               <div>
                 <div className="flex items-center gap-1.5">
                   <h3 className="text-xs font-black text-amber-950 dark:text-amber-200">
-                    {language === 'EN' ? 'Business & Venue Registration' : 'बिज़नेस व वेन्यू रजिस्ट्रेशन'}
+                    {t('prof.bizReg')}
                   </h3>
                   <span className="text-[9px] bg-amber-500 text-white font-black px-1.5 py-0.2 rounded-full uppercase">100% Free</span>
                 </div>
                 <p className="text-[11px] text-amber-800 dark:text-amber-300 font-medium leading-tight mt-0.5">
-                  {language === 'EN' ? 'Register shops, showrooms, malls, service centers & venues' : 'दुकान, शोरूम, मॉल, सर्विस सेंटर व वेन्यू दर्ज करें'}
+                  {t('prof.bizRegDesc')}
                 </p>
               </div>
             </div>
@@ -414,7 +414,7 @@ export default function ProfileScreen({ onBack, onNavigate }: ProfileScreenProps
         >
           <div className="flex-1 pr-3">
             <h3 className="text-xs font-bold text-indigo-950 dark:text-indigo-200 mb-0.5">{t('prof.publicToggle') || "Service Helper Profile Mode"}</h3>
-            <p className="text-[11px] font-medium text-indigo-700 dark:text-indigo-300/90 leading-snug">Skills aur contact details pass ke users ko dikhana enable karein</p>
+            <p className="text-[11px] font-medium text-indigo-700 dark:text-indigo-300/90 leading-snug">{t('prof.publicNotice')}</p>
           </div>
           <div className={`w-11 h-6 rounded-full transition-colors relative flex items-center shrink-0 ${isPublic ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-700'}`}>
              <div className={`w-4 h-4 bg-white rounded-full absolute shadow-xs transition-transform ${isPublic ? 'translate-x-6' : 'translate-x-1'}`}></div>
@@ -455,12 +455,12 @@ export default function ProfileScreen({ onBack, onNavigate }: ProfileScreenProps
           <div className="space-y-1">
             <div className="flex items-center justify-between">
               <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                {language === 'EN' ? 'Email (Google Account)' : 'गूगल ईमेल आईडी'}
+                {t('prof.emailLabel')}
               </label>
               {userEmail && (
                 <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
                   <CheckCircle2 className="w-3 h-3" />
-                  {language === 'EN' ? 'Verified & Synced' : 'वेरिफाइड व सिंक'}
+                  {t('prof.verifiedSynced')}
                 </span>
               )}
             </div>
@@ -528,7 +528,7 @@ export default function ProfileScreen({ onBack, onNavigate }: ProfileScreenProps
               className="text-xs font-bold text-rose-600 hover:text-rose-700 dark:text-rose-400 flex items-center gap-1.5 py-1.5 px-3 rounded-xl border border-rose-200 dark:border-rose-900/60 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-all cursor-pointer"
             >
               <Trash2 className="w-3.5 h-3.5" />
-              <span>{language === 'EN' ? 'Delete Profile & Account' : 'प्रोफाइल डिलीट करें'}</span>
+              <span>{t('prof.deleteBtn')}</span>
             </button>
           </div>
         </div>
@@ -542,7 +542,7 @@ export default function ProfileScreen({ onBack, onNavigate }: ProfileScreenProps
           className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold py-3.5 rounded-2xl transition-all shadow-md shadow-indigo-600/30 flex items-center justify-center gap-2 active:scale-95 text-xs cursor-pointer"
         >
           <CheckCircle2 className="w-4 h-4" />
-          <span>{isSavedNotice ? "Saved Successfully!" : (t('prof.save') || "Save Profile")}</span>
+          <span>{isSavedNotice ? t('prof.savedSuccess') : (t('prof.save') || "Save Profile")}</span>
         </button>
       </div>
 
@@ -571,13 +571,11 @@ export default function ProfileScreen({ onBack, onNavigate }: ProfileScreenProps
             <div>
               <h3 className="text-base font-black text-slate-900 dark:text-white">
                 {isDeleting 
-                  ? (language === 'EN' ? 'Deleting Profile...' : 'प्रोफाइल हटा रहे हैं...')
-                  : (language === 'EN' ? 'Delete Profile Permanently?' : 'प्रोफाइल हमेशा के लिए हटाएं?')}
+                  ? t('prof.deleting')
+                  : t('prof.deleteTitle')}
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                {language === 'EN' 
-                  ? 'Your profile, helper registration, and stored details will be permanently wiped.' 
-                  : 'आपकी प्रोफाइल, हेल्पर रजिस्ट्रेशन और सेव्ड डेटा हमेशा के लिए डिलीट हो जाएगा।'}
+                {t('prof.deleteDesc')}
               </p>
             </div>
             <div className="flex gap-2 pt-1">
@@ -587,7 +585,7 @@ export default function ProfileScreen({ onBack, onNavigate }: ProfileScreenProps
                 onClick={() => setShowDeleteConfirm(false)}
                 className="flex-1 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs hover:bg-slate-100 transition-colors cursor-pointer disabled:opacity-50"
               >
-                {language === 'EN' ? 'Cancel' : 'रद्द करें'}
+                {t('prof.deleteCancel')}
               </button>
               <button
                 type="button"
@@ -622,8 +620,8 @@ export default function ProfileScreen({ onBack, onNavigate }: ProfileScreenProps
                 className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs shadow-md shadow-rose-600/25 active:scale-95 transition-all cursor-pointer disabled:opacity-70"
               >
                 {isDeleting 
-                  ? (language === 'EN' ? 'Deleting...' : 'हटा रहे हैं...')
-                  : (language === 'EN' ? 'Yes, Delete' : 'हाँ, हटाएं')}
+                  ? t('prof.deleting')
+                  : t('prof.deleteConfirm')}
               </button>
             </div>
           </div>

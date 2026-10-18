@@ -20,6 +20,7 @@ import EmployerVacancyModal from '../components/EmployerVacancyModal';
 import JobPortalBrowseModal from '../components/JobPortalBrowseModal';
 import FreeHelperRegisterModal from '../components/FreeHelperRegisterModal';
 import { isGuestUser } from '../lib/authUtils';
+import FeedbackBanner from '../components/FeedbackBanner';
 
 interface HomeScreenProps {
   onNavigate: (screen: Screen) => void;
@@ -657,10 +658,10 @@ export default function HomeScreen({
   const currentLangObj = SUPPORTED_LANGUAGES.find(l => l.code === language) || SUPPORTED_LANGUAGES[0];
 
   return (
-    <div className="flex flex-col h-full min-h-0 bg-violet-50 dark:bg-slate-900 relative overflow-hidden transition-colors">
+    <div className="flex flex-col h-full min-h-0 bg-white dark:bg-slate-900 relative overflow-hidden transition-colors">
       
       {/* Fixed Top Sticky Header Bar (LocoHelp Logo, Language, Sign In, Notifications, Profile, Settings) */}
-      <header className="sticky top-0 z-30 shrink-0 bg-violet-50/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-violet-200/60 dark:border-slate-800 shadow-2xs px-3.5 sm:px-5 py-2.5 sm:py-3 flex items-center justify-between gap-1 max-w-full overflow-hidden">
+      <header className="sticky top-0 z-30 shrink-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-100 dark:border-slate-800 shadow-sm px-3.5 sm:px-5 py-2.5 sm:py-3 flex items-center justify-between gap-1 max-w-full overflow-hidden">
         <button 
           onClick={() => setIsLangModalOpen(true)} 
           className="flex items-center gap-1 px-2.5 sm:px-3 py-1 sm:py-1.5 bg-white dark:bg-slate-800 rounded-full hover:bg-violet-100 dark:hover:bg-slate-700 transition-colors border border-slate-200 dark:border-slate-700 shadow-2xs shrink-0 active:scale-95 cursor-pointer"
@@ -981,8 +982,8 @@ export default function HomeScreen({
             </div>
           </div>
 
-          {/* 5. Active Posts Feed Container (Broadcasts show directly under compact banners) */}
-          <div className="relative bg-white dark:bg-slate-800 border border-violet-200 dark:border-slate-700 rounded-3xl overflow-hidden shadow-xs">
+          {/* 5. Active Posts Feed Container (Broadcasts show directly integrated into the page) */}
+          <div className="relative bg-transparent dark:bg-transparent overflow-hidden">
             {/* Scrollable Intent & Helper List */}
             <div className="relative z-10 p-3 pt-3 space-y-2.5">
               
@@ -1275,10 +1276,13 @@ export default function HomeScreen({
                 <Rocket className="w-3.5 h-3.5 text-white shrink-0" />
                 <span className="font-bold text-[10px] truncate">{t('home.futureVision')}</span>
               </button>
-            </div>
           </div>
+          
+          {/* New Feedback Banner at the bottom of the feed */}
+          <FeedbackBanner />
         </div>
       </div>
+    </div>
 
       {/* User Profile Request Modal */}
       {selectedUserForProfile && (
