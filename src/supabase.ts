@@ -88,7 +88,7 @@ export async function signInWithGoogleInPlace(customEmail?: string, customName?:
 import { sendAuthOtp, verifyAuthOtp } from './api';
 
 /**
- * Triggers 6-Digit Numeric Email OTP sending
+ * Triggers 6-Digit Numeric Email OTP sending via Supabase Auth
  */
 export async function sendEmailOtpViaSupabase(email: string): Promise<{ success: boolean; error?: string; devCode?: string }> {
   const cleanEmail = email.trim().toLowerCase();
@@ -96,44 +96,39 @@ export async function sendEmailOtpViaSupabase(email: string): Promise<{ success:
     return { success: false, error: 'Please enter a valid email address' };
   }
 
-  // 1. Generate 6-digit numeric OTP code via central server
-  let devCode: string | undefined = undefined;
-  try {
-    const serverRes = await sendAuthOtp(cleanEmail, 'email');
-    if (serverRes.success && serverRes.devCode) {
-      devCode = serverRes.devCode;
-    }
-  } catch (e) {
-    console.warn("Server OTP generation note:", e);
-  }
-
-  // 2. Trigger Supabase Auth signInWithOtp for real email delivery
+  // 1. Direct Supabase Auth signInWithOtp for real email OTP dispatch
   try {
     const { error } = await supabase.auth.signInWithOtp({
-      email: cleanEmail,
-      options: {
-        shouldCreateUser: true
-      }
+      email: cleanEmail
     });
 
     if (error) {
       console.warn("Supabase signInWithOtp note:", error.message);
-    } else {
-      console.log("Supabase OTP email dispatched to:", cleanEmail);
+      // Fallback: If Supabase rate limit is reached or SMTP is temporarily unavailable, provide fallback code
+      const serverRes = await sendAuthOtp(cleanEmail, 'email');
+      if (serverRes.success && serverRes.devCode) {
+        return { success: true, devCode: serverRes.devCode };
+      }
+      return { success: false, error: error.message };
     }
+
+    // Email OTP dispatched successfully via Supabase
+    console.log("Supabase OTP dispatched to:", cleanEmail);
+    return { success: true };
   } catch (err: any) {
     console.warn("Supabase signInWithOtp exception:", err);
+    try {
+      const serverRes = await sendAuthOtp(cleanEmail, 'email');
+      if (serverRes.success && serverRes.devCode) {
+        return { success: true, devCode: serverRes.devCode };
+      }
+    } catch (e) {}
+    return { success: false, error: err?.message || 'Failed to send OTP' };
   }
-
-  // Always return success along with the 6-digit code so user is never blocked
-  return { 
-    success: true, 
-    devCode 
-  };
 }
 
 /**
- * Verifies 6-Digit Numeric Email OTP Code
+ * Verifies 6-Digit Numeric Email OTP Code via Supabase Auth
  */
 export async function verifyEmailOtpViaSupabase(email: string, code: string): Promise<{ success: boolean; error?: string; user?: any }> {
   const cleanEmail = email.trim().toLowerCase();
@@ -146,7 +141,7 @@ export async function verifyEmailOtpViaSupabase(email: string, code: string): Pr
     return { success: false, error: 'Please enter the 6-digit OTP code' };
   }
 
-  // 1. Verify 6-digit token using Supabase Auth verifyOtp
+  // 1. Verify via Supabase Auth: supabase.auth.verifyOtp({ email, token, type: 'email' })
   try {
     const { data, error } = await supabase.auth.verifyOtp({
       email: cleanEmail,
@@ -182,7 +177,7 @@ export async function verifyEmailOtpViaSupabase(email: string, code: string): Pr
     console.warn("Supabase verifyOtp exception:", err);
   }
 
-  // 2. Try Backend Server verification
+  // 2. Try Backend Server verification (fallback if server OTP was used)
   try {
     const serverRes = await verifyAuthOtp(cleanEmail, cleanCode, 'email');
     if (serverRes.success && serverRes.user) {
@@ -214,26 +209,24 @@ export async function verifyEmailOtpViaSupabase(email: string, code: string): Pr
     console.warn("Server OTP verify error:", e);
   }
 
-  return { success: false, error: 'Invalid 6-digit OTP code. Please check your code and try again.' };
+  return { success: false, error: 'Invalid OTP code. Please check the code and try again.' };
 }
 
 /**
- * Helper to trigger real Supabase Google OAuth (Handles iframe 403 gracefully)
+ * Helper to trigger real Supabase Google OAuth with dynamic redirectTo
  */
 export async function signInWithGoogle(customEmail?: string, customName?: string) {
-  const origin = window.location.origin;
-
   // If a custom email/name is specified or in-place login is requested
   if (customEmail && customEmail.trim()) {
     return await signInWithGoogleInPlace(customEmail, customName);
   }
 
-  // Trigger official Supabase Google OAuth
+  // Trigger official Supabase Google OAuth with dynamic redirectTo
   try {
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: origin,
+        redirectTo: window.location.origin,
         queryParams: {
           prompt: 'select_account'
         }
@@ -246,8 +239,8 @@ export async function signInWithGoogle(customEmail?: string, customName?: string
     }
 
     if (data?.url) {
-      // Avoid Google 403 iframe error by opening in top window or popup if inside iframe
-      const isIframe = window.self !== window.top;
+      // Avoid Google 403 iframe error by opening in popup if inside an iframe; redirect directly on top-level domain (Hostinger https://locohelp.com)
+      const isIframe = typeof window !== 'undefined' && window.self !== window.top;
       if (isIframe) {
         window.open(data.url, '_blank', 'width=500,height=600,scrollbars=yes');
       } else {
