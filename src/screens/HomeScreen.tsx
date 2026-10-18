@@ -514,61 +514,53 @@ export default function HomeScreen({
     // 2. Real-time Supabase sync
     let unsubscribeSupabase = () => {};
     try {
-      // Fetch initial data from help_requests table as requested
-      Promise.resolve(supabase.from("help_requests").select("*").order("created_at", { ascending: false })).then(({ data }) => {
-        if (data && data.length > 0) {
+      // Fetch initial data from broadcast_posts table
+      const fetchPosts = async () => {
+        const { data, error } = await supabase
+          .from("broadcast_posts")
+          .select("*")
+          .order("created_at", { ascending: false });
+        
+        if (!error && data) {
           const fetched: Intent[] = data.map((d: any) => ({
             id: d.id,
             description: d.description,
             tags: d.tags || [],
-            authorId: d.author_id,
-            authorName: d.author_name || 'Community Member',
+            authorId: d.user_id,
+            authorName: d.user_name || 'Community Member',
+            authorAvatar: d.user_avatar,
             createdAt: d.created_at,
             expiresAt: d.expires_at,
             status: d.status || 'active',
-            hasLocationPin: d.has_location_pin,
-            distance: d.distance || 0.5,
+            hasLocationPin: true,
+            distance: 0.5,
           }));
           mergeAndDeduplicateIntents(fetched);
         }
-      }).catch(() => {});
+      };
 
-      // Subscribe to changes on help_requests table
-      const channel = supabase.channel('public:help_requests')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'help_requests' }, (payload) => {
+      fetchPosts();
+
+      // Subscribe to changes on broadcast_posts table
+      const channel = supabase.channel('public:broadcast_posts')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'broadcast_posts' }, (payload) => {
           if (payload.eventType === 'INSERT') {
             const newItem = payload.new;
             mergeAndDeduplicateIntents([{
               id: newItem.id,
               description: newItem.description,
               tags: newItem.tags || [],
-              authorId: newItem.author_id,
-              authorName: newItem.author_name || 'Community Member',
+              authorId: newItem.user_id,
+              authorName: newItem.user_name || 'Community Member',
+              authorAvatar: newItem.user_avatar,
               createdAt: newItem.created_at,
               expiresAt: newItem.expires_at,
               status: newItem.status || 'active',
-              hasLocationPin: newItem.has_location_pin,
-              distance: newItem.distance || 0.5,
+              hasLocationPin: true,
+              distance: 0.5,
             }]);
           } else {
-            // For updates/deletes, refetch
-            Promise.resolve(supabase.from("help_requests").select("*").order("created_at", { ascending: false })).then(({ data }) => {
-              if (data) {
-                const fetched: Intent[] = data.map((d: any) => ({
-                  id: d.id,
-                  description: d.description,
-                  tags: d.tags || [],
-                  authorId: d.author_id,
-                  authorName: d.author_name || 'Community Member',
-                  createdAt: d.created_at,
-                  expiresAt: d.expires_at,
-                  status: d.status || 'active',
-                  hasLocationPin: d.has_location_pin,
-                  distance: d.distance || 0.5,
-                }));
-                setIntents(fetched);
-              }
-            });
+            fetchPosts();
           }
         })
         .subscribe();
@@ -650,9 +642,11 @@ export default function HomeScreen({
         console.warn("Server delete notice:", err);
       }
       try {
+        await supabase.from('broadcast_posts').delete().eq('id', intentId);
         await supabase.from('intents').delete().eq('id', intentId);
         await supabase.from('help_requests').delete().eq('id', intentId);
         if (targetDesc) {
+          await supabase.from('broadcast_posts').delete().eq('description', targetDesc);
           await supabase.from('intents').delete().eq('description', targetDesc);
           await supabase.from('help_requests').delete().eq('description', targetDesc);
         }

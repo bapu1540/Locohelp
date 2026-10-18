@@ -17,6 +17,7 @@ export type Intent = {
   expiresAt: string;
   hasLocationPin?: boolean;
   isVerifiedUser?: boolean;
+  authorAvatar?: string;
 };
 
 export type ServiceProvider = {
@@ -68,5 +69,39 @@ export interface JobPortalItem {
   createdAt: string;
   reviewedAt?: string;
   adminNotes?: string;
+}
+
+export interface Profile {
+  uid: string;
+  full_name: string;
+  email: string;
+  avatar_url?: string;
+  skills?: string;
+  address?: string;
+  experience?: string;
+  updated_at?: string;
+}
+
+export interface BroadcastPost {
+  id: string;
+  user_id: string;
+  user_name: string;
+  user_avatar?: string;
+  description: string;
+  category: string;
+  tags: string[];
+  status: 'active' | 'completed' | 'cancelled';
+  created_at: string;
+  expires_at?: string;
+}
+
+export interface Message {
+  id: string;
+  sender_id: string;
+  receiver_id: string;
+  content: string;
+  created_at: string;
+  is_read: boolean;
+  intent_id?: string;
 }
 

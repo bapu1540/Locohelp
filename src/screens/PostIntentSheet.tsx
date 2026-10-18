@@ -115,7 +115,7 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
         }
       } catch (e) {}
 
-      // 2. Save directly to Supabase (intents & help_requests)
+      // 2. Save directly to Supabase
       try {
         const payload = {
           id: newIntent.id,
@@ -130,8 +130,24 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
           distance: newIntent.distance,
           radius
         };
+        
+        // Save to original tables for compatibility
         await supabase.from("intents").upsert(payload);
         await supabase.from("help_requests").upsert(payload);
+        
+        // Save to new requested 'broadcast_posts' table
+        await supabase.from("broadcast_posts").insert({
+          id: newIntent.id,
+          user_id: newIntent.authorId,
+          user_name: newIntent.authorName || 'Community Member',
+          user_avatar: profile.photoURL || '',
+          description: newIntent.description,
+          category: newIntent.tags[0]?.replace('#', '') || 'General',
+          tags: newIntent.tags,
+          status: 'active',
+          created_at: newIntent.createdAt,
+          expires_at: newIntent.expiresAt
+        });
       } catch (supabaseErr) {
         console.warn("Supabase broadcast notice:", supabaseErr);
       }

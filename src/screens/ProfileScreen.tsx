@@ -54,12 +54,12 @@ export default function ProfileScreen({ onBack, onNavigate }: ProfileScreenProps
       const userScopedRaw = localStorage.getItem(`locohelp_user_profile_${userKey}`);
       if (userScopedRaw) {
         const userScoped = JSON.parse(userScopedRaw);
-        if (userScoped.name) setUserName(userScoped.name);
+        if (userScoped.name || userScoped.full_name) setUserName(userScoped.name || userScoped.full_name);
         if (userScoped.phone) setUserPhone(userScoped.phone);
         if (userScoped.skills) setUserSkills(userScoped.skills);
-        if (userScoped.exp) setUserExp(userScoped.exp);
+        if (userScoped.exp || userScoped.experience) setUserExp(userScoped.exp || userScoped.experience);
         if (userScoped.address) setUserAddress(userScoped.address);
-        if (userScoped.profilePhoto) setProfilePhoto(userScoped.profilePhoto);
+        if (userScoped.profilePhoto || userScoped.avatar_url) setProfilePhoto(userScoped.profilePhoto || userScoped.avatar_url);
         if (userScoped.myHelperProfile) setMyHelperProfile(userScoped.myHelperProfile);
       } else {
         // Fallbacks for first time login with this phone number
@@ -89,13 +89,13 @@ export default function ProfileScreen({ onBack, onNavigate }: ProfileScreenProps
         if (!userKey || userKey === 'guest') return;
         const data = await getUserProfileFromSupabase(userKey);
         if (data) {
-          if (data.name) setUserName(data.name);
+          if (data.full_name || data.name) setUserName(data.full_name || data.name);
           if (data.phone) setUserPhone(data.phone);
           if (data.email) setUserEmail(data.email);
           if (data.skills) setUserSkills(data.skills);
           if (data.address) setUserAddress(data.address);
-          if (data.exp) setUserExp(data.exp);
-          if (data.profilePhoto) setProfilePhoto(data.profilePhoto);
+          if (data.experience || data.exp) setUserExp(data.experience || data.exp);
+          if (data.avatar_url || data.profilePhoto) setProfilePhoto(data.avatar_url || data.profilePhoto);
           if (data.myHelperProfile) setMyHelperProfile(data.myHelperProfile);
 
           // Save locally under user-scoped key
@@ -135,7 +135,7 @@ export default function ProfileScreen({ onBack, onNavigate }: ProfileScreenProps
           if (userKey && userKey !== 'guest') {
             await saveUserProfileToSupabase({
               uid: userKey,
-              profilePhoto: base64String
+              avatar_url: base64String
             });
           }
         } catch (err) {
@@ -153,15 +153,15 @@ export default function ProfileScreen({ onBack, onNavigate }: ProfileScreenProps
 
     const profileData = {
       uid: userKey,
-      name: userName || (cleanPhone ? `User ${cleanPhone.slice(-4)}` : ''),
+      full_name: userName || (cleanPhone ? `User ${cleanPhone.slice(-4)}` : ''),
       email: userEmail || activeUser?.email || '',
       phone: userPhone || cleanPhone,
       skills: userSkills,
       address: userAddress,
-      exp: userExp,
-      profilePhoto,
+      experience: userExp,
+      avatar_url: profilePhoto,
       myHelperProfile,
-      updatedAt: new Date().toISOString()
+      updated_at: new Date().toISOString()
     };
 
     // 1. Save user-scoped local storage & global active user object

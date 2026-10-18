@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Intent } from '../types';
 import { ArrowLeft, ShieldAlert, CheckCircle2, Send, MapPin, UserCheck, Paperclip, Navigation, Mic, Star, Sparkles, Trash2, Home, ShieldCheck, Check, Camera, Image as ImageIcon, X, Share2, Video, PhoneOff, MicOff, RefreshCw, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { getCurrentUser, supabase } from '../supabase';
+import { getCurrentUser, supabase, sendMessage, getMessages } from '../supabase';
 import { useLanguage } from '../i18n';
 import UserProfileModal from './UserProfileModal';
 import LoginPromptModal from '../components/LoginPromptModal';
@@ -119,12 +119,23 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
 
     const syncChat = async () => {
       try {
-        const serverMessages = await fetchChatMessages(intent.id);
-        if (isMounted && Array.isArray(serverMessages) && serverMessages.length > 0) {
+        const activeUser = getCurrentUser();
+        if (!activeUser || activeUser.uid === 'guest_user') return;
+        
+        const serverMessages = await getMessages(activeUser.uid, intent.authorId);
+        if (isMounted && Array.isArray(serverMessages)) {
           setMessages(prev => {
             const map = new Map<string, any>();
             prev.forEach(m => map.set(m.id, m));
-            serverMessages.forEach(m => map.set(m.id, m));
+            serverMessages.forEach(m => {
+              map.set(m.id, {
+                id: m.id,
+                text: m.content,
+                type: 'text',
+                authorId: m.sender_id,
+                createdAt: m.created_at
+              });
+            });
             const list = Array.from(map.values()) as any[];
             list.sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
             return list;
@@ -134,9 +145,6 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
     };
 
     syncChat();
-    const pollInterval = setInterval(() => {
-      if (!document.hidden) syncChat();
-    }, 8000);
 
     let unsubscribeSupabase = () => {};
     try {
@@ -148,9 +156,9 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
               if (prev.some(m => m.id === newMsg.id)) return prev;
               return [...prev, {
                 id: newMsg.id,
-                text: newMsg.text,
+                text: newMsg.content,
                 type: newMsg.type || 'text',
-                authorId: newMsg.author_id,
+                authorId: newMsg.sender_id,
                 attachmentUrl: newMsg.attachment_url,
                 createdAt: newMsg.created_at
               }];
@@ -166,7 +174,6 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
 
     return () => {
       isMounted = false;
-      clearInterval(pollInterval);
       unsubscribeSupabase();
     };
   }, [intent]);
@@ -198,16 +205,10 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
     // Server & Supabase sync
     if (intent?.id) {
       try {
-        await sendChatMessage(intent.id, messageData);
-        await supabase.from("messages").insert({
-          id: messageData.id,
-          intent_id: intent.id,
-          text: messageData.text,
-          type: messageData.type,
-          author_id: activeUid,
-          attachment_url: messageData.attachmentUrl,
-          created_at: messageData.createdAt
-        });
+        // Also keep legacy sync for compatibility
+        sendChatMessage(intent.id, messageData).catch(() => {});
+        
+        await sendMessage(activeUid, intent.authorId, trimmed || "📸 Attachment", intent.id);
       } catch (e) {}
     }
 
