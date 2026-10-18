@@ -4,7 +4,7 @@ import { Settings, Bell, Zap, Search, Globe, Clock, MapPin, Rocket, User, Trophy
 import { motion, AnimatePresence } from 'motion/react';
 import PostIntentSheet from './PostIntentSheet';
 import { useLanguage, SUPPORTED_LANGUAGES } from '../i18n';
-import { getCurrentUser, supabase } from '../supabase';
+import { getCurrentUser, supabase, signInWithGoogle } from '../supabase';
 import { CATEGORIES, MASTER_CATEGORIES, getCategoryName, getFreeHelperProfiles } from '../data/categories';
 import UserProfileModal from './UserProfileModal';
 import AppGuideModal from './AppGuideModal';
@@ -77,9 +77,13 @@ export default function HomeScreen({
         };
         setActiveUser(u);
         try {
-          localStorage.setItem('locohelp_user', JSON.stringify(u));
-          localStorage.setItem('locohelp_logged_in', 'true');
-        } catch (e) {}
+          if (u) {
+            localStorage.setItem('locohelp_user', JSON.stringify(u));
+            localStorage.setItem('locohelp_logged_in', 'true');
+          }
+        } catch (e) {
+          console.error("Home session sync error:", e);
+        }
       } else {
         setActiveUser(getCurrentUser());
       }
@@ -427,9 +431,13 @@ export default function HomeScreen({
       let deletedIds: string[] = [];
       let deletedDescs: string[] = [];
       try {
-        deletedIds = JSON.parse(localStorage.getItem('locohelp_deleted_posts') || '[]');
-        deletedDescs = JSON.parse(localStorage.getItem('locohelp_deleted_descs') || '[]');
-      } catch (e) {}
+        const idRaw = localStorage.getItem('locohelp_deleted_posts');
+        if (idRaw) deletedIds = JSON.parse(idRaw);
+        const descRaw = localStorage.getItem('locohelp_deleted_descs');
+        if (descRaw) deletedDescs = JSON.parse(descRaw);
+      } catch (e) {
+        console.warn("Deleted posts sync error:", e);
+      }
 
       const all = [...incoming, ...prev];
       const seenIds = new Set<string>();
@@ -506,8 +514,8 @@ export default function HomeScreen({
     // 2. Real-time Supabase sync
     let unsubscribeSupabase = () => {};
     try {
-      // Fetch initial data
-      Promise.resolve(supabase.from("intents").select("*").order("created_at", { ascending: false })).then(({ data }) => {
+      // Fetch initial data from help_requests table as requested
+      Promise.resolve(supabase.from("help_requests").select("*").order("created_at", { ascending: false })).then(({ data }) => {
         if (data && data.length > 0) {
           const fetched: Intent[] = data.map((d: any) => ({
             id: d.id,
@@ -525,9 +533,9 @@ export default function HomeScreen({
         }
       }).catch(() => {});
 
-      // Subscribe to changes
-      const channel = supabase.channel('public:intents')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'intents' }, (payload) => {
+      // Subscribe to changes on help_requests table
+      const channel = supabase.channel('public:help_requests')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'help_requests' }, (payload) => {
           if (payload.eventType === 'INSERT') {
             const newItem = payload.new;
             mergeAndDeduplicateIntents([{
@@ -544,9 +552,8 @@ export default function HomeScreen({
             }]);
           } else {
             // For updates/deletes, refetch
-            Promise.resolve(supabase.from("intents").select("*").order("created_at", { ascending: false })).then(({ data }) => {
+            Promise.resolve(supabase.from("help_requests").select("*").order("created_at", { ascending: false })).then(({ data }) => {
               if (data) {
-                // Simplified refetch - just update the whole list
                 const fetched: Intent[] = data.map((d: any) => ({
                   id: d.id,
                   description: d.description,
@@ -644,8 +651,10 @@ export default function HomeScreen({
       }
       try {
         await supabase.from('intents').delete().eq('id', intentId);
+        await supabase.from('help_requests').delete().eq('id', intentId);
         if (targetDesc) {
           await supabase.from('intents').delete().eq('description', targetDesc);
+          await supabase.from('help_requests').delete().eq('description', targetDesc);
         }
       } catch (err) {}
     })();
@@ -673,16 +682,7 @@ export default function HomeScreen({
           {isGuestUser() ? (
             <button
               onClick={() => {
-                setLoginPromptTitle({
-                  en: 'Sign In with Google',
-                  hi: 'गूगल से लॉगिन करें'
-                });
-                setLoginPromptDesc({
-                  en: 'Sign in with Google in 1 click to post broadcasts, chat, or create your verified local profile.',
-                  hi: 'ब्रॉडकास्ट पोस्ट करने, चैट करने और अपनी प्रोफाइल बनाने के लिए गूगल से 1-क्लिक में साइन-इन करें।'
-                });
-                setLoginSuccessAction(undefined);
-                setIsLoginPromptOpen(true);
+                signInWithGoogle().catch(err => console.error(err));
               }}
               className="flex items-center gap-1.5 px-3 py-1 sm:py-1.5 bg-white dark:bg-slate-800 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 transition-all border border-indigo-200 dark:border-indigo-900/60 shadow-xs active:scale-95 cursor-pointer text-slate-800 dark:text-white"
               title="Sign in with Google"

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Screen } from '../types';
 import { ArrowLeft, Shield, Map, LogOut, ChevronRight, LifeBuoy, User, ShieldAlert, Sun, Moon } from 'lucide-react';
 import { useLanguage } from '../i18n';
+import { logoutUser } from '../supabase';
 
 export default function SettingsMenu({ onNavigate, onBack }: { onNavigate: (s: Screen) => void, onBack: () => void }) {
   const { t } = useLanguage();
@@ -108,22 +109,42 @@ export default function SettingsMenu({ onNavigate, onBack }: { onNavigate: (s: S
           />
         </div>
 
-        <button 
-          onClick={() => {
-            try {
-              localStorage.removeItem('locohelp_user');
-              localStorage.removeItem('locohelp_logged_in');
-              localStorage.removeItem('locohelp_last_screen');
-            } catch (e) {}
-            onNavigate('login');
-          }}
-          className="w-full flex items-center justify-between p-4 bg-[#FCFAF5] dark:bg-slate-800 border border-rose-200 dark:border-rose-900/50 rounded-2xl active:scale-[0.98] transition-all hover:bg-rose-50 dark:hover:bg-rose-950/20 shadow-sm cursor-pointer"
-        >
-          <div className="flex items-center gap-3">
-            <LogOut className="w-5 h-5 text-rose-500" />
-            <span className="text-rose-600 dark:text-rose-400 font-bold tracking-wide text-xs">{t('set.logout') || 'Log Out'}</span>
+        <div className="pt-4 border-t border-[#EAE6DC] dark:border-slate-700 space-y-3">
+          <button 
+            onClick={() => {
+              logoutUser().finally(() => {
+                onBack();
+                window.location.reload();
+              });
+            }}
+            className="w-full flex items-center justify-between p-4 bg-[#FCFAF5] dark:bg-slate-800 border border-rose-200 dark:border-rose-900/50 rounded-2xl active:scale-[0.98] transition-all hover:bg-rose-50 dark:hover:bg-rose-950/20 shadow-sm cursor-pointer"
+          >
+            <div className="flex items-center gap-3">
+              <LogOut className="w-5 h-5 text-rose-500" />
+              <span className="text-rose-600 dark:text-rose-400 font-bold tracking-wide text-xs">{t('set.logout') || 'Log Out'}</span>
+            </div>
+          </button>
+
+          {/* Emergency Hard Reset */}
+          <div className="p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 rounded-2xl">
+            <h4 className="text-[10px] font-black uppercase text-amber-700 dark:text-amber-500 mb-1 flex items-center gap-1">
+              <ShieldAlert className="w-3 h-3" /> Emergency Hard Reset
+            </h4>
+            <p className="text-[9px] text-amber-600 dark:text-amber-400 font-medium leading-tight mb-2">
+              If your profile is stuck with old dummy data, use this button to completely wipe all local cache and start fresh.
+            </p>
+            <button
+              onClick={() => {
+                localStorage.clear();
+                sessionStorage.clear();
+                window.location.reload();
+              }}
+              className="w-full py-2 bg-amber-600 text-white font-black text-[10px] rounded-lg shadow-xs active:scale-95 transition-all cursor-pointer"
+            >
+              CLEAR ALL DATA & REFRESH
+            </button>
           </div>
-        </button>
+        </div>
       </div>
     </div>
   );

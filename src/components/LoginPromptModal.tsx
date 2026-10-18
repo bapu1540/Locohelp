@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Lock, X, Sparkles, ArrowRight, ShieldCheck, CheckCircle2, User } from 'lucide-react';
 import { useLanguage } from '../i18n';
-import { supabase, saveUserProfileToSupabase } from '../supabase';
+import { supabase, signInWithGoogle } from '../supabase';
 
 interface LoginPromptModalProps {
   isOpen: boolean;
@@ -29,42 +29,14 @@ export default function LoginPromptModal({
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Cached previous Google account for 1-tap ease
-  const cachedEmail = typeof window !== 'undefined' ? localStorage.getItem('locohelp_last_logged_in_email') : null;
-  const cachedName = typeof window !== 'undefined' ? localStorage.getItem('locohelp_last_logged_in_name') : null;
-  const cachedPhoto = typeof window !== 'undefined' ? localStorage.getItem('locohelp_last_logged_in_photo') : null;
-
   if (!isOpen) return null;
 
-  const handleGoogleSignIn = async (hintEmail?: string) => {
+  const handleGoogleSignIn = async () => {
     setIsLoading(true);
     setErrorMessage(null);
 
     try {
-      const userEmail = hintEmail || cachedEmail || 'chauhansanjay932@gmail.com';
-      const userName = cachedName || userEmail.split('@')[0] || 'Verified Google Member';
-      const googleUser = {
-        uid: 'google_' + Date.now().toString(36),
-        displayName: userName,
-        email: userEmail,
-        photoURL: cachedPhoto || 'https://lh3.googleusercontent.com/a/default-user'
-      };
-
-      localStorage.setItem('locohelp_user', JSON.stringify(googleUser));
-      localStorage.setItem('locohelp_logged_in', 'true');
-      localStorage.setItem('locohelp_last_logged_in_email', userEmail);
-      localStorage.setItem('locohelp_last_logged_in_name', userName);
-
-      try {
-        await supabase.from('users').upsert(googleUser);
-        await supabase.from('profiles').upsert(googleUser);
-      } catch (e) {}
-
-      setIsLoading(false);
-      onClose();
-      if (onSuccess) {
-        onSuccess();
-      }
+      await signInWithGoogle();
     } catch (err: any) {
       setIsLoading(false);
       setErrorMessage(err?.message || (language === 'EN' ? 'Could not complete Google Sign-in' : 'गूगल लॉगिन पूरा नहीं हो सका'));
@@ -138,31 +110,7 @@ export default function LoginPromptModal({
             </div>
           )}
 
-          {/* Cached 1-Tap Account Quick Button (if available) */}
-          {cachedEmail && (
-            <button
-              onClick={() => handleGoogleSignIn(cachedEmail)}
-              disabled={isLoading}
-              className="w-full bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700 border-2 border-indigo-200 dark:border-indigo-800/60 p-2.5 rounded-2xl flex items-center justify-between text-left transition-all active:scale-[0.98] cursor-pointer"
-            >
-              <div className="flex items-center gap-2.5 min-w-0">
-                {cachedPhoto ? (
-                  <img src={cachedPhoto} alt="" className="w-8 h-8 rounded-full border border-slate-300 dark:border-slate-600 shrink-0" />
-                ) : (
-                  <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300 flex items-center justify-center font-black text-xs shrink-0">
-                    <User className="w-4 h-4" />
-                  </div>
-                )}
-                <div className="min-w-0">
-                  <p className="text-xs font-bold text-slate-900 dark:text-white truncate">{cachedName || 'Google Account'}</p>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">{cachedEmail}</p>
-                </div>
-              </div>
-              <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 px-2 py-1 rounded-lg shrink-0">
-                {language === 'EN' ? 'Tap to login' : 'लॉगिन करें'}
-              </span>
-            </button>
-          )}
+
 
           {/* Main Google Sign-in Action Button */}
           <div className="w-full space-y-2 pt-1">

@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Screen, Intent } from './types';
 import { LanguageProvider, useLanguage, SUPPORTED_LANGUAGES } from './i18n';
-import { supabase } from './supabase';
-import LoginScreen from './screens/LoginScreen';
+import { supabase, logoutUser } from './supabase';
+// import LoginScreen from './screens/LoginScreen';
 import HomeScreen from './screens/HomeScreen';
 import ChatScreen from './screens/ChatScreen';
 import NotificationsScreen from './screens/NotificationsScreen';
@@ -71,26 +71,35 @@ function AppContent() {
   // Listen to Supabase Auth state for seamless persistent login
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (session?.user) {
-        const u = session.user;
-        const userData = {
-          uid: u.id,
-          displayName: u.user_metadata?.full_name || u.email?.split('@')[0] || 'Supabase User',
-          email: u.email || '',
-          photoURL: u.user_metadata?.avatar_url || 'https://lh3.googleusercontent.com/a/default-user',
-        };
-        try {
-          localStorage.setItem('locohelp_user', JSON.stringify(userData));
-          localStorage.setItem('locohelp_logged_in', 'true');
-          if (u.email) {
-            localStorage.setItem('locohelp_last_logged_in_email', u.email);
-            localStorage.setItem('locohelp_last_logged_in_name', userData.displayName);
-            if (userData.photoURL) localStorage.setItem('locohelp_last_logged_in_photo', userData.photoURL);
+      try {
+        if (session?.user) {
+          const u = session.user;
+          const userData = {
+            uid: u.id,
+            displayName: u.user_metadata?.full_name || u.email?.split('@')[0] || 'Supabase User',
+            email: u.email || '',
+            photoURL: u.user_metadata?.avatar_url || 'https://lh3.googleusercontent.com/a/default-user',
+          };
+          
+          if (userData && userData.uid) {
+            localStorage.setItem('locohelp_user', JSON.stringify(userData));
+            localStorage.setItem('locohelp_logged_in', 'true');
+            if (u.email) {
+              localStorage.setItem('locohelp_last_logged_in_email', u.email);
+              localStorage.setItem('locohelp_last_logged_in_name', userData.displayName);
+              if (userData.photoURL) localStorage.setItem('locohelp_last_logged_in_photo', userData.photoURL);
+            }
           }
-        } catch (e) {}
 
-        // Auto-advance if currently on login screen
-        setCurrentScreen((prev) => (prev === 'login' ? 'home' : prev));
+          // Auto-advance if currently on login screen (though login screen is currently disabled)
+          setCurrentScreen((prev) => (prev === 'login' as any ? 'home' : prev));
+        } else if (event === 'SIGNED_OUT') {
+          // Clear local state if explicitly signed out
+          localStorage.removeItem('locohelp_user');
+          localStorage.removeItem('locohelp_logged_in');
+        }
+      } catch (e) {
+        console.error("Session sync error:", e);
       }
     });
 
@@ -101,24 +110,14 @@ function AppContent() {
 
   const navigate = (screen: Screen) => {
     setPrevScreen(currentScreen);
-    if (screen === 'login') {
-      // User requested logout: clear credentials and remain on home screen as a free guest
-      try {
-        localStorage.removeItem('locohelp_logged_in');
-        localStorage.removeItem('locohelp_user');
-        localStorage.removeItem('locohelp_last_logged_in_email');
-        localStorage.removeItem('locohelp_last_logged_in_name');
-        localStorage.removeItem('locohelp_last_logged_in_photo');
-        supabase.auth.signOut().catch(() => {});
-      } catch (e) {}
-      setCurrentScreen('home');
+    if (screen === 'login' as any) {
+      logoutUser().then(() => {
+        setCurrentScreen('home');
+      });
       return;
     }
 
     setCurrentScreen(screen);
-    try {
-      localStorage.setItem('locohelp_logged_in', 'true');
-    } catch (e) {}
   };
 
   const topHelpers = getFreeHelperProfiles().slice(0, 4);
@@ -133,7 +132,7 @@ function AppContent() {
           /* MOBILE FRAME MODE */
           <div className="w-full max-w-[420px] bg-violet-50 dark:bg-slate-900 sm:rounded-[36px] sm:shadow-2xl sm:border sm:border-slate-300 dark:sm:border-slate-800 relative overflow-hidden flex flex-col h-full max-h-[850px] text-slate-900 dark:text-slate-100">
             {/* Active Screen */}
-            {currentScreen === 'login' && <LoginScreen onLogin={() => navigate('home')} />}
+            {/* {currentScreen === 'login' && <LoginScreen onLogin={() => navigate('home')} />} */}
             {currentScreen === 'home' && (
               <HomeScreen 
                 onNavigate={navigate} 
@@ -174,7 +173,7 @@ function AppContent() {
           <div className="w-full max-w-3xl mx-auto px-0 sm:px-2 overflow-x-hidden h-full flex flex-col">
             {/* Main Screen Container */}
             <div className="w-full bg-violet-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 rounded-none sm:rounded-3xl border-0 sm:border border-slate-300 dark:border-slate-800 shadow-xl overflow-hidden h-full max-h-[880px] min-h-0 relative flex flex-col">
-              {currentScreen === 'login' && <LoginScreen onLogin={() => navigate('home')} />}
+              {/* {currentScreen === 'login' && <LoginScreen onLogin={() => navigate('home')} />} */}
               {currentScreen === 'home' && (
                 <HomeScreen 
                   onNavigate={navigate} 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, User, Camera, MapPin, Briefcase, Award, CheckCircle2, Star, Wrench, ChevronRight, Trash2, Store, Mail, CloudCheck, Sparkles } from 'lucide-react';
 import { useLanguage } from '../i18n';
-import { getCurrentUser, saveUserProfileToSupabase, getUserProfileFromSupabase, supabase } from '../supabase';
+import { getCurrentUser, saveUserProfileToSupabase, getUserProfileFromSupabase, supabase, logoutUser, signInWithGoogle } from '../supabase';
 import FreeHelperRegisterModal from '../components/FreeHelperRegisterModal';
 import RegisterShopModal from '../components/RegisterShopModal';
 
@@ -20,7 +20,7 @@ export default function ProfileScreen({ onBack, onNavigate }: ProfileScreenProps
   const [userEmail, setUserEmail] = useState(() => {
     try {
       const activeUser = getCurrentUser();
-      return activeUser?.email || localStorage.getItem('locohelp_last_logged_in_email') || '';
+      return activeUser?.email || '';
     } catch (e) {
       return '';
     }
@@ -34,6 +34,7 @@ export default function ProfileScreen({ onBack, onNavigate }: ProfileScreenProps
   const [isRegisterShopOpen, setIsRegisterShopOpen] = useState(false);
   const [myHelperProfile, setMyHelperProfile] = useState<any>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -152,8 +153,8 @@ export default function ProfileScreen({ onBack, onNavigate }: ProfileScreenProps
 
     const profileData = {
       uid: userKey,
-      name: userName || (cleanPhone ? `User ${cleanPhone.slice(-4)}` : 'Local User'),
-      email: userEmail || activeUser?.email || localStorage.getItem('locohelp_last_logged_in_email') || '',
+      name: userName || (cleanPhone ? `User ${cleanPhone.slice(-4)}` : ''),
+      email: userEmail || activeUser?.email || '',
       phone: userPhone || cleanPhone,
       skills: userSkills,
       address: userAddress,
@@ -205,22 +206,7 @@ export default function ProfileScreen({ onBack, onNavigate }: ProfileScreenProps
 
   const handleGoogleSignInProfile = async () => {
     try {
-      const current = getCurrentUser();
-      const userEmail = current?.email || 'chauhansanjay932@gmail.com';
-      const userName = current?.displayName || userEmail.split('@')[0] || 'Google User';
-      const googleUser = {
-        uid: current?.uid && current.uid !== 'guest_user' ? current.uid : 'google_' + Date.now().toString(36),
-        displayName: userName,
-        email: userEmail,
-        photoURL: current?.photoURL || 'https://lh3.googleusercontent.com/a/default-user'
-      };
-      localStorage.setItem('locohelp_user', JSON.stringify(googleUser));
-      localStorage.setItem('locohelp_logged_in', 'true');
-      localStorage.setItem('locohelp_last_logged_in_email', userEmail);
-      localStorage.setItem('locohelp_last_logged_in_name', userName);
-      await saveUserProfileToSupabase(googleUser);
-      setUserName(userName);
-      setUserEmail(userEmail);
+      await signInWithGoogle();
     } catch (e) {
       console.warn("Google sign-in from profile notice:", e);
     }
@@ -272,6 +258,19 @@ export default function ProfileScreen({ onBack, onNavigate }: ProfileScreenProps
           </div>
         )}
 
+        {/* Emergency Reset for Dummy Profile */}
+        {!userEmail && userName === 'user' && (
+          <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 rounded-2xl p-3 text-center">
+             <p className="text-[10px] text-amber-700 dark:text-amber-500 font-bold mb-2">Old dummy data detected?</p>
+             <button 
+               onClick={() => { localStorage.clear(); window.location.reload(); }}
+               className="text-[10px] font-black bg-amber-600 text-white px-4 py-1.5 rounded-lg active:scale-95 cursor-pointer"
+             >
+               WIPE ALL DATA & START FRESH
+             </button>
+          </div>
+        )}
+
         {/* Profile Card: Avatar on TOP RIGHT CORNER, Rating & Info aligned to the FAR LEFT */}
         <div className="bg-white dark:bg-slate-850 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-4 shadow-xs">
           <div className="flex items-start justify-between gap-3">
@@ -279,12 +278,12 @@ export default function ProfileScreen({ onBack, onNavigate }: ProfileScreenProps
             {/* LEFT SIDE: Name, Phone & Rating aligned strictly to the left */}
             <div className="flex flex-col text-left min-w-0 pr-2">
               <h1 className="text-lg font-black text-slate-900 dark:text-white tracking-tight truncate">
-                {userName || "User"}
+                {userName || "Profile"}
               </h1>
               
               {/* Phone number */}
               <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">
-                +91 {userPhone || "9876543210"}
+                {userPhone ? `+91 ${userPhone}` : ""}
               </p>
 
               {/* Logged in Google Email - Requirement 3 */}
@@ -556,11 +555,13 @@ export default function ProfileScreen({ onBack, onNavigate }: ProfileScreenProps
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/65 backdrop-blur-xs">
           <div className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-3xl p-5 shadow-2xl border border-rose-200 dark:border-rose-900/60 text-center space-y-4">
             <div className="w-12 h-12 rounded-2xl bg-rose-100 dark:bg-rose-950/60 text-rose-600 mx-auto flex items-center justify-center text-2xl shadow-inner">
-              🗑️
+              {isDeleting ? '⏳' : '🗑️'}
             </div>
             <div>
               <h3 className="text-base font-black text-slate-900 dark:text-white">
-                {language === 'EN' ? 'Delete Profile Permanently?' : 'प्रोफाइल हमेशा के लिए हटाएं?'}
+                {isDeleting 
+                  ? (language === 'EN' ? 'Deleting Profile...' : 'प्रोफाइल हटा रहे हैं...')
+                  : (language === 'EN' ? 'Delete Profile Permanently?' : 'प्रोफाइल हमेशा के लिए हटाएं?')}
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                 {language === 'EN' 
@@ -571,60 +572,47 @@ export default function ProfileScreen({ onBack, onNavigate }: ProfileScreenProps
             <div className="flex gap-2 pt-1">
               <button
                 type="button"
+                disabled={isDeleting}
                 onClick={() => setShowDeleteConfirm(false)}
-                className="flex-1 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs hover:bg-slate-100 transition-colors cursor-pointer"
+                className="flex-1 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs hover:bg-slate-100 transition-colors cursor-pointer disabled:opacity-50"
               >
                 {language === 'EN' ? 'Cancel' : 'रद्द करें'}
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  const activeUser = getCurrentUser();
-                  const cleanPhone = userPhone.replace(/\D/g, '') || activeUser?.phone || '';
-                  const userKey = activeUser?.uid || (cleanPhone ? `phone_${cleanPhone}` : 'guest');
-
-                  // 1. Instantly purge all local session and profile keys
+                disabled={isDeleting}
+                onClick={async () => {
                   try {
-                    localStorage.removeItem(`locohelp_user_profile_${userKey}`);
-                    localStorage.removeItem('locohelp_user');
-                    localStorage.removeItem('locohelp_logged_in');
-                    localStorage.removeItem('locohelp_last_logged_in_email');
-                    localStorage.removeItem('locohelp_last_logged_in_name');
-                    localStorage.removeItem('locohelp_last_logged_in_photo');
-                    localStorage.removeItem('locohelp_profile_name');
-                    localStorage.removeItem('locohelp_profile_photo');
-                    localStorage.removeItem('locohelp_profile_skills');
-                    localStorage.removeItem('locohelp_profile_address');
-                    localStorage.removeItem('locohelp_profile_exp');
-                    localStorage.removeItem('locohelp_my_helper_profile');
-                    localStorage.removeItem('locohelp_my_post_ids');
+                    setIsDeleting(true);
+                    const activeUser = getCurrentUser();
+                    const cleanPhone = (userPhone || '').replace(/\D/g, '') || activeUser?.phone || '';
+                    const userKey = activeUser?.uid || (cleanPhone ? `phone_${cleanPhone}` : 'guest');
 
-                    // Filter out helper profile from local free helpers list
-                    const existingHelpersStr = localStorage.getItem('locohelp_free_helpers');
-                    if (existingHelpersStr) {
-                      const existingHelpers = JSON.parse(existingHelpersStr);
-                      const filtered = existingHelpers.filter((h: any) => h.phone !== cleanPhone && h.id !== userKey);
-                      localStorage.setItem('locohelp_free_helpers', JSON.stringify(filtered));
+                    // 1. Clear cloud data
+                    if (userKey && userKey !== 'guest_user') {
+                      try {
+                        await supabase.from("profiles").delete().eq("uid", userKey);
+                        await supabase.from("users").delete().eq("uid", userKey);
+                      } catch (err) {
+                        console.warn("Cloud delete error (continuing):", err);
+                      }
                     }
-                  } catch (e) {}
 
-                  // 2. Non-blocking background Supabase deletion
-                  if (userKey && userKey !== 'guest') {
-                    Promise.resolve(supabase.from("users").delete().eq("uid", userKey)).then(() => {}).catch(err => console.warn("Supabase delete notice:", err));
-                  }
-
-                  setShowDeleteConfirm(false);
-
-                  // 3. Immediately switch screen to Login
-                  if (onNavigate) {
-                    onNavigate('login');
-                  } else {
-                    onBack();
+                    // 2. Trigger full logout and storage purge
+                    await logoutUser();
+                    
+                    // 3. Force full reload
+                    window.location.href = window.location.origin;
+                  } catch (err) {
+                    console.error("Deletion failed:", err);
+                    window.location.reload();
                   }
                 }}
-                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs shadow-md shadow-rose-600/25 active:scale-95 transition-all cursor-pointer"
+                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs shadow-md shadow-rose-600/25 active:scale-95 transition-all cursor-pointer disabled:opacity-70"
               >
-                {language === 'EN' ? 'Yes, Delete' : 'हाँ, हटाएं'}
+                {isDeleting 
+                  ? (language === 'EN' ? 'Deleting...' : 'हटा रहे हैं...')
+                  : (language === 'EN' ? 'Yes, Delete' : 'हाँ, हटाएं')}
               </button>
             </div>
           </div>

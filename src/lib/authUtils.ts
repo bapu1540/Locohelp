@@ -10,9 +10,13 @@ export function isGuestUser(): boolean {
   try {
     const raw = localStorage.getItem('locohelp_user');
     if (raw) {
-      const u = JSON.parse(raw);
-      if (u.email && !u.uid?.startsWith('guest_') && u.isGuest !== true) {
-        return false;
+      try {
+        const u = JSON.parse(raw);
+        if (u && u.email && !u.uid?.startsWith('guest_') && u.isGuest !== true) {
+          return false;
+        }
+      } catch (err) {
+        console.warn("isGuestUser parse error:", err);
       }
     }
 
@@ -35,15 +39,21 @@ export function getUserProfile(): { uid: string; displayName: string; email: str
   try {
     const raw = localStorage.getItem('locohelp_user');
     if (raw) {
-      const parsed = JSON.parse(raw);
-      const isGuest = !parsed.email && (parsed.uid?.startsWith('guest_') || parsed.isGuest === true);
-      return {
-        uid: parsed.uid || 'user_' + Math.random().toString(36).substring(2, 8),
-        displayName: parsed.displayName || parsed.email?.split('@')[0] || 'Community Member',
-        email: parsed.email || '',
-        photoURL: parsed.photoURL || undefined,
-        isGuest
-      };
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed) {
+          const isGuest = !parsed.email && (parsed.uid?.startsWith('guest_') || parsed.isGuest === true);
+          return {
+            uid: parsed.uid || 'user_' + Math.random().toString(36).substring(2, 8),
+            displayName: parsed.displayName || parsed.email?.split('@')[0] || 'Community Member',
+            email: parsed.email || '',
+            photoURL: parsed.photoURL || undefined,
+            isGuest
+          };
+        }
+      } catch (err) {
+        console.warn("getUserProfile parse error:", err);
+      }
     }
 
     // 2. Check fallback recorded email

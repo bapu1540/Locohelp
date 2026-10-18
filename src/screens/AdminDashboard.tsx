@@ -73,7 +73,7 @@ const PHOTO_PRESETS = [
 
 const EMOJI_OPTIONS = ['🏪', '📱', '🥬', '🚗', '👗', '☕', '💊', '🛠️', '🛋️', '✂️', '🛍️', '💎', '🍰'];
 
-const MASTER_ADMIN_EMAIL = "chauhansanjay932@gmail.com";
+const MASTER_ADMIN_EMAIL = "admin@locohelp.local";
 const DEFAULT_ADMIN_PASSWORD = "Bapu@1540";
 
 export default function AdminDashboard({ onBack }: AdminDashboardProps) {
@@ -383,6 +383,7 @@ export default function AdminDashboard({ onBack }: AdminDashboardProps) {
       // 3. Delete from Supabase if exists
       try {
         await supabase.from("intents").delete().eq("id", id);
+        await supabase.from("help_requests").delete().eq("id", id);
       } catch (e) {}
 
       // 4. Update UI
@@ -633,7 +634,7 @@ export default function AdminDashboard({ onBack }: AdminDashboardProps) {
               </h1>
               <span className="text-[10px] bg-amber-500 text-slate-950 px-2 py-0.5 rounded-full font-black uppercase tracking-wider flex items-center gap-1 shadow-xs">
                 <span>👑</span>
-                <span>chauhansanjay932@gmail.com</span>
+                <span>Master Admin</span>
               </span>
             </div>
             <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
