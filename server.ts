@@ -1,6 +1,7 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
+import crypto from "crypto";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import nodemailer from "nodemailer";
@@ -83,6 +84,81 @@ if (!fs.existsSync(PROFILES_FILE)) writeJsonFile(PROFILES_FILE, {});
 if (!fs.existsSync(SHOPS_FILE)) writeJsonFile(SHOPS_FILE, []);
 if (!fs.existsSync(HELPERS_FILE)) writeJsonFile(HELPERS_FILE, []);
 if (!fs.existsSync(VERIFICATIONS_FILE)) writeJsonFile(VERIFICATIONS_FILE, []);
+const AUTH_USERS_FILE = path.join(DATA_DIR, "auth_users.json");
+if (!fs.existsSync(AUTH_USERS_FILE)) writeJsonFile(AUTH_USERS_FILE, {});
+
+// Session Security & JWT Token Generator (30 Days Persistence)
+function createSessionToken(payload: Record<string, any>): string {
+  const secret = process.env.JWT_SECRET || "locohelp-secure-jwt-key-2026";
+  const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
+  const body = Buffer.from(JSON.stringify({ ...payload, exp: Date.now() + 30 * 24 * 3600 * 1000 })).toString("base64url");
+  const signature = crypto.createHmac("sha256", secret).update(`${header}.${body}`).digest("base64url");
+  return `${header}.${body}.${signature}`;
+}
+
+function verifySessionToken(token: string): any | null {
+  try {
+    const [header, body, signature] = token.split(".");
+    if (!header || !body || !signature) return null;
+    const secret = process.env.JWT_SECRET || "locohelp-secure-jwt-key-2026";
+    const expected = crypto.createHmac("sha256", secret).update(`${header}.${body}`).digest("base64url");
+    if (expected !== signature) return null;
+    const payload = JSON.parse(Buffer.from(body, "base64url").toString());
+    if (payload.exp && Date.now() > payload.exp) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+// Brevo (Sendinblue) Transactional REST API Client (Zero-dependency native fetch)
+async function sendEmailViaBrevo(toEmail: string, subject: string, htmlContent: string, textContent: string): Promise<boolean> {
+  const brevoApiKey = (process.env.BREVO_API_KEY || process.env.BREVO_KEY || process.env.SENDINBLUE_API_KEY || "").trim();
+  const senderEmail = (process.env.BREVO_SENDER_EMAIL || process.env.SMTP_USER || "chauhansanjay932@gmail.com").trim();
+  const senderName = (process.env.BREVO_SENDER_NAME || "LocoHelp Verification").trim();
+
+  if (!brevoApiKey) {
+    console.log("[BREVO NOTICE] BREVO_API_KEY is not configured in env. Using local verification fallback.");
+    return false;
+  }
+
+  try {
+    const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      headers: {
+        "api-key": brevoApiKey,
+        "accept": "application/json",
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        sender: { name: senderName, email: senderEmail },
+        to: [{ email: toEmail, name: toEmail.split("@")[0] }],
+        subject,
+        htmlContent,
+        textContent
+      })
+    });
+
+    if (response.ok) {
+      const data = await response.json().catch(() => ({}));
+      console.log(`[BREVO SUCCESS] Email OTP dispatched via Brevo API to ${toEmail}:`, data);
+      return true;
+    } else {
+      const errBody = await response.text();
+      console.error(`[BREVO API ERROR] (${response.status}):`, errBody);
+      return false;
+    }
+  } catch (err: any) {
+    console.error("[BREVO API EXCEPTION]:", err.message);
+    return false;
+  }
+}
+
+// Password hashing helper
+function hashPassword(password: string): string {
+  const salt = "locohelp_salt_2026";
+  return crypto.pbkdf2Sync(password, salt, 1000, 32, "sha256").toString("hex");
+}
 
 // ==========================================
 // RAILWAY POSTGRESQL POOL INITIALIZATION
@@ -521,13 +597,19 @@ async function startServer() {
     }
   });
 
-  // Google Login session creation
+  // Google Login session creation with Session persistence (JWT / Cookie)
   app.post("/api/auth/google-login", async (req, res) => {
     try {
       const { email, displayName, photoURL } = req.body;
       if (!email) return res.status(400).json({ error: "Email is required" });
 
       const cleanEmail = email.trim().toLowerCase();
+      // Strict email regex validation
+      const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
+      if (!emailRegex.test(cleanEmail)) {
+        return res.status(400).json({ error: "Invalid Google email address format" });
+      }
+
       const name = displayName || cleanEmail.split('@')[0];
       const photo = photoURL || 'https://lh3.googleusercontent.com/a/default-user';
       const uid = cleanEmail;
@@ -553,20 +635,172 @@ async function startServer() {
         } catch (e) {}
       }
 
+      const user = {
+        uid,
+        id: uid,
+        name,
+        displayName: name,
+        email: cleanEmail,
+        photoURL: photo,
+        isGuest: false
+      };
+
+      const token = createSessionToken({ uid, email: cleanEmail, name });
+      res.setHeader('Set-Cookie', `locohelp_token=${token}; Path=/; Max-Age=${30 * 24 * 3600}; SameSite=Lax`);
+
+      res.json({
+        success: true,
+        token,
+        user
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Login failed" });
+    }
+  });
+
+  // Email & Password Registration
+  app.post("/api/auth/register-password", async (req, res) => {
+    try {
+      const { email, password, name, phone } = req.body;
+      if (!email || !password) {
+        return res.status(400).json({ error: "Email and password are required" });
+      }
+      const cleanEmail = email.trim().toLowerCase();
+      const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
+      if (!emailRegex.test(cleanEmail)) {
+        return res.status(400).json({ error: "Invalid email format" });
+      }
+      if (password.length < 6) {
+        return res.status(400).json({ error: "Password must be at least 6 characters" });
+      }
+
+      const uid = cleanEmail;
+      const displayName = name || cleanEmail.split('@')[0];
+      const hashedPassword = hashPassword(password);
+
+      // Save locally
+      const authUsers = readJsonFile<Record<string, any>>(AUTH_USERS_FILE, {});
+      authUsers[cleanEmail] = {
+        uid,
+        email: cleanEmail,
+        name: displayName,
+        phone: phone || '',
+        passwordHash: hashedPassword,
+        createdAt: new Date().toISOString()
+      };
+      writeJsonFile(AUTH_USERS_FILE, authUsers);
+
+      // Save to Railway PostgreSQL "user" table
+      if (dbPool && isDbConnected) {
+        try {
+          await dbPool.query(`
+            INSERT INTO "user" (id, name, phone, email, created_at)
+            VALUES ($1, $2, $3, $4, NOW())
+            ON CONFLICT (id) DO UPDATE SET
+              name = EXCLUDED.name,
+              phone = COALESCE(NULLIF(EXCLUDED.phone, ''), "user".phone),
+              email = COALESCE(NULLIF(EXCLUDED.email, ''), "user".email)
+          `, [uid, displayName, phone || '', cleanEmail]);
+
+          await dbPool.query(`
+            INSERT INTO profiles (uid, full_name, email, phone, updated_at)
+            VALUES ($1, $2, $3, $4, NOW())
+            ON CONFLICT (uid) DO UPDATE SET
+              full_name = EXCLUDED.full_name,
+              phone = COALESCE(NULLIF(EXCLUDED.phone, ''), profiles.phone),
+              updated_at = NOW()
+          `, [uid, displayName, cleanEmail, phone || '']);
+        } catch (e) {}
+      }
+
+      const user = {
+        uid,
+        id: uid,
+        name: displayName,
+        displayName,
+        email: cleanEmail,
+        phone: phone || '',
+        isGuest: false
+      };
+
+      const token = createSessionToken({ uid, email: cleanEmail, name: displayName });
+      res.setHeader('Set-Cookie', `locohelp_token=${token}; Path=/; Max-Age=${30 * 24 * 3600}; SameSite=Lax`);
+
+      res.json({ success: true, token, user });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Failed to register" });
+    }
+  });
+
+  // Email & Password Login
+  app.post("/api/auth/login-password", async (req, res) => {
+    try {
+      const { email, password } = req.body;
+      if (!email || !password) {
+        return res.status(400).json({ error: "Email and password are required" });
+      }
+      const cleanEmail = email.trim().toLowerCase();
+      const authUsers = readJsonFile<Record<string, any>>(AUTH_USERS_FILE, {});
+      const existing = authUsers[cleanEmail];
+
+      if (!existing || existing.passwordHash !== hashPassword(password)) {
+        return res.status(401).json({ error: "गलत ईमेल या पासवर्ड! (Invalid email or password)" });
+      }
+
+      const user = {
+        uid: existing.uid,
+        id: existing.uid,
+        name: existing.name,
+        displayName: existing.name,
+        email: cleanEmail,
+        phone: existing.phone || '',
+        isGuest: false
+      };
+
+      const token = createSessionToken({ uid: existing.uid, email: cleanEmail, name: existing.name });
+      res.setHeader('Set-Cookie', `locohelp_token=${token}; Path=/; Max-Age=${30 * 24 * 3600}; SameSite=Lax`);
+
+      res.json({ success: true, token, user });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Login failed" });
+    }
+  });
+
+  // Session verification (Get active session user from token / cookie)
+  app.get("/api/auth/me", (req, res) => {
+    try {
+      const authHeader = req.headers.authorization;
+      const cookieHeader = req.headers.cookie;
+      let token = "";
+      if (authHeader && authHeader.startsWith("Bearer ")) {
+        token = authHeader.substring(7).trim();
+      } else if (cookieHeader) {
+        const match = cookieHeader.match(/locohelp_token=([^;]+)/);
+        if (match) token = match[1];
+      }
+
+      if (!token) {
+        return res.status(401).json({ error: "No active session" });
+      }
+
+      const decoded = verifySessionToken(token);
+      if (!decoded) {
+        return res.status(401).json({ error: "Session expired or invalid" });
+      }
+
       res.json({
         success: true,
         user: {
-          uid,
-          id: uid,
-          name,
-          displayName: name,
-          email: cleanEmail,
-          photoURL: photo,
+          uid: decoded.uid,
+          id: decoded.uid,
+          name: decoded.name,
+          displayName: decoded.name,
+          email: decoded.email,
           isGuest: false
         }
       });
     } catch (e: any) {
-      res.status(500).json({ error: e.message || "Login failed" });
+      res.status(500).json({ error: "Failed to verify session" });
     }
   });
 
@@ -1858,7 +2092,39 @@ async function startServer() {
 
       if (type === 'email') {
         let emailSent = false;
-        if (process.env.SMTP_USER && process.env.SMTP_PASS) {
+        let provider = 'Dev Mode';
+
+        // 1. Send via Brevo (Sendinblue) Transactional REST API (Primary requirement)
+        const emailSubject = `Your LocoHelp Login OTP: ${code}`;
+        const emailHtml = `
+          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff;">
+            <div style="text-align: center; margin-bottom: 20px;">
+              <h2 style="color: #0066FF; margin: 0; font-size: 24px; font-weight: 800; letter-spacing: -0.5px;">LocoHelp Verification</h2>
+              <p style="color: #64748b; font-size: 13px; margin: 4px 0 0 0;">Hyperlocal Community & Service Network</p>
+            </div>
+            <p style="font-size: 15px; color: #1e293b; margin-bottom: 12px;">Namaste!</p>
+            <p style="font-size: 14px; color: #475569; line-height: 1.5; margin-bottom: 20px;">
+              Use the One-Time Password (OTP) below to securely log in to your LocoHelp account:
+            </p>
+            <div style="background-color: #f0f7ff; border: 2px dashed #0066FF; padding: 18px; text-align: center; border-radius: 14px; margin: 20px 0;">
+              <span style="font-size: 34px; font-weight: 900; letter-spacing: 6px; color: #0066FF; font-family: monospace;">${code}</span>
+            </div>
+            <p style="font-size: 12px; color: #64748b; line-height: 1.4; margin-top: 16px;">
+              ⏳ This OTP is valid for <strong>5 minutes</strong>. For your security, do not share this code with anyone.
+            </p>
+            <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
+            <p style="font-size: 11px; color: #94a3b8; text-align: center; margin: 0;">
+              Team LocoHelp • Direct Hyperlocal Assistance
+            </p>
+          </div>
+        `;
+        const emailText = `Namaste!\n\nYour LocoHelp login verification code is: ${code}\n\nThis OTP is valid for 5 minutes. Do not share this code with anyone.\n\nTeam LocoHelp`;
+
+        emailSent = await sendEmailViaBrevo(cleanIdentifier, emailSubject, emailHtml, emailText);
+        if (emailSent) {
+          provider = 'Brevo API';
+        } else if (process.env.SMTP_USER && process.env.SMTP_PASS) {
+          // 2. Fallback to SMTP if configured
           try {
             const smtpPass = process.env.SMTP_PASS.replace(/\s+/g, '');
             const transporter = nodemailer.createTransport({
@@ -1877,33 +2143,26 @@ async function startServer() {
             await transporter.sendMail({
               from: `"LocoHelp Verification" <${process.env.SMTP_USER.trim()}>`,
               to: cleanIdentifier,
-              subject: `Your LocoHelp Login OTP: ${code}`,
-              text: `Namaste!\n\nYour LocoHelp login verification code is: ${code}\n\nThis OTP is valid for 5 minutes. Do not share this code with anyone.\n\nTeam LocoHelp`,
-              html: `
-                <div style="font-family: Arial, sans-serif; max-width: 480px; margin: auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 16px;">
-                  <h2 style="color: #0066FF; margin-bottom: 8px;">LocoHelp Verification</h2>
-                  <p style="font-size: 14px; color: #475569;">Namaste! Use the One-Time Password (OTP) below to securely log in to LocoHelp:</p>
-                  <div style="background-color: #f0f4ff; border: 2px dashed #0066FF; padding: 18px; text-align: center; border-radius: 12px; margin: 20px 0;">
-                    <span style="font-size: 32px; font-weight: 800; letter-spacing: 6px; color: #0066FF;">${code}</span>
-                  </div>
-                  <p style="font-size: 12px; color: #64748b;">This OTP will expire in 5 minutes. If you did not request this code, please ignore this email.</p>
-                </div>
-              `
+              subject: emailSubject,
+              text: emailText,
+              html: emailHtml
             });
             emailSent = true;
+            provider = 'SMTP';
           } catch (err: any) {
             console.error("Nodemailer dispatch error:", err.message);
           }
         }
 
-        console.log(`[OTP DISPATCH] Generated OTP for email ${cleanIdentifier}: ${code} (Sent via Nodemailer: ${emailSent})`);
+        console.log(`[OTP DISPATCH] Generated OTP for email ${cleanIdentifier}: ${code} (Sent via ${provider}: ${emailSent})`);
 
         return res.json({
           success: true,
           message: emailSent 
-            ? `Verification OTP sent to ${cleanIdentifier}. Please check your Inbox and Spam folder.`
+            ? `Verification OTP sent to ${cleanIdentifier} via ${provider}. Please check your Inbox and Spam folder.`
             : `OTP generated for ${cleanIdentifier}.`,
           emailSent,
+          provider,
           devOtp: !emailSent ? code : undefined,
           expiresInSeconds: 300
         });
@@ -2001,8 +2260,15 @@ async function startServer() {
         }
       }
 
-      console.log(`[AUTH SUCCESS] User successfully verified: ${user.uid}`);
-      return res.json({ success: true, user });
+      const token = createSessionToken({
+        uid: user.uid,
+        email: user.email,
+        name: user.displayName
+      });
+      res.setHeader('Set-Cookie', `locohelp_token=${token}; Path=/; Max-Age=${30 * 24 * 3600}; SameSite=Lax`);
+
+      console.log(`[AUTH SUCCESS] User successfully verified: ${user.uid} with 30-day session token`);
+      return res.json({ success: true, token, user });
     } catch (e) {
       console.error("OTP verify error:", e);
       return res.status(500).json({ error: "Failed to verify OTP" });

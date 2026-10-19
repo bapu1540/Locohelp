@@ -133,13 +133,27 @@ export function getCurrentUser(): AppUser {
 }
 
 /**
- * Google Sign-In with backend PostgreSQL persistence
+ * Strict RFC 5322 compliant email validator
+ */
+export function isValidEmail(email: string): boolean {
+  if (!email || typeof email !== 'string') return false;
+  const trimmed = email.trim().toLowerCase();
+  const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
+  return emailRegex.test(trimmed);
+}
+
+/**
+ * Google Sign-In with strict email validation and JWT session persistence
  */
 export async function signInWithGoogle(customEmail?: string, customName?: string): Promise<AppUser> {
   let email = (customEmail || '').trim().toLowerCase();
+  if (customEmail && !isValidEmail(customEmail)) {
+    throw new Error('अमान्य ईमेल आईडी (Invalid Google email address format)');
+  }
+
   if (!email) {
     const savedEmail = localStorage.getItem('locohelp_last_logged_in_email') || localStorage.getItem('locohelp_user_email');
-    if (savedEmail && savedEmail.includes('@')) {
+    if (savedEmail && isValidEmail(savedEmail)) {
       email = savedEmail.trim().toLowerCase();
     } else {
       email = 'chauhansanjay932@gmail.com';
@@ -158,29 +172,34 @@ export async function signInWithGoogle(customEmail?: string, customName?: string
     isGuest: false
   };
 
-  // 1. Save to localStorage for instant UI responsiveness
+  // 1. Persist session locally
   localStorage.setItem('locohelp_user', JSON.stringify(userData));
   localStorage.setItem('locohelp_logged_in', 'true');
   localStorage.setItem('locohelp_last_logged_in_email', email);
   localStorage.setItem('locohelp_last_logged_in_name', displayName);
   localStorage.setItem('locohelp_last_logged_in_photo', photoURL);
 
-  // 2. Persist profile to backend & Railway PostgreSQL "user" table
+  // 2. Persist profile to backend & Railway PostgreSQL "user" table + obtain JWT token
   try {
-    await fetch('/api/auth/signup', {
+    const googleRes = await fetch('/api/auth/google-login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        id: uid,
-        uid: uid,
-        name: displayName,
-        email: email
+        email,
+        displayName,
+        photoURL
       })
-    }).catch(() => {});
+    });
+    if (googleRes.ok) {
+      const gData = await googleRes.json();
+      if (gData.token) {
+        localStorage.setItem('locohelp_token', gData.token);
+      }
+    }
 
     await saveUserProfile(userData);
   } catch (e) {
-    console.warn("Profile sync note:", e);
+    console.warn("Google sign-in sync note:", e);
   }
 
   // 3. Dispatch events to notify all components
@@ -194,12 +213,112 @@ export async function signInWithGoogle(customEmail?: string, customName?: string
 export const signInWithGoogleInPlace = signInWithGoogle;
 
 /**
- * Sends 6-Digit Numeric Email OTP Code via Backend Server
+ * Email & Password Login with JWT session persistence
  */
-export async function sendEmailOtp(email: string): Promise<{ success: boolean; error?: string; devCode?: string }> {
+export async function signInWithPassword(email: string, password: string): Promise<{ success: boolean; error?: string; user?: AppUser }> {
   const cleanEmail = email.trim().toLowerCase();
-  if (!cleanEmail || !cleanEmail.includes('@')) {
-    return { success: false, error: 'Please enter a valid email address' };
+  if (!isValidEmail(cleanEmail)) {
+    return { success: false, error: 'कृपया सही ईमेल दर्ज करें (Invalid email format)' };
+  }
+  if (!password || password.length < 6) {
+    return { success: false, error: 'पासवर्ड कम से कम 6 अक्षरों का होना चाहिए' };
+  }
+
+  try {
+    const res = await fetch('/api/auth/login-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: cleanEmail, password })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      return { success: false, error: data.error || 'Login failed' };
+    }
+
+    const userData: AppUser = {
+      uid: ensureValidUUID(data.user?.uid || cleanEmail),
+      displayName: data.user?.displayName || cleanEmail.split('@')[0],
+      email: cleanEmail,
+      phone: data.user?.phone || '',
+      photoURL: 'https://lh3.googleusercontent.com/a/default-user',
+      isGuest: false
+    };
+
+    if (data.token) {
+      localStorage.setItem('locohelp_token', data.token);
+    }
+    localStorage.setItem('locohelp_user', JSON.stringify(userData));
+    localStorage.setItem('locohelp_logged_in', 'true');
+    localStorage.setItem('locohelp_last_logged_in_email', cleanEmail);
+    localStorage.setItem('locohelp_last_logged_in_name', userData.displayName);
+
+    window.dispatchEvent(new Event('storage'));
+    window.postMessage({ type: 'LOCOHELP_AUTH_SUCCESS' }, '*');
+    notifyAuthState('SIGNED_IN', userData);
+
+    return { success: true, user: userData };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Login request failed' };
+  }
+}
+
+/**
+ * Email & Password Sign Up with JWT session persistence
+ */
+export async function signUpWithPassword(email: string, password: string, name?: string, phone?: string): Promise<{ success: boolean; error?: string; user?: AppUser }> {
+  const cleanEmail = email.trim().toLowerCase();
+  if (!isValidEmail(cleanEmail)) {
+    return { success: false, error: 'कृपया सही ईमेल दर्ज करें (Invalid email format)' };
+  }
+  if (!password || password.length < 6) {
+    return { success: false, error: 'पासवर्ड कम से कम 6 अक्षरों का होना चाहिए' };
+  }
+
+  try {
+    const res = await fetch('/api/auth/register-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: cleanEmail, password, name, phone })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      return { success: false, error: data.error || 'Registration failed' };
+    }
+
+    const userData: AppUser = {
+      uid: ensureValidUUID(data.user?.uid || cleanEmail),
+      displayName: data.user?.displayName || name || cleanEmail.split('@')[0],
+      email: cleanEmail,
+      phone: phone || '',
+      photoURL: 'https://lh3.googleusercontent.com/a/default-user',
+      isGuest: false
+    };
+
+    if (data.token) {
+      localStorage.setItem('locohelp_token', data.token);
+    }
+    localStorage.setItem('locohelp_user', JSON.stringify(userData));
+    localStorage.setItem('locohelp_logged_in', 'true');
+    localStorage.setItem('locohelp_last_logged_in_email', cleanEmail);
+    localStorage.setItem('locohelp_last_logged_in_name', userData.displayName);
+
+    window.dispatchEvent(new Event('storage'));
+    window.postMessage({ type: 'LOCOHELP_AUTH_SUCCESS' }, '*');
+    notifyAuthState('SIGNED_IN', userData);
+
+    return { success: true, user: userData };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Sign up request failed' };
+  }
+}
+
+/**
+ * Sends 6-Digit Numeric Email OTP Code via Backend Server (Brevo REST API)
+ */
+export async function sendEmailOtp(email: string): Promise<{ success: boolean; error?: string; devCode?: string; provider?: string }> {
+  const cleanEmail = email.trim().toLowerCase();
+  if (!isValidEmail(cleanEmail)) {
+    return { success: false, error: 'कृपया मान्य ईमेल आईडी दर्ज करें (Please enter a valid email address)' };
   }
 
   try {
@@ -212,7 +331,7 @@ export async function sendEmailOtp(email: string): Promise<{ success: boolean; e
     if (!res.ok) {
       return { success: false, error: data.error || 'Failed to send OTP' };
     }
-    return { success: true, devCode: data.devOtp };
+    return { success: true, devCode: data.devOtp, provider: data.provider };
   } catch (err: any) {
     return { success: false, error: err?.message || 'Network error while sending OTP' };
   }
@@ -227,8 +346,8 @@ export async function verifyEmailOtp(email: string, code: string): Promise<{ suc
   const cleanEmail = email.trim().toLowerCase();
   const cleanCode = code.trim();
 
-  if (!cleanEmail || !cleanEmail.includes('@')) {
-    return { success: false, error: 'Please enter a valid email address' };
+  if (!isValidEmail(cleanEmail)) {
+    return { success: false, error: 'कृपया मान्य ईमेल दर्ज करें (Please enter a valid email address)' };
   }
   if (!cleanCode) {
     return { success: false, error: 'Please enter the 6-digit OTP code' };
@@ -254,6 +373,9 @@ export async function verifyEmailOtp(email: string, code: string): Promise<{ suc
       isGuest: false
     };
 
+    if (data.token) {
+      localStorage.setItem('locohelp_token', data.token);
+    }
     localStorage.setItem('locohelp_user', JSON.stringify(userData));
     localStorage.setItem('locohelp_logged_in', 'true');
     localStorage.setItem('locohelp_last_logged_in_email', cleanEmail);
