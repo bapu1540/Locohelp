@@ -5,6 +5,7 @@
 // =====================================================================
 
 import { sendAuthOtp, verifyAuthOtp } from './api';
+import { getAuthHeaders } from './auth';
 
 export interface AppUser {
   uid: string;
@@ -104,10 +105,10 @@ export async function saveUserProfile(userData: Record<string, any>): Promise<vo
     // Save to localStorage for instant UI availability
     localStorage.setItem(`locohelp_user_profile_${targetUid}`, JSON.stringify(dataToSave));
     
-    // UPSERT directly into Railway PostgreSQL backend
+    // UPSERT directly into Railway PostgreSQL backend with auth headers
     await fetch('/api/profiles', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify(dataToSave)
     });
   } catch (error) {
@@ -365,7 +366,7 @@ export async function saveBroadcastPost(post: any) {
 
   const res = await fetch('/api/broadcast-posts', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify(payload)
   });
 
@@ -393,7 +394,7 @@ export async function deleteBroadcastPost(id: string, description?: string): Pro
   try {
     const res = await fetch(`/api/broadcast-posts/${encodeURIComponent(id)}`, {
       method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify({ description })
     });
     return res.ok;
@@ -418,7 +419,7 @@ export async function sendMessage(senderId: string, receiverId: string, content:
 
   const res = await fetch('/api/messages', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify(payload)
   });
 

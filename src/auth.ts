@@ -417,6 +417,23 @@ export async function logoutUser() {
 }
 
 /**
+ * Helper to retrieve session authentication headers for API requests
+ */
+export function getAuthHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json'
+  };
+  try {
+    const token = localStorage.getItem('locohelp_token');
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+      headers['x-auth-token'] = token;
+    }
+  } catch (e) {}
+  return headers;
+}
+
+/**
  * Saves or updates user profile in Railway PostgreSQL & LocalStorage
  */
 export async function saveUserProfile(userData: Record<string, any>): Promise<void> {
@@ -444,11 +461,11 @@ export async function saveUserProfile(userData: Record<string, any>): Promise<vo
     localStorage.setItem(`locohelp_user_profile_${targetUid}`, JSON.stringify(dataToSave));
   } catch (e) {}
 
-  // Save to Express Backend / Railway PostgreSQL
+  // Save to Express Backend / Railway PostgreSQL with strict auth headers
   try {
     await fetch('/api/profiles', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify(dataToSave)
     });
   } catch (err) {
@@ -495,7 +512,8 @@ export async function deleteUserProfile(uid: string): Promise<boolean> {
   if (!uid || uid === 'guest_user') return false;
   try {
     const res = await fetch(`/api/profiles/${encodeURIComponent(uid)}`, {
-      method: 'DELETE'
+      method: 'DELETE',
+      headers: getAuthHeaders()
     });
     return res.ok;
   } catch (e) {
@@ -543,7 +561,7 @@ export async function saveBroadcastPost(post: any) {
 
   const res = await fetch('/api/intents', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify(payload)
   });
   if (res.ok) {
@@ -581,7 +599,7 @@ export async function sendMessage(senderId: string, receiverId: string, content:
   const targetId = intentId || 'general';
   const res = await fetch(`/api/intents/${targetId}/messages`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify(payload)
   });
   if (res.ok) {
@@ -611,7 +629,7 @@ export async function saveShop(shop: any): Promise<any> {
   try {
     const res = await fetch('/api/shops', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify(shop)
     });
     if (res.ok) return await res.json();
@@ -638,7 +656,7 @@ export async function saveHelper(helper: any): Promise<any> {
   try {
     const res = await fetch('/api/helpers', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify(helper)
     });
     if (res.ok) return await res.json();

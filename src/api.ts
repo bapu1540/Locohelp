@@ -11,6 +11,21 @@ export interface ChatMessage {
 }
 
 /**
+ * Helper to retrieve session authentication headers for API requests
+ */
+export function getAuthHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {};
+  try {
+    const token = localStorage.getItem('locohelp_token');
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+      headers['x-auth-token'] = token;
+    }
+  } catch (e) {}
+  return headers;
+}
+
+/**
  * Fetches all active community broadcast intents from the server.
  * Merges with local storage to support instantaneous offline browsing.
  */
@@ -65,7 +80,8 @@ export async function broadcastIntentToServer(intent: Intent): Promise<Intent> {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
-        'Cache-Control': 'no-cache'
+        'Cache-Control': 'no-cache',
+        ...getAuthHeaders()
       },
       body: JSON.stringify(intent)
     });
@@ -91,7 +107,8 @@ export async function deleteIntentOnServer(id: string, description?: string): Pr
       method: 'DELETE',
       headers: { 
         'Content-Type': 'application/json',
-        'Cache-Control': 'no-cache' 
+        'Cache-Control': 'no-cache',
+        ...getAuthHeaders()
       },
       body: JSON.stringify({ description })
     });
@@ -142,7 +159,8 @@ export async function sendChatMessage(intentId: string, msg: Partial<ChatMessage
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
-        'Cache-Control': 'no-cache'
+        'Cache-Control': 'no-cache',
+        ...getAuthHeaders()
       },
       body: JSON.stringify(payload)
     });
@@ -535,7 +553,10 @@ export async function submitVerification(payload: {
   try {
     const res = await fetch('/api/verifications', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        ...getAuthHeaders()
+      },
       body: JSON.stringify(payload)
     });
     const data = await res.json();

@@ -161,6 +161,45 @@ function hashPassword(password: string): string {
 }
 
 // ==========================================
+// STRICT AUTHENTICATION MIDDLEWARE
+// ==========================================
+// Blocks unauthenticated requests from creating posts, shops/businesses, or profiles without valid session token
+function requireAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
+  try {
+    let token = "";
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      token = authHeader.substring(7).trim();
+    } else if (req.headers.cookie) {
+      const match = req.headers.cookie.match(/locohelp_token=([^;]+)/);
+      if (match) token = match[1].trim();
+    } else if (req.headers["x-auth-token"]) {
+      token = String(req.headers["x-auth-token"]).trim();
+    }
+
+    if (!token) {
+      return res.status(401).json({
+        error: "अनधिकृत एक्सेस! कृपया पहले लॉगिन करें। (Authentication required. Please log in first.)",
+        code: "UNAUTHORIZED"
+      });
+    }
+
+    const decoded = verifySessionToken(token);
+    if (!decoded || !decoded.uid) {
+      return res.status(401).json({
+        error: "सत्र समाप्त हो गया है! कृपया फिर से लॉगिन करें। (Session expired. Please log in again.)",
+        code: "SESSION_EXPIRED"
+      });
+    }
+
+    (req as any).user = decoded;
+    next();
+  } catch (err: any) {
+    return res.status(401).json({ error: "Authentication verification failed.", code: "AUTH_ERROR" });
+  }
+}
+
+// ==========================================
 // RAILWAY POSTGRESQL POOL INITIALIZATION
 // ==========================================
 let dbPool: pg.Pool | null = null;
@@ -311,8 +350,20 @@ async function initPostgresTables(pool: pg.Pool) {
         reviewed_at TIMESTAMP WITH TIME ZONE,
         admin_notes TEXT
       );
+
+      -- 5. Table: otp_codes (Columns: id, identifier, code, type, attempts, expires_at, created_at)
+      CREATE TABLE IF NOT EXISTS otp_codes (
+        id SERIAL PRIMARY KEY,
+        identifier TEXT NOT NULL,
+        code TEXT NOT NULL,
+        type TEXT DEFAULT 'email',
+        attempts INTEGER DEFAULT 0,
+        expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_otp_codes_identifier ON otp_codes(identifier);
     `);
-    console.log("[Railway PostgreSQL] All tables (user, businesses, chats, listings, verification_requests) verified and ready.");
+    console.log("[Railway PostgreSQL] All tables (user, businesses, chats, listings, otp_codes, verification_requests) verified and ready.");
   } catch (err: any) {
     console.warn("[Railway PostgreSQL] Table init note:", err.message);
   }
@@ -521,8 +572,9 @@ async function startServer() {
     }
   };
 
-  app.post("/api/profiles", saveUserProfileHandler);
-  app.post("/api/user", saveUserProfileHandler);
+  // Profile endpoints protected with strict authentication
+  app.post("/api/profiles", requireAuth, saveUserProfileHandler);
+  app.post("/api/user", requireAuth, saveUserProfileHandler);
 
   // Dedicated Signup Endpoint - Inserts directly into "user" table (id, name, phone, email, created_at)
   const signupHandler = async (req: express.Request, res: express.Response) => {
@@ -568,7 +620,10 @@ async function startServer() {
         created_at: new Date().toISOString()
       };
 
-      res.status(201).json({ success: true, user: userData });
+      const token = createSessionToken({ uid: targetId, email: userEmail, name: userName });
+      res.setHeader('Set-Cookie', `locohelp_token=${token}; Path=/; Max-Age=${30 * 24 * 3600}; SameSite=Lax`);
+
+      res.status(201).json({ success: true, token, user: userData });
     } catch (e: any) {
       res.status(500).json({ error: e.message || "Failed to sign up" });
     }
@@ -578,8 +633,8 @@ async function startServer() {
   app.post("/api/signup", signupHandler);
   app.post("/api/users", signupHandler);
 
-  // Delete profile
-  app.delete("/api/profiles/:uid", async (req, res) => {
+  // Delete profile protected with strict authentication
+  app.delete("/api/profiles/:uid", requireAuth, async (req, res) => {
     try {
       const { uid } = req.params;
       if (dbPool && isDbConnected) {
@@ -907,6 +962,8 @@ async function startServer() {
 
   app.get("/api/intents", getListingsHandler);
   app.get("/api/listings", getListingsHandler);
+  app.get("/api/posts", getListingsHandler);
+  app.get("/api/broadcast-posts", getListingsHandler);
 
   // 2. Broadcast a New Listing / Intent
   const createListingHandler = async (req: express.Request, res: express.Response) => {
@@ -1000,10 +1057,13 @@ async function startServer() {
     }
   };
 
-  app.post("/api/intents", createListingHandler);
-  app.post("/api/listings", createListingHandler);
+  // Protected Posts & Listings Creation (Requires valid authentication)
+  app.post("/api/posts", requireAuth, createListingHandler);
+  app.post("/api/intents", requireAuth, createListingHandler);
+  app.post("/api/listings", requireAuth, createListingHandler);
+  app.post("/api/broadcast-posts", requireAuth, createListingHandler);
 
-  // 3. Delete or Complete a Listing / Intent
+  // 3. Delete or Complete a Listing / Intent / Post (Protected)
   const deleteListingHandler = async (req: express.Request, res: express.Response) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
@@ -1055,8 +1115,10 @@ async function startServer() {
     }
   };
 
-  app.delete("/api/intents/:id", deleteListingHandler);
-  app.delete("/api/listings/:id", deleteListingHandler);
+  app.delete("/api/posts/:id", requireAuth, deleteListingHandler);
+  app.delete("/api/intents/:id", requireAuth, deleteListingHandler);
+  app.delete("/api/listings/:id", requireAuth, deleteListingHandler);
+  app.delete("/api/broadcast-posts/:id", requireAuth, deleteListingHandler);
 
   // ==========================================
   // CHATS API (Table: chats - id, sender_id, receiver_id, message, sent_at)
@@ -1069,15 +1131,28 @@ async function startServer() {
       res.setHeader("Pragma", "no-cache");
       res.setHeader("Expires", "0");
       const { id } = req.params;
+      const intentId = (req.query?.intentId as string) || (req.query?.intent_id as string) || id || 'general';
+      const userId = (req.query?.userId as string) || (req.query?.user_id as string) || '';
+      const otherUserId = (req.query?.otherUserId as string) || (req.query?.other_user_id as string) || '';
+      const targetChatKey = intentId && intentId !== 'general' ? intentId : (userId && otherUserId ? [userId, otherUserId].sort().join('_') : (id || 'general'));
 
       if (dbPool && isDbConnected) {
         try {
           // 1. Query primary chats table (Columns: id, sender_id, receiver_id, message, sent_at)
-          const chatRes = await dbPool.query(
-            "SELECT * FROM chats WHERE receiver_id = $1 OR sender_id = $1 ORDER BY sent_at ASC",
-            [id]
-          );
-          if (chatRes.rows.length > 0) {
+          let chatRes;
+          if (userId && otherUserId) {
+            chatRes = await dbPool.query(
+              "SELECT * FROM chats WHERE (sender_id = $1 AND receiver_id = $2) OR (sender_id = $2 AND receiver_id = $1) ORDER BY sent_at ASC",
+              [userId, otherUserId]
+            );
+          } else {
+            chatRes = await dbPool.query(
+              "SELECT * FROM chats WHERE receiver_id = $1 OR sender_id = $1 ORDER BY sent_at ASC",
+              [intentId]
+            );
+          }
+
+          if (chatRes && chatRes.rows.length > 0) {
             const dbMsgs = chatRes.rows.map(r => ({
               id: r.id,
               authorId: r.sender_id,
@@ -1093,11 +1168,20 @@ async function startServer() {
           }
 
           // 2. Fallback to messages table
-          const result = await dbPool.query(
-            "SELECT * FROM messages WHERE intent_id = $1 ORDER BY created_at ASC",
-            [id]
-          );
-          if (result.rows.length > 0) {
+          let result;
+          if (userId && otherUserId) {
+            result = await dbPool.query(
+              "SELECT * FROM messages WHERE (sender_id = $1 AND receiver_id = $2) OR (sender_id = $2 AND receiver_id = $1) ORDER BY created_at ASC",
+              [userId, otherUserId]
+            );
+          } else {
+            result = await dbPool.query(
+              "SELECT * FROM messages WHERE intent_id = $1 ORDER BY created_at ASC",
+              [intentId]
+            );
+          }
+
+          if (result && result.rows.length > 0) {
             const dbMsgs = result.rows.map(r => ({
               id: r.id,
               authorId: r.sender_id,
@@ -1119,7 +1203,7 @@ async function startServer() {
       }
 
       const allMessages = readJsonFile<Record<string, any[]>>(MESSAGES_FILE, {});
-      const chatMessages = allMessages[id] || [];
+      const chatMessages = allMessages[targetChatKey] || allMessages[intentId] || (id ? allMessages[id] : []) || [];
       res.json(chatMessages);
     } catch (e) {
       res.status(500).json({ error: "Failed to fetch messages" });
@@ -1128,6 +1212,8 @@ async function startServer() {
 
   app.get("/api/intents/:id/messages", getChatMessagesHandler);
   app.get("/api/chats/:id", getChatMessagesHandler);
+  app.get("/api/messages", getChatMessagesHandler);
+  app.get("/api/messages/:id", getChatMessagesHandler);
 
   // 5. Send Chat Message
   const sendChatMessageHandler = async (req: express.Request, res: express.Response) => {
@@ -1204,8 +1290,9 @@ async function startServer() {
     }
   };
 
-  app.post("/api/intents/:id/messages", sendChatMessageHandler);
-  app.post("/api/chats", sendChatMessageHandler);
+  app.post("/api/intents/:id/messages", requireAuth, sendChatMessageHandler);
+  app.post("/api/chats", requireAuth, sendChatMessageHandler);
+  app.post("/api/messages", requireAuth, sendChatMessageHandler);
 
   // ==========================================
   // BUSINESSES & SHOPS API (Table: businesses - id, owner_id, business_name, category, address, phone, created_at)
@@ -1352,8 +1439,28 @@ async function startServer() {
     }
   };
 
-  app.post("/api/shops", saveBusinessHandler);
-  app.post("/api/businesses", saveBusinessHandler);
+  app.post("/api/shops", requireAuth, saveBusinessHandler);
+  app.post("/api/businesses", requireAuth, saveBusinessHandler);
+
+  const deleteBusinessHandler = async (req: express.Request, res: express.Response) => {
+    try {
+      const { id } = req.params;
+      if (dbPool && isDbConnected) {
+        try {
+          await dbPool.query("DELETE FROM businesses WHERE id = $1", [id]);
+          await dbPool.query("DELETE FROM shops WHERE id = $1", [id]);
+        } catch (e) {}
+      }
+      const shops = readJsonFile<any[]>(SHOPS_FILE, []);
+      writeJsonFile(SHOPS_FILE, shops.filter(s => s.id !== id));
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: "Failed to delete business" });
+    }
+  };
+
+  app.delete("/api/shops/:id", requireAuth, deleteBusinessHandler);
+  app.delete("/api/businesses/:id", requireAuth, deleteBusinessHandler);
 
   // ==========================================
   // HELPERS API
@@ -1389,7 +1496,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/helpers", async (req, res) => {
+  app.post("/api/helpers", requireAuth, async (req, res) => {
     try {
       const helper = req.body;
       if (!helper || !helper.name) return res.status(400).json({ error: "Helper name required" });
@@ -1816,8 +1923,8 @@ async function startServer() {
   // Public callers only receive { isVerified, status }.
   // ==========================================
 
-  // 1. Submit Identity Verification (Auto-Watermarked Document)
-  app.post("/api/verifications", async (req, res) => {
+  // 1. Submit Identity Verification (Auto-Watermarked Document) - Protected
+  app.post("/api/verifications", requireAuth, async (req, res) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
       const {
@@ -2022,10 +2129,11 @@ async function startServer() {
 
             if (status === 'approved') {
               if (row.entity_type === 'business') {
-                await dbPool.query(
-                  "UPDATE shops SET is_verified = true WHERE id = $1",
-                  [row.entity_id]
-                ).catch(() => {});
+                await dbPool.query("UPDATE shops SET is_verified = true WHERE id = $1", [row.entity_id]).catch(() => {});
+                await dbPool.query("UPDATE businesses SET is_verified = true WHERE id = $1", [row.entity_id]).catch(() => {});
+              } else {
+                await dbPool.query("UPDATE helpers SET is_verified = true WHERE id = $1", [row.entity_id]).catch(() => {});
+                await dbPool.query("UPDATE profiles SET is_verified = true WHERE uid = $1", [row.entity_id]).catch(() => {});
               }
             }
           }
@@ -2044,13 +2152,29 @@ async function startServer() {
         updatedItem = verifs[idx];
         writeJsonFile(VERIFICATIONS_FILE, verifs);
 
-        if (status === 'approved' && verifs[idx].entityType === 'business') {
-          const shops = readJsonFile<any[]>(SHOPS_FILE, []);
-          const sIdx = shops.findIndex(s => s.id === verifs[idx].entityId);
-          if (sIdx >= 0) {
-            shops[sIdx].isVerified = true;
-            shops[sIdx].is_verified = true;
-            writeJsonFile(SHOPS_FILE, shops);
+        if (status === 'approved') {
+          if (verifs[idx].entityType === 'business') {
+            const shops = readJsonFile<any[]>(SHOPS_FILE, []);
+            const sIdx = shops.findIndex(s => s.id === verifs[idx].entityId);
+            if (sIdx >= 0) {
+              shops[sIdx].isVerified = true;
+              shops[sIdx].is_verified = true;
+              writeJsonFile(SHOPS_FILE, shops);
+            }
+          } else {
+            const helpers = readJsonFile<any[]>(HELPERS_FILE, []);
+            const hIdx = helpers.findIndex(h => h.id === verifs[idx].entityId || h.phone === verifs[idx].userPhone);
+            if (hIdx >= 0) {
+              helpers[hIdx].isVerified = true;
+              helpers[hIdx].is_verified = true;
+              writeJsonFile(HELPERS_FILE, helpers);
+            }
+            const profiles = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
+            if (profiles[verifs[idx].entityId]) {
+              profiles[verifs[idx].entityId].is_verified = true;
+              profiles[verifs[idx].entityId].isVerified = true;
+              writeJsonFile(PROFILES_FILE, profiles);
+            }
           }
         }
       }
@@ -2082,19 +2206,33 @@ async function startServer() {
       const cleanIdentifier = String(identifier).trim().toLowerCase();
       const code = Math.floor(100000 + Math.random() * 900000).toString();
       const expiresAt = Date.now() + 5 * 60 * 1000;
+      const otpType = type === 'email' || cleanIdentifier.includes('@') ? 'email' : 'mobile';
 
+      // 1. Store in memory for instant local verification
       otpStore.set(cleanIdentifier, {
         code,
         expiresAt,
         attempts: 0,
-        type: type === 'email' ? 'email' : 'mobile'
+        type: otpType
       });
 
-      if (type === 'email') {
+      // 2. Persist to PostgreSQL otp_codes table
+      if (dbPool && isDbConnected) {
+        try {
+          await dbPool.query(`
+            INSERT INTO otp_codes (identifier, code, type, attempts, expires_at, created_at)
+            VALUES ($1, $2, $3, 0, to_timestamp($4), NOW())
+          `, [cleanIdentifier, code, otpType, expiresAt / 1000]);
+        } catch (dbErr: any) {
+          console.warn("[PostgreSQL] otp_codes insert notice:", dbErr.message);
+        }
+      }
+
+      if (otpType === 'email') {
         let emailSent = false;
         let provider = 'Dev Mode';
 
-        // 1. Send via Brevo (Sendinblue) Transactional REST API (Primary requirement)
+        // Send via Brevo (Sendinblue) Transactional REST API
         const emailSubject = `Your LocoHelp Login OTP: ${code}`;
         const emailHtml = `
           <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff;">
@@ -2124,7 +2262,7 @@ async function startServer() {
         if (emailSent) {
           provider = 'Brevo API';
         } else if (process.env.SMTP_USER && process.env.SMTP_PASS) {
-          // 2. Fallback to SMTP if configured
+          // Fallback to SMTP if configured
           try {
             const smtpPass = process.env.SMTP_PASS.replace(/\s+/g, '');
             const transporter = nodemailer.createTransport({
@@ -2198,7 +2336,29 @@ async function startServer() {
 
       const cleanIdentifier = String(identifier).trim().toLowerCase();
       const cleanCode = String(code).trim();
-      const record = otpStore.get(cleanIdentifier);
+
+      // Check PostgreSQL otp_codes table
+      let dbRecord: any = null;
+      if (dbPool && isDbConnected) {
+        try {
+          const resDb = await dbPool.query(
+            `SELECT * FROM otp_codes WHERE identifier = $1 ORDER BY created_at DESC LIMIT 1`,
+            [cleanIdentifier]
+          );
+          if (resDb.rows.length > 0) {
+            dbRecord = resDb.rows[0];
+          }
+        } catch (dbErr: any) {
+          console.warn("[PostgreSQL] otp_codes check notice:", dbErr.message);
+        }
+      }
+
+      const record = otpStore.get(cleanIdentifier) || (dbRecord ? {
+        code: dbRecord.code,
+        expiresAt: new Date(dbRecord.expires_at).getTime(),
+        attempts: dbRecord.attempts || 0,
+        type: dbRecord.type
+      } : null);
 
       if (!record) {
         return res.status(400).json({ 
@@ -2208,22 +2368,42 @@ async function startServer() {
 
       if (Date.now() > record.expiresAt) {
         otpStore.delete(cleanIdentifier);
+        if (dbPool && isDbConnected) {
+          try {
+            await dbPool.query('DELETE FROM otp_codes WHERE identifier = $1', [cleanIdentifier]);
+          } catch (e) {}
+        }
         return res.status(400).json({ error: "OTP has expired. Please request a new OTP." });
       }
 
       if (record.attempts >= 5) {
         otpStore.delete(cleanIdentifier);
+        if (dbPool && isDbConnected) {
+          try {
+            await dbPool.query('DELETE FROM otp_codes WHERE identifier = $1', [cleanIdentifier]);
+          } catch (e) {}
+        }
         return res.status(400).json({ error: "Too many failed attempts. Please request a new OTP." });
       }
 
       if (record.code !== cleanCode) {
         record.attempts += 1;
+        if (dbPool && isDbConnected) {
+          try {
+            await dbPool.query('UPDATE otp_codes SET attempts = attempts + 1 WHERE identifier = $1', [cleanIdentifier]);
+          } catch (e) {}
+        }
         return res.status(400).json({ 
           error: "गलत OTP है! (Invalid OTP). Please enter the exact code received in your message or email." 
         });
       }
 
       otpStore.delete(cleanIdentifier);
+      if (dbPool && isDbConnected) {
+        try {
+          await dbPool.query('DELETE FROM otp_codes WHERE identifier = $1', [cleanIdentifier]);
+        } catch (e) {}
+      }
 
       const isEmail = type === 'email' || cleanIdentifier.includes('@');
       const user = {
@@ -2272,6 +2452,25 @@ async function startServer() {
     } catch (e) {
       console.error("OTP verify error:", e);
       return res.status(500).json({ error: "Failed to verify OTP" });
+    }
+  });
+
+  // Issue / Refresh Session Token for logged-in clients
+  app.post("/api/auth/token", (req, res) => {
+    try {
+      const { email, uid, name } = req.body;
+      if (!email && !uid) {
+        return res.status(400).json({ error: "Email or UID is required" });
+      }
+      const token = createSessionToken({
+        uid: uid || email,
+        email: email || '',
+        name: name || (email ? email.split('@')[0] : 'Community User')
+      });
+      res.setHeader('Set-Cookie', `locohelp_token=${token}; Path=/; Max-Age=${30 * 24 * 3600}; SameSite=Lax`);
+      res.json({ success: true, token });
+    } catch (e: any) {
+      res.status(500).json({ error: "Failed to issue token" });
     }
   });
 
