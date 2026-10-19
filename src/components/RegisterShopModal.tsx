@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Store, Building, Building2, ShoppingBag, X, Check, Camera, MapPin, Phone, Tag, ShieldCheck, Plus, Search, MessageSquare, Star, ExternalLink, Sparkles } from 'lucide-react';
+import { Store, Building, Building2, ShoppingBag, X, Check, Camera, MapPin, Phone, Tag, ShieldCheck, Plus, Search, MessageSquare, Star, ExternalLink, Sparkles, Lock, FileCheck2, Upload, AlertCircle, CheckCircle2, RefreshCw } from 'lucide-react';
 import { useLanguage } from '../i18n';
 import { getShops, saveShop } from '../auth';
+import { applyIdWatermark } from '../lib/watermark';
+import { submitVerification } from '../api';
 
 export interface RegisteredShop {
   id: string;
@@ -105,6 +107,12 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess }: Regist
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Identity Verification & Document Upload States
+  const [idDocumentWatermarked, setIdDocumentWatermarked] = useState<string | null>(null);
+  const [idDocumentType, setIdDocumentType] = useState('Trade License / MSME / Owner ID');
+  const [isWatermarkingId, setIsWatermarkingId] = useState(false);
+  const [idUploadNotice, setIdUploadNotice] = useState<string | null>(null);
+
   const [registeredShopsList, setRegisteredShopsList] = useState<RegisteredShop[]>(INITIAL_SAMPLE_SHOPS);
 
   // Load registered shops from localStorage & Cloud Firestore
@@ -149,6 +157,29 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess }: Regist
     }
   };
 
+  const handleIdDocumentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsWatermarkingId(true);
+    setIdUploadNotice(null);
+
+    try {
+      const watermarked = await applyIdWatermark(file, {
+        entityType: 'business',
+        userName: shopName.trim() || ownerName.trim() || 'Business Owner',
+        customText: 'FOR LOCOHELP VERIFICATION ONLY • DO NOT REUSE • BUSINESS ID'
+      });
+      setIdDocumentWatermarked(watermarked);
+      setIdUploadNotice(language === 'EN' ? 'ID photo successfully watermarked with security stamp!' : 'पहचान पत्र पर सुरक्षा वाटरमार्क लगा दिया गया है!');
+    } catch (err: any) {
+      console.warn("Watermark error:", err);
+      setIdUploadNotice(language === 'EN' ? 'Could not process document image.' : 'दस्तावेज़ इमेज प्रोसेस नहीं हो सकी।');
+    } finally {
+      setIsWatermarkingId(false);
+    }
+  };
+
   const handleWhatsAppContact = (shop: RegisteredShop) => {
     const cleanPhone = shop.phone.replace(/\D/g, '');
     const formattedPhone = cleanPhone.length === 10 ? '91' + cleanPhone : cleanPhone;
@@ -169,8 +200,11 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess }: Regist
       ? customType.trim()
       : (typeObj ? (language === 'EN' ? typeObj.nameEn : typeObj.nameHi) : 'Local Business');
 
+    const shopId = 'shop_' + Date.now().toString(36);
+    const hasVerificationDoc = !!idDocumentWatermarked;
+
     const newShop: RegisteredShop = {
-      id: 'shop_' + Date.now().toString(36),
+      id: shopId,
       name: shopName.trim(),
       type: shopType as any,
       categoryLabel: label,
@@ -182,7 +216,7 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess }: Regist
       photoUrl: photoUrl || undefined,
       rating: 5.0,
       reviewCount: 1,
-      isVerified: true,
+      isVerified: !hasVerificationDoc, // If doc submitted, it goes into pending admin approval queue
       createdAt: new Date().toISOString()
     };
 
@@ -195,11 +229,28 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess }: Regist
       setRegisteredShopsList(updatedShops);
     } catch (e) {}
 
-    // Save to PostgreSQL backend
+    // Save to PostgreSQL businesses table
     try {
       await saveShop(newShop);
     } catch (err) {
       console.warn("Shop backend save notice:", err);
+    }
+
+    // Submit Verification Request to Admin Queue if ID document was provided
+    if (hasVerificationDoc && idDocumentWatermarked) {
+      try {
+        await submitVerification({
+          entityType: 'business',
+          entityId: shopId,
+          userId: ownerName.trim() || shopName.trim(),
+          userName: shopName.trim(),
+          userPhone: phone.trim(),
+          title: `${shopName.trim()} (${ownerName.trim()}) - ${idDocumentType}`,
+          idDocumentWatermarked
+        });
+      } catch (verifErr) {
+        console.warn("Verification submit error:", verifErr);
+      }
     }
 
     setIsSubmitting(false);
@@ -212,6 +263,7 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess }: Regist
     setAddress('');
     setDescription('');
     setPhotoUrl(null);
+    setIdDocumentWatermarked(null);
 
     // Switch to registered list tab so user sees their new shop immediately
     setActiveTab('registered');
@@ -540,6 +592,83 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess }: Regist
                   </label>
                   {photoUrl && (
                     <img src={photoUrl} alt="Preview" className="w-12 h-12 rounded-xl object-cover border border-amber-300" />
+                  )}
+                </div>
+              </div>
+
+              {/* IDENTITY & BUSINESS VERIFICATION DOCUMENT (WITH AUTO-WATERMARK & ADMIN-ONLY PRIVACY) */}
+              <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-2xl p-3.5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                    <span className="text-xs font-black text-slate-800 dark:text-slate-200">
+                      {language === 'EN' ? 'Owner / Business ID Document (For Verified Badge)' : 'पहचान या लाइसेंस दस्तावेज़ (वेरिफाइड बैज हेतु)'}
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-extrabold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-900">
+                    🛡️ Auto-Watermarked
+                  </span>
+                </div>
+
+                {/* Strict Privacy Notice */}
+                <div className="flex items-start gap-2 bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200/60 dark:border-indigo-900/40 rounded-xl p-2.5 text-[11px] text-indigo-950 dark:text-indigo-300">
+                  <Lock className="w-3.5 h-3.5 text-indigo-600 shrink-0 mt-0.5" />
+                  <span>
+                    {language === 'EN'
+                      ? 'Strict Privacy: Uploaded ID is strictly visible to Admin only. Public users will only see your Verified badge upon Admin approval.'
+                      : 'सख्त गोपनीयता: अपलोड किया गया ID दस्तावेज़ सिर्फ एडमिन देख सकेगा। पब्लिक को यह कभी नहीं दिखेगा, सिर्फ वेरिफाइड बैज दिखेगा।'}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 gap-2">
+                  <select
+                    value={idDocumentType}
+                    onChange={(e) => setIdDocumentType(e.target.value)}
+                    className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 dark:text-slate-200"
+                  >
+                    <option value="Trade License / GST / MSME">Trade License / GST / MSME / Shop Act</option>
+                    <option value="Owner Aadhaar Card">Owner Aadhaar Card</option>
+                    <option value="Owner PAN Card">Owner PAN Card</option>
+                    <option value="Voter ID / Driving License">Voter ID / Driving License</option>
+                    <option value="Electricity / Utility Bill of Shop">Electricity / Utility Bill of Shop</option>
+                  </select>
+
+                  {!idDocumentWatermarked ? (
+                    <label className="border-2 border-dashed border-emerald-300 dark:border-emerald-800 hover:border-emerald-500 rounded-xl p-3 text-center cursor-pointer transition-colors flex items-center justify-center gap-2 bg-emerald-50/30 dark:bg-emerald-950/20">
+                      {isWatermarkingId ? (
+                        <RefreshCw className="w-4 h-4 animate-spin text-emerald-600" />
+                      ) : (
+                        <Upload className="w-4 h-4 text-emerald-600" />
+                      )}
+                      <span className="text-[11px] font-bold text-emerald-800 dark:text-emerald-300">
+                        {isWatermarkingId
+                          ? (language === 'EN' ? 'Applying Security Watermark...' : 'सुरक्षा वाटरमार्क लगाया जा रहा है...')
+                          : (language === 'EN' ? 'Upload ID Photo (Auto-Watermarked with Security Stamp)' : 'पहचान पत्र फ़ोटो अपलोड करें (ऑटो-वाटरमार्क सहित)')}
+                      </span>
+                      <input type="file" accept="image/*" onChange={handleIdDocumentUpload} className="hidden" />
+                    </label>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="relative rounded-xl border-2 border-emerald-500 overflow-hidden bg-slate-900 max-h-36 flex items-center justify-center">
+                        <img src={idDocumentWatermarked} alt="Watermarked ID" className="max-h-36 object-contain" />
+                        <div className="absolute top-1.5 left-1.5 bg-emerald-600 text-white text-[9px] font-black px-2 py-0.5 rounded flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3" />
+                          <span>Watermarked & Protected</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setIdDocumentWatermarked(null)}
+                          className="absolute top-1.5 right-1.5 bg-slate-900/80 text-white p-1 rounded-full text-xs hover:bg-rose-600 transition-colors"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      {idUploadNotice && (
+                        <p className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
+                          <FileCheck2 className="w-3.5 h-3.5" /> {idUploadNotice}
+                        </p>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>

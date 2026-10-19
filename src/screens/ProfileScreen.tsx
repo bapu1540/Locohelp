@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, User, Camera, MapPin, Briefcase, Award, CheckCircle2, Star, Wrench, ChevronRight, Trash2, Store, Mail, CloudCheck, Sparkles } from 'lucide-react';
+import { ArrowLeft, User, Camera, MapPin, Briefcase, Award, CheckCircle2, Star, Wrench, ChevronRight, Trash2, Store, Mail, CloudCheck, Sparkles, ShieldCheck, Lock, FileCheck2, ShieldAlert } from 'lucide-react';
 import { useLanguage } from '../i18n';
 import { getCurrentUser, saveUserProfile, getUserProfile, deleteUserProfile, logoutUser, signInWithGoogle } from '../auth';
 import { isGuestUser } from '../lib/authUtils';
 import FreeHelperRegisterModal from '../components/FreeHelperRegisterModal';
 import RegisterShopModal from '../components/RegisterShopModal';
+import IdentityVerificationModal from '../components/IdentityVerificationModal';
+import { getVerificationStatus } from '../api';
 
 import { Screen } from '../types';
 
@@ -33,6 +35,8 @@ export default function ProfileScreen({ onBack, onNavigate }: ProfileScreenProps
   const [isSavedNotice, setIsSavedNotice] = useState(false);
   const [isHelperModalOpen, setIsHelperModalOpen] = useState(false);
   const [isRegisterShopOpen, setIsRegisterShopOpen] = useState(false);
+  const [isVerificationModalOpen, setIsVerificationModalOpen] = useState(false);
+  const [verificationStatus, setVerificationStatus] = useState<'none' | 'pending' | 'approved' | 'rejected'>('none');
   const [myHelperProfile, setMyHelperProfile] = useState<any>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -103,10 +107,23 @@ export default function ProfileScreen({ onBack, onNavigate }: ProfileScreenProps
           localStorage.setItem(`locohelp_user_profile_${userKey}`, JSON.stringify(data));
         }
       } catch (err) {
-        console.warn("Supabase profile sync notice:", err);
+        console.warn("Profile sync notice:", err);
       }
     };
     loadProfile();
+
+    // Check Identity Verification Status
+    if (userKey && userKey !== 'guest') {
+      getVerificationStatus(userKey).then(res => {
+        if (res.isVerified) {
+          setVerificationStatus('approved');
+        } else if (res.status === 'pending') {
+          setVerificationStatus('pending');
+        } else if (res.status === 'rejected') {
+          setVerificationStatus('rejected');
+        }
+      }).catch(() => {});
+    }
   }, []);
 
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -353,6 +370,75 @@ export default function ProfileScreen({ onBack, onNavigate }: ProfileScreenProps
           </div>
         </div>
 
+        {/* IDENTITY VERIFICATION STATUS CARD (PRIVACY-SAFE & WATERMARKED) */}
+        <div className="bg-white dark:bg-slate-850 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-4 shadow-xs">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5">
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-white shadow-xs shrink-0 ${
+                verificationStatus === 'approved' 
+                  ? 'bg-emerald-600' 
+                  : verificationStatus === 'pending'
+                  ? 'bg-amber-500'
+                  : 'bg-indigo-600'
+              }`}>
+                {verificationStatus === 'approved' ? <ShieldCheck className="w-5 h-5" /> : <Lock className="w-4 h-4" />}
+              </div>
+              <div>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <h3 className="text-xs font-black text-slate-900 dark:text-white">
+                    {language === 'EN' ? 'Identity Verification & Safety' : 'पहचान सत्यापन एवं सुरक्षा'}
+                  </h3>
+                  {verificationStatus === 'approved' && (
+                    <span className="text-[10px] bg-emerald-600 text-white font-extrabold px-2 py-0.5 rounded-full flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3" /> Verified
+                    </span>
+                  )}
+                  {verificationStatus === 'pending' && (
+                    <span className="text-[10px] bg-amber-500 text-white font-extrabold px-2 py-0.5 rounded-full flex items-center gap-1">
+                      <Sparkles className="w-3 h-3 animate-spin" /> In Review
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium leading-tight mt-0.5">
+                  {verificationStatus === 'approved'
+                    ? (language === 'EN' ? 'Government ID verified by LocoHelp Admin' : 'लोकोहेल्प एडमिन द्वारा सरकारी पहचान पत्र सत्यापित')
+                    : verificationStatus === 'pending'
+                    ? (language === 'EN' ? 'ID submitted with auto-watermark • Awaiting Admin approval' : 'वाटरमार्क सहित ID सबमिट है • एडमिन अप्रूवल प्रतीक्षित')
+                    : (language === 'EN' ? 'Upload ID for green Verified badge (Admin-only private view)' : 'वेरिफाइड बैज पाने के लिए ID अपलोड करें (सिर्फ एडमिन देख सकेगा)')}
+                </p>
+              </div>
+            </div>
+
+            {verificationStatus === 'none' && (
+              <button
+                type="button"
+                onClick={() => setIsVerificationModalOpen(true)}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-extrabold px-3 py-2 rounded-xl shadow-sm transition-all cursor-pointer shrink-0"
+              >
+                {language === 'EN' ? 'Get Verified' : 'वेरिफाई करें'}
+              </button>
+            )}
+            {verificationStatus === 'rejected' && (
+              <button
+                type="button"
+                onClick={() => setIsVerificationModalOpen(true)}
+                className="bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-extrabold px-3 py-2 rounded-xl shadow-sm transition-all cursor-pointer shrink-0"
+              >
+                {language === 'EN' ? 'Re-upload ID' : 'पुनः अपलोड करें'}
+              </button>
+            )}
+            {verificationStatus === 'pending' && (
+              <button
+                type="button"
+                onClick={() => setIsVerificationModalOpen(true)}
+                className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[11px] font-bold px-3 py-1.5 rounded-xl transition-all cursor-pointer shrink-0"
+              >
+                {language === 'EN' ? 'View Status' : 'स्टेटस देखें'}
+              </button>
+            )}
+          </div>
+        </div>
+
         {/* Business & Venue Registration Card */}
         <div 
           onClick={() => setIsRegisterShopOpen(true)}
@@ -545,6 +631,18 @@ export default function ProfileScreen({ onBack, onNavigate }: ProfileScreenProps
           <span>{isSavedNotice ? t('prof.savedSuccess') : (t('prof.save') || "Save Profile")}</span>
         </button>
       </div>
+
+      {/* Identity Verification Modal (Auto-Watermarked with Admin-Only Privacy) */}
+      <IdentityVerificationModal
+        isOpen={isVerificationModalOpen}
+        onClose={() => setIsVerificationModalOpen(false)}
+        entityType="user_profile"
+        entityId={getCurrentUser().uid}
+        entityName={userName}
+        onVerificationSubmitted={(status) => {
+          setVerificationStatus('pending');
+        }}
+      />
 
       {/* Register Shop Modal */}
       <RegisterShopModal 

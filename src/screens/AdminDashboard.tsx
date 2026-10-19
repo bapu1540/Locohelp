@@ -50,7 +50,10 @@ import {
   updateJobPortalStatus,
   deleteJobPortalItem,
   purgeDummyDataOnServer,
-  resetDatabaseOnServer
+  resetDatabaseOnServer,
+  fetchAdminVerifications,
+  updateAdminVerificationStatus,
+  VerificationRequestItem
 } from '../api';
 import { AdBannerItem, DEFAULT_ADS } from '../components/AdBannerSection';
 import { JobPortalItem } from '../types';
@@ -98,7 +101,7 @@ export default function AdminDashboard({ onBack }: AdminDashboardProps) {
   const [changePasswordError, setChangePasswordError] = useState<string | null>(null);
 
   // Active navigation tab
-  const [activeTab, setActiveTab] = useState<'ads' | 'moderation' | 'overview' | 'helpers' | 'job_approvals' | 'logo_download'>('job_approvals');
+  const [activeTab, setActiveTab] = useState<'verifications' | 'ads' | 'moderation' | 'overview' | 'helpers' | 'job_approvals' | 'logo_download'>('verifications');
 
   // Data states
   const [ads, setAds] = useState<AdBannerItem[]>(DEFAULT_ADS);
@@ -112,6 +115,14 @@ export default function AdminDashboard({ onBack }: AdminDashboardProps) {
   const [jobFilterType, setJobFilterType] = useState<'all' | 'job_seeker' | 'employer_vacancy'>('all');
   const [jobSearchQuery, setJobSearchQuery] = useState('');
   const [isUpdatingJob, setIsUpdatingJob] = useState<string | null>(null);
+
+  // Identity Verification & Watermarked Documents State
+  const [verificationsList, setVerificationsList] = useState<VerificationRequestItem[]>([]);
+  const [verifFilterStatus, setVerifFilterStatus] = useState<'pending' | 'approved' | 'rejected' | 'all'>('pending');
+  const [verifFilterType, setVerifFilterType] = useState<'all' | 'user_profile' | 'business'>('all');
+  const [selectedVerifForDoc, setSelectedVerifForDoc] = useState<VerificationRequestItem | null>(null);
+  const [isUpdatingVerif, setIsUpdatingVerif] = useState<string | null>(null);
+  const [adminReviewNote, setAdminReviewNote] = useState('');
   
   // UI states
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
@@ -233,6 +244,14 @@ export default function AdminDashboard({ onBack }: AdminDashboardProps) {
         }
       } catch (e) {}
 
+      // 6. Fetch Identity Verification Queue with Auto-Watermarked Documents
+      try {
+        const liveVerifs = await fetchAdminVerifications();
+        if (Array.isArray(liveVerifs)) {
+          setVerificationsList(liveVerifs);
+        }
+      } catch (e) {}
+
     } catch (err) {
       console.warn("Admin load data warning:", err);
     } finally {
@@ -250,6 +269,35 @@ export default function AdminDashboard({ onBack }: AdminDashboardProps) {
     }, 20000);
     return () => clearInterval(interval);
   }, [isAdminAuthenticated]);
+
+  // ==========================================
+  // IDENTITY VERIFICATIONS & APPROVALS WORKFLOW
+  // ==========================================
+
+  const handleUpdateVerification = async (id: string, status: 'approved' | 'rejected', notes?: string) => {
+    setIsUpdatingVerif(id);
+    try {
+      const res = await updateAdminVerificationStatus(id, status, notes);
+      if (res.success) {
+        setVerificationsList(prev => prev.map(v => v.id === id ? { 
+          ...v, 
+          status, 
+          adminNotes: notes || v.adminNotes, 
+          reviewedAt: new Date().toISOString() 
+        } : v));
+        showToast(status === 'approved' ? '✅ ID Verified & Approved! Badge granted.' : '❌ Verification request rejected.');
+        if (selectedVerifForDoc?.id === id) {
+          setSelectedVerifForDoc(null);
+        }
+      } else {
+        showToast(res.error || 'Failed to update verification status');
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Error updating status');
+    } finally {
+      setIsUpdatingVerif(null);
+    }
+  };
 
   // ==========================================
   // AD BANNER MANAGEMENT ACTIONS
@@ -689,6 +737,28 @@ export default function AdminDashboard({ onBack }: AdminDashboardProps) {
 
       {/* Admin Navigation Tabs */}
       <div className="flex border-b border-[#DFDBCF] dark:border-slate-800 bg-white dark:bg-slate-800/90 px-3 pt-2 gap-1.5 shrink-0 overflow-x-auto scrollbar-hide">
+        {/* Tab: Identity & Document Verifications */}
+        <button
+          onClick={() => setActiveTab('verifications')}
+          className={`pb-2.5 px-3.5 text-xs font-black border-b-2 transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${
+            activeTab === 'verifications' 
+              ? 'border-emerald-600 text-emerald-600 dark:text-emerald-400' 
+              : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
+          }`}
+        >
+          <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+          <span>ID Verifications</span>
+          {verificationsList.filter(v => v.status === 'pending').length > 0 ? (
+            <span className="bg-emerald-600 text-white px-2 py-0.2 rounded-full text-[10px] font-black animate-pulse">
+              {verificationsList.filter(v => v.status === 'pending').length} Pending
+            </span>
+          ) : (
+            <span className="bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 px-2 py-0.2 rounded-full text-[10px] font-bold">
+              {verificationsList.length}
+            </span>
+          )}
+        </button>
+
         {/* Tab 0: Job Portal Approvals */}
         <button
           onClick={() => setActiveTab('job_approvals')}
@@ -789,6 +859,452 @@ export default function AdminDashboard({ onBack }: AdminDashboardProps) {
       {/* Main Tab Content Body */}
       <div className="flex-1 overflow-y-auto p-3.5 sm:p-5 space-y-4">
         
+        {/* ========================================================= */}
+        {/* TAB: IDENTITY & DOCUMENT VERIFICATION APPROVALS QUEUE     */}
+        {/* ========================================================= */}
+        {activeTab === 'verifications' && (
+          <div className="space-y-4">
+            {/* Top Overview & Metrics Banner */}
+            <div className="bg-white dark:bg-slate-800 p-4 sm:p-5 rounded-3xl border border-[#DFDBCF] dark:border-slate-700 shadow-xs space-y-3">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-xs">
+                      <ShieldCheck className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white leading-tight">
+                        Identity Verification & Document Approval Queue
+                      </h3>
+                      <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-900">
+                        🔒 Strict Privacy: Visible to Admin Only
+                      </span>
+                    </div>
+                  </div>
+                  <p className="text-xs text-slate-600 dark:text-slate-300 max-w-2xl leading-relaxed mt-1">
+                    Review and verify uploaded Government ID documents (Aadhaar, PAN, Voter ID, Driving License, Trade License). 
+                    Every document is automatically embossed with an indelible security watermark ("For LocoHelp Verification Only") to prevent misuse.
+                    Once approved, profiles and businesses immediately receive the official green "Verified" badge.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 self-stretch sm:self-auto">
+                  <button
+                    onClick={loadAllData}
+                    disabled={isRefreshing}
+                    className="flex-1 sm:flex-none px-3.5 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+                    <span>Refresh Queue</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Status Counters Strip */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-100 dark:border-slate-700/60">
+                <div 
+                  onClick={() => setVerifFilterStatus('pending')}
+                  className={`p-3 rounded-2xl border transition-all cursor-pointer ${
+                    verifFilterStatus === 'pending'
+                      ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-300 ring-2 ring-amber-500'
+                      : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700/60 hover:bg-slate-100'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-amber-900 dark:text-amber-200">Pending Review</span>
+                    <Clock className="w-4 h-4 text-amber-600" />
+                  </div>
+                  <div className="text-xl font-black text-amber-900 dark:text-amber-100 mt-1">
+                    {verificationsList.filter(v => v.status === 'pending').length}
+                  </div>
+                  <p className="text-[10px] text-amber-700 dark:text-amber-400 font-medium">Requires verification</p>
+                </div>
+
+                <div 
+                  onClick={() => setVerifFilterStatus('approved')}
+                  className={`p-3 rounded-2xl border transition-all cursor-pointer ${
+                    verifFilterStatus === 'approved'
+                      ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 ring-2 ring-emerald-500'
+                      : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700/60 hover:bg-slate-100'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-emerald-900 dark:text-emerald-200">Verified & Approved</span>
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  </div>
+                  <div className="text-xl font-black text-emerald-900 dark:text-emerald-100 mt-1">
+                    {verificationsList.filter(v => v.status === 'approved').length}
+                  </div>
+                  <p className="text-[10px] text-emerald-700 dark:text-emerald-400 font-medium">Badge active</p>
+                </div>
+
+                <div 
+                  onClick={() => setVerifFilterStatus('rejected')}
+                  className={`p-3 rounded-2xl border transition-all cursor-pointer ${
+                    verifFilterStatus === 'rejected'
+                      ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 ring-2 ring-rose-500'
+                      : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700/60 hover:bg-slate-100'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-rose-900 dark:text-rose-200">Rejected</span>
+                    <X className="w-4 h-4 text-rose-600" />
+                  </div>
+                  <div className="text-xl font-black text-rose-900 dark:text-rose-100 mt-1">
+                    {verificationsList.filter(v => v.status === 'rejected').length}
+                  </div>
+                  <p className="text-[10px] text-rose-700 dark:text-rose-400 font-medium">Needs re-upload</p>
+                </div>
+
+                <div 
+                  onClick={() => setVerifFilterStatus('all')}
+                  className={`p-3 rounded-2xl border transition-all cursor-pointer ${
+                    verifFilterStatus === 'all'
+                      ? 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-300 ring-2 ring-indigo-500'
+                      : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700/60 hover:bg-slate-100'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-indigo-900 dark:text-indigo-200">Total Requests</span>
+                    <FileText className="w-4 h-4 text-indigo-600" />
+                  </div>
+                  <div className="text-xl font-black text-indigo-900 dark:text-indigo-100 mt-1">
+                    {verificationsList.length}
+                  </div>
+                  <p className="text-[10px] text-indigo-700 dark:text-indigo-400 font-medium">All submissions</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Filter Pills */}
+            <div className="flex flex-wrap items-center justify-between gap-2 bg-white dark:bg-slate-800 p-3 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs">
+              <div className="flex items-center gap-1.5 overflow-x-auto">
+                <span className="text-xs font-bold text-slate-500 mr-1">Status:</span>
+                {(['pending', 'approved', 'rejected', 'all'] as const).map(st => (
+                  <button
+                    key={st}
+                    onClick={() => setVerifFilterStatus(st)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer capitalize ${
+                      verifFilterStatus === st
+                        ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xs'
+                        : 'bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
+                    }`}
+                  >
+                    {st === 'pending' ? '⏳ Pending' : st === 'approved' ? '✅ Verified' : st === 'rejected' ? '❌ Rejected' : 'All'}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-bold text-slate-500 mr-1">Type:</span>
+                {(['all', 'user_profile', 'business'] as const).map(tp => (
+                  <button
+                    key={tp}
+                    onClick={() => setVerifFilterType(tp)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      verifFilterType === tp
+                        ? 'bg-indigo-600 text-white shadow-xs'
+                        : 'bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300'
+                    }`}
+                  >
+                    {tp === 'all' ? 'All Types' : tp === 'user_profile' ? '👤 Users' : '🏬 Businesses'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Verifications Requests Cards List */}
+            {(() => {
+              const filtered = verificationsList.filter(item => {
+                if (verifFilterStatus !== 'all' && item.status !== verifFilterStatus) return false;
+                if (verifFilterType !== 'all' && item.entityType !== verifFilterType) return false;
+                return true;
+              });
+
+              if (filtered.length === 0) {
+                return (
+                  <div className="bg-white dark:bg-slate-800 p-8 rounded-3xl border border-dashed border-slate-200 dark:border-slate-700 text-center space-y-3">
+                    <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-700 text-slate-400 mx-auto flex items-center justify-center">
+                      <ShieldCheck className="w-6 h-6" />
+                    </div>
+                    <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200">
+                      No verification requests found in this view
+                    </h4>
+                    <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                      {verifFilterStatus === 'pending' 
+                        ? 'All identity submissions have been reviewed! When new users or businesses upload an ID, they will appear here.'
+                        : 'No records matching the selected status filter.'}
+                    </p>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                  {filtered.map(item => (
+                    <div
+                      key={item.id}
+                      className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700/80 p-4 shadow-xs space-y-3 relative overflow-hidden"
+                    >
+                      {/* Top Header Strip */}
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="space-y-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-md uppercase ${
+                              item.entityType === 'business'
+                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-200'
+                                : 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950/80 dark:text-indigo-200'
+                            }`}>
+                              {item.entityType === 'business' ? '🏬 Business Listing' : '👤 User Profile'}
+                            </span>
+                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-1 ${
+                              item.status === 'approved'
+                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                : item.status === 'rejected'
+                                ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                                : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                            }`}>
+                              {item.status === 'approved' ? (
+                                <><CheckCircle2 className="w-3 h-3" /> Verified</>
+                              ) : item.status === 'rejected' ? (
+                                <><X className="w-3 h-3" /> Rejected</>
+                              ) : (
+                                <><Clock className="w-3 h-3" /> Pending Review</>
+                              )}
+                            </span>
+                          </div>
+
+                          <h4 className="text-sm font-black text-slate-900 dark:text-white truncate">
+                            {item.userName || 'Community User'}
+                          </h4>
+                          <p className="text-xs text-slate-600 dark:text-slate-400 font-medium">
+                            {item.title || 'Government Identity Document'}
+                          </p>
+                        </div>
+
+                        {/* ID Document Thumbnail Preview Trigger */}
+                        {item.idDocumentWatermarked && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedVerifForDoc(item);
+                              setAdminReviewNote(item.adminNotes || '');
+                            }}
+                            className="shrink-0 relative group rounded-xl overflow-hidden border-2 border-emerald-500/80 shadow-xs cursor-pointer"
+                            title="Click to inspect watermarked document"
+                          >
+                            <img
+                              src={item.idDocumentWatermarked}
+                              alt="ID Thumbnail"
+                              className="w-16 h-12 object-cover bg-slate-900 group-hover:scale-105 transition-transform"
+                            />
+                            <div className="absolute inset-0 bg-slate-950/40 group-hover:bg-slate-950/20 flex items-center justify-center transition-colors">
+                              <Eye className="w-4 h-4 text-white drop-shadow-md" />
+                            </div>
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Contact & Details Grid */}
+                      <div className="bg-slate-50 dark:bg-slate-900/50 rounded-2xl p-2.5 text-xs space-y-1.5 border border-slate-100 dark:border-slate-800">
+                        {item.userPhone && (
+                          <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
+                            <span className="text-slate-400 font-medium flex items-center gap-1">
+                              <Phone className="w-3 h-3" /> Phone:
+                            </span>
+                            <a href={`tel:${item.userPhone}`} className="font-bold text-indigo-600 dark:text-indigo-400 hover:underline">
+                              +91 {item.userPhone}
+                            </a>
+                          </div>
+                        )}
+                        {item.userEmail && (
+                          <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
+                            <span className="text-slate-400 font-medium flex items-center gap-1">
+                              <Mail className="w-3 h-3" /> Email:
+                            </span>
+                            <span className="font-semibold truncate max-w-[180px]">{item.userEmail}</span>
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between text-slate-500 text-[11px]">
+                          <span>Submitted:</span>
+                          <span>{new Date(item.createdAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</span>
+                        </div>
+                      </div>
+
+                      {/* Watermark Security Notice */}
+                      <div className="flex items-center gap-1.5 text-[10px] text-emerald-700 dark:text-emerald-400 font-bold bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-1 rounded-xl border border-emerald-200/80 dark:border-emerald-900/60">
+                        <Lock className="w-3 h-3 text-emerald-600 shrink-0" />
+                        <span className="truncate">Auto-Watermarked ("For LocoHelp Verification Only") • Strictly Private</span>
+                      </div>
+
+                      {/* Action Buttons */}
+                      <div className="flex items-center gap-2 pt-1 border-t border-slate-100 dark:border-slate-700/60">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedVerifForDoc(item);
+                            setAdminReviewNote(item.adminNotes || '');
+                          }}
+                          className="flex-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-white text-xs font-bold py-2 px-3 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                        >
+                          <Eye className="w-3.5 h-3.5 text-indigo-500" />
+                          <span>Inspect ID Doc</span>
+                        </button>
+
+                        {item.status !== 'approved' && (
+                          <button
+                            type="button"
+                            disabled={isUpdatingVerif === item.id}
+                            onClick={() => handleUpdateVerification(item.id, 'approved')}
+                            className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold py-2 px-3.5 rounded-xl shadow-xs transition-all flex items-center justify-center gap-1 cursor-pointer disabled:opacity-60"
+                          >
+                            <ShieldCheck className="w-3.5 h-3.5" />
+                            <span>Approve</span>
+                          </button>
+                        )}
+
+                        {item.status !== 'rejected' && (
+                          <button
+                            type="button"
+                            disabled={isUpdatingVerif === item.id}
+                            onClick={() => handleUpdateVerification(item.id, 'rejected')}
+                            className="bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 text-xs font-bold py-2 px-3 rounded-xl transition-all flex items-center justify-center gap-1 cursor-pointer disabled:opacity-60"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                            <span>Reject</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+
+            {/* SECURE ADMIN-ONLY DOCUMENT PREVIEW MODAL */}
+            {selectedVerifForDoc && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/85 backdrop-blur-sm overflow-y-auto">
+                <div className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col my-auto max-h-[92vh]">
+                  {/* Modal Header */}
+                  <div className="px-5 py-3.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-800/60">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-xs">
+                        <Lock className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h4 className="font-extrabold text-sm text-slate-900 dark:text-white">
+                          Confidential ID Inspection ({selectedVerifForDoc.userName})
+                        </h4>
+                        <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">
+                          Admin-Only Protected View &bull; Watermarked for Safety
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => setSelectedVerifForDoc(null)}
+                      className="p-1.5 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  {/* Watermarked Document Full Preview */}
+                  <div className="p-4 overflow-y-auto space-y-3">
+                    <div className="bg-slate-950 rounded-2xl overflow-hidden border border-slate-800 flex items-center justify-center min-h-[260px] max-h-[55vh] shadow-inner">
+                      {selectedVerifForDoc.idDocumentWatermarked ? (
+                        <img
+                          src={selectedVerifForDoc.idDocumentWatermarked}
+                          alt="Confidential Watermarked ID Document"
+                          className="max-h-[55vh] w-auto object-contain mx-auto"
+                        />
+                      ) : (
+                        <p className="text-xs text-slate-400 font-bold p-8">No document image attached</p>
+                      )}
+                    </div>
+
+                    {/* Metadata & Admin Note */}
+                    <div className="bg-slate-50 dark:bg-slate-800/50 rounded-2xl p-3 border border-slate-200 dark:border-slate-700 space-y-2 text-xs">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <span className="text-slate-400 block text-[10px]">Entity:</span>
+                          <span className="font-bold text-slate-800 dark:text-slate-200">
+                            {selectedVerifForDoc.entityType === 'business' ? 'Business Listing' : 'User Profile'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 block text-[10px]">Document Title:</span>
+                          <span className="font-bold text-slate-800 dark:text-slate-200">
+                            {selectedVerifForDoc.title}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 block text-[10px]">Phone:</span>
+                          <span className="font-bold font-mono text-slate-800 dark:text-slate-200">
+                            +91 {selectedVerifForDoc.userPhone || 'N/A'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 block text-[10px]">Current Status:</span>
+                          <span className="font-bold capitalize text-slate-800 dark:text-slate-200">
+                            {selectedVerifForDoc.status}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="pt-1">
+                        <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                          Admin Review Remarks (Optional):
+                        </label>
+                        <input
+                          type="text"
+                          value={adminReviewNote}
+                          onChange={(e) => setAdminReviewNote(e.target.value)}
+                          placeholder="e.g. Valid Aadhaar Card, verified with address"
+                          className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-medium text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Modal Footer Actions */}
+                  <div className="px-5 py-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3 bg-slate-50 dark:bg-slate-800/40">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedVerifForDoc(null)}
+                      className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                    >
+                      Close
+                    </button>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={isUpdatingVerif === selectedVerifForDoc.id}
+                        onClick={() => handleUpdateVerification(selectedVerifForDoc.id, 'rejected', adminReviewNote)}
+                        className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5 disabled:opacity-60"
+                      >
+                        <X className="w-4 h-4" />
+                        <span>Reject ID</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={isUpdatingVerif === selectedVerifForDoc.id}
+                        onClick={() => handleUpdateVerification(selectedVerifForDoc.id, 'approved', adminReviewNote)}
+                        className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black transition-all shadow-md cursor-pointer flex items-center gap-1.5 disabled:opacity-60"
+                      >
+                        <ShieldCheck className="w-4 h-4" />
+                        <span>Approve & Grant Verified Badge</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ========================================================= */}
         {/* TAB 0: JOB PORTAL APPROVALS (SEEKER & EMPLOYER VACANCIES) */}
         {/* ========================================================= */}

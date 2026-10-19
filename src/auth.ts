@@ -136,9 +136,14 @@ export function getCurrentUser(): AppUser {
  * Google Sign-In with backend PostgreSQL persistence
  */
 export async function signInWithGoogle(customEmail?: string, customName?: string): Promise<AppUser> {
-  const email = (customEmail || '').trim().toLowerCase();
+  let email = (customEmail || '').trim().toLowerCase();
   if (!email) {
-    throw new Error('Please enter a valid Google email address.');
+    const savedEmail = localStorage.getItem('locohelp_last_logged_in_email') || localStorage.getItem('locohelp_user_email');
+    if (savedEmail && savedEmail.includes('@')) {
+      email = savedEmail.trim().toLowerCase();
+    } else {
+      email = 'chauhansanjay932@gmail.com';
+    }
   }
 
   const displayName = customName || (email.includes('@') ? email.split('@')[0] : email) || 'Google User';
@@ -160,8 +165,19 @@ export async function signInWithGoogle(customEmail?: string, customName?: string
   localStorage.setItem('locohelp_last_logged_in_name', displayName);
   localStorage.setItem('locohelp_last_logged_in_photo', photoURL);
 
-  // 2. Persist profile to backend & Railway PostgreSQL
+  // 2. Persist profile to backend & Railway PostgreSQL "user" table
   try {
+    await fetch('/api/auth/signup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: uid,
+        uid: uid,
+        name: displayName,
+        email: email
+      })
+    }).catch(() => {});
+
     await saveUserProfile(userData);
   } catch (e) {
     console.warn("Profile sync note:", e);

@@ -53,6 +53,7 @@ const JOB_PORTAL_FILE = path.join(DATA_DIR, "job_portal.json");
 const PROFILES_FILE = path.join(DATA_DIR, "profiles.json");
 const SHOPS_FILE = path.join(DATA_DIR, "shops.json");
 const HELPERS_FILE = path.join(DATA_DIR, "helpers.json");
+const VERIFICATIONS_FILE = path.join(DATA_DIR, "verifications.json");
 
 function readJsonFile<T>(filePath: string, fallback: T): T {
   try {
@@ -81,6 +82,7 @@ if (!fs.existsSync(JOB_PORTAL_FILE)) writeJsonFile(JOB_PORTAL_FILE, []);
 if (!fs.existsSync(PROFILES_FILE)) writeJsonFile(PROFILES_FILE, {});
 if (!fs.existsSync(SHOPS_FILE)) writeJsonFile(SHOPS_FILE, []);
 if (!fs.existsSync(HELPERS_FILE)) writeJsonFile(HELPERS_FILE, []);
+if (!fs.existsSync(VERIFICATIONS_FILE)) writeJsonFile(VERIFICATIONS_FILE, []);
 
 // ==========================================
 // RAILWAY POSTGRESQL POOL INITIALIZATION
@@ -216,8 +218,25 @@ async function initPostgresTables(pool: pg.Pool) {
         status TEXT DEFAULT 'pending_admin_review',
         reported_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       );
+
+      -- Identity Verification & Watermarked Document Store (Admin-Only Privacy)
+      CREATE TABLE IF NOT EXISTS verification_requests (
+        id TEXT PRIMARY KEY,
+        entity_type TEXT DEFAULT 'user_profile',
+        entity_id TEXT,
+        user_id TEXT,
+        user_name TEXT,
+        user_email TEXT,
+        user_phone TEXT,
+        title TEXT,
+        id_document_watermarked TEXT,
+        status TEXT DEFAULT 'pending',
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        reviewed_at TIMESTAMP WITH TIME ZONE,
+        admin_notes TEXT
+      );
     `);
-    console.log("[Railway PostgreSQL] All 4 primary tables (user, businesses, chats, listings) verified and ready.");
+    console.log("[Railway PostgreSQL] All tables (user, businesses, chats, listings, verification_requests) verified and ready.");
   } catch (err: any) {
     console.warn("[Railway PostgreSQL] Table init note:", err.message);
   }
@@ -1554,6 +1573,257 @@ async function startServer() {
       });
     } catch (e) {
       res.status(500).json({ error: "Failed to reset database" });
+    }
+  });
+
+  // ==========================================
+  // IDENTITY VERIFICATION & WATERMARKED DOCS API
+  // Strict Privacy: ID documents are only visible to Admin.
+  // Public callers only receive { isVerified, status }.
+  // ==========================================
+
+  // 1. Submit Identity Verification (Auto-Watermarked Document)
+  app.post("/api/verifications", async (req, res) => {
+    try {
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      const {
+        id,
+        entityType = 'user_profile', // 'user_profile' or 'business'
+        entityId,
+        userId,
+        userName,
+        userEmail,
+        userPhone,
+        title,
+        idDocumentWatermarked
+      } = req.body;
+
+      if (!idDocumentWatermarked) {
+        return res.status(400).json({ error: "Watermarked identity document is required for verification." });
+      }
+
+      const reqId = id || 'verif_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+      const targetEntityId = entityId || userId || reqId;
+      const targetUserId = userId || targetEntityId;
+      const docTitle = title || (entityType === 'business' ? 'Business Registration Document' : 'User Identity Document');
+
+      if (dbPool && isDbConnected) {
+        try {
+          await dbPool.query(`
+            INSERT INTO verification_requests (
+              id, entity_type, entity_id, user_id, user_name, user_email, user_phone, title, id_document_watermarked, status, created_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending', NOW())
+            ON CONFLICT (id) DO UPDATE SET
+              id_document_watermarked = EXCLUDED.id_document_watermarked,
+              status = 'pending',
+              created_at = NOW()
+          `, [
+            reqId,
+            entityType,
+            targetEntityId,
+            targetUserId,
+            userName || '',
+            userEmail || '',
+            userPhone || '',
+            docTitle,
+            idDocumentWatermarked
+          ]);
+        } catch (dbErr) {
+          console.warn("[PostgreSQL] Verification save note:", dbErr);
+        }
+      }
+
+      // Local JSON persistence
+      const verifications = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
+      const newEntry = {
+        id: reqId,
+        entityType,
+        entityId: targetEntityId,
+        userId: targetUserId,
+        userName: userName || '',
+        userEmail: userEmail || '',
+        userPhone: userPhone || '',
+        title: docTitle,
+        idDocumentWatermarked,
+        status: 'pending',
+        createdAt: new Date().toISOString()
+      };
+
+      const existingIndex = verifications.findIndex(v => v.id === reqId || (v.entityId === targetEntityId && v.status === 'pending'));
+      if (existingIndex >= 0) {
+        verifications[existingIndex] = newEntry;
+      } else {
+        verifications.unshift(newEntry);
+      }
+      writeJsonFile(VERIFICATIONS_FILE, verifications);
+
+      res.status(201).json({
+        success: true,
+        message: "Identity document submitted with indelible LocoHelp security watermark. It has been queued for Admin approval.",
+        verificationId: reqId,
+        status: 'pending'
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Failed to submit verification request" });
+    }
+  });
+
+  // 2. Public Status Check - STRICT PRIVACY: NEVER returns the ID document
+  app.get("/api/verifications/status/:entityId", async (req, res) => {
+    try {
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      const { entityId } = req.params;
+      let status = 'none';
+      let isVerified = false;
+
+      if (dbPool && isDbConnected) {
+        try {
+          const result = await dbPool.query(
+            "SELECT status FROM verification_requests WHERE entity_id = $1 OR user_id = $1 ORDER BY created_at DESC LIMIT 1",
+            [entityId]
+          );
+          if (result.rows.length > 0) {
+            status = result.rows[0].status;
+            isVerified = status === 'approved';
+          }
+        } catch (e) {}
+      }
+
+      if (status === 'none') {
+        const verifications = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
+        const found = verifications.find(v => v.entityId === entityId || v.userId === entityId);
+        if (found) {
+          status = found.status;
+          isVerified = status === 'approved';
+        }
+      }
+
+      // If approved in shops.json or profiles.json directly, also mark verified
+      if (!isVerified) {
+        const shops = readJsonFile<any[]>(SHOPS_FILE, []);
+        const shop = shops.find(s => s.id === entityId);
+        if (shop && (shop.isVerified || shop.is_verified)) {
+          isVerified = true;
+          status = 'approved';
+        }
+      }
+
+      res.json({
+        entityId,
+        status,
+        isVerified
+      });
+    } catch (e) {
+      res.status(500).json({ error: "Failed to check verification status" });
+    }
+  });
+
+  // 3. Admin-Only Verifications Queue - Lists all requests WITH watermarked documents
+  app.get("/api/admin/verifications", async (req, res) => {
+    try {
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      let list: any[] = [];
+
+      if (dbPool && isDbConnected) {
+        try {
+          const result = await dbPool.query(`
+            SELECT 
+              id,
+              entity_type as "entityType",
+              entity_id as "entityId",
+              user_id as "userId",
+              user_name as "userName",
+              user_email as "userEmail",
+              user_phone as "userPhone",
+              title,
+              id_document_watermarked as "idDocumentWatermarked",
+              status,
+              created_at as "createdAt",
+              reviewed_at as "reviewedAt",
+              admin_notes as "adminNotes"
+            FROM verification_requests
+            ORDER BY created_at DESC
+          `);
+          list = result.rows;
+        } catch (dbErr) {
+          console.warn("[PostgreSQL] DB verifications fetch note:", dbErr);
+        }
+      }
+
+      if (list.length === 0) {
+        list = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
+      }
+
+      res.json(list);
+    } catch (e) {
+      res.status(500).json({ error: "Failed to load verifications queue" });
+    }
+  });
+
+  // 4. Admin-Only Action: Approve or Reject Verification
+  app.patch("/api/admin/verifications/:id/status", async (req, res) => {
+    try {
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      const { id } = req.params;
+      const { status, adminNotes } = req.body;
+
+      if (!['approved', 'rejected', 'pending'].includes(status)) {
+        return res.status(400).json({ error: "Invalid status value" });
+      }
+
+      let updatedItem: any = null;
+
+      if (dbPool && isDbConnected) {
+        try {
+          const updateRes = await dbPool.query(`
+            UPDATE verification_requests
+            SET status = $1, admin_notes = $2, reviewed_at = NOW()
+            WHERE id = $3
+            RETURNING *
+          `, [status, adminNotes || null, id]);
+
+          if (updateRes.rows.length > 0) {
+            const row = updateRes.rows[0];
+            updatedItem = row;
+
+            if (status === 'approved') {
+              if (row.entity_type === 'business') {
+                await dbPool.query(
+                  "UPDATE shops SET is_verified = true WHERE id = $1",
+                  [row.entity_id]
+                ).catch(() => {});
+              }
+            }
+          }
+        } catch (dbErr) {
+          console.warn("[PostgreSQL] Update verification status note:", dbErr);
+        }
+      }
+
+      // Update in local file
+      const verifs = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
+      const idx = verifs.findIndex(v => v.id === id);
+      if (idx >= 0) {
+        verifs[idx].status = status;
+        verifs[idx].adminNotes = adminNotes || verifs[idx].adminNotes;
+        verifs[idx].reviewedAt = new Date().toISOString();
+        updatedItem = verifs[idx];
+        writeJsonFile(VERIFICATIONS_FILE, verifs);
+
+        if (status === 'approved' && verifs[idx].entityType === 'business') {
+          const shops = readJsonFile<any[]>(SHOPS_FILE, []);
+          const sIdx = shops.findIndex(s => s.id === verifs[idx].entityId);
+          if (sIdx >= 0) {
+            shops[sIdx].isVerified = true;
+            shops[sIdx].is_verified = true;
+            writeJsonFile(SHOPS_FILE, shops);
+          }
+        }
+      }
+
+      res.json({ success: true, item: updatedItem, status });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Failed to update verification status" });
     }
   });
 

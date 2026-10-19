@@ -499,4 +499,109 @@ export async function resetDatabaseOnServer(): Promise<{ success: boolean; messa
   }
 }
 
+// ==========================================
+// IDENTITY VERIFICATION & WATERMARKED DOCS API
+// ==========================================
+
+export interface VerificationRequestItem {
+  id: string;
+  entityType: 'user_profile' | 'business';
+  entityId: string;
+  userId: string;
+  userName: string;
+  userEmail?: string;
+  userPhone?: string;
+  title: string;
+  idDocumentWatermarked?: string; // Only present in Admin API
+  status: 'pending' | 'approved' | 'rejected';
+  createdAt: string;
+  reviewedAt?: string;
+  adminNotes?: string;
+}
+
+/**
+ * Submits an identity document with auto-watermark for verification
+ */
+export async function submitVerification(payload: {
+  entityType: 'user_profile' | 'business';
+  entityId: string;
+  userId: string;
+  userName: string;
+  userEmail?: string;
+  userPhone?: string;
+  title?: string;
+  idDocumentWatermarked: string;
+}): Promise<{ success: boolean; message?: string; verificationId?: string; error?: string }> {
+  try {
+    const res = await fetch('/api/verifications', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      return { success: false, error: data.error || 'Failed to submit verification' };
+    }
+    return data;
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Network error while submitting verification' };
+  }
+}
+
+/**
+ * Public status check - Returns only verification status, strictly preserving document privacy
+ */
+export async function getVerificationStatus(entityId: string): Promise<{ status: string; isVerified: boolean }> {
+  try {
+    const res = await fetch(`/api/verifications/status/${encodeURIComponent(entityId)}?_t=${Date.now()}`);
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (e) {}
+  return { status: 'none', isVerified: false };
+}
+
+/**
+ * Admin-Only: Fetches verification queue with watermarked documents
+ */
+export async function fetchAdminVerifications(): Promise<VerificationRequestItem[]> {
+  try {
+    const res = await fetch(`/api/admin/verifications?_t=${Date.now()}`, {
+      cache: 'no-store'
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    }
+  } catch (e) {
+    console.warn("Error fetching admin verifications:", e);
+  }
+  return [];
+}
+
+/**
+ * Admin-Only: Approves or Rejects verification submission
+ */
+export async function updateAdminVerificationStatus(
+  id: string,
+  status: 'approved' | 'rejected' | 'pending',
+  adminNotes?: string
+): Promise<{ success: boolean; item?: any; error?: string }> {
+  try {
+    const res = await fetch(`/api/admin/verifications/${encodeURIComponent(id)}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status, adminNotes })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      return { success: false, error: data.error || 'Failed to update status' };
+    }
+    return data;
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Network error updating verification status' };
+  }
+}
+
+
 
