@@ -525,10 +525,45 @@ export async function getHelpers(): Promise<any[]> {
  */
 export async function saveChatHistory(prompt: string, response: string, userId?: string): Promise<void> {
   try {
-    await fetch('/api/chats', {
+    await fetch('/api/ai-chat-history', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt, response, userId })
     });
   } catch (e) {}
 }
+
+/**
+ * Direct Table Insertion Helpers for PostgreSQL
+ */
+
+// 1. Table: user (id, name, phone, email, created_at)
+export async function signupUser(userData: { id?: string; uid?: string; name: string; phone?: string; email?: string }): Promise<any> {
+  try {
+    const res = await fetch('/api/auth/signup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(userData)
+    });
+    if (res.ok) return await res.json();
+  } catch (e) {
+    console.warn("Signup error:", e);
+  }
+  return { success: false };
+}
+
+// 2. Table: businesses (id, owner_id, business_name, category, address, phone, created_at)
+export async function saveBusiness(biz: { id?: string; owner_id?: string; ownerName?: string; business_name?: string; name?: string; category?: string; address?: string; phone?: string }): Promise<any> {
+  return await saveShop(biz);
+}
+
+// 3. Table: chats (id, sender_id, receiver_id, message, sent_at)
+export async function sendChatMessage(sender_id: string, receiver_id: string, message: string): Promise<any> {
+  return await sendMessage(sender_id, receiver_id, message);
+}
+
+// 4. Table: listings (id, user_id, title, description, location, created_at)
+export async function saveListing(listing: { id?: string; user_id?: string; authorId?: string; title?: string; description: string; location?: string }): Promise<any> {
+  return await saveBroadcastPost(listing);
+}
+

@@ -91,6 +91,46 @@ let isDbConnected = false;
 async function initPostgresTables(pool: pg.Pool) {
   try {
     await pool.query(`
+      -- 1. Table: user (Columns: id, name, phone, email, created_at)
+      CREATE TABLE IF NOT EXISTS "user" (
+        id TEXT PRIMARY KEY,
+        name TEXT,
+        phone TEXT,
+        email TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+
+      -- 2. Table: businesses (Columns: id, owner_id, business_name, category, address, phone, created_at)
+      CREATE TABLE IF NOT EXISTS businesses (
+        id TEXT PRIMARY KEY,
+        owner_id TEXT,
+        business_name TEXT,
+        category TEXT,
+        address TEXT,
+        phone TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+
+      -- 3. Table: chats (Columns: id, sender_id, receiver_id, message, sent_at)
+      CREATE TABLE IF NOT EXISTS chats (
+        id TEXT PRIMARY KEY,
+        sender_id TEXT,
+        receiver_id TEXT,
+        message TEXT,
+        sent_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+
+      -- 4. Table: listings (Columns: id, user_id, title, description, location, created_at)
+      CREATE TABLE IF NOT EXISTS listings (
+        id TEXT PRIMARY KEY,
+        user_id TEXT,
+        title TEXT,
+        description TEXT,
+        location TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+
+      -- Compatibility tables
       CREATE TABLE IF NOT EXISTS profiles (
         uid TEXT PRIMARY KEY,
         full_name TEXT,
@@ -167,14 +207,6 @@ async function initPostgresTables(pool: pg.Pool) {
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       );
 
-      CREATE TABLE IF NOT EXISTS chats (
-        id SERIAL PRIMARY KEY,
-        user_id TEXT,
-        prompt TEXT,
-        response TEXT,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-      );
-
       CREATE TABLE IF NOT EXISTS admin_reports (
         id TEXT PRIMARY KEY,
         reporter_id TEXT,
@@ -185,7 +217,7 @@ async function initPostgresTables(pool: pg.Pool) {
         reported_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       );
     `);
-    console.log("[Railway PostgreSQL] Tables verified and ready.");
+    console.log("[Railway PostgreSQL] All 4 primary tables (user, businesses, chats, listings) verified and ready.");
   } catch (err: any) {
     console.warn("[Railway PostgreSQL] Table init note:", err.message);
   }
@@ -252,12 +284,33 @@ async function startServer() {
   // USER PROFILES & AUTHENTICATION API
   // ==========================================
 
-  // Get user profile
-  app.get("/api/profiles/:uid", async (req, res) => {
+  // Get user profile (Queries primary "user" table with fallback to profiles)
+  const getUserProfileHandler = async (req: express.Request, res: express.Response) => {
     try {
-      const { uid } = req.params;
+      const uid = req.params.uid || req.params.id;
       if (dbPool && isDbConnected) {
         try {
+          // 1. Check primary "user" table (Columns: id, name, phone, email, created_at)
+          const userRes = await dbPool.query(
+            'SELECT * FROM "user" WHERE id = $1 OR email = $1 LIMIT 1',
+            [uid]
+          );
+          if (userRes.rows.length > 0) {
+            const u = userRes.rows[0];
+            return res.json({
+              uid: u.id,
+              id: u.id,
+              full_name: u.name,
+              displayName: u.name,
+              email: u.email || '',
+              phone: u.phone || '',
+              avatar_url: "https://lh3.googleusercontent.com/a/default-user",
+              photoURL: "https://lh3.googleusercontent.com/a/default-user",
+              created_at: u.created_at
+            });
+          }
+
+          // 2. Also check profiles table
           const result = await dbPool.query(
             "SELECT * FROM profiles WHERE uid = $1 OR email = $1 LIMIT 1",
             [uid]
@@ -266,6 +319,7 @@ async function startServer() {
             const row = result.rows[0];
             return res.json({
               uid: row.uid,
+              id: row.uid,
               full_name: row.full_name,
               displayName: row.full_name,
               email: row.email,
@@ -280,7 +334,7 @@ async function startServer() {
             });
           }
         } catch (dbErr) {
-          console.warn("DB profile query error:", dbErr);
+          console.warn("DB user profile query error:", dbErr);
         }
       }
 
@@ -292,18 +346,21 @@ async function startServer() {
     } catch (e: any) {
       res.status(500).json({ error: e.message || "Failed to fetch profile" });
     }
-  });
+  };
 
-  // Upsert user profile
-  app.post("/api/profiles", async (req, res) => {
+  app.get("/api/profiles/:uid", getUserProfileHandler);
+  app.get("/api/user/:id", getUserProfileHandler);
+
+  // Upsert user profile (Saves into primary "user" table and profiles table)
+  const saveUserProfileHandler = async (req: express.Request, res: express.Response) => {
     try {
       const profile = req.body;
-      if (!profile || !profile.uid) {
-        return res.status(400).json({ error: "User UID is required" });
+      const uid = profile.uid || profile.id;
+      if (!profile || !uid) {
+        return res.status(400).json({ error: "User ID is required" });
       }
 
-      const uid = profile.uid;
-      const fullName = profile.full_name || profile.displayName || "Community Member";
+      const fullName = profile.name || profile.full_name || profile.displayName || "Community Member";
       const email = profile.email || "";
       const phone = profile.phone || "";
       const avatarUrl = profile.avatar_url || profile.photoURL || "https://lh3.googleusercontent.com/a/default-user";
@@ -312,9 +369,18 @@ async function startServer() {
       const experience = profile.experience || "";
       const myHelper = profile.my_helper_profile || profile.myHelperProfile || null;
 
-      // 1. PostgreSQL Upsert
+      // 1. PostgreSQL Upsert into primary "user" table (id, name, phone, email, created_at)
       if (dbPool && isDbConnected) {
         try {
+          await dbPool.query(`
+            INSERT INTO "user" (id, name, phone, email, created_at)
+            VALUES ($1, $2, $3, $4, NOW())
+            ON CONFLICT (id) DO UPDATE SET
+              name = EXCLUDED.name,
+              phone = COALESCE(NULLIF(EXCLUDED.phone, ''), "user".phone),
+              email = COALESCE(NULLIF(EXCLUDED.email, ''), "user".email)
+          `, [uid, fullName, phone, email]);
+
           await dbPool.query(`
             INSERT INTO profiles (uid, full_name, email, phone, avatar_url, skills, address, experience, my_helper_profile, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
@@ -330,7 +396,7 @@ async function startServer() {
               updated_at = NOW()
           `, [uid, fullName, email, phone, avatarUrl, skills, address, experience, myHelper ? JSON.stringify(myHelper) : null]);
         } catch (dbErr) {
-          console.warn("DB profile upsert error:", dbErr);
+          console.warn("DB user table upsert error:", dbErr);
         }
       }
 
@@ -338,6 +404,8 @@ async function startServer() {
       const profiles = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
       profiles[uid] = {
         uid,
+        id: uid,
+        name: fullName,
         full_name: fullName,
         displayName: fullName,
         email,
@@ -352,11 +420,68 @@ async function startServer() {
       };
       writeJsonFile(PROFILES_FILE, profiles);
 
-      res.status(200).json({ success: true, profile: profiles[uid] });
+      res.status(200).json({ success: true, profile: profiles[uid], user: profiles[uid] });
     } catch (e: any) {
       res.status(500).json({ error: e.message || "Failed to save profile" });
     }
-  });
+  };
+
+  app.post("/api/profiles", saveUserProfileHandler);
+  app.post("/api/user", saveUserProfileHandler);
+
+  // Dedicated Signup Endpoint - Inserts directly into "user" table (id, name, phone, email, created_at)
+  const signupHandler = async (req: express.Request, res: express.Response) => {
+    try {
+      const { id, uid, name, full_name, displayName, phone, email } = req.body;
+      const targetId = id || uid || (email ? 'email_' + email.replace(/[^a-z0-9]/g, '_') : (phone ? 'phone_' + phone.replace(/\D/g, '') : 'user_' + Date.now()));
+      const userName = name || full_name || displayName || (email ? email.split('@')[0] : 'Community Member');
+      const userEmail = email || '';
+      const userPhone = phone || '';
+
+      if (dbPool && isDbConnected) {
+        try {
+          await dbPool.query(`
+            INSERT INTO "user" (id, name, phone, email, created_at)
+            VALUES ($1, $2, $3, $4, NOW())
+            ON CONFLICT (id) DO UPDATE SET
+              name = EXCLUDED.name,
+              phone = COALESCE(NULLIF(EXCLUDED.phone, ''), "user".phone),
+              email = COALESCE(NULLIF(EXCLUDED.email, ''), "user".email)
+          `, [targetId, userName, userPhone, userEmail]);
+
+          await dbPool.query(`
+            INSERT INTO profiles (uid, full_name, email, phone, updated_at)
+            VALUES ($1, $2, $3, $4, NOW())
+            ON CONFLICT (uid) DO UPDATE SET
+              full_name = EXCLUDED.full_name,
+              email = COALESCE(NULLIF(EXCLUDED.email, ''), profiles.email),
+              phone = COALESCE(NULLIF(EXCLUDED.phone, ''), profiles.phone),
+              updated_at = NOW()
+          `, [targetId, userName, userEmail, userPhone]);
+        } catch (dbErr) {
+          console.warn("DB user signup note:", dbErr);
+        }
+      }
+
+      const userData = {
+        id: targetId,
+        uid: targetId,
+        name: userName,
+        displayName: userName,
+        email: userEmail,
+        phone: userPhone,
+        created_at: new Date().toISOString()
+      };
+
+      res.status(201).json({ success: true, user: userData });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Failed to sign up" });
+    }
+  };
+
+  app.post("/api/auth/signup", signupHandler);
+  app.post("/api/signup", signupHandler);
+  app.post("/api/users", signupHandler);
 
   // Delete profile
   app.delete("/api/profiles/:uid", async (req, res) => {
@@ -364,6 +489,7 @@ async function startServer() {
       const { uid } = req.params;
       if (dbPool && isDbConnected) {
         try {
+          await dbPool.query('DELETE FROM "user" WHERE id = $1', [uid]);
           await dbPool.query("DELETE FROM profiles WHERE uid = $1", [uid]);
         } catch (dbErr) {}
       }
@@ -390,6 +516,14 @@ async function startServer() {
       if (dbPool && isDbConnected) {
         try {
           await dbPool.query(`
+            INSERT INTO "user" (id, name, phone, email, created_at)
+            VALUES ($1, $2, $3, $4, NOW())
+            ON CONFLICT (id) DO UPDATE SET
+              name = EXCLUDED.name,
+              email = COALESCE(NULLIF(EXCLUDED.email, ''), "user".email)
+          `, [uid, name, '', cleanEmail]);
+
+          await dbPool.query(`
             INSERT INTO profiles (uid, full_name, email, avatar_url, updated_at)
             VALUES ($1, $2, $3, $4, NOW())
             ON CONFLICT (uid) DO UPDATE SET
@@ -404,6 +538,8 @@ async function startServer() {
         success: true,
         user: {
           uid,
+          id: uid,
+          name,
           displayName: name,
           email: cleanEmail,
           photoURL: photo,
@@ -424,8 +560,12 @@ async function startServer() {
   // BROADCAST POSTS (INTENTS) API
   // ==========================================
 
-  // 1. Get All Broadcast Intents
-  app.get("/api/intents", async (req, res) => {
+  // ==========================================
+  // LISTINGS & BROADCAST POSTS API
+  // ==========================================
+
+  // 1. Get All Listings / Broadcast Intents
+  const getListingsHandler = async (req: express.Request, res: express.Response) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
       res.setHeader("Pragma", "no-cache");
@@ -436,6 +576,33 @@ async function startServer() {
       // If PostgreSQL is connected, fetch from database
       if (dbPool && isDbConnected) {
         try {
+          // 1. Query primary listings table (Columns: id, user_id, title, description, location, created_at)
+          const listRes = await dbPool.query(`
+            SELECT * FROM listings 
+            ORDER BY created_at DESC 
+            LIMIT 100
+          `);
+
+          if (listRes.rows.length > 0) {
+            const dbListings = listRes.rows
+              .filter(r => !deletedIds.includes(r.id))
+              .map(r => ({
+                id: r.id,
+                authorId: r.user_id,
+                authorName: 'Community Member',
+                description: r.description,
+                category: r.title || 'General',
+                tags: [r.title ? `#${r.title}` : '#General'],
+                status: 'active',
+                distance: r.location && !isNaN(Number(r.location)) ? Number(r.location) : 0.5,
+                hasLocationPin: true,
+                isVerifiedUser: true,
+                createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString()
+              }));
+            return res.json(dbListings);
+          }
+
+          // 2. Fallback to broadcast_posts table
           const result = await dbPool.query(`
             SELECT * FROM broadcast_posts 
             WHERE expires_at > NOW() OR expires_at IS NULL
@@ -464,7 +631,7 @@ async function startServer() {
             return res.json(dbIntents);
           }
         } catch (dbErr) {
-          console.warn("DB intents query fallback:", dbErr);
+          console.warn("DB listings query fallback:", dbErr);
         }
       }
 
@@ -483,15 +650,18 @@ async function startServer() {
       const fallbackIntents = readJsonFile<any[]>(INTENTS_FILE, []);
       res.json(fallbackIntents);
     }
-  });
+  };
 
-  // 2. Broadcast a New Intent
-  app.post("/api/intents", async (req, res) => {
+  app.get("/api/intents", getListingsHandler);
+  app.get("/api/listings", getListingsHandler);
+
+  // 2. Broadcast a New Listing / Intent
+  const createListingHandler = async (req: express.Request, res: express.Response) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
       const newIntent = req.body;
-      if (!newIntent || !newIntent.description) {
-        return res.status(400).json({ error: "Intent description is required" });
+      if (!newIntent || (!newIntent.description && !newIntent.title)) {
+        return res.status(400).json({ error: "Description or title is required" });
       }
 
       const deletedIds = readJsonFile<string[]>(DELETED_INTENTS_FILE, []);
@@ -501,13 +671,15 @@ async function startServer() {
 
       const intentRecord = {
         id: newIntent.id || 'intent_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
-        authorId: newIntent.authorId || newIntent.author_id || 'anonymous_user',
+        authorId: newIntent.authorId || newIntent.user_id || newIntent.author_id || 'anonymous_user',
         authorName: newIntent.authorName || newIntent.author_name || 'Community Member',
         authorAvatar: newIntent.authorAvatar || newIntent.author_avatar || '',
-        description: newIntent.description.trim(),
-        category: newIntent.category || (newIntent.tags && newIntent.tags[0] ? newIntent.tags[0].replace('#', '') : 'General'),
+        title: newIntent.title || newIntent.category || (newIntent.tags && newIntent.tags[0] ? newIntent.tags[0].replace('#', '') : 'General'),
+        description: (newIntent.description || newIntent.title || '').trim(),
+        category: newIntent.category || newIntent.title || (newIntent.tags && newIntent.tags[0] ? newIntent.tags[0].replace('#', '') : 'General'),
         tags: Array.isArray(newIntent.tags) ? newIntent.tags : ['#General'],
-        distance: typeof newIntent.distance === 'number' ? newIntent.distance : Number((Math.random() * 0.4 + 0.1).toFixed(1)),
+        distance: typeof newIntent.distance === 'number' ? newIntent.distance : 0.5,
+        location: newIntent.location || (typeof newIntent.distance === 'number' ? `${newIntent.distance} km` : 'Local Area'),
         status: newIntent.status || 'active',
         createdAt: newIntent.createdAt || new Date().toISOString(),
         expiresAt: newIntent.expiresAt || new Date(Date.now() + 1000 * 60 * 120).toISOString(),
@@ -515,9 +687,26 @@ async function startServer() {
         isVerifiedUser: true
       };
 
-      // 1. PostgreSQL Insert
+      // 1. PostgreSQL Insert into primary "listings" table (id, user_id, title, description, location, created_at)
       if (dbPool && isDbConnected) {
         try {
+          await dbPool.query(`
+            INSERT INTO listings (id, user_id, title, description, location, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (id) DO UPDATE SET
+              title = EXCLUDED.title,
+              description = EXCLUDED.description,
+              location = EXCLUDED.location
+          `, [
+            intentRecord.id,
+            intentRecord.authorId,
+            intentRecord.title,
+            intentRecord.description,
+            intentRecord.location,
+            intentRecord.createdAt
+          ]);
+
+          // Also insert into broadcast_posts
           await dbPool.query(`
             INSERT INTO broadcast_posts (id, author_id, author_name, author_avatar, description, category, tags, status, distance, has_location_pin, is_verified_user, expires_at, created_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
@@ -541,7 +730,7 @@ async function startServer() {
             intentRecord.createdAt
           ]);
         } catch (dbErr) {
-          console.warn("DB broadcast insert note:", dbErr);
+          console.warn("DB listings insert note:", dbErr);
         }
       }
 
@@ -550,16 +739,19 @@ async function startServer() {
       const updated = [intentRecord, ...intents.filter(i => i.id !== intentRecord.id && i.description !== intentRecord.description)];
       writeJsonFile(INTENTS_FILE, updated);
 
-      console.log(`[Broadcast Created] ${intentRecord.id}: "${intentRecord.description.substring(0, 40)}..."`);
+      console.log(`[Listing Created] ${intentRecord.id}: "${intentRecord.description.substring(0, 40)}..."`);
       res.status(201).json(intentRecord);
     } catch (e) {
-      console.error("Failed to save intent:", e);
-      res.status(500).json({ error: "Failed to save intent" });
+      console.error("Failed to save listing:", e);
+      res.status(500).json({ error: "Failed to save listing" });
     }
-  });
+  };
 
-  // 3. Delete or Complete an Intent
-  app.delete("/api/intents/:id", async (req, res) => {
+  app.post("/api/intents", createListingHandler);
+  app.post("/api/listings", createListingHandler);
+
+  // 3. Delete or Complete a Listing / Intent
+  const deleteListingHandler = async (req: express.Request, res: express.Response) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
       const { id } = req.params;
@@ -567,10 +759,12 @@ async function startServer() {
       const descQuery = (req.query?.desc as string) || '';
       const targetDesc = description || descQuery;
 
-      // 1. PostgreSQL Delete
+      // 1. PostgreSQL Delete from listings, broadcast_posts, chats, messages
       if (dbPool && isDbConnected) {
         try {
+          await dbPool.query("DELETE FROM listings WHERE id = $1", [id]);
           if (targetDesc) {
+            await dbPool.query("DELETE FROM listings WHERE description = $1", [targetDesc.trim()]);
             await dbPool.query(
               "DELETE FROM broadcast_posts WHERE id = $1 OR description = $2",
               [id, targetDesc.trim()]
@@ -578,9 +772,10 @@ async function startServer() {
           } else {
             await dbPool.query("DELETE FROM broadcast_posts WHERE id = $1", [id]);
           }
+          await dbPool.query("DELETE FROM chats WHERE receiver_id = $1 OR sender_id = $1", [id]);
           await dbPool.query("DELETE FROM messages WHERE intent_id = $1", [id]);
         } catch (dbErr) {
-          console.warn("DB intent delete error:", dbErr);
+          console.warn("DB listings delete error:", dbErr);
         }
       }
 
@@ -600,19 +795,22 @@ async function startServer() {
         writeJsonFile(DELETED_INTENTS_FILE, deletedIds);
       }
 
-      console.log(`[Post Deleted Permanently] ID: ${id}`);
+      console.log(`[Listing Deleted Permanently] ID: ${id}`);
       res.json({ success: true });
     } catch (e) {
-      res.status(500).json({ error: "Failed to delete intent" });
+      res.status(500).json({ error: "Failed to delete listing" });
     }
-  });
+  };
+
+  app.delete("/api/intents/:id", deleteListingHandler);
+  app.delete("/api/listings/:id", deleteListingHandler);
 
   // ==========================================
-  // CHAT MESSAGES API
+  // CHATS API (Table: chats - id, sender_id, receiver_id, message, sent_at)
   // ==========================================
 
-  // 4. Get Chat Messages for an Intent
-  app.get("/api/intents/:id/messages", async (req, res) => {
+  // 4. Get Chat Messages
+  const getChatMessagesHandler = async (req: express.Request, res: express.Response) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
       res.setHeader("Pragma", "no-cache");
@@ -621,6 +819,27 @@ async function startServer() {
 
       if (dbPool && isDbConnected) {
         try {
+          // 1. Query primary chats table (Columns: id, sender_id, receiver_id, message, sent_at)
+          const chatRes = await dbPool.query(
+            "SELECT * FROM chats WHERE receiver_id = $1 OR sender_id = $1 ORDER BY sent_at ASC",
+            [id]
+          );
+          if (chatRes.rows.length > 0) {
+            const dbMsgs = chatRes.rows.map(r => ({
+              id: r.id,
+              authorId: r.sender_id,
+              senderId: r.sender_id,
+              receiverId: r.receiver_id,
+              text: r.message || '',
+              content: r.message || '',
+              message: r.message || '',
+              type: 'text',
+              createdAt: r.sent_at ? new Date(r.sent_at).toISOString() : new Date().toISOString()
+            }));
+            return res.json(dbMsgs);
+          }
+
+          // 2. Fallback to messages table
           const result = await dbPool.query(
             "SELECT * FROM messages WHERE intent_id = $1 ORDER BY created_at ASC",
             [id]
@@ -629,8 +848,11 @@ async function startServer() {
             const dbMsgs = result.rows.map(r => ({
               id: r.id,
               authorId: r.sender_id,
+              senderId: r.sender_id,
+              receiverId: r.receiver_id,
               text: r.text || r.content || '',
               content: r.content || r.text || '',
+              message: r.text || r.content || '',
               type: r.type || 'text',
               attachmentUrl: r.attachment_url,
               attachmentType: r.attachment_type,
@@ -649,13 +871,16 @@ async function startServer() {
     } catch (e) {
       res.status(500).json({ error: "Failed to fetch messages" });
     }
-  });
+  };
 
-  // 5. Send Chat Message in an Intent
-  app.post("/api/intents/:id/messages", async (req, res) => {
+  app.get("/api/intents/:id/messages", getChatMessagesHandler);
+  app.get("/api/chats/:id", getChatMessagesHandler);
+
+  // 5. Send Chat Message
+  const sendChatMessageHandler = async (req: express.Request, res: express.Response) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
-      const { id } = req.params;
+      const id = req.params.id || req.body.receiver_id || req.body.receiverId || 'general';
       const message = req.body;
       if (!message) {
         return res.status(400).json({ error: "Message payload required" });
@@ -663,20 +888,34 @@ async function startServer() {
 
       const newMsg = {
         id: message.id || 'msg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
-        authorId: message.authorId || message.senderId || 'guest',
-        senderId: message.senderId || message.authorId || 'guest',
-        receiverId: message.receiverId || '',
-        text: message.text || message.content || '',
-        content: message.content || message.text || '',
+        authorId: message.authorId || message.sender_id || message.senderId || 'guest',
+        senderId: message.senderId || message.sender_id || message.authorId || 'guest',
+        receiverId: message.receiverId || message.receiver_id || id,
+        text: message.message || message.text || message.content || '',
+        content: message.message || message.text || message.content || '',
+        message: message.message || message.text || message.content || '',
         type: message.type || 'text',
         attachmentUrl: message.attachmentUrl || null,
         attachmentType: message.attachmentType || null,
-        createdAt: message.createdAt || new Date().toISOString()
+        createdAt: message.createdAt || message.sent_at || new Date().toISOString()
       };
 
-      // 1. PostgreSQL Insert
+      // 1. PostgreSQL Insert into primary "chats" table (id, sender_id, receiver_id, message, sent_at)
       if (dbPool && isDbConnected) {
         try {
+          await dbPool.query(`
+            INSERT INTO chats (id, sender_id, receiver_id, message, sent_at)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (id) DO NOTHING
+          `, [
+            newMsg.id,
+            newMsg.senderId,
+            newMsg.receiverId,
+            newMsg.message,
+            newMsg.createdAt
+          ]);
+
+          // Also insert into messages table
           await dbPool.query(`
             INSERT INTO messages (id, intent_id, sender_id, receiver_id, text, content, type, attachment_url, attachment_type, created_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -710,24 +949,55 @@ async function startServer() {
       console.error("Failed to save message:", e);
       res.status(500).json({ error: "Failed to save message" });
     }
-  });
+  };
+
+  app.post("/api/intents/:id/messages", sendChatMessageHandler);
+  app.post("/api/chats", sendChatMessageHandler);
 
   // ==========================================
-  // SHOPS & BUSINESSES API
+  // BUSINESSES & SHOPS API (Table: businesses - id, owner_id, business_name, category, address, phone, created_at)
   // ==========================================
 
-  app.get("/api/shops", async (req, res) => {
+  const getBusinessesHandler = async (req: express.Request, res: express.Response) => {
     try {
       if (dbPool && isDbConnected) {
         try {
+          // 1. Query primary businesses table
+          const bizRes = await dbPool.query("SELECT * FROM businesses ORDER BY created_at DESC");
+          if (bizRes.rows.length > 0) {
+            return res.json(bizRes.rows.map(r => ({
+              id: r.id,
+              name: r.business_name,
+              businessName: r.business_name,
+              business_name: r.business_name,
+              type: 'shop',
+              category: r.category,
+              categoryLabel: r.category || 'Retail & Services',
+              ownerName: r.owner_id || 'Owner',
+              owner_id: r.owner_id,
+              phone: r.phone || '',
+              area: r.address || 'Local Area',
+              address: r.address || 'Market Area',
+              description: `Welcome to ${r.business_name}!`,
+              rating: 5.0,
+              reviewCount: 1,
+              isVerified: true,
+              createdAt: r.created_at
+            })));
+          }
+
+          // 2. Fallback to shops table
           const result = await dbPool.query("SELECT * FROM shops ORDER BY created_at DESC");
           if (result.rows.length > 0) {
             return res.json(result.rows.map(r => ({
               id: r.id,
               name: r.name,
+              businessName: r.name,
               type: r.type,
               categoryLabel: r.category_label,
+              category: r.category_label,
               ownerName: r.owner_name,
+              owner_id: r.owner_name,
               phone: r.phone,
               area: r.area,
               address: r.address,
@@ -744,24 +1014,32 @@ async function startServer() {
       const shops = readJsonFile<any[]>(SHOPS_FILE, []);
       res.json(shops);
     } catch (e: any) {
-      res.status(500).json({ error: e.message || "Failed to fetch shops" });
+      res.status(500).json({ error: e.message || "Failed to fetch businesses" });
     }
-  });
+  };
 
-  app.post("/api/shops", async (req, res) => {
+  app.get("/api/shops", getBusinessesHandler);
+  app.get("/api/businesses", getBusinessesHandler);
+
+  const saveBusinessHandler = async (req: express.Request, res: express.Response) => {
     try {
       const shop = req.body;
-      if (!shop || !shop.name) return res.status(400).json({ error: "Shop name required" });
+      const bName = shop.business_name || shop.businessName || shop.name;
+      if (!shop || !bName) return res.status(400).json({ error: "Business name required" });
 
       const newShop = {
-        id: shop.id || 'shop_' + Date.now().toString(36),
-        name: shop.name.trim(),
+        id: shop.id || 'biz_' + Date.now().toString(36),
+        name: bName.trim(),
+        businessName: bName.trim(),
+        business_name: bName.trim(),
         type: shop.type || 'shop',
-        categoryLabel: shop.categoryLabel || shop.category_label || 'Local Business',
-        ownerName: shop.ownerName || shop.owner_name || 'Owner',
+        category: shop.category || shop.categoryLabel || 'Retail & Services',
+        categoryLabel: shop.categoryLabel || shop.category || 'Local Business',
+        ownerName: shop.owner_id || shop.ownerName || 'Owner',
+        owner_id: shop.owner_id || shop.ownerName || 'Owner',
         phone: shop.phone || '',
-        area: shop.area || 'Local Area',
-        address: shop.address || 'Market Area',
+        area: shop.area || shop.address || 'Local Area',
+        address: shop.address || shop.area || 'Market Area',
         description: shop.description || '',
         photoUrl: shop.photoUrl || shop.photo_url || null,
         rating: typeof shop.rating === 'number' ? shop.rating : 5.0,
@@ -770,8 +1048,28 @@ async function startServer() {
         createdAt: shop.createdAt || new Date().toISOString()
       };
 
+      // 1. PostgreSQL Insert into primary "businesses" table (id, owner_id, business_name, category, address, phone, created_at)
       if (dbPool && isDbConnected) {
         try {
+          await dbPool.query(`
+            INSERT INTO businesses (id, owner_id, business_name, category, address, phone, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (id) DO UPDATE SET
+              business_name = EXCLUDED.business_name,
+              category = EXCLUDED.category,
+              address = EXCLUDED.address,
+              phone = EXCLUDED.phone
+          `, [
+            newShop.id,
+            newShop.owner_id,
+            newShop.business_name,
+            newShop.category,
+            newShop.address,
+            newShop.phone,
+            newShop.createdAt
+          ]);
+
+          // Also insert into shops table
           await dbPool.query(`
             INSERT INTO shops (id, name, type, category_label, owner_name, phone, area, address, description, photo_url, rating, review_count, is_verified, created_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
@@ -786,7 +1084,9 @@ async function startServer() {
             newShop.description, newShop.photoUrl, newShop.rating,
             newShop.reviewCount, newShop.isVerified, newShop.createdAt
           ]);
-        } catch (e) {}
+        } catch (e) {
+          console.warn("DB businesses insert error:", e);
+        }
       }
 
       const shops = readJsonFile<any[]>(SHOPS_FILE, []);
@@ -795,9 +1095,12 @@ async function startServer() {
 
       res.status(201).json(newShop);
     } catch (e: any) {
-      res.status(500).json({ error: e.message || "Failed to save shop" });
+      res.status(500).json({ error: e.message || "Failed to save business" });
     }
-  });
+  };
+
+  app.post("/api/shops", saveBusinessHandler);
+  app.post("/api/businesses", saveBusinessHandler);
 
   // ==========================================
   // HELPERS API
@@ -882,18 +1185,10 @@ async function startServer() {
     }
   });
 
-  // AI chat history logging
-  app.post("/api/chats", async (req, res) => {
+  // AI chat history logging (Separate from user-to-user chats table)
+  app.post("/api/ai-chat-history", async (req, res) => {
     try {
       const { prompt, response: aiResponse, userId } = req.body;
-      if (dbPool && isDbConnected) {
-        try {
-          await dbPool.query(
-            "INSERT INTO chats (user_id, prompt, response, created_at) VALUES ($1, $2, $3, NOW())",
-            [userId || 'anonymous', prompt || '', aiResponse || '']
-          );
-        } catch (e) {}
-      }
       res.json({ success: true });
     } catch (e) {
       res.status(500).json({ error: "Failed to record chat" });
@@ -1410,17 +1705,30 @@ async function startServer() {
         verifiedAt: new Date().toISOString()
       };
 
-      // Persist user to PostgreSQL profiles table
+      // Persist user to PostgreSQL primary "user" table (id, name, phone, email, created_at) and profiles table
       if (dbPool && isDbConnected) {
         try {
+          await dbPool.query(`
+            INSERT INTO "user" (id, name, phone, email, created_at)
+            VALUES ($1, $2, $3, $4, NOW())
+            ON CONFLICT (id) DO UPDATE SET
+              name = EXCLUDED.name,
+              phone = COALESCE(NULLIF(EXCLUDED.phone, ''), "user".phone),
+              email = COALESCE(NULLIF(EXCLUDED.email, ''), "user".email)
+          `, [user.uid, user.displayName, user.phone, user.email]);
+
           await dbPool.query(`
             INSERT INTO profiles (uid, full_name, email, phone, updated_at)
             VALUES ($1, $2, $3, $4, NOW())
             ON CONFLICT (uid) DO UPDATE SET
               full_name = EXCLUDED.full_name,
+              email = COALESCE(NULLIF(EXCLUDED.email, ''), profiles.email),
+              phone = COALESCE(NULLIF(EXCLUDED.phone, ''), profiles.phone),
               updated_at = NOW()
           `, [user.uid, user.displayName, user.email, user.phone]);
-        } catch (e) {}
+        } catch (e) {
+          console.warn("DB user insert on OTP verification error:", e);
+        }
       }
 
       console.log(`[AUTH SUCCESS] User successfully verified: ${user.uid}`);
