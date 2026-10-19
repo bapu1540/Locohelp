@@ -929,28 +929,27 @@ export default function HomeScreen({
             </div>
           </div>
 
-          {/* 4. Two Side-by-Side Banners: Business Register & Create Profile */}
-          <div className="grid grid-cols-2 gap-2">
-            {/* Banner 1: Business Register */}
+          {/* 4. Colorful Business & Venue Register Banner */}
+          <div className="w-full">
             <div
               onClick={handleSafeRegisterShop}
-              className="bg-white dark:bg-slate-800 border-2 border-emerald-300 dark:border-emerald-700/80 hover:border-emerald-500 rounded-2xl p-3 flex items-center justify-center shadow-xs cursor-pointer active:scale-95 transition-all text-center"
+              className="w-full bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 text-white border-2 border-emerald-400 dark:border-emerald-500 rounded-2xl p-3.5 flex items-center justify-between shadow-md cursor-pointer active:scale-95 transition-all"
               title="Business & Venue Registration"
             >
-              <span className="text-xs sm:text-sm font-black text-slate-900 dark:text-white truncate">
-                {language === 'EN' ? 'Business Register' : 'बिजनेस रजिस्टर'}
-              </span>
-            </div>
-
-            {/* Banner 2: Create Profile (Registers helper into categories) */}
-            <div
-              onClick={handleSafeCreateProfile}
-              className="bg-white dark:bg-slate-800 border-2 border-indigo-300 dark:border-indigo-700/80 hover:border-indigo-500 rounded-2xl p-3 flex items-center justify-center shadow-xs cursor-pointer active:scale-95 transition-all text-center"
-              title="Create Helper Profile"
-            >
-              <span className="text-xs sm:text-sm font-black text-slate-900 dark:text-white truncate">
-                {language === 'EN' ? 'Create Profile' : 'प्रोफाइल बनाएं'}
-              </span>
+              <div className="flex items-center gap-2.5">
+                <span className="text-xl shrink-0">🏪</span>
+                <div className="text-left">
+                  <span className="text-sm sm:text-base font-black tracking-wide text-white block">
+                    {language === 'EN' ? 'Business & Shop Register' : 'दुकान व बिजनेस रजिस्टर करें'}
+                  </span>
+                  <span className="text-[10px] text-emerald-100 font-medium">
+                    {language === 'EN' ? 'List Shop, Showroom, Hospital & Venue for 100% Free' : 'अपनी दुकान, शोरूम या सर्विस मुफ्त लिस्ट करें'}
+                  </span>
+                </div>
+              </div>
+              <div className="text-emerald-900 bg-white/95 text-xs font-black px-3.5 py-1.5 rounded-xl shrink-0 shadow-2xs">
+                {language === 'EN' ? 'Register Free →' : 'रजिस्टर करें →'}
+              </div>
             </div>
           </div>
 

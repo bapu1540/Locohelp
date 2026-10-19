@@ -4,6 +4,7 @@ import { UserPlus, X, Wrench, ShieldCheck, CheckCircle2 } from 'lucide-react';
 import { CATEGORIES, CategoryItem, getCategoryName, saveFreeHelperProfile, FreeHelperProfile } from '../data/categories';
 import { useLanguage } from '../i18n';
 import { saveHelper } from '../auth';
+import { submitVerification } from '../api';
 
 interface FreeHelperRegisterModalProps {
   isOpen: boolean;
@@ -32,7 +33,7 @@ export default function FreeHelperRegisterModal({
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formName.trim() || !formPhone.trim()) return;
 
@@ -57,7 +58,7 @@ export default function FreeHelperRegisterModal({
       distance: 0.5,
       govtIdUploaded: Boolean(formIdDoc),
       idDocUrl: formIdDoc || undefined,
-      isVerified: Boolean(formIdDoc),
+      isVerified: false, // Must be pending admin approval
     });
 
     // Also persist in locohelp_my_helper_profile so user can manage it
@@ -68,8 +69,25 @@ export default function FreeHelperRegisterModal({
     // Save to PostgreSQL backend for cross-device persistence
     try {
       const helperId = newHelper.id || `helper_${Date.now()}`;
-      saveHelper({ ...newHelper, id: helperId }).catch(() => {});
+      saveHelper({ ...newHelper, id: helperId, isVerified: false }).catch(() => {});
     } catch (e) {}
+
+    // Submit Verification Request to Admin Queue if ID document was provided
+    if (formIdDoc) {
+      try {
+        await submitVerification({
+          entityType: 'user_profile',
+          entityId: newHelper.id,
+          userId: newHelper.id,
+          userName: newHelper.name,
+          userPhone: newHelper.phone,
+          title: `Helper Profile (${finalCatName}) - Government ID`,
+          idDocumentWatermarked: formIdDoc
+        });
+      } catch (verifErr) {
+        console.warn("Verification submit error:", verifErr);
+      }
+    }
 
     setIsSubmitting(false);
     if (onSuccess) {
@@ -244,7 +262,7 @@ export default function FreeHelperRegisterModal({
             {/* Verify Identity Document (Optional) */}
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1 flex items-center justify-between">
-                <span>Verify Identity Document (Aadhaar / ID Card - Optional)</span>
+                <span>Government ID (Aadhaar / ID Card - Optional)</span>
                 <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">Priority Badge ⭐</span>
               </label>
               <input 
@@ -264,7 +282,7 @@ export default function FreeHelperRegisterModal({
               />
               {formIdDoc && (
                 <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold mt-1 flex items-center gap-1">
-                  <CheckCircle2 className="w-3 h-3" /> ID Document Attached Successfully! Your profile will appear at the top.
+                  <CheckCircle2 className="w-3 h-3" /> ID Document Attached Successfully! Your profile will appear after Admin approval.
                 </p>
               )}
             </div>

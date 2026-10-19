@@ -827,13 +827,9 @@ export function getFreeHelperProfiles(): FreeHelperProfile[] {
   try {
     const data = localStorage.getItem(STORAGE_KEY);
     const custom: FreeHelperProfile[] = data ? JSON.parse(data) : [];
-    // Sort so verified profiles appear at the top
-    custom.sort((a, b) => {
-      const aVer = (a.isVerified || a.govtIdUploaded || a.idDocUrl) ? 1 : 0;
-      const bVer = (b.isVerified || b.govtIdUploaded || b.idDocUrl) ? 1 : 0;
-      return bVer - aVer;
-    });
-    return custom;
+    // Only return helpers whose profiles have been approved by Admin (isVerified === true)
+    const approvedHelpers = custom.filter(h => h.isVerified === true);
+    return approvedHelpers;
   } catch {
     return [];
   }
@@ -841,15 +837,15 @@ export function getFreeHelperProfiles(): FreeHelperProfile[] {
 
 export function saveFreeHelperProfile(profile: Omit<FreeHelperProfile, 'id' | 'rating' | 'completedTasks' | 'createdAt' | 'masterCategory'> & { masterCategory?: 'utility_emergency' | 'sports_fitness' | 'social_casual' | 'daily_errands'; govtIdUploaded?: boolean; idDocUrl?: string; isVerified?: boolean }): FreeHelperProfile {
   const matched = CATEGORIES.find(c => c.id === profile.categoryId);
-  const isVerifiedDoc = Boolean(profile.govtIdUploaded || profile.idDocUrl || profile.isVerified);
+  const hasDoc = Boolean(profile.govtIdUploaded || profile.idDocUrl || profile.isVerified);
   const newProfile: FreeHelperProfile = {
     ...profile,
     masterCategory: profile.masterCategory || (matched ? matched.masterCategory : 'utility_emergency'),
     id: 'hp_' + Date.now(),
     rating: 5.0,
-    completedTasks: isVerifiedDoc ? 10 : 0,
-    isVerified: isVerifiedDoc,
-    govtIdUploaded: isVerifiedDoc,
+    completedTasks: 0,
+    isVerified: false, // Strict requirement: Pending Admin approval before Verified badge and public directory visibility
+    govtIdUploaded: hasDoc,
     createdAt: new Date().toISOString(),
   };
 
