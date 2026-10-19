@@ -216,10 +216,8 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
                 }`}
                 title={t('post.voiceSearch')}
               >
-                <button type="button" className="flex items-center gap-1 outline-none">
-                  <Mic className="w-3.5 h-3.5" />
-                  <span>{isListening ? t('post.voiceListening') : t('post.voiceBtn')}</span>
-                </button>
+                <Mic className="w-3.5 h-3.5" />
+                <span>{isListening ? t('post.voiceListening') : t('post.voiceBtn')}</span>
               </button>
             </div>
             <textarea 

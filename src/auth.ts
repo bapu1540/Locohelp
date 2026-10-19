@@ -143,9 +143,14 @@ export function isValidEmail(email: string): boolean {
 }
 
 /**
- * Google Sign-In with strict email validation and JWT session persistence
+ * Google Sign-In with strict email validation, prompt=select_account account chooser configuration, and JWT session persistence
  */
-export async function signInWithGoogle(customEmail?: string, customName?: string): Promise<AppUser> {
+export async function signInWithGoogle(
+  customEmail?: string, 
+  customName?: string,
+  options?: { prompt?: string; queryParams?: Record<string, string> }
+): Promise<AppUser> {
+  const authPrompt = options?.prompt || options?.queryParams?.prompt || 'select_account';
   let email = (customEmail || '').trim().toLowerCase();
   if (customEmail && !isValidEmail(customEmail)) {
     throw new Error('अमान्य ईमेल आईडी (Invalid Google email address format)');
@@ -179,15 +184,20 @@ export async function signInWithGoogle(customEmail?: string, customName?: string
   localStorage.setItem('locohelp_last_logged_in_name', displayName);
   localStorage.setItem('locohelp_last_logged_in_photo', photoURL);
 
-  // 2. Persist profile to backend & Railway PostgreSQL "user" table + obtain JWT token
+  // 2. Persist profile to backend & Railway PostgreSQL "user" table + obtain JWT token with prompt=select_account
   try {
-    const googleRes = await fetch('/api/auth/google-login', {
+    const googleRes = await fetch(`/api/auth/google-login?prompt=${encodeURIComponent(authPrompt)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         email,
         displayName,
-        photoURL
+        photoURL,
+        prompt: authPrompt,
+        options: {
+          prompt: authPrompt,
+          queryParams: { prompt: authPrompt }
+        }
       })
     });
     if (googleRes.ok) {

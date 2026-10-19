@@ -40,18 +40,7 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
       }
     } catch (e) {}
 
-    const activeUser = getCurrentUser();
-    let profileName = "Community Peer";
-    try {
-      profileName = (intent as any)?.sellerName || (intent as any)?.authorName || localStorage.getItem('locohelp_profile_name') || activeUser?.displayName || "Community Peer";
-    } catch(e) {}
-
-    const defaultWelcome = (intent as any)?.initialMessage || 
-      `Namaste! ${profileName} here. Aapko is service ya post ke baare me kya help chahiye?`;
-    
-    return [
-      { id: 'm1', text: defaultWelcome, authorId: 'helper', type: 'text', createdAt: new Date().toISOString() }
-    ];
+    return [];
   });
   
   const [input, setInput] = useState('');
@@ -463,6 +452,19 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
 
       {/* 2. MESSAGES VIEWPORT */}
       <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-3.5 bg-[#F8F6F0] dark:bg-slate-950">
+        {messages.length === 0 && (
+          <div className="py-12 text-center space-y-2">
+            <div className="w-12 h-12 rounded-2xl bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 mx-auto flex items-center justify-center text-xl shadow-inner">
+              💬
+            </div>
+            <p className="text-xs font-black text-slate-800 dark:text-slate-200">
+              Start Conversation / बातचीत शुरू करें
+            </p>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 max-w-xs mx-auto font-medium">
+              Type your message below to start chatting directly with {peerName}.
+            </p>
+          </div>
+        )}
         {messages.map((msg) => {
           const myUid = getCurrentUser()?.uid || 'my_user';
           const isMe = msg.authorId === myUid || msg.authorId === 'my_user';

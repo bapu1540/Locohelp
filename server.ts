@@ -992,7 +992,8 @@ async function startServer() {
         location: newIntent.location || (typeof newIntent.distance === 'number' ? `${newIntent.distance} km` : 'Local Area'),
         status: newIntent.status || 'active',
         createdAt: newIntent.createdAt || new Date().toISOString(),
-        expiresAt: newIntent.expiresAt || new Date(Date.now() + 1000 * 60 * 120).toISOString(),
+        expiresAt: newIntent.expiresAt || new Date(Date.now() + 1000 * 60 * 60).toISOString(), // 1 Hour Auto Expiry
+        lastInteractionAt: new Date().toISOString(),
         hasLocationPin: !!newIntent.hasLocationPin,
         isVerifiedUser: true
       };
@@ -1276,12 +1277,38 @@ async function startServer() {
         }
       }
 
-      // 2. Local file backup
+      // 2. Local file backup & refresh post interaction time
       const allMessages = readJsonFile<Record<string, any[]>>(MESSAGES_FILE, {});
       const chatMessages = allMessages[id] || [];
       chatMessages.push(newMsg);
       allMessages[id] = chatMessages;
       writeJsonFile(MESSAGES_FILE, allMessages);
+
+      // Refresh post interaction timestamp so active conversations extend post expiry
+      if (id && id !== 'general') {
+        try {
+          const localIntents = readJsonFile<any[]>(INTENTS_FILE, []);
+          let updatedIntents = false;
+          localIntents.forEach(i => {
+            if (i.id === id) {
+              i.lastInteractionAt = new Date().toISOString();
+              i.expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+              updatedIntents = true;
+            }
+          });
+          if (updatedIntents) writeJsonFile(INTENTS_FILE, localIntents);
+
+          if (dbPool && isDbConnected) {
+            await dbPool.query(`
+              UPDATE broadcast_posts 
+              SET expires_at = NOW() + INTERVAL '1 hour'
+              WHERE id = $1
+            `, [id]).catch(() => {});
+          }
+        } catch (syncErr) {
+          console.warn("Post interaction refresh error:", syncErr);
+        }
+      }
 
       res.status(201).json(newMsg);
     } catch (e) {
@@ -1293,6 +1320,54 @@ async function startServer() {
   app.post("/api/intents/:id/messages", requireAuth, sendChatMessageHandler);
   app.post("/api/chats", requireAuth, sendChatMessageHandler);
   app.post("/api/messages", requireAuth, sendChatMessageHandler);
+
+  // Background Auto-Delete Job: Purge posts inactive for >1 hour
+  setInterval(async () => {
+    try {
+      const ONE_HOUR_MS = 60 * 60 * 1000;
+      const now = Date.now();
+
+      const localIntents = readJsonFile<any[]>(INTENTS_FILE, []);
+      const allMsgs = readJsonFile<Record<string, any[]>>(MESSAGES_FILE, {});
+
+      const activeList = localIntents.filter(item => {
+        const createdAtTime = new Date(item.createdAt || item.created_at || Date.now()).getTime();
+        const lastInteractionTime = item.lastInteractionAt ? new Date(item.lastInteractionAt).getTime() : 0;
+        const chatMsgs = allMsgs[item.id] || [];
+        
+        let latestMsgTime = 0;
+        chatMsgs.forEach(m => {
+          const t = new Date(m.createdAt || m.sent_at || 0).getTime();
+          if (t > latestMsgTime) latestMsgTime = t;
+        });
+
+        const effectiveTime = Math.max(createdAtTime, lastInteractionTime, latestMsgTime);
+        const isExpired = (now - effectiveTime) > ONE_HOUR_MS;
+        return !isExpired;
+      });
+
+      if (activeList.length !== localIntents.length) {
+        writeJsonFile(INTENTS_FILE, activeList);
+        console.log(`[Auto-Delete Job] Removed ${localIntents.length - activeList.length} inactive posts (>1h old).`);
+      }
+
+      if (dbPool && isDbConnected) {
+        await dbPool.query(`
+          DELETE FROM broadcast_posts 
+          WHERE (created_at < NOW() - INTERVAL '1 hour') 
+            AND id NOT IN (SELECT DISTINCT intent_id FROM messages WHERE created_at > NOW() - INTERVAL '1 hour')
+        `).catch(() => {});
+
+        await dbPool.query(`
+          DELETE FROM listings 
+          WHERE (created_at < NOW() - INTERVAL '1 hour')
+            AND id NOT IN (SELECT DISTINCT intent_id FROM messages WHERE created_at > NOW() - INTERVAL '1 hour')
+        `).catch(() => {});
+      }
+    } catch (jobErr) {
+      console.warn("Auto-delete job notice:", jobErr);
+    }
+  }, 3 * 60 * 1000);
 
   // ==========================================
   // BUSINESSES & SHOPS API (Table: businesses - id, owner_id, business_name, category, address, phone, created_at)

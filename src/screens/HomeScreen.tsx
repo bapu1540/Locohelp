@@ -291,15 +291,26 @@ export default function HomeScreen({
   const currentMasterObj = MASTER_CATEGORIES.find(m => m.id === selectedCategory);
   const currentCategoryObj = CATEGORIES.find(c => c.id === selectedCategory);
 
-  // 2-Hour Auto-Expiry & GPS Distance Priority System
-  const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
+  // 1-Hour Auto-Expiry & GPS Distance Priority System (Inactive posts auto-delete after 1 hour)
+  const ONE_HOUR_MS = 60 * 60 * 1000;
   const now = Date.now();
 
   const processedIntents = intents.filter(item => {
-    const createdAtTime = new Date(item.createdAt || Date.now()).getTime();
-    if (now - createdAtTime > TWO_HOURS_MS) return false;
+    const createdAtTime = new Date(item.createdAt || (item as any).created_at || Date.now()).getTime();
+    const lastInteractionTime = (item as any).lastInteractionAt ? new Date((item as any).lastInteractionAt).getTime() : 0;
+    const effectiveTime = Math.max(createdAtTime, lastInteractionTime);
+
+    // Auto-Delete: If 1 hour (60 mins) has elapsed without reply/interaction, filter out
+    if (now - effectiveTime > ONE_HOUR_MS) return false;
     return true;
   }).map((item, index) => {
+    const createdAtTime = new Date(item.createdAt || (item as any).created_at || Date.now()).getTime();
+    const lastInteractionTime = (item as any).lastInteractionAt ? new Date((item as any).lastInteractionAt).getTime() : 0;
+    const effectiveTime = Math.max(createdAtTime, lastInteractionTime);
+
+    const msRemaining = Math.max(0, ONE_HOUR_MS - (now - effectiveTime));
+    const minsRemaining = Math.max(1, Math.ceil(msRemaining / (60 * 1000)));
+
     const itemLat = (item as any).lat || (gpsCoords.lat + (index % 5 === 0 ? 0.003 : index % 3 === 0 ? 0.008 : 0.014 * (index + 1)));
     const itemLng = (item as any).lng || (gpsCoords.lng + (index % 4 === 0 ? 0.002 : index % 2 === 0 ? 0.005 : 0.011 * (index + 1)));
     
@@ -309,6 +320,7 @@ export default function HomeScreen({
     return {
       ...item,
       computedKm: finalDistance,
+      minsRemaining,
       isNearbyPriority: finalDistance <= 2.0
     };
   });
@@ -953,60 +965,60 @@ export default function HomeScreen({
             </div>
           </div>
 
-          {/* 5. Active Posts Feed Container (Broadcasts show directly integrated into the page) */}
+          {/* 5. ACTIVE NEARBY Live Posts Feed Section */}
           <div className="relative bg-transparent dark:bg-transparent overflow-hidden">
-            {/* Scrollable Intent & Helper List */}
-            <div className="relative z-10 p-3 pt-3 space-y-2.5">
+            <div className="relative z-10 p-3 pt-3 space-y-3">
               
-              <div className="text-stone-500 dark:text-slate-400 text-[11px] font-bold uppercase tracking-wider flex items-center justify-between px-1">
-                <span className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                  {selectedCategory === 'all' 
-                    ? t('home.active') 
-                    : `Filtered: ${getCategoryName(currentCategoryObj, language) || selectedCategory}`}
-                </span>
+              {/* Active Nearby Header Bar */}
+              <div className="bg-white dark:bg-slate-850 p-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-1.5">
+                    <span>⚡ ACTIVE NEARBY</span>
+                    <span className="text-[10px] text-slate-400 font-normal">/ आस-पास की लाइव पोस्ट्स</span>
+                  </h3>
+                </div>
                 
                 <div className="flex items-center gap-2">
-                  {selectedCategory !== 'all' && onSelectCategory && (
-                    <button
-                      onClick={() => onSelectCategory('all')}
-                      className="text-[10px] bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-extrabold px-2 py-0.5 rounded-full border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-200 transition-colors"
-                    >
-                      Show All Posts ✖
-                    </button>
-                  )}
-                  <span className="text-[10px] text-slate-400 font-medium">
-                    {displayIntents.length} {t('home.found')}
+                  <span className="text-[10px] bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 font-extrabold px-2 py-0.5 rounded-full border border-amber-300 dark:border-amber-800 flex items-center gap-1">
+                    ⏱️ Auto-Deletes in 1 Hour
+                  </span>
+                  <span className="text-[10px] bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-300 font-black px-2 py-0.5 rounded-full">
+                    {displayIntents.length} Live
                   </span>
                 </div>
               </div>
               
+              {/* Empty State when no posts match */}
               {searchedIntents.length === 0 && (
-                <div className="text-center py-6 px-4 space-y-2">
-                  <p className="text-stone-500 dark:text-slate-400 font-medium text-xs">
-                    {homeSearchQuery.trim()
-                      ? `"${homeSearchQuery}" के लिए कोई ब्रॉडकास्ट पोस्ट नहीं मिली।`
-                      : t('home.noRequests')}
-                  </p>
-                  {homeSearchQuery.trim() ? (
+                <div className="bg-white dark:bg-slate-850 border-2 border-dashed border-indigo-200 dark:border-slate-700 rounded-3xl p-6 text-center space-y-3 shadow-2xs">
+                  <div className="w-12 h-12 rounded-2xl bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 mx-auto flex items-center justify-center text-2xl">
+                    ⚡
+                  </div>
+                  <div>
+                    <h4 className="text-xs sm:text-sm font-black text-slate-900 dark:text-white">
+                      {homeSearchQuery.trim()
+                        ? `No matching requests for "${homeSearchQuery}"`
+                        : (language === 'EN' ? 'No Active Requests Nearby Right Now' : 'आस-पास कोई लाइव रिक्वेस्ट नहीं है')}
+                    </h4>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 max-w-xs mx-auto font-medium">
+                      {language === 'EN' 
+                        ? 'Click the "+ Post / Broadcast" button above to publish your request. It will appear live here for everyone nearby for 1 hour!'
+                        : 'ऊपर दिये गये "+ पोस्ट / ब्रॉडकास्ट" बटन पर क्लिक करके अपनी जरूरत दर्ज करें। यह 1 घंटे के लिए यहाँ लाइव दिखेगी।'}
+                    </p>
+                  </div>
+                  <div className="pt-1">
                     <button
-                      onClick={() => setHomeSearchQuery('')}
-                      className="text-xs text-indigo-600 dark:text-indigo-400 font-extrabold hover:underline cursor-pointer"
+                      onClick={handleSafeOpenPostSheet}
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black px-4 py-2.5 rounded-xl shadow-md cursor-pointer inline-flex items-center gap-1.5 active:scale-95 transition-all"
                     >
-                      ✖ फिल्टर हटाएं (Clear Search)
+                      <span>⚡ Post New Requirement</span> &rarr;
                     </button>
-                  ) : (
-                    <button
-                      onClick={() => onNavigate('categories')}
-                      className="text-xs text-indigo-600 dark:text-indigo-400 font-bold hover:underline cursor-pointer"
-                    >
-                      + {t('cat.freeProfileBtn')} ({getCategoryName(currentCategoryObj, language) || t('cat.title')})
-                    </button>
-                  )}
+                  </div>
                 </div>
               )}
 
-              {/* Active Intents with 3D Color Themes */}
+              {/* Active Intents Feed List */}
               {(() => {
                 let userPostIds: string[] = [];
                 try {
@@ -1026,7 +1038,7 @@ export default function HomeScreen({
                                      intentIdStr.startsWith('local_') ||
                                      Boolean(activeUidStr && authorIdStr && activeUidStr.replace(/\D/g, '') && authorIdStr.includes(activeUidStr.replace(/\D/g, '')));
                 
-                // 3D Color Themes
+                // Theme colors
                 const themes = [
                   {
                     bg: "bg-gradient-to-br from-indigo-50/90 via-blue-50/60 to-white dark:from-slate-800 dark:to-slate-850",
@@ -1066,83 +1078,87 @@ export default function HomeScreen({
 
                 return (
                   <motion.div 
-                    initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                    initial={{ opacity: 0, y: 10 }} 
+                    animate={{ opacity: 1, y: 0 }}
                     key={intent.id} 
-                    onClick={() => handleSafeOpenChat(intent)}
-                    className={`p-3.5 rounded-2xl transition-all cursor-pointer hover:scale-[1.01] active:scale-[0.98] ${theme.accent} ${theme.bg} ${theme.border} ${theme.shadow} ${
+                    className={`p-4 rounded-2xl transition-all ${theme.accent} ${theme.bg} ${theme.border} ${theme.shadow} ${
                       isUserPost 
                         ? 'ring-2 ring-amber-400 dark:ring-amber-500 shadow-[0_10px_25px_rgba(245,158,11,0.25)]' 
                         : ''
                     }`}
                   >
-                    <div className="flex justify-between items-start gap-3 mb-2">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
-                          <span className="w-5 h-5 rounded-md flex items-center justify-center text-xs bg-white dark:bg-slate-700 shadow-2xs">
-                            {theme.icon}
-                          </span>
-                          {isUserPost && (
-                            <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-amber-500 text-white shadow-2xs animate-pulse">
-                              ✨ {t('post.yourPost')}
-                            </span>
-                          )}
-                          <span className={`text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-md ${theme.badge}`}>
-                            {intent.tags?.[0] || 'Broadcast'}
-                          </span>
-                          {(intent.computedKm && intent.computedKm <= 2.0) && (
-                            <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-600 text-white shadow-2xs flex items-center gap-0.5 animate-pulse">
-                              📍 {t('home.nearbyBadge')}
-                            </span>
-                          )}
+                    {/* Post Author & Header Info */}
+                    <div className="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-slate-200/60 dark:border-slate-700/60">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-2xs">
+                          {intent.authorName?.[0]?.toUpperCase() || 'U'}
                         </div>
-
-                        <p className="text-slate-900 dark:text-slate-100 text-[13px] leading-snug font-extrabold line-clamp-3">
-                          {intent.description}
-                        </p>
+                        <div className="min-w-0">
+                          <span className="text-xs font-black text-slate-900 dark:text-white block truncate">
+                            {intent.authorName || 'Community Member'}
+                          </span>
+                          <span className="text-[10px] text-slate-500 font-medium block -mt-0.5">
+                            📍 {intent.computedKm || intent.distance} km away
+                          </span>
+                        </div>
                       </div>
 
-                      <div className="flex flex-col items-end gap-1.5 shrink-0">
-                        <span className="text-[10px] font-extrabold text-emerald-800 dark:text-emerald-200 bg-emerald-100 dark:bg-emerald-950 border border-emerald-300 dark:border-emerald-800 px-2 py-1 rounded-lg shadow-2xs flex items-center gap-0.5">
-                          📍 {intent.computedKm || intent.distance} km
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {/* 1-Hour Expiry Countdown Badge */}
+                        <span className="text-[10px] font-black bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 px-2 py-0.5 rounded-full flex items-center gap-0.5">
+                          <Clock className="w-3 h-3 text-rose-500" />
+                          <span>⏳ {intent.minsRemaining || 60}m left</span>
                         </span>
 
                         {isUserPost && (
-                          <button
-                            onClick={(e) => handleDeletePost(intent.id, e)}
-                            title={t('home.deletePost')}
-                            className="p-1.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-black text-[10px] uppercase shadow-md active:scale-95 transition-all flex items-center gap-1 cursor-pointer"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                            <span>{t('home.deletePost')}</span>
-                          </button>
+                          <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-amber-500 text-white shadow-2xs animate-pulse">
+                            Your Post
+                          </span>
                         )}
                       </div>
                     </div>
-                    
-                    <div className="flex justify-between items-center mt-2.5 pt-2 border-t border-slate-200/60 dark:border-slate-700/80 gap-2 flex-wrap">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        {/* Mohalla WhatsApp Group Sharing Button */}
+
+                    {/* Post Content */}
+                    <p className="text-slate-900 dark:text-slate-100 text-xs sm:text-sm leading-relaxed font-extrabold my-2">
+                      {intent.description}
+                    </p>
+
+                    {/* Action Bar (Chat/Reply for ALL, Share, and Owner-Only Delete) */}
+                    <div className="flex items-center justify-between pt-2.5 border-t border-slate-200/60 dark:border-slate-700/80 gap-2 flex-wrap">
+                      <div className="flex items-center gap-2">
+                        {/* Primary Chat / Reply Button for ALL users */}
+                        <button
+                          type="button"
+                          onClick={() => handleSafeOpenChat(intent)}
+                          className="bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs px-3.5 py-1.5 rounded-xl shadow-md active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5" />
+                          <span>{language === 'EN' ? 'Chat / Reply' : 'बात करें / उत्तर दें'}</span>
+                        </button>
+
+                        {/* Mohalla WhatsApp Share Button */}
                         <button
                           type="button"
                           onClick={(e) => handleSharePostToWhatsAppGroup(intent, e)}
-                          className="flex items-center gap-1 text-[9px] font-black text-emerald-800 dark:text-emerald-200 bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-950/80 px-2 py-0.5 rounded-lg border border-emerald-300 dark:border-emerald-800 cursor-pointer active:scale-95 transition-all shadow-2xs"
+                          className="flex items-center gap-1 text-[10px] font-extrabold text-emerald-800 dark:text-emerald-200 bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-950/80 px-2.5 py-1.5 rounded-xl border border-emerald-300 dark:border-emerald-800 cursor-pointer active:scale-95 transition-all shadow-2xs"
                           title="Share post in Society / Mohalla WhatsApp group"
                         >
-                          <Share2 className="w-2.5 h-2.5 text-emerald-600" />
-                          <span>Mohalla Group Share</span>
+                          <Share2 className="w-3 h-3 text-emerald-600" />
+                          <span>Share</span>
                         </button>
+                      </div>
 
-                        {intent.tags && intent.tags.slice(1).map(tag => (
-                          <span key={tag} className="text-[8px] font-extrabold tracking-wide uppercase px-1.5 py-0.5 bg-white/80 dark:bg-slate-800 text-stone-700 dark:text-slate-300 rounded border border-slate-200 dark:border-slate-600">
-                            #{tag}
-                          </span>
-                        ))}
-                      </div>
-                      
-                      <div className="flex items-center gap-1 text-[9px] font-extrabold text-slate-600 dark:text-slate-400 bg-white/80 dark:bg-slate-800 px-2 py-0.5 rounded-md border border-slate-200 dark:border-slate-700">
-                        <Clock className="w-2.5 h-2.5 text-indigo-500" />
-                        <span>{t('home.clickToChat')}</span>
-                      </div>
+                      {/* Owner-Only Delete Button */}
+                      {isUserPost && (
+                        <button
+                          onClick={(e) => handleDeletePost(intent.id, e)}
+                          title="Delete your post"
+                          className="px-2.5 py-1.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-black text-[10px] uppercase shadow-sm active:scale-95 transition-all flex items-center gap-1 cursor-pointer ml-auto"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          <span>{language === 'EN' ? 'Delete' : 'हटाएं'}</span>
+                        </button>
+                      )}
                     </div>
                   </motion.div>
                 );

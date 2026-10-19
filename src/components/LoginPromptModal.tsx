@@ -60,7 +60,7 @@ export default function LoginPromptModal({
         return;
       }
 
-      await signInWithGoogle(selectedEmail);
+      await signInWithGoogle(selectedEmail, undefined, { prompt: 'select_account' });
       setIsLoadingGoogle(false);
       if (onSuccess) {
         onSuccess();

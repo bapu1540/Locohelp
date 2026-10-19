@@ -594,8 +594,15 @@ export const db = {
   }),
   removeChannel: (channel: any) => {},
   auth: {
-    signInWithOAuth: async (opts: any) => {
-      return { data: { provider: 'google', url: '' }, error: null };
+    signInWithOAuth: async (opts?: any) => {
+      const prompt = opts?.options?.queryParams?.prompt || opts?.options?.prompt || 'select_account';
+      return { 
+        data: { 
+          provider: 'google', 
+          url: `https://accounts.google.com/o/oauth2/v2/auth?prompt=${encodeURIComponent(prompt)}` 
+        }, 
+        error: null 
+      };
     },
     signInWithOtp: async ({ email }: { email: string }) => {
       const res = await sendEmailOtp(email);

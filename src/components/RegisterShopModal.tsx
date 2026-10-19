@@ -310,12 +310,12 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess }: Regist
               </div>
               <div>
                 <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-1.5">
-                  <span>{language === 'EN' ? 'Business & Venue Hub' : 'बिज़नेस व वेन्यू हब'}</span>
+                  <span>{language === 'EN' ? 'Registered Local Businesses' : 'रजिस्टर्ड लोकल दुकानें व बिज़नेस'}</span>
                 </h3>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
                   {language === 'EN' 
-                    ? 'Explore registered businesses or register your new shop & venue' 
-                    : 'रजिस्टर्ड बिज़नेस की सूची देखें या अपनी नई दुकान पंजीकृत करें'}
+                    ? 'Explore registered shops, showrooms, malls & venues in your neighborhood' 
+                    : 'अपने आस-पास की रजिस्टर्ड दुकानों, शोरूम व मॉल्स की सूची देखें'}
                 </p>
               </div>
             </div>
@@ -328,50 +328,34 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess }: Regist
             </button>
           </div>
 
-          {/* 2 Main Tabs: Registered Businesses & Register New */}
-          <div className="flex gap-1.5 p-1 bg-slate-100 dark:bg-slate-800 rounded-2xl mb-4 shrink-0 border border-slate-200 dark:border-slate-700">
-            <button
-              onClick={() => setActiveTab('registered')}
-              className={`flex-1 py-2 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                activeTab === 'registered'
-                  ? 'bg-white dark:bg-slate-900 text-amber-600 dark:text-amber-400 shadow-xs'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-              }`}
-            >
-              <Store className="w-4 h-4 text-amber-500" />
-              <span>{language === 'EN' ? 'Registered Businesses' : 'पुराने रजिस्टर्ड बिज़नेस'}</span>
-              <span className="text-[10px] bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 px-1.5 py-0.2 rounded-full font-bold">
-                {registeredShopsList.length}
-              </span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('new')}
-              className={`flex-1 py-2 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                activeTab === 'new'
-                  ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-xs'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-              }`}
-            >
-              <Plus className="w-4 h-4" />
-              <span>{language === 'EN' ? 'Register New' : '+ नया बिज़नेस जोड़ें'}</span>
-            </button>
+          {/* Profile Hub Guidance Banner */}
+          <div className="bg-amber-50/90 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-2xl p-3 mb-3 shrink-0 flex items-center justify-between gap-2 shadow-2xs">
+            <div className="flex items-center gap-2">
+              <span className="text-base">💡</span>
+              <p className="text-[11px] text-amber-950 dark:text-amber-200 font-bold leading-tight">
+                {language === 'EN'
+                  ? 'Want to register your shop for 100% Free? Go to Profile (Top Right) → "Business Reg." tab.'
+                  : 'अपनी दुकान 100% फ्री में लिस्ट करने के लिए ऊपर Profile पर जाएं → "Business Reg." टैब चुनें।'}
+              </p>
+            </div>
+            <span className="text-[10px] bg-amber-500 text-white font-black px-2 py-0.5 rounded-full uppercase shrink-0">
+              100% Free
+            </span>
           </div>
 
-          {/* TAB 1: REGISTERED BUSINESSES LIST */}
-          {activeTab === 'registered' && (
-            <div className="flex-1 min-h-0 flex flex-col space-y-3 overflow-hidden">
-              {/* Search filter bar */}
-              <div className="relative shrink-0">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input 
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder={language === 'EN' ? "Search by shop name, category or area..." : "दुकान का नाम, श्रेणी या इलाका खोजें..."}
-                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl pl-9 pr-3 py-2 text-xs font-medium text-slate-900 dark:text-white outline-none focus:border-amber-500"
-                />
-              </div>
+          {/* REGISTERED BUSINESSES DIRECTORY */}
+          <div className="flex-1 min-h-0 flex flex-col space-y-3 overflow-hidden">
+            {/* Search filter bar */}
+            <div className="relative shrink-0">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input 
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={language === 'EN' ? "Search by shop name, category or area..." : "दुकान का नाम, श्रेणी या इलाका खोजें..."}
+                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl pl-9 pr-3 py-2 text-xs font-medium text-slate-900 dark:text-white outline-none focus:border-amber-500"
+              />
+            </div>
 
               {/* Shops Cards Scroll Area */}
               <div className="flex-1 overflow-y-auto space-y-3 pr-1">
@@ -445,252 +429,6 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess }: Regist
                 )}
               </div>
             </div>
-          )}
-
-          {/* TAB 2: REGISTER NEW BUSINESS FORM */}
-          {activeTab === 'new' && (
-            <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto space-y-3.5 pr-1">
-
-              {/* Category / Venue Type Selector */}
-              <div>
-                <label className="block text-xs font-black text-slate-700 dark:text-slate-300 mb-1">
-                  {language === 'EN' ? 'Category / Venue Type *' : 'कैटेगरी / वेन्यू का प्रकार (दुकान/शोरूम/मॉल/सर्विस सेंटर) *'}
-                </label>
-                <select
-                  value={shopType}
-                  onChange={(e) => setShopType(e.target.value)}
-                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs font-bold text-slate-900 dark:text-white outline-none focus:border-amber-500 cursor-pointer"
-                >
-                  {SHOP_TYPES.map(st => (
-                    <option key={st.id} value={st.id}>
-                      {st.icon} {language === 'EN' ? st.nameEn : st.nameHi}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Custom Type if 'other' */}
-              {shopType === 'other' && (
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {language === 'EN' ? 'Specify Custom Category Name' : 'अपने बिज़नेस/शोरूम की श्रेणी लिखें'}
-                  </label>
-                  <input
-                    type="text"
-                    value={customType}
-                    onChange={(e) => setCustomType(e.target.value)}
-                    placeholder="e.g. Garment Factory, Hardware Mart, Auto Showroom"
-                    className="w-full bg-slate-50 dark:bg-slate-800 border border-amber-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 dark:text-white outline-none"
-                    required
-                  />
-                </div>
-              )}
-
-              {/* Shop / Showroom / Mall Name */}
-              <div>
-                <label className="block text-xs font-black text-slate-700 dark:text-slate-300 mb-1">
-                  {language === 'EN' ? 'Shop / Showroom / Mall Name *' : 'दुकान / शोरूम / मॉल का नाम *'}
-                </label>
-                <input
-                  type="text"
-                  value={shopName}
-                  onChange={(e) => setShopName(e.target.value)}
-                  placeholder="e.g. Shree Ram Departmental Store, Vardhman Mall, Apex Electronics"
-                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs font-bold text-slate-900 dark:text-white outline-none focus:border-amber-500"
-                  required
-                />
-              </div>
-
-              {/* Owner Name & Phone */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {language === 'EN' ? 'Owner / Manager Name' : 'मालिक या मैनेजर का नाम'}
-                  </label>
-                  <input
-                    type="text"
-                    value={ownerName}
-                    onChange={(e) => setOwnerName(e.target.value)}
-                    placeholder="e.g. Ramesh Patel"
-                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs font-medium text-slate-900 dark:text-white outline-none focus:border-amber-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-black text-slate-700 dark:text-slate-300 mb-1">
-                    {language === 'EN' ? 'Mobile / WhatsApp Number *' : 'मोबाइल या WhatsApp नंबर *'}
-                  </label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">+91</span>
-                    <input
-                      type="tel"
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                      placeholder="9876543210"
-                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl pl-11 pr-3 py-2.5 text-xs font-bold text-slate-900 dark:text-white outline-none focus:border-amber-500"
-                      required
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Area & Address */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {language === 'EN' ? 'Area / Locality' : 'इलाका / मार्केट एरिया'}
-                  </label>
-                  <input
-                    type="text"
-                    value={area}
-                    onChange={(e) => setArea(e.target.value)}
-                    placeholder="e.g. Main Market, Block B"
-                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs font-medium text-slate-900 dark:text-white outline-none focus:border-amber-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {language === 'EN' ? 'Full Address' : 'दुकान का पूरा पता'}
-                  </label>
-                  <input
-                    type="text"
-                    value={address}
-                    onChange={(e) => setAddress(e.target.value)}
-                    placeholder="Shop #12, Near Bus Stand"
-                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs font-medium text-slate-900 dark:text-white outline-none focus:border-amber-500"
-                  />
-                </div>
-              </div>
-
-              {/* Offers / Description */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  {language === 'EN' ? 'Offers, Discounts or Products Info' : 'ऑफर, सामान व डिस्काउंट की जानकारी'}
-                </label>
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  rows={2}
-                  placeholder="e.g. Flat 20% discount on all festive items. Free home delivery above ₹300."
-                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-medium text-slate-900 dark:text-white outline-none focus:border-amber-500"
-                />
-              </div>
-
-              {/* Photo Upload */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  {language === 'EN' ? 'Shop / Showroom Photo (Optional)' : 'दुकान/शोरूम/मॉल की फोटो (ऐच्छिक)'}
-                </label>
-                <div className="flex items-center gap-3">
-                  <label className="flex-1 border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-amber-500 rounded-xl p-3 text-center cursor-pointer transition-colors">
-                    <Camera className="w-5 h-5 mx-auto text-amber-500 mb-1" />
-                    <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
-                      {photoUrl ? "Photo Selected (Click to change)" : "Upload Photo / Take Picture"}
-                    </span>
-                    <input type="file" accept="image/*" onChange={handlePhotoUpload} className="hidden" />
-                  </label>
-                  {photoUrl && (
-                    <img src={photoUrl} alt="Preview" className="w-12 h-12 rounded-xl object-cover border border-amber-300" />
-                  )}
-                </div>
-              </div>
-
-              {/* IDENTITY & BUSINESS VERIFICATION DOCUMENT (WITH AUTO-WATERMARK & ADMIN-ONLY PRIVACY) */}
-              <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-2xl p-3.5 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                    <span className="text-xs font-black text-slate-800 dark:text-slate-200">
-                      {language === 'EN' ? 'Owner / Business ID Document (For Verified Badge)' : 'पहचान या लाइसेंस दस्तावेज़ (वेरिफाइड बैज हेतु)'}
-                    </span>
-                  </div>
-                  <span className="text-[10px] font-extrabold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-900">
-                    🛡️ Auto-Watermarked
-                  </span>
-                </div>
-
-                {/* Strict Privacy Notice */}
-                <div className="flex items-start gap-2 bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200/60 dark:border-indigo-900/40 rounded-xl p-2.5 text-[11px] text-indigo-950 dark:text-indigo-300">
-                  <Lock className="w-3.5 h-3.5 text-indigo-600 shrink-0 mt-0.5" />
-                  <span>
-                    {language === 'EN'
-                      ? 'Strict Privacy: Uploaded ID is strictly visible to Admin only. Public users will only see your Verified badge upon Admin approval.'
-                      : 'सख्त गोपनीयता: अपलोड किया गया ID दस्तावेज़ सिर्फ एडमिन देख सकेगा। पब्लिक को यह कभी नहीं दिखेगा, सिर्फ वेरिफाइड बैज दिखेगा।'}
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-1 gap-2">
-                  <select
-                    value={idDocumentType}
-                    onChange={(e) => setIdDocumentType(e.target.value)}
-                    className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 dark:text-slate-200"
-                  >
-                    <option value="Trade License / GST / MSME">Trade License / GST / MSME / Shop Act</option>
-                    <option value="Owner Aadhaar Card">Owner Aadhaar Card</option>
-                    <option value="Owner PAN Card">Owner PAN Card</option>
-                    <option value="Voter ID / Driving License">Voter ID / Driving License</option>
-                    <option value="Electricity / Utility Bill of Shop">Electricity / Utility Bill of Shop</option>
-                  </select>
-
-                  {!idDocumentWatermarked ? (
-                    <label className="border-2 border-dashed border-emerald-300 dark:border-emerald-800 hover:border-emerald-500 rounded-xl p-3 text-center cursor-pointer transition-colors flex items-center justify-center gap-2 bg-emerald-50/30 dark:bg-emerald-950/20">
-                      {isWatermarkingId ? (
-                        <RefreshCw className="w-4 h-4 animate-spin text-emerald-600" />
-                      ) : (
-                        <Upload className="w-4 h-4 text-emerald-600" />
-                      )}
-                      <span className="text-[11px] font-bold text-emerald-800 dark:text-emerald-300">
-                        {isWatermarkingId
-                          ? (language === 'EN' ? 'Applying Security Watermark...' : 'सुरक्षा वाटरमार्क लगाया जा रहा है...')
-                          : (language === 'EN' ? 'Upload ID Photo (Auto-Watermarked with Security Stamp)' : 'पहचान पत्र फ़ोटो अपलोड करें (ऑटो-वाटरमार्क सहित)')}
-                      </span>
-                      <input type="file" accept="image/*" onChange={handleIdDocumentUpload} className="hidden" />
-                    </label>
-                  ) : (
-                    <div className="space-y-2">
-                      <div className="relative rounded-xl border-2 border-emerald-500 overflow-hidden bg-slate-900 max-h-36 flex items-center justify-center">
-                        <img src={idDocumentWatermarked} alt="Watermarked ID" className="max-h-36 object-contain" />
-                        <div className="absolute top-1.5 left-1.5 bg-emerald-600 text-white text-[9px] font-black px-2 py-0.5 rounded flex items-center gap-1">
-                          <CheckCircle2 className="w-3 h-3" />
-                          <span>Watermarked & Protected</span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setIdDocumentWatermarked(null)}
-                          className="absolute top-1.5 right-1.5 bg-slate-900/80 text-white p-1 rounded-full text-xs hover:bg-rose-600 transition-colors"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                      {idUploadNotice && (
-                        <p className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
-                          <FileCheck2 className="w-3.5 h-3.5" /> {idUploadNotice}
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Submit Button */}
-              <div className="pt-2">
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="w-full bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-600 hover:to-orange-600 text-white font-extrabold py-3.5 rounded-2xl shadow-lg shadow-orange-500/25 active:scale-95 transition-all text-xs flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <Store className="w-4 h-4" />
-                  <span>
-                    {isSubmitting 
-                      ? 'Registering...' 
-                      : (language === 'EN' ? 'Publish Shop / Showroom Listing (100% Free)' : 'दुकान/शोरूम/मॉल पब्लिश करें (100% फ्री)')}
-                  </span>
-                </button>
-              </div>
-
-            </form>
-          )}
 
         </motion.div>
       </div>

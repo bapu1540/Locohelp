@@ -250,7 +250,7 @@ export default function CategoriesScreen({
 
             {/* Grid of Mini Category Banners */}
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {CATEGORIES.filter(cat => cat.id !== 'other').map(cat => {
+              {CATEGORIES.map(cat => {
                 const count = helpers.filter(h => h.categoryId === cat.id).length;
                 return (
                   <div
