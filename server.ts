@@ -8,6 +8,14 @@ import pg from "pg";
 
 const { Pool } = pg;
 
+// Prevent container crashes from unhandled errors
+process.on("uncaughtException", (err) => {
+  console.error("[Uncaught Exception]", err);
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("[Unhandled Rejection]", reason);
+});
+
 // Automatically load environment variables from .env if present
 const ENV_FILE_PATH = path.join(process.cwd(), ".env");
 if (fs.existsSync(ENV_FILE_PATH)) {
