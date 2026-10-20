@@ -248,6 +248,15 @@ async function initPostgresTables(pool: pg.Pool) {
       );
 
       -- Compatibility tables
+      CREATE TABLE IF NOT EXISTS user_passwords (
+        email TEXT PRIMARY KEY,
+        uid TEXT,
+        name TEXT,
+        phone TEXT,
+        password_hash TEXT,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+
       CREATE TABLE IF NOT EXISTS profiles (
         uid TEXT PRIMARY KEY,
         full_name TEXT,
@@ -713,7 +722,126 @@ async function startServer() {
     }
   });
 
-  // Email & Password Registration
+  // Helper to look up existing user account across user_passwords, auth_users.json, "user", and profiles
+  const findExistingAccount = async (cleanEmail: string) => {
+    const authUsers = readJsonFile<Record<string, any>>(AUTH_USERS_FILE, {});
+    let record: any = authUsers[cleanEmail] ? { ...authUsers[cleanEmail] } : null;
+
+    if (dbPool && isDbConnected) {
+      try {
+        const pwRes = await dbPool.query(
+          "SELECT * FROM user_passwords WHERE email = $1 LIMIT 1",
+          [cleanEmail]
+        );
+        if (pwRes.rows.length > 0) {
+          const row = pwRes.rows[0];
+          record = {
+            uid: row.uid || record?.uid || cleanEmail,
+            email: cleanEmail,
+            name: row.name || record?.name || cleanEmail.split('@')[0],
+            phone: row.phone || record?.phone || '',
+            passwordHash: row.password_hash || record?.passwordHash || ''
+          };
+        }
+
+        // Also check "user" and profiles tables for accounts created via OTP
+        const otpUid = 'email_' + cleanEmail.replace(/[^a-z0-9]/g, '_');
+        const userRes = await dbPool.query(
+          'SELECT * FROM "user" WHERE email = $1 OR id = $1 OR id = $2 LIMIT 1',
+          [cleanEmail, otpUid]
+        );
+        if (userRes.rows.length > 0) {
+          const u = userRes.rows[0];
+          record = {
+            uid: record?.uid || u.id || cleanEmail,
+            email: cleanEmail,
+            name: record?.name || u.name || cleanEmail.split('@')[0],
+            phone: record?.phone || u.phone || '',
+            passwordHash: record?.passwordHash || '',
+            fromOtpOrDb: true
+          };
+        }
+      } catch (e) {}
+    }
+
+    if (!record) {
+      const profiles = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
+      const otpUid = 'email_' + cleanEmail.replace(/[^a-z0-9]/g, '_');
+      const matchedProfile =
+        profiles[cleanEmail] ||
+        profiles[otpUid] ||
+        Object.values(profiles).find((p: any) => (p?.email || '').toLowerCase() === cleanEmail);
+      if (matchedProfile) {
+        record = {
+          uid: matchedProfile.uid || matchedProfile.id || cleanEmail,
+          email: cleanEmail,
+          name: matchedProfile.full_name || matchedProfile.displayName || cleanEmail.split('@')[0],
+          phone: matchedProfile.phone || '',
+          passwordHash: '',
+          fromOtpOrDb: true
+        };
+      }
+    }
+
+    return record;
+  };
+
+  const saveAccountWithPassword = async (
+    cleanEmail: string,
+    uid: string,
+    displayName: string,
+    phone: string,
+    hashedPassword: string
+  ) => {
+    const authUsers = readJsonFile<Record<string, any>>(AUTH_USERS_FILE, {});
+    authUsers[cleanEmail] = {
+      uid,
+      email: cleanEmail,
+      name: displayName,
+      phone: phone || '',
+      passwordHash: hashedPassword,
+      updatedAt: new Date().toISOString()
+    };
+    writeJsonFile(AUTH_USERS_FILE, authUsers);
+
+    if (dbPool && isDbConnected) {
+      try {
+        await dbPool.query(
+          `INSERT INTO user_passwords (email, uid, name, phone, password_hash, updated_at)
+           VALUES ($1, $2, $3, $4, $5, NOW())
+           ON CONFLICT (email) DO UPDATE SET
+             uid = EXCLUDED.uid,
+             name = COALESCE(NULLIF(EXCLUDED.name, ''), user_passwords.name),
+             phone = COALESCE(NULLIF(EXCLUDED.phone, ''), user_passwords.phone),
+             password_hash = EXCLUDED.password_hash,
+             updated_at = NOW()`,
+          [cleanEmail, uid, displayName, phone || '', hashedPassword]
+        );
+
+        await dbPool.query(
+          `INSERT INTO "user" (id, name, phone, email, created_at)
+           VALUES ($1, $2, $3, $4, NOW())
+           ON CONFLICT (id) DO UPDATE SET
+             name = COALESCE(NULLIF(EXCLUDED.name, ''), "user".name),
+             phone = COALESCE(NULLIF(EXCLUDED.phone, ''), "user".phone),
+             email = COALESCE(NULLIF(EXCLUDED.email, ''), "user".email)`,
+          [uid, displayName, phone || '', cleanEmail]
+        );
+
+        await dbPool.query(
+          `INSERT INTO profiles (uid, full_name, email, phone, updated_at)
+           VALUES ($1, $2, $3, $4, NOW())
+           ON CONFLICT (uid) DO UPDATE SET
+             full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), profiles.full_name),
+             phone = COALESCE(NULLIF(EXCLUDED.phone, ''), profiles.phone),
+             updated_at = NOW()`,
+          [uid, displayName, cleanEmail, phone || '']
+        );
+      } catch (e) {}
+    }
+  };
+
+  // Email & Password Registration / Password Setup
   app.post("/api/auth/register-password", async (req, res) => {
     try {
       const { email, password, name, phone } = req.body;
@@ -729,44 +857,13 @@ async function startServer() {
         return res.status(400).json({ error: "Password must be at least 6 characters" });
       }
 
-      const uid = cleanEmail;
-      const displayName = name || cleanEmail.split('@')[0];
+      const existing = await findExistingAccount(cleanEmail);
+      const uid = existing?.uid || cleanEmail;
+      const displayName = (name && name.trim()) || existing?.name || cleanEmail.split('@')[0];
+      const finalPhone = (phone && phone.trim()) || existing?.phone || '';
       const hashedPassword = hashPassword(password);
 
-      // Save locally
-      const authUsers = readJsonFile<Record<string, any>>(AUTH_USERS_FILE, {});
-      authUsers[cleanEmail] = {
-        uid,
-        email: cleanEmail,
-        name: displayName,
-        phone: phone || '',
-        passwordHash: hashedPassword,
-        createdAt: new Date().toISOString()
-      };
-      writeJsonFile(AUTH_USERS_FILE, authUsers);
-
-      // Save to Railway PostgreSQL "user" table
-      if (dbPool && isDbConnected) {
-        try {
-          await dbPool.query(`
-            INSERT INTO "user" (id, name, phone, email, created_at)
-            VALUES ($1, $2, $3, $4, NOW())
-            ON CONFLICT (id) DO UPDATE SET
-              name = EXCLUDED.name,
-              phone = COALESCE(NULLIF(EXCLUDED.phone, ''), "user".phone),
-              email = COALESCE(NULLIF(EXCLUDED.email, ''), "user".email)
-          `, [uid, displayName, phone || '', cleanEmail]);
-
-          await dbPool.query(`
-            INSERT INTO profiles (uid, full_name, email, phone, updated_at)
-            VALUES ($1, $2, $3, $4, NOW())
-            ON CONFLICT (uid) DO UPDATE SET
-              full_name = EXCLUDED.full_name,
-              phone = COALESCE(NULLIF(EXCLUDED.phone, ''), profiles.phone),
-              updated_at = NOW()
-          `, [uid, displayName, cleanEmail, phone || '']);
-        } catch (e) {}
-      }
+      await saveAccountWithPassword(cleanEmail, uid, displayName, finalPhone, hashedPassword);
 
       const user = {
         uid,
@@ -774,7 +871,7 @@ async function startServer() {
         name: displayName,
         displayName,
         email: cleanEmail,
-        phone: phone || '',
+        phone: finalPhone,
         isGuest: false
       };
 
@@ -787,7 +884,7 @@ async function startServer() {
     }
   });
 
-  // Email & Password Login
+  // Email & Password Login (Supports OTP-created accounts & first-time password setup seamlessly)
   app.post("/api/auth/login-password", async (req, res) => {
     try {
       const { email, password } = req.body;
@@ -795,11 +892,42 @@ async function startServer() {
         return res.status(400).json({ error: "Email and password are required" });
       }
       const cleanEmail = email.trim().toLowerCase();
-      const authUsers = readJsonFile<Record<string, any>>(AUTH_USERS_FILE, {});
-      const existing = authUsers[cleanEmail];
+      if (password.length < 6) {
+        return res.status(400).json({ error: "पासवर्ड कम से कम 6 अक्षरों का होना चाहिए (Min 6 characters)" });
+      }
 
-      if (!existing || existing.passwordHash !== hashPassword(password)) {
-        return res.status(401).json({ error: "गलत ईमेल या पासवर्ड! (Invalid email or password)" });
+      const existing = await findExistingAccount(cleanEmail);
+      const hashedInput = hashPassword(password);
+
+      // If user previously logged in via OTP (or doesn't have a passwordHash yet), automatically set this password for their account!
+      if (!existing || !existing.passwordHash) {
+        const uid = existing?.uid || cleanEmail;
+        const displayName = existing?.name || cleanEmail.split('@')[0];
+        const finalPhone = existing?.phone || '';
+
+        await saveAccountWithPassword(cleanEmail, uid, displayName, finalPhone, hashedInput);
+
+        const user = {
+          uid,
+          id: uid,
+          name: displayName,
+          displayName,
+          email: cleanEmail,
+          phone: finalPhone,
+          isGuest: false
+        };
+
+        const token = createSessionToken({ uid, email: cleanEmail, name: displayName });
+        res.setHeader('Set-Cookie', `locohelp_token=${token}; Path=/; Max-Age=${30 * 24 * 3600}; SameSite=Lax`);
+
+        return res.json({ success: true, token, user, passwordSet: true });
+      }
+
+      if (existing.passwordHash !== hashedInput) {
+        return res.status(401).json({
+          error: "गलत पासवर्ड! यदि आप अपना पासवर्ड सेट या रीसेट करना चाहते हैं तो नीचे 'Set / Reset Password' विकल्प चुनें। (Incorrect password — use 'Set / Reset Password' below to update it.)",
+          needsReset: true
+        });
       }
 
       const user = {
@@ -818,6 +946,45 @@ async function startServer() {
       res.json({ success: true, token, user });
     } catch (e: any) {
       res.status(500).json({ error: e.message || "Login failed" });
+    }
+  });
+
+  // Set / Reset Password for Existing or OTP Users
+  app.post("/api/auth/reset-password", async (req, res) => {
+    try {
+      const { email, newPassword, name } = req.body;
+      if (!email || !newPassword) {
+        return res.status(400).json({ error: "Email and new password are required" });
+      }
+      const cleanEmail = email.trim().toLowerCase();
+      if (newPassword.length < 6) {
+        return res.status(400).json({ error: "Password must be at least 6 characters" });
+      }
+
+      const existing = await findExistingAccount(cleanEmail);
+      const uid = existing?.uid || cleanEmail;
+      const displayName = (name && name.trim()) || existing?.name || cleanEmail.split('@')[0];
+      const finalPhone = existing?.phone || '';
+      const hashedPassword = hashPassword(newPassword);
+
+      await saveAccountWithPassword(cleanEmail, uid, displayName, finalPhone, hashedPassword);
+
+      const user = {
+        uid,
+        id: uid,
+        name: displayName,
+        displayName,
+        email: cleanEmail,
+        phone: finalPhone,
+        isGuest: false
+      };
+
+      const token = createSessionToken({ uid, email: cleanEmail, name: displayName });
+      res.setHeader('Set-Cookie', `locohelp_token=${token}; Path=/; Max-Age=${30 * 24 * 3600}; SameSite=Lax`);
+
+      res.json({ success: true, token, user });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Failed to reset password" });
     }
   });
 
@@ -881,6 +1048,12 @@ async function startServer() {
 
       const deletedIds = readJsonFile<string[]>(DELETED_INTENTS_FILE, []);
 
+      const localIntents = readJsonFile<any[]>(INTENTS_FILE, []);
+      const localMap = new Map<string, any>();
+      localIntents.forEach(i => {
+        if (!deletedIds.includes(i.id)) localMap.set(i.id, i);
+      });
+
       // If PostgreSQL is connected, fetch from database
       if (dbPool && isDbConnected) {
         try {
@@ -894,19 +1067,29 @@ async function startServer() {
           if (listRes.rows.length > 0) {
             const dbListings = listRes.rows
               .filter(r => !deletedIds.includes(r.id))
-              .map(r => ({
-                id: r.id,
-                authorId: r.user_id,
-                authorName: 'Community Member',
-                description: r.description,
-                category: r.title || 'General',
-                tags: [r.title ? `#${r.title}` : '#General'],
-                status: 'active',
-                distance: r.location && !isNaN(Number(r.location)) ? Number(r.location) : 0.5,
-                hasLocationPin: true,
-                isVerifiedUser: true,
-                createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString()
-              }));
+              .map(r => {
+                const localMeta = localMap.get(r.id) || {};
+                const rawLoc = typeof r.location === 'string' ? r.location : '';
+                const parts = rawLoc.includes(',') ? rawLoc.split(',').map((s: string) => s.trim()) : [];
+                return {
+                  id: r.id,
+                  authorId: r.user_id,
+                  authorName: localMeta.authorName || 'Community Member',
+                  authorEmail: localMeta.authorEmail || '',
+                  description: r.description,
+                  category: r.title || localMeta.category || 'General',
+                  tags: localMeta.tags || [r.title ? `#${r.title}` : '#General'],
+                  status: 'active',
+                  city: localMeta.city || (parts.length > 1 ? parts[parts.length - 1] : ''),
+                  area: localMeta.area || (parts.length > 1 ? parts.slice(0, -1).join(', ') : ''),
+                  location: localMeta.location || rawLoc || 'Kudasan, Gandhinagar',
+                  distance: localMeta.distance || (rawLoc && !isNaN(Number(rawLoc)) ? Number(rawLoc) : 0.5),
+                  hasLocationPin: true,
+                  isVerifiedUser: true,
+                  createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
+                  expiresAt: localMeta.expiresAt
+                };
+              });
             return res.json(dbListings);
           }
 
@@ -921,21 +1104,27 @@ async function startServer() {
           if (result.rows.length > 0) {
             const dbIntents = result.rows
               .filter(r => !deletedIds.includes(r.id))
-              .map(r => ({
-                id: r.id,
-                authorId: r.author_id,
-                authorName: r.author_name || 'Community Member',
-                authorAvatar: r.author_avatar,
-                description: r.description,
-                category: r.category,
-                tags: r.tags || [],
-                status: r.status || 'active',
-                distance: r.distance ? Number(r.distance) : 0.5,
-                hasLocationPin: r.has_location_pin !== false,
-                isVerifiedUser: r.is_verified_user !== false,
-                createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
-                expiresAt: r.expires_at ? new Date(r.expires_at).toISOString() : undefined
-              }));
+              .map(r => {
+                const localMeta = localMap.get(r.id) || {};
+                return {
+                  id: r.id,
+                  authorId: r.author_id,
+                  authorName: r.author_name || localMeta.authorName || 'Community Member',
+                  authorAvatar: r.author_avatar,
+                  description: r.description,
+                  category: r.category,
+                  tags: r.tags || [],
+                  status: r.status || 'active',
+                  city: localMeta.city || '',
+                  area: localMeta.area || '',
+                  location: localMeta.location || '',
+                  distance: r.distance ? Number(r.distance) : 0.5,
+                  hasLocationPin: r.has_location_pin !== false,
+                  isVerifiedUser: r.is_verified_user !== false,
+                  createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
+                  expiresAt: r.expires_at ? new Date(r.expires_at).toISOString() : undefined
+                };
+              });
             return res.json(dbIntents);
           }
         } catch (dbErr) {
@@ -944,13 +1133,7 @@ async function startServer() {
       }
 
       // Fallback to local intents file
-      const localIntents = readJsonFile<any[]>(INTENTS_FILE, []);
-      const map = new Map<string, any>();
-      localIntents.forEach(i => {
-        if (!deletedIds.includes(i.id)) map.set(i.id, i);
-      });
-
-      const combined = Array.from(map.values());
+      const combined = Array.from(localMap.values());
       combined.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
       res.json(combined);
     } catch (e) {
@@ -979,9 +1162,14 @@ async function startServer() {
         return res.status(200).json(newIntent);
       }
 
+      const cityVal = (newIntent.city || '').trim();
+      const areaVal = (newIntent.area || '').trim();
+      const formattedLocation = newIntent.location || (areaVal && cityVal ? `${areaVal}, ${cityVal}` : (cityVal || areaVal || (typeof newIntent.distance === 'number' ? `${newIntent.distance} km` : 'Local Area')));
+
       const intentRecord = {
         id: newIntent.id || 'intent_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
         authorId: newIntent.authorId || newIntent.user_id || newIntent.author_id || 'anonymous_user',
+        authorEmail: (req as any).user?.email || newIntent.authorEmail || newIntent.email || newIntent.author_email || '',
         authorName: newIntent.authorName || newIntent.author_name || 'Community Member',
         authorAvatar: newIntent.authorAvatar || newIntent.author_avatar || '',
         title: newIntent.title || newIntent.category || (newIntent.tags && newIntent.tags[0] ? newIntent.tags[0].replace('#', '') : 'General'),
@@ -989,7 +1177,9 @@ async function startServer() {
         category: newIntent.category || newIntent.title || (newIntent.tags && newIntent.tags[0] ? newIntent.tags[0].replace('#', '') : 'General'),
         tags: Array.isArray(newIntent.tags) ? newIntent.tags : ['#General'],
         distance: typeof newIntent.distance === 'number' ? newIntent.distance : 0.5,
-        location: newIntent.location || (typeof newIntent.distance === 'number' ? `${newIntent.distance} km` : 'Local Area'),
+        city: cityVal,
+        area: areaVal,
+        location: formattedLocation,
         status: newIntent.status || 'active',
         createdAt: newIntent.createdAt || new Date().toISOString(),
         expiresAt: newIntent.expiresAt || new Date(Date.now() + 1000 * 60 * 60).toISOString(), // 1 Hour Auto Expiry
@@ -1230,6 +1420,7 @@ async function startServer() {
         id: message.id || 'msg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
         authorId: message.authorId || message.sender_id || message.senderId || 'guest',
         senderId: message.senderId || message.sender_id || message.authorId || 'guest',
+        senderEmail: (req as any).user?.email || message.senderEmail || message.email || '',
         receiverId: message.receiverId || message.receiver_id || id,
         text: message.message || message.text || message.content || '',
         content: message.message || message.text || message.content || '',
@@ -2481,13 +2672,25 @@ async function startServer() {
       }
 
       const isEmail = type === 'email' || cleanIdentifier.includes('@');
+      const existingAcc = isEmail ? await findExistingAccount(cleanIdentifier) : null;
       const user = {
-        uid: (isEmail ? 'email_' : 'phone_') + (isEmail ? cleanIdentifier.replace(/[^a-z0-9]/g, '_') : cleanIdentifier.replace(/\D/g, '')),
-        displayName: isEmail ? cleanIdentifier.split('@')[0] : `User +91 ${cleanIdentifier.replace(/\D/g, '')}`,
+        uid: existingAcc?.uid || ((isEmail ? 'email_' : 'phone_') + (isEmail ? cleanIdentifier.replace(/[^a-z0-9]/g, '_') : cleanIdentifier.replace(/\D/g, ''))),
+        displayName: existingAcc?.name || (isEmail ? cleanIdentifier.split('@')[0] : `User +91 ${cleanIdentifier.replace(/\D/g, '')}`),
         email: isEmail ? cleanIdentifier : '',
-        phone: !isEmail ? `+91 ${cleanIdentifier.replace(/\D/g, '')}` : '',
+        phone: existingAcc?.phone || (!isEmail ? `+91 ${cleanIdentifier.replace(/\D/g, '')}` : ''),
         verifiedAt: new Date().toISOString()
       };
+
+      // Also support optional password setting right during OTP verification if provided
+      if (isEmail && req.body.newPassword && String(req.body.newPassword).length >= 6) {
+        await saveAccountWithPassword(
+          cleanIdentifier,
+          user.uid,
+          user.displayName,
+          user.phone,
+          hashPassword(String(req.body.newPassword))
+        );
+      }
 
       // Persist user to PostgreSQL primary "user" table (id, name, phone, email, created_at) and profiles table
       if (dbPool && isDbConnected) {

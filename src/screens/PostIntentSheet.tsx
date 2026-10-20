@@ -7,6 +7,12 @@ import { Intent } from '../types';
 import { broadcastIntentToServer } from '../api';
 import LoginPromptModal from '../components/LoginPromptModal';
 import { isGuestUser, getUserProfile } from '../lib/authUtils';
+import {
+  PAN_INDIA_STATES_DISTRICTS,
+  DISTRICT_POPULAR_AREAS,
+  getSavedUserLocation,
+  saveUserLocationPermanently
+} from '../data/panIndiaLocations';
 
 interface PostIntentSheetProps {
   onClose: () => void;
@@ -22,6 +28,25 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
   const [customTags, setCustomTags] = useState<string[]>([]);
   const [isListening, setIsListening] = useState(false);
   const [isLoginPromptOpen, setIsLoginPromptOpen] = useState(false);
+
+  // Pan-India State, District/City & Local Area/Village Selection (Pre-filled from saved location)
+  const initialSavedLoc = React.useMemo(() => getSavedUserLocation(), []);
+  const [selectedState, setSelectedState] = useState<string>(initialSavedLoc.state || 'Gujarat');
+  const [selectedCity, setSelectedCity] = useState<string>(initialSavedLoc.district || 'Gandhinagar');
+  const [customCity, setCustomCity] = useState<string>('');
+  const [localArea, setLocalArea] = useState<string>(
+    initialSavedLoc.area || (DISTRICT_POPULAR_AREAS[initialSavedLoc.district || 'Gandhinagar']?.[0] || 'Kudasan')
+  );
+
+  const statesList = React.useMemo(() => Object.keys(PAN_INDIA_STATES_DISTRICTS), []);
+  const districtsForSelectedState = React.useMemo(
+    () => PAN_INDIA_STATES_DISTRICTS[selectedState] || PAN_INDIA_STATES_DISTRICTS['Gujarat'],
+    [selectedState]
+  );
+  const popularAreasForCity = React.useMemo(
+    () => DISTRICT_POPULAR_AREAS[selectedCity] || ['Main Market', 'Station Road', 'Sector 1', 'Civil Lines'],
+    [selectedCity]
+  );
 
   const QUICK_TEMPLATES = [
     { label: '🔧 ' + (language === 'EN' ? 'Plumber' : 'प्लंबर'), text: t('post.tmpl.plumber'), tag: '#Plumber' },
@@ -91,6 +116,18 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
       const profile = getUserProfile();
       const activeUid = profile.uid || 'user_' + Math.random().toString(36).substring(2, 8);
       const intentId = 'intent_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+
+      const finalState = (selectedState || 'Gujarat').trim();
+      const finalCity = (selectedCity === 'Other' ? (customCity.trim() || 'Gandhinagar') : selectedCity).trim();
+      const finalArea = (localArea.trim() || (popularAreasForCity[0] || 'Main Area')).trim();
+      const fullLocationLabel = `${finalArea}, ${finalCity}`;
+
+      try {
+        // Only initialize persistent location if user hasn't explicitly saved one in header yet
+        if (!localStorage.getItem('locohelp_user_location')) {
+          saveUserLocationPermanently({ state: finalState, district: finalCity, area: finalArea });
+        }
+      } catch (e) {}
       
       const newIntent: Intent = {
         id: intentId,
@@ -98,8 +135,12 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
         tags: combinedTags.length > 0 ? combinedTags : ['#General'],
         authorId: activeUid,
         authorName: profile.displayName || 'Community Member',
+        state: finalState,
+        city: finalCity,
+        area: finalArea,
+        location: fullLocationLabel,
         createdAt: now.toISOString(),
-        expiresAt: new Date(now.getTime() + 1000 * 60 * 120).toISOString(),
+        expiresAt: new Date(now.getTime() + 1000 * 60 * 60).toISOString(),
         status: 'active',
         hasLocationPin: hasPin,
         distance: Number((Math.random() * 0.4 + 0.1).toFixed(1)),
@@ -115,7 +156,6 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
         }
       } catch (e) {}
 
-      // 2. Save directly to Supabase
       // 2. Sync to central Express backend & PostgreSQL
       try {
         await broadcastIntentToServer(newIntent);
@@ -230,6 +270,113 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
             />
           </div>
 
+          {/* Pan-India State, District/City & Local Area/Village Selection */}
+          <div className="p-3.5 rounded-2xl bg-gradient-to-br from-emerald-50/80 via-teal-50/40 to-white dark:from-slate-800/80 dark:to-slate-850 border border-emerald-200 dark:border-slate-700 space-y-2.5">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <label className="text-[11px] font-black text-emerald-800 dark:text-emerald-300 uppercase tracking-wider flex items-center gap-1">
+                <MapPin className="w-3.5 h-3.5 text-emerald-600" />
+                <span>{language === 'EN' ? 'Location (State, District & Local Area)' : 'लोकेशन (राज्य, जिला और लोकल एरिया/गाँव)'}</span>
+              </label>
+              <span className="text-[10px] font-black bg-emerald-600 text-white px-2.5 py-0.5 rounded-full shadow-2xs">
+                📍 {(localArea.trim() || 'Area')}, {(selectedCity === 'Other' ? (customCity.trim() || 'District') : selectedCity)}
+              </span>
+            </div>
+
+            {/* 1. State & District/City Dropdowns */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 block">
+                  {language === 'EN' ? '1. State (All India):' : '1. राज्य चुनें:'}
+                </span>
+                <select
+                  value={selectedState}
+                  onChange={(e) => {
+                    const newState = e.target.value;
+                    setSelectedState(newState);
+                    const dists = PAN_INDIA_STATES_DISTRICTS[newState] || [];
+                    const firstDist = dists[0] || '';
+                    setSelectedCity(firstDist);
+                    const defaultAreas = DISTRICT_POPULAR_AREAS[firstDist] || [];
+                    setLocalArea(defaultAreas[0] || '');
+                  }}
+                  className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-2.5 py-2 text-xs font-extrabold text-slate-900 dark:text-white outline-none focus:border-emerald-500 cursor-pointer"
+                >
+                  {statesList.map((st) => (
+                    <option key={st} value={st}>
+                      {st}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 block">
+                  {language === 'EN' ? '2. District / City:' : '2. जिला / शहर चुनें:'}
+                </span>
+                <select
+                  value={selectedCity}
+                  onChange={(e) => {
+                    const newCity = e.target.value;
+                    setSelectedCity(newCity);
+                    const defaultAreas = DISTRICT_POPULAR_AREAS[newCity] || [];
+                    setLocalArea(defaultAreas[0] || '');
+                  }}
+                  className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-2.5 py-2 text-xs font-extrabold text-slate-900 dark:text-white outline-none focus:border-emerald-500 cursor-pointer"
+                >
+                  {districtsForSelectedState.map((dist) => (
+                    <option key={dist} value={dist}>
+                      {dist}
+                    </option>
+                  ))}
+                  <option value="Other">Other / Custom District...</option>
+                </select>
+              </div>
+            </div>
+
+            {selectedCity === 'Other' && (
+              <input
+                type="text"
+                value={customCity}
+                onChange={(e) => setCustomCity(e.target.value)}
+                placeholder={language === 'EN' ? 'Type your District or City name...' : 'अपने जिले या शहर का नाम लिखें...'}
+                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-900 dark:text-white outline-none focus:border-emerald-500"
+              />
+            )}
+
+            {/* 3. Local Area / Village / Sector Quick Chips + Type Input */}
+            <div className="space-y-1.5">
+              <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 block">
+                {language === 'EN' ? '3. Select or Type Local Area / Village / Sector:' : '3. लोकल एरिया / गाँव / सेक्टर चुनें या टाइप करें:'}
+              </span>
+              <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide">
+                {popularAreasForCity.map((areaOption) => {
+                  const isAreaSelected = localArea.trim().toLowerCase() === areaOption.toLowerCase();
+                  return (
+                    <button
+                      key={areaOption}
+                      type="button"
+                      onClick={() => setLocalArea(areaOption)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold whitespace-nowrap transition-all border shrink-0 cursor-pointer ${
+                        isAreaSelected
+                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+                          : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-indigo-300'
+                      }`}
+                    >
+                      📍 {areaOption}
+                    </button>
+                  );
+                })}
+              </div>
+              <input
+                type="text"
+                value={localArea}
+                onChange={(e) => setLocalArea(e.target.value)}
+                placeholder={language === 'EN' ? 'Type Area / Village / Sector (e.g., Kudasan, Sector 21, Chandkheda)' : 'एरिया / गाँव / सेक्टर लिखें (जैसे: Kudasan, Sector 21, Chandkheda)'}
+                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 dark:text-white placeholder:text-slate-400 outline-none focus:border-emerald-500 transition-all"
+              />
+            </div>
+          </div>
+
           {/* Location & Expiry Badges */}
           <div className="grid grid-cols-2 gap-2.5">
             <button 
@@ -247,7 +394,7 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
 
             <div className="py-2.5 px-3 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl flex items-center justify-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 font-bold">
               <Clock className="w-3.5 h-3.5 text-amber-500" />
-              <span>{t('post.in2Hours') || "Auto-expires: 2 hrs"}</span>
+              <span>{language === 'EN' ? 'Auto-expires: 1 hr' : '1 घंटे में ऑटो-डिलीट'}</span>
             </div>
           </div>
 

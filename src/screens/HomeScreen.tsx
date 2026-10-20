@@ -4,7 +4,7 @@ import { Settings, Bell, Zap, Search, Globe, Clock, MapPin, Rocket, User, Trophy
 import { motion, AnimatePresence } from 'motion/react';
 import PostIntentSheet from './PostIntentSheet';
 import { useLanguage, SUPPORTED_LANGUAGES } from '../i18n';
-import { getCurrentUser, signInWithGoogle, onAuthStateChange } from '../auth';
+import { getCurrentUser, onAuthStateChange } from '../auth';
 import { CATEGORIES, MASTER_CATEGORIES, getCategoryName, getFreeHelperProfiles } from '../data/categories';
 import UserProfileModal from './UserProfileModal';
 import AppGuideModal from './AppGuideModal';
@@ -19,6 +19,9 @@ import JobSeekerModal from '../components/JobSeekerModal';
 import EmployerVacancyModal from '../components/EmployerVacancyModal';
 import JobPortalBrowseModal from '../components/JobPortalBrowseModal';
 import FreeHelperRegisterModal from '../components/FreeHelperRegisterModal';
+import PostResponsesModal from '../components/PostResponsesModal';
+import PanIndiaLocationModal from '../components/PanIndiaLocationModal';
+import { getSavedUserLocation, getConnectedTwinDistricts, UserManualLocation } from '../data/panIndiaLocations';
 import { isGuestUser } from '../lib/authUtils';
 import FeedbackBanner from '../components/FeedbackBanner';
 
@@ -40,7 +43,7 @@ export default function HomeScreen({
   const [isPostSheetOpen, setIsPostSheetOpen] = useState(false);
   const [isLangModalOpen, setIsLangModalOpen] = useState(false);
   const [isLoginPromptOpen, setIsLoginPromptOpen] = useState(false);
-  const [loginPromptTitle, setLoginPromptTitle] = useState({ en: 'Sign In with Google Required', hi: 'गूगल से लॉगिन आवश्यक है' });
+  const [loginPromptTitle, setLoginPromptTitle] = useState({ en: 'Sign In Required', hi: 'लॉगिन आवश्यक है' });
   const [loginPromptDesc, setLoginPromptDesc] = useState<{ en?: string; hi?: string }>({});
   const [loginSuccessAction, setLoginSuccessAction] = useState<(() => void) | undefined>(undefined);
   const [intents, setIntents] = useState<Intent[]>([]);
@@ -63,6 +66,8 @@ export default function HomeScreen({
   const [isRegisterShopModalOpen, setIsRegisterShopModalOpen] = useState(false);
   const [isFreeHelperModalOpen, setIsFreeHelperModalOpen] = useState(false);
   const [postToDelete, setPostToDelete] = useState<string | null>(null);
+  const [selectedIntentForResponses, setSelectedIntentForResponses] = useState<Intent | null>(null);
+  const [isResponsesModalOpen, setIsResponsesModalOpen] = useState(false);
 
   // Active logged-in user state (automatically synced with Supabase Auth and localStorage)
   const [activeUser, setActiveUser] = useState(() => getCurrentUser());
@@ -102,18 +107,32 @@ export default function HomeScreen({
   const [isJobBrowseModalOpen, setIsJobBrowseModalOpen] = useState(false);
   const [jobBrowseInitialTab, setJobBrowseInitialTab] = useState<'all' | 'employer_vacancy' | 'job_seeker'>('all');
 
-  // GPS Distance Priority System (Zomato / Swiggy Style Location Auto-Detection)
-  const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number; active: boolean }>({
-    lat: 23.0225, // Ahmedabad center default
+  // Manual Pan-India User Location State (Persistent in localStorage & user profile)
+  const [userLocation, setUserLocation] = useState<UserManualLocation>(() => getSavedUserLocation());
+  const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
+
+  useEffect(() => {
+    const handleLocationChanged = (e: any) => {
+      if (e?.detail?.district) {
+        setUserLocation(e.detail);
+      } else {
+        setUserLocation(getSavedUserLocation());
+      }
+    };
+    window.addEventListener('locohelp_location_changed', handleLocationChanged);
+    return () => window.removeEventListener('locohelp_location_changed', handleLocationChanged);
+  }, []);
+
+  // Static reference coordinates for relative distance badge calculation (No browser GPS tracking)
+  const [gpsCoords] = useState<{ lat: number; lng: number; active: boolean }>({
+    lat: 23.0225,
     lng: 72.5714,
     active: false
   });
-  const [isGpsLocating, setIsGpsLocating] = useState(false);
   const [gpsNotificationToast, setGpsNotificationToast] = useState<string | null>(null);
 
-  // Haversine formula for exact GPS distance in KM
   const getGpsDistanceKm = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-    const R = 6371; // Earth radius in km
+    const R = 6371;
     const dLat = (lat2 - lat1) * Math.PI / 180;
     const dLon = (lon2 - lon1) * Math.PI / 180;
     const a = 
@@ -124,43 +143,15 @@ export default function HomeScreen({
     return parseFloat((R * c).toFixed(1));
   };
 
-  const triggerGpsLocate = () => {
-    if ('geolocation' in navigator) {
-      setIsGpsLocating(true);
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          setGpsCoords({
-            lat: position.coords.latitude,
-            lng: position.coords.longitude,
-            active: true
-          });
-          setIsGpsLocating(false);
-          setGpsNotificationToast(`⚡ ${t('gps.detectedToast')}`);
-          setTimeout(() => setGpsNotificationToast(null), 4000);
-        },
-        (err) => {
-          console.warn("GPS Detection Notice:", err);
-          setIsGpsLocating(false);
-          setGpsCoords(prev => ({ ...prev, active: true }));
-        },
-        { enableHighAccuracy: true, timeout: 8000 }
-      );
-    }
-  };
-
-  useEffect(() => {
-    triggerGpsLocate();
-  }, []);
-
   const handleSafeOpenChat = (intent?: any) => {
     if (isGuestUser()) {
       setLoginPromptTitle({
-        en: 'Sign In with Google to Chat',
-        hi: 'चैट करने के लिए गूगल से लॉगिन करें'
+        en: 'Sign In Required to Chat',
+        hi: 'चैट करने के लिए लॉगिन करें'
       });
       setLoginPromptDesc({
-        en: 'Connect directly with local helpers and neighbors. Sign in with Google in 1 click!',
-        hi: 'पड़ोसियों और हेल्पर्स से चैट करने के लिए गूगल से 1-क्लिक में लॉगिन करें।'
+        en: 'Connect directly with local helpers and neighbors. Sign in with Email OTP or Password!',
+        hi: 'पड़ोसियों और हेल्पर्स से चैट करने के लिए ईमेल OTP या पासवर्ड से लॉगिन करें।'
       });
       setLoginSuccessAction(() => () => onOpenChat(intent));
       setIsLoginPromptOpen(true);
@@ -172,12 +163,12 @@ export default function HomeScreen({
   const handleSafeOpenPostSheet = () => {
     if (isGuestUser()) {
       setLoginPromptTitle({
-        en: 'Sign In with Google to Post Broadcast',
-        hi: 'ब्रॉडकास्ट पोस्ट करने के लिए गूगल से लॉगिन करें'
+        en: 'Sign In Required to Post Broadcast',
+        hi: 'ब्रॉडकास्ट पोस्ट करने के लिए लॉगिन करें'
       });
       setLoginPromptDesc({
-        en: 'Broadcast your urgent requirement to nearby helpers. Sign in with your Google account in 1 click!',
-        hi: 'अपने एरिया में ब्रॉडकास्ट पोस्ट करने के लिए गूगल से 1-क्लिक में लॉगिन करें।'
+        en: 'Broadcast your requirement to nearby helpers. Sign in with Email OTP or Password!',
+        hi: 'अपने एरिया में आवश्यकता पोस्ट करने के लिए ईमेल OTP या पासवर्ड से लॉगिन करें।'
       });
       setLoginSuccessAction(() => () => setIsPostSheetOpen(true));
       setIsLoginPromptOpen(true);
@@ -189,12 +180,12 @@ export default function HomeScreen({
   const handleSafeProfileClick = () => {
     if (isGuestUser()) {
       setLoginPromptTitle({
-        en: 'Sign In with Google to Create / Manage Profile',
-        hi: 'प्रोफाइल बनाने के लिए गूगल से लॉगिन करें'
+        en: 'Sign In Required to Manage Profile',
+        hi: 'प्रोफाइल बनाने के लिए लॉगिन करें'
       });
       setLoginPromptDesc({
-        en: 'Create your verified local profile with skills, ratings & phone number. Sign in with Google in 1 click!',
-        hi: 'अपनी रेटिंग, स्किल्स और मोबाइल नंबर के साथ प्रोफाइल बनाने के लिए गूगल से 1-क्लिक में साइन-इन करें।'
+        en: 'Create your verified local profile with skills, ratings & phone number.',
+        hi: 'अपनी रेटिंग, स्किल्स और मोबाइल नंबर के साथ प्रोफाइल बनाने के लिए लॉगिन करें।'
       });
       setLoginSuccessAction(() => () => onNavigate('profile'));
       setIsLoginPromptOpen(true);
@@ -206,12 +197,12 @@ export default function HomeScreen({
   const handleSafeRegisterShop = () => {
     if (isGuestUser()) {
       setLoginPromptTitle({
-        en: 'Sign In with Google to Register Business',
-        hi: 'बिज़नेस/दुकान दर्ज करने के लिए गूगल से लॉगिन करें'
+        en: 'Sign In Required to Register Business',
+        hi: 'बिज़नेस/दुकान दर्ज करने के लिए लॉगिन करें'
       });
       setLoginPromptDesc({
-        en: 'List your shop, showroom or local service on the neighborhood radar with 1-click Google sign-in.',
-        hi: 'अपनी दुकान या सर्विस दर्ज करने के लिए गूगल से 1-क्लिक में लॉगिन करें।'
+        en: 'List your shop, showroom or local service on the neighborhood radar with Email OTP or Password sign-in.',
+        hi: 'अपनी दुकान या सर्विस दर्ज करने के लिए ईमेल OTP या पासवर्ड से लॉगिन करें।'
       });
       setLoginSuccessAction(() => () => setIsRegisterShopModalOpen(true));
       setIsLoginPromptOpen(true);
@@ -291,6 +282,68 @@ export default function HomeScreen({
   const currentMasterObj = MASTER_CATEGORIES.find(m => m.id === selectedCategory);
   const currentCategoryObj = CATEGORIES.find(c => c.id === selectedCategory);
 
+  // Smart Twin-City & Local Area Filter States
+  const [selectedCityZone, setSelectedCityZone] = useState<'all' | 'gandhinagar' | 'ahmedabad' | 'twin_gnr_amd' | 'surat' | 'vadodara'>('all');
+  const [selectedAreaFilter, setSelectedAreaFilter] = useState<string>('all');
+
+  const GANDHINAGAR_AREAS = ['kudasan', 'sector 21', 'sector 11', 'sargasan', 'infocity', 'raysan', 'adalaj', 'kalol', 'gift city', 'pdpu', 'koba'];
+  const AHMEDABAD_AREAS = ['chandkheda', 'bopal', 'motera', 'gota', 'navrangpura', 'satellite', 'prahlad nagar', 'maninagar', 'sg highway', 'vastrapur', 'nikol', 'naroda', 'paldi', 'thaltej'];
+
+  const resolveIntentAreaAndCity = (item: Intent, index: number): { area: string; city: string; badge: string } => {
+    let area = (item.area || '').trim();
+    let city = (item.city || '').trim();
+    const rawLoc = (item.location || '').trim();
+
+    if ((!area || !city) && rawLoc && rawLoc.includes(',')) {
+      const parts = rawLoc.split(',').map(s => s.trim()).filter(Boolean);
+      if (parts.length >= 2) {
+        if (!area) area = parts.slice(0, -1).join(', ');
+        if (!city) city = parts[parts.length - 1];
+      }
+    }
+
+    const combinedText = `${item.description || ''} ${rawLoc} ${(item.tags || []).join(' ')}`.toLowerCase();
+
+    if (!area) {
+      const matchedGnr = GANDHINAGAR_AREAS.find(a => combinedText.includes(a));
+      const matchedAmd = AHMEDABAD_AREAS.find(a => combinedText.includes(a));
+      if (matchedGnr) {
+        area = matchedGnr.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+        if (!city) city = 'Gandhinagar';
+      } else if (matchedAmd) {
+        area = matchedAmd.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+        if (!city) city = 'Ahmedabad';
+      }
+    }
+
+    if (!city) {
+      if (combinedText.includes('gandhinagar')) city = 'Gandhinagar';
+      else if (combinedText.includes('ahmedabad')) city = 'Ahmedabad';
+      else if (combinedText.includes('surat')) city = 'Surat';
+      else if (combinedText.includes('vadodara') || combinedText.includes('baroda')) city = 'Vadodara';
+      else if (combinedText.includes('rajkot')) city = 'Rajkot';
+      else city = index % 2 === 0 ? 'Gandhinagar' : 'Ahmedabad';
+    }
+
+    if (!area) {
+      if (city.toLowerCase() === 'gandhinagar') {
+        const gnrDefaults = ['Kudasan', 'Sector 21', 'Sargasan', 'Infocity'];
+        area = gnrDefaults[index % gnrDefaults.length];
+      } else if (city.toLowerCase() === 'ahmedabad') {
+        const amdDefaults = ['Chandkheda', 'Bopal', 'Motera', 'Satellite'];
+        area = amdDefaults[index % amdDefaults.length];
+      } else {
+        area = 'Main Area';
+      }
+    }
+
+    return {
+      area,
+      city,
+      badge: `${area}, ${city}`
+    };
+  };
+
   // 1-Hour Auto-Expiry & GPS Distance Priority System (Inactive posts auto-delete after 1 hour)
   const ONE_HOUR_MS = 60 * 60 * 1000;
   const now = Date.now();
@@ -316,9 +369,14 @@ export default function HomeScreen({
     
     const computedKm = getGpsDistanceKm(gpsCoords.lat, gpsCoords.lng, itemLat, itemLng);
     const finalDistance = Math.min(computedKm, item.distance || 0.8);
+
+    const { area: resolvedArea, city: resolvedCity, badge: resolvedLocationBadge } = resolveIntentAreaAndCity(item, index);
     
     return {
       ...item,
+      resolvedArea,
+      resolvedCity,
+      resolvedLocationBadge,
       computedKm: finalDistance,
       minsRemaining,
       isNearbyPriority: finalDistance <= 2.0
@@ -326,20 +384,67 @@ export default function HomeScreen({
   });
 
   // Filter by category
-  const filteredIntents = processedIntents.filter(item => {
+  const categoryFilteredIntents = processedIntents.filter(item => {
     if (selectedCategory === 'all') return true;
     const keywords = categoryKeywords[selectedCategory] || [selectedCategory];
     const text = (item.description + ' ' + (item.tags ? item.tags.join(' ') : '')).toLowerCase();
     return keywords.some(k => text.includes(k));
   });
 
-  // GPS Distance Sorting (Nearest posts first!)
-  filteredIntents.sort((a, b) => a.computedKm - b.computedKm);
-
   // Fallback to all posts if category filter returns no posts so broadcast posts NEVER disappear
-  const displayIntents = (selectedCategory !== 'all' && filteredIntents.length === 0)
+  const baseCategoryIntents = (selectedCategory !== 'all' && categoryFilteredIntents.length === 0)
     ? processedIntents
-    : filteredIntents;
+    : categoryFilteredIntents;
+
+  // Smart Twin-City & Neighboring District Feed Matching based on Header Selected District
+  const activeHeaderDistrict = (userLocation.district || 'Gandhinagar').trim().toLowerCase();
+  const connectedDistricts = getConnectedTwinDistricts(activeHeaderDistrict);
+
+  const zoneFilteredIntents = baseCategoryIntents.filter(item => {
+    if (!activeHeaderDistrict || activeHeaderDistrict === 'all') return true;
+    const cityLower = (item.resolvedCity || '').toLowerCase();
+    const locLower = (item.location || '').toLowerCase();
+    return connectedDistricts.some(
+      d => cityLower.includes(d) || d.includes(cityLower) || locLower.includes(d)
+    );
+  });
+
+  // Fallback so feed never appears empty if no posts exist in a newly chosen district yet
+  const displayIntents = (zoneFilteredIntents.length === 0 ? baseCategoryIntents : zoneFilteredIntents)
+    .slice()
+    .sort((a, b) => {
+      const aCity = (a.resolvedCity || '').toLowerCase();
+      const bCity = (b.resolvedCity || '').toLowerCase();
+      const aArea = (a.resolvedArea || '').toLowerCase();
+      const bArea = (b.resolvedArea || '').toLowerCase();
+      const prefArea = (userLocation.area || '').trim().toLowerCase();
+
+      // 1. Exact District match prioritized first, followed by Connected Twin-City / Neighboring District
+      const getDistrictRank = (cityStr: string) => {
+        if (!cityStr) return 3;
+        if (cityStr === activeHeaderDistrict || cityStr.includes(activeHeaderDistrict) || activeHeaderDistrict.includes(cityStr)) {
+          return 0;
+        }
+        if (connectedDistricts.some(d => cityStr.includes(d) || d.includes(cityStr))) {
+          return 1;
+        }
+        return 2;
+      };
+
+      const aRank = getDistrictRank(aCity);
+      const bRank = getDistrictRank(bCity);
+      if (aRank !== bRank) return aRank - bRank;
+
+      // 2. If user also saved a local area, prioritize posts matching that local area within the district
+      if (prefArea) {
+        const aAreaMatch = aArea.includes(prefArea) ? 0 : 1;
+        const bAreaMatch = bArea.includes(prefArea) ? 0 : 1;
+        if (aAreaMatch !== bAreaMatch) return aAreaMatch - bAreaMatch;
+      }
+
+      // 3. Newest / nearest priority
+      return a.computedKm - b.computedKm;
+    });
 
   // Real-time filtered feed for home screen broadcast list
   const searchedIntents = homeSearchQuery.trim()
@@ -348,6 +453,7 @@ export default function HomeScreen({
         const text = (
           (item.description || '') + ' ' + 
           (item.category || '') + ' ' + 
+          (item.resolvedLocationBadge || '') + ' ' +
           (item.tags ? item.tags.join(' ') : '')
         ).toLowerCase();
         return text.includes(q);
@@ -520,10 +626,6 @@ export default function HomeScreen({
       }
     } catch (e) {}
 
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission();
-    }
-
     // 2. Real-time Express & PostgreSQL sync (frequent poll for instant multi-device responsiveness)
     syncServerBroadcasts();
     const pollInterval = setInterval(() => {
@@ -664,23 +766,24 @@ export default function HomeScreen({
             <button
               onClick={handleSafeProfileClick}
               className="flex items-center gap-1.5 px-3 py-1 sm:py-1.5 bg-white dark:bg-slate-800 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 transition-all border border-indigo-200 dark:border-indigo-900/60 shadow-xs active:scale-95 cursor-pointer text-slate-800 dark:text-white"
-              title="Sign in with Google or Email OTP"
+              title="Sign in with Email OTP or Password"
             >
-              <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
-                <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.8-2.4 3.65v3.03h3.88c2.27-2.09 3.665-5.17 3.665-9.12z"/>
-                <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.03c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.13C3.26 21.36 7.33 24 12 24z"/>
-                <path fill="#FBBC05" d="M5.28 14.29c-.25-.72-.38-1.49-.38-2.29s.13-1.57.38-2.29V6.58H1.25C.45 8.18 0 9.99 0 12s.45 3.82 1.25 5.42l4.03-3.13z"/>
-                <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.13c.95-2.83 3.6-4.96 6.72-4.96z"/>
-              </svg>
               <span className="text-xs font-black">
                 {language === 'EN' ? 'Sign In' : 'लॉगिन करें'}
               </span>
             </button>
           ) : null}
 
-          <button onClick={() => onNavigate('notifications')} className="p-1.5 sm:p-2 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-violet-100 dark:hover:bg-slate-700 transition-colors relative shadow-2xs cursor-pointer" title="Notifications">
-            <Bell className="w-4 h-4 sm:w-5 sm:h-5 text-stone-700 dark:text-slate-300" />
-            <div className="absolute top-1 right-1 w-2 h-2 sm:w-2.5 sm:h-2.5 bg-rose-500 rounded-full border-2 border-white dark:border-slate-800"></div>
+          <button
+            type="button"
+            onClick={() => setIsLocationModalOpen(true)}
+            className="flex items-center gap-1 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full bg-emerald-50 dark:bg-emerald-950/80 border border-emerald-300 dark:border-emerald-700 hover:bg-emerald-100 dark:hover:bg-emerald-900/80 text-emerald-800 dark:text-emerald-200 transition-all shadow-2xs active:scale-95 cursor-pointer max-w-[140px] sm:max-w-[180px]"
+            title="Select Location (Pan-India)"
+          >
+            <span className="text-xs shrink-0">📍</span>
+            <span className="text-[11px] sm:text-xs font-black truncate">
+              {userLocation.district || (language === 'EN' ? 'Select Location' : 'लोकेशन चुनें')}
+            </span>
           </button>
           <button onClick={handleSafeProfileClick} className="p-1.5 sm:p-2 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-violet-100 dark:hover:bg-slate-700 transition-colors shadow-2xs cursor-pointer" title="Profile">
             {activeUser.photoURL || getCurrentUser()?.photoURL ? (
@@ -762,6 +865,8 @@ export default function HomeScreen({
                   <X className="w-3.5 h-3.5" />
                 </button>
               )}
+
+
 
               {/* Voice Search Button */}
               <button 
@@ -968,6 +1073,8 @@ export default function HomeScreen({
           {/* 5. ACTIVE NEARBY Live Posts Feed Section */}
           <div className="relative bg-transparent dark:bg-transparent overflow-hidden">
             <div className="relative z-10 p-3 pt-3 space-y-3">
+
+
               
               {/* Active Nearby Header Bar */}
               <div className="bg-white dark:bg-slate-850 p-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs flex items-center justify-between gap-2 flex-wrap">
@@ -1088,7 +1195,7 @@ export default function HomeScreen({
                     }`}
                   >
                     {/* Post Author & Header Info */}
-                    <div className="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-slate-200/60 dark:border-slate-700/60">
+                    <div className="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-slate-200/60 dark:border-slate-700/60 flex-wrap">
                       <div className="flex items-center gap-2 min-w-0">
                         <div className="w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-2xs">
                           {intent.authorName?.[0]?.toUpperCase() || 'U'}
@@ -1097,9 +1204,15 @@ export default function HomeScreen({
                           <span className="text-xs font-black text-slate-900 dark:text-white block truncate">
                             {intent.authorName || 'Community Member'}
                           </span>
-                          <span className="text-[10px] text-slate-500 font-medium block -mt-0.5">
-                            📍 {intent.computedKm || intent.distance} km away
-                          </span>
+                          <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                            {/* Clean Area & City Badge: 📍 [Area], [City] */}
+                            <span className="inline-flex items-center gap-0.5 text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/90 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 shadow-2xs">
+                              📍 {(intent as any).resolvedLocationBadge || `${intent.area || 'Kudasan'}, ${intent.city || 'Gandhinagar'}`}
+                            </span>
+                            <span className="text-[10px] text-slate-500 font-bold">
+                              • {intent.computedKm || intent.distance} km
+                            </span>
+                          </div>
                         </div>
                       </div>
 
@@ -1123,18 +1236,31 @@ export default function HomeScreen({
                       {intent.description}
                     </p>
 
-                    {/* Action Bar (Chat/Reply for ALL, Share, and Owner-Only Delete) */}
+                    {/* Action Bar (Responses / Chats for Post Owner, Chat / Reply for Visitor, Share, and Delete) */}
                     <div className="flex items-center justify-between pt-2.5 border-t border-slate-200/60 dark:border-slate-700/80 gap-2 flex-wrap">
                       <div className="flex items-center gap-2">
-                        {/* Primary Chat / Reply Button for ALL users */}
-                        <button
-                          type="button"
-                          onClick={() => handleSafeOpenChat(intent)}
-                          className="bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs px-3.5 py-1.5 rounded-xl shadow-md active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer"
-                        >
-                          <MessageSquare className="w-3.5 h-3.5" />
-                          <span>{language === 'EN' ? 'Chat / Reply' : 'बात करें / उत्तर दें'}</span>
-                        </button>
+                        {isUserPost ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedIntentForResponses(intent);
+                              setIsResponsesModalOpen(true);
+                            }}
+                            className="bg-amber-500 hover:bg-amber-600 text-white font-black text-xs px-3.5 py-1.5 rounded-xl shadow-md active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5" />
+                            <span>{language === 'EN' ? 'Responses / Chats' : 'प्राप्त जवाब देखें (Inbox)'}</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleSafeOpenChat(intent)}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs px-3.5 py-1.5 rounded-xl shadow-md active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5" />
+                            <span>{language === 'EN' ? 'Chat / Reply' : 'बात करें / उत्तर दें'}</span>
+                          </button>
+                        )}
 
                         {/* Mohalla WhatsApp Share Button */}
                         <button
@@ -1508,6 +1634,30 @@ export default function HomeScreen({
         actionTitleHi={loginPromptTitle.hi}
         actionDescEn={loginPromptDesc.en}
         actionDescHi={loginPromptDesc.hi}
+      />
+
+      {/* Post Owner Responses / Chats Inbox Modal */}
+      <PostResponsesModal
+        isOpen={isResponsesModalOpen}
+        onClose={() => setIsResponsesModalOpen(false)}
+        intent={selectedIntentForResponses}
+        onOpenChat={(intent) => handleSafeOpenChat(intent)}
+      />
+
+      {/* Manual Pan-India Location Selection Modal */}
+      <PanIndiaLocationModal
+        isOpen={isLocationModalOpen}
+        onClose={() => setIsLocationModalOpen(false)}
+        currentLocation={userLocation}
+        onLocationSaved={(newLoc) => {
+          setUserLocation(newLoc);
+          setCreatedToast(
+            language === 'EN'
+              ? `📍 Location saved: ${newLoc.area ? newLoc.area + ', ' : ''}${newLoc.district} (${newLoc.state})`
+              : `📍 लोकेशन सेव हो गई: ${newLoc.area ? newLoc.area + ', ' : ''}${newLoc.district} (${newLoc.state})`
+          );
+          setTimeout(() => setCreatedToast(null), 4000);
+        }}
       />
 
     </div>

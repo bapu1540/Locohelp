@@ -12,6 +12,11 @@ export type Intent = {
   description: string;
   tags: string[];
   distance: number;
+  state?: string;
+  city?: string;
+  area?: string;
+  location?: string;
+  category?: string;
   status: 'active' | 'completed' | 'cancelled';
   createdAt: string;
   expiresAt: string;

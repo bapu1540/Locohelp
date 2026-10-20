@@ -142,85 +142,7 @@ export function isValidEmail(email: string): boolean {
   return emailRegex.test(trimmed);
 }
 
-/**
- * Google Sign-In with strict email validation, prompt=select_account account chooser configuration, and JWT session persistence
- */
-export async function signInWithGoogle(
-  customEmail?: string, 
-  customName?: string,
-  options?: { prompt?: string; queryParams?: Record<string, string> }
-): Promise<AppUser> {
-  const authPrompt = options?.prompt || options?.queryParams?.prompt || 'select_account';
-  let email = (customEmail || '').trim().toLowerCase();
-  if (customEmail && !isValidEmail(customEmail)) {
-    throw new Error('अमान्य ईमेल आईडी (Invalid Google email address format)');
-  }
 
-  if (!email) {
-    const savedEmail = localStorage.getItem('locohelp_last_logged_in_email') || localStorage.getItem('locohelp_user_email');
-    if (savedEmail && isValidEmail(savedEmail)) {
-      email = savedEmail.trim().toLowerCase();
-    } else {
-      email = 'chauhansanjay932@gmail.com';
-    }
-  }
-
-  const displayName = customName || (email.includes('@') ? email.split('@')[0] : email) || 'Google User';
-  const uid = ensureValidUUID(email);
-  const photoURL = 'https://lh3.googleusercontent.com/a/default-user';
-
-  const userData: AppUser = {
-    uid,
-    displayName,
-    email,
-    photoURL,
-    isGuest: false
-  };
-
-  // 1. Persist session locally
-  localStorage.setItem('locohelp_user', JSON.stringify(userData));
-  localStorage.setItem('locohelp_logged_in', 'true');
-  localStorage.setItem('locohelp_last_logged_in_email', email);
-  localStorage.setItem('locohelp_last_logged_in_name', displayName);
-  localStorage.setItem('locohelp_last_logged_in_photo', photoURL);
-
-  // 2. Persist profile to backend & Railway PostgreSQL "user" table + obtain JWT token with prompt=select_account
-  try {
-    const googleRes = await fetch(`/api/auth/google-login?prompt=${encodeURIComponent(authPrompt)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email,
-        displayName,
-        photoURL,
-        prompt: authPrompt,
-        options: {
-          prompt: authPrompt,
-          queryParams: { prompt: authPrompt }
-        }
-      })
-    });
-    if (googleRes.ok) {
-      const gData = await googleRes.json();
-      if (gData.token) {
-        localStorage.setItem('locohelp_token', gData.token);
-      }
-    }
-
-    await saveUserProfile(userData);
-  } catch (e) {
-    console.warn("Google sign-in sync note:", e);
-  }
-
-  // 3. Dispatch events to notify all components
-  window.dispatchEvent(new Event('storage'));
-  window.postMessage({ type: 'LOCOHELP_AUTH_SUCCESS' }, '*');
-  notifyAuthState('SIGNED_IN', userData);
-
-  return userData;
-}
-
-export const signInWithGoogleInPlace = signInWithGoogle;
 
 /**
  * Email & Password Login with JWT session persistence
@@ -350,9 +272,59 @@ export async function sendEmailOtp(email: string): Promise<{ success: boolean; e
 export const sendEmailOtpViaSupabase = sendEmailOtp;
 
 /**
- * Verifies 6-Digit Numeric Email OTP Code via Backend Server
+ * Sets or Resets Password for an existing / OTP user with instant JWT session login
  */
-export async function verifyEmailOtp(email: string, code: string): Promise<{ success: boolean; error?: string; user?: any }> {
+export async function resetUserPassword(email: string, newPassword: string, name?: string): Promise<{ success: boolean; error?: string; user?: AppUser }> {
+  const cleanEmail = email.trim().toLowerCase();
+  if (!isValidEmail(cleanEmail)) {
+    return { success: false, error: 'कृपया सही ईमेल दर्ज करें (Invalid email format)' };
+  }
+  if (!newPassword || newPassword.length < 6) {
+    return { success: false, error: 'पासवर्ड कम से कम 6 अक्षरों का होना चाहिए' };
+  }
+
+  try {
+    const res = await fetch('/api/auth/reset-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: cleanEmail, newPassword, name })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      return { success: false, error: data.error || 'Password update failed' };
+    }
+
+    const userData: AppUser = {
+      uid: ensureValidUUID(data.user?.uid || cleanEmail),
+      displayName: data.user?.displayName || name || cleanEmail.split('@')[0],
+      email: cleanEmail,
+      phone: data.user?.phone || '',
+      photoURL: 'https://lh3.googleusercontent.com/a/default-user',
+      isGuest: false
+    };
+
+    if (data.token) {
+      localStorage.setItem('locohelp_token', data.token);
+    }
+    localStorage.setItem('locohelp_user', JSON.stringify(userData));
+    localStorage.setItem('locohelp_logged_in', 'true');
+    localStorage.setItem('locohelp_last_logged_in_email', cleanEmail);
+    localStorage.setItem('locohelp_last_logged_in_name', userData.displayName);
+
+    window.dispatchEvent(new Event('storage'));
+    window.postMessage({ type: 'LOCOHELP_AUTH_SUCCESS' }, '*');
+    notifyAuthState('SIGNED_IN', userData);
+
+    return { success: true, user: userData };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Password reset request failed' };
+  }
+}
+
+/**
+ * Verifies 6-Digit Numeric Email OTP Code via Backend Server (with optional password creation)
+ */
+export async function verifyEmailOtp(email: string, code: string, newPassword?: string): Promise<{ success: boolean; error?: string; user?: any }> {
   const cleanEmail = email.trim().toLowerCase();
   const cleanCode = code.trim();
 
@@ -367,7 +339,7 @@ export async function verifyEmailOtp(email: string, code: string): Promise<{ suc
     const res = await fetch('/api/auth/verify-otp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ identifier: cleanEmail, code: cleanCode, type: 'email' })
+      body: JSON.stringify({ identifier: cleanEmail, code: cleanCode, type: 'email', newPassword })
     });
 
     const data = await res.json();
@@ -408,13 +380,19 @@ export async function verifyEmailOtp(email: string, code: string): Promise<{ suc
 export const verifyEmailOtpViaSupabase = verifyEmailOtp;
 
 /**
- * Clean logout: Clears server & local session
+ * Clean logout: Clears server & local session while preserving manual user location
  */
 export async function logoutUser() {
   try {
     await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+    const preservedLocationKeys = new Set([
+      'locohelp_user_location',
+      'locohelp_selected_state',
+      'locohelp_selected_city',
+      'locohelp_selected_area'
+    ]);
     Object.keys(localStorage).forEach(key => {
-      if (key.startsWith('locohelp_')) {
+      if (key.startsWith('locohelp_') && !preservedLocationKeys.has(key)) {
         localStorage.removeItem(key);
       }
     });

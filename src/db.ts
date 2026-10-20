@@ -172,62 +172,7 @@ export async function getUserProfile(uid: string): Promise<Record<string, any> |
 // Backward compatibility alias
 export const getUserProfileFromSupabase = getUserProfile;
 
-/**
- * Google Sign-In with Railway PostgreSQL Database Persistence
- */
-export async function signInWithGoogleInPlace(customEmail?: string, customName?: string) {
-  if (!customEmail || !customEmail.trim()) {
-    throw new Error('Please enter a valid Google email address.');
-  }
-  const email = customEmail.trim().toLowerCase();
-  const displayName = customName || (email.includes('@') ? email.split('@')[0] : email) || 'Google User';
-  const uid = ensureValidUUID(email);
-  const photoURL = 'https://lh3.googleusercontent.com/a/default-user';
 
-  const userData = {
-    uid,
-    displayName,
-    email,
-    photoURL,
-    isGuest: false
-  };
-
-  // 1. Save to localStorage for instant UI responsiveness
-  localStorage.setItem('locohelp_user', JSON.stringify(userData));
-  localStorage.setItem('locohelp_logged_in', 'true');
-  localStorage.setItem('locohelp_last_logged_in_email', email);
-  localStorage.setItem('locohelp_last_logged_in_name', displayName);
-  localStorage.setItem('locohelp_last_logged_in_photo', photoURL);
-
-  // 2. Persist profile directly into Railway PostgreSQL via Node.js backend
-  try {
-    await fetch('/api/auth/google-login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(userData)
-    });
-  } catch (e) {
-    console.warn("Railway PostgreSQL Google sync note:", e);
-  }
-
-  // 3. Dispatch events to notify all components
-  window.dispatchEvent(new Event('storage'));
-  window.postMessage({ type: 'LOCOHELP_AUTH_SUCCESS' }, '*');
-
-  return userData;
-}
-
-/**
- * Helper to trigger Google Login with Railway PostgreSQL backend
- */
-export async function signInWithGoogle(customEmail?: string, customName?: string) {
-  if (customEmail && customEmail.trim()) {
-    return await signInWithGoogleInPlace(customEmail, customName);
-  }
-
-  const savedEmail = localStorage.getItem('locohelp_last_logged_in_email') || 'chauhansanjay932@gmail.com';
-  return await signInWithGoogleInPlace(savedEmail, customName);
-}
 
 /**
  * Sends 6-digit numeric email OTP code via Node.js Express server

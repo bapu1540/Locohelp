@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Lock, X, Sparkles, ArrowRight, ShieldCheck, CheckCircle2, User, Mail, KeyRound, Loader2, Check } from 'lucide-react';
 import { useLanguage } from '../i18n';
-import { signInWithGoogle, sendEmailOtp, verifyEmailOtp, signInWithPassword, signUpWithPassword, isValidEmail } from '../auth';
+import { sendEmailOtp, verifyEmailOtp, signInWithPassword, signUpWithPassword, resetUserPassword, isValidEmail } from '../auth';
 
 interface LoginPromptModalProps {
   isOpen: boolean;
@@ -21,17 +21,15 @@ export default function LoginPromptModal({
   onGoToLogin,
   onSuccess,
   actionTitleEn = 'Sign In to LocoHelp',
-  actionTitleHi = 'LocoHelp में लॉगिन / साइन-इन करें',
+  actionTitleHi = 'LocoHelp में लॉगिन करें',
   actionDescEn,
   actionDescHi
 }: LoginPromptModalProps) {
   const { language } = useLanguage();
-  const [googleEmailInput, setGoogleEmailInput] = useState('');
-  const [showCustomGoogleInput, setShowCustomGoogleInput] = useState(false);
 
   // Authentication mode: 'otp' | 'password'
   const [authMode, setAuthMode] = useState<'otp' | 'password'>('otp');
-  const [isSignUp, setIsSignUp] = useState(false);
+  const [passwordSubMode, setPasswordSubMode] = useState<'login' | 'signup' | 'reset'>('login');
   const [nameInput, setNameInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
 
@@ -39,45 +37,12 @@ export default function LoginPromptModal({
   const [otpCode, setOtpCode] = useState('');
   const [otpStep, setOtpStep] = useState<'input' | 'verify'>('input');
   
-  const [isLoadingGoogle, setIsLoadingGoogle] = useState(false);
   const [isLoadingOtp, setIsLoadingOtp] = useState(false);
   const [isLoadingPassword, setIsLoadingPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
 
   if (!isOpen) return null;
-
-  const handleGoogleSignIn = async (customEmail?: string) => {
-    setIsLoadingGoogle(true);
-    setErrorMessage(null);
-    setInfoMessage(null);
-
-    try {
-      const selectedEmail = customEmail || (googleEmailInput.trim() ? googleEmailInput.trim() : undefined);
-      if (selectedEmail && !isValidEmail(selectedEmail)) {
-        setIsLoadingGoogle(false);
-        setErrorMessage(language === 'EN' ? 'Please enter a valid Google email address' : 'कृपया सही गूगल ईमेल आईडी दर्ज करें');
-        return;
-      }
-
-      await signInWithGoogle(selectedEmail, undefined, { prompt: 'select_account' });
-      setIsLoadingGoogle(false);
-      if (onSuccess) {
-        onSuccess();
-      }
-      onClose();
-    } catch (err: any) {
-      setIsLoadingGoogle(false);
-      if (!customEmail && !googleEmailInput.trim()) {
-        setShowCustomGoogleInput(true);
-        setErrorMessage(language === 'EN' 
-          ? 'Select or enter your Google Email address below to sign in:' 
-          : 'गूगल से साइन-इन करने के लिए अपना ईमेल दर्ज करें:');
-      } else {
-        setErrorMessage(err?.message || (language === 'EN' ? 'Could not complete Google Sign-in' : 'गूगल लॉगिन पूरा नहीं हो सका'));
-      }
-    }
-  };
 
   const handleSendEmailOtp = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -95,7 +60,7 @@ export default function LoginPromptModal({
 
     if (res.success) {
       setOtpStep('verify');
-      const providerLabel = res.provider === 'Brevo API' ? ' (Sent via Brevo API)' : '';
+      const providerLabel = res.provider === 'Brevo API' ? ' (Sent via Brevo API support@locohelp.com)' : '';
       if (res.devCode) {
         setInfoMessage(language === 'EN' 
           ? `🔑 6-Digit OTP Code: ${res.devCode} (Instant Verification)` 
@@ -103,8 +68,8 @@ export default function LoginPromptModal({
         );
       } else {
         setInfoMessage(language === 'EN' 
-          ? `📧 6-digit OTP code sent to ${emailInput}${providerLabel}. Please check your Inbox and Spam folder!` 
-          : `📧 ${emailInput} पर 6-अंकों का OTP भेज दिया गया है। अपना इनबॉक्स व स्पैम फोल्डर देखें!`
+          ? `📧 6-digit OTP code sent to ${emailInput}${providerLabel}. Please check your Inbox!` 
+          : `📧 ${emailInput} पर 6-अंकों का OTP भेज दिया गया है। अपना इनबॉक्स देखें!`
         );
       }
     } else {
@@ -151,7 +116,7 @@ export default function LoginPromptModal({
     setErrorMessage(null);
     setInfoMessage(null);
 
-    if (isSignUp) {
+    if (passwordSubMode === 'signup') {
       const res = await signUpWithPassword(emailInput, passwordInput, nameInput);
       setIsLoadingPassword(false);
       if (res.success) {
@@ -159,6 +124,15 @@ export default function LoginPromptModal({
         onClose();
       } else {
         setErrorMessage(res.error || (language === 'EN' ? 'Sign up failed' : 'रजिस्ट्रेशन विफल'));
+      }
+    } else if (passwordSubMode === 'reset') {
+      const res = await resetUserPassword(emailInput, passwordInput, nameInput);
+      setIsLoadingPassword(false);
+      if (res.success) {
+        if (onSuccess) onSuccess();
+        onClose();
+      } else {
+        setErrorMessage(res.error || (language === 'EN' ? 'Failed to set password' : 'पासवर्ड सेट करने में विफल'));
       }
     } else {
       const res = await signInWithPassword(emailInput, passwordInput);
@@ -192,25 +166,8 @@ export default function LoginPromptModal({
 
           {/* Header Brand Badge */}
           <div className="relative mt-1">
-            <div className="w-16 h-16 rounded-2xl bg-white dark:bg-slate-800 border-2 border-indigo-200 dark:border-slate-700 shadow-md flex items-center justify-center">
-              <svg className="w-9 h-9" viewBox="0 0 24 24">
-                <path
-                  fill="#4285F4"
-                  d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.8-2.4 3.65v3.03h3.88c2.27-2.09 3.665-5.17 3.665-9.12z"
-                />
-                <path
-                  fill="#34A853"
-                  d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.03c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.13C3.26 21.36 7.33 24 12 24z"
-                />
-                <path
-                  fill="#FBBC05"
-                  d="M5.28 14.29c-.25-.72-.38-1.49-.38-2.29s.13-1.57.38-2.29V6.58H1.25C.45 8.18 0 9.99 0 12s.45 3.82 1.25 5.42l4.03-3.13z"
-                />
-                <path
-                  fill="#EA4335"
-                  d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.13c.95-2.83 3.6-4.96 6.72-4.96z"
-                />
-              </svg>
+            <div className="w-14 h-14 rounded-2xl bg-indigo-600 text-white shadow-lg flex items-center justify-center">
+              <Mail className="w-7 h-7" />
             </div>
             <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-emerald-500 rounded-full border-2 border-white dark:border-slate-900 flex items-center justify-center text-white text-[10px]">
               <ShieldCheck className="w-3.5 h-3.5" />
@@ -220,15 +177,15 @@ export default function LoginPromptModal({
           {/* Title & Description */}
           <div>
             <span className="text-[10px] font-black uppercase tracking-wider text-indigo-700 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 px-2.5 py-1 rounded-full border border-indigo-200 dark:border-indigo-900">
-              ⚡ {language === 'EN' ? 'Google & 6-Digit OTP Login' : 'गूगल एवं 6-अंकों का OTP लॉगिन'}
+              ⚡ {language === 'EN' ? 'Email OTP & Password Login' : 'ईमेल OTP एवं पासवर्ड से लॉगिन'}
             </span>
             <h3 className="text-lg font-black text-slate-900 dark:text-white mt-2 leading-snug">
               {language === 'EN' ? actionTitleEn : actionTitleHi}
             </h3>
             <p className="text-xs text-slate-600 dark:text-slate-300 font-medium leading-relaxed mt-1 px-1">
               {actionDescEn || (language === 'EN'
-                ? 'Sign in to post broadcasts, create profiles, and connect directly with neighbors.'
-                : 'ब्रॉडकास्ट पोस्ट करने, प्रोफाइल बनाने और पड़ोसियों से जुड़ने के लिए साइन-इन करें।')}
+                ? 'Sign in to post requirements, manage profile & chat directly with local helpers.'
+                : 'आवश्यकता पोस्ट करने, प्रोफाइल बनाने और हेल्पर्स से चैट करने के लिए लॉगिन करें।')}
             </p>
           </div>
 
@@ -245,99 +202,14 @@ export default function LoginPromptModal({
             </div>
           )}
 
-          {/* OPTION 1: GOOGLE SIGN-IN BUTTON & ACCOUNT SELECTOR */}
-          <div className="w-full space-y-2.5 pt-1">
-            {!showCustomGoogleInput ? (
-              <div className="space-y-1.5">
-                <button
-                  onClick={() => handleGoogleSignIn()}
-                  disabled={isLoadingGoogle || isLoadingOtp}
-                  className="w-full bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-750 text-slate-800 dark:text-white font-black text-sm py-3 px-4 rounded-2xl border-2 border-slate-300 dark:border-slate-700 shadow-sm hover:shadow-md active:scale-[0.98] transition-all flex items-center justify-center gap-3 cursor-pointer group disabled:opacity-60"
-                >
-                  {isLoadingGoogle ? (
-                    <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
-                  ) : (
-                    <svg className="w-5 h-5 shrink-0 group-hover:scale-110 transition-transform" viewBox="0 0 24 24">
-                      <path
-                        fill="#4285F4"
-                        d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.8-2.4 3.65v3.03h3.88c2.27-2.09 3.665-5.17 3.665-9.12z"
-                      />
-                      <path
-                        fill="#34A853"
-                        d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.03c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.13C3.26 21.36 7.33 24 12 24z"
-                      />
-                      <path
-                        fill="#FBBC05"
-                        d="M5.28 14.29c-.25-.72-.38-1.49-.38-2.29s.13-1.57.38-2.29V6.58H1.25C.45 8.18 0 9.99 0 12s.45 3.82 1.25 5.42l4.03-3.13z"
-                      />
-                      <path
-                        fill="#EA4335"
-                        d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.13c.95-2.83 3.6-4.96 6.72-4.96z"
-                      />
-                    </svg>
-                  )}
-                  <span>
-                    {isLoadingGoogle
-                      ? (language === 'EN' ? 'Connecting Google...' : 'गूगल से कनेक्ट हो रहा है...')
-                      : (language === 'EN' ? 'Continue with Google' : 'गूगल से साइन-इन करें')}
-                  </span>
-                </button>
-                <div className="flex justify-end">
-                  <button
-                    type="button"
-                    onClick={() => setShowCustomGoogleInput(true)}
-                    className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
-                  >
-                    {language === 'EN' ? 'Choose Google Account / Email' : 'गूगल अकाउंट / ईमेल चुनें'}
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <form onSubmit={(e) => { e.preventDefault(); handleGoogleSignIn(googleEmailInput); }} className="space-y-2 bg-slate-50 dark:bg-slate-800 p-3 rounded-2xl border border-indigo-200 dark:border-indigo-900">
-                <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-200 px-1">
-                  <span>{language === 'EN' ? 'Select Google Account Email' : 'गूगल अकाउंट ईमेल चुनें'}</span>
-                  <button
-                    type="button"
-                    onClick={() => setShowCustomGoogleInput(false)}
-                    className="text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer"
-                  >
-                    ✕
-                  </button>
-                </div>
-                <input
-                  type="email"
-                  value={googleEmailInput}
-                  onChange={(e) => setGoogleEmailInput(e.target.value)}
-                  placeholder="e.g. your.email@gmail.com"
-                  className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl py-2 px-3 text-xs font-bold text-slate-900 dark:text-white outline-none focus:border-indigo-500"
-                  required
-                  autoFocus
-                />
-                <button
-                  type="submit"
-                  disabled={isLoadingGoogle || !googleEmailInput.trim()}
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black text-xs py-2 px-3 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
-                >
-                  {isLoadingGoogle ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                  <span>{language === 'EN' ? 'Sign In as Selected Google Account' : 'चुने गए गूगल अकाउंट से साइन-इन करें'}</span>
-                </button>
-              </form>
-            )}
-
-            {/* DIVIDER */}
-            <div className="relative flex items-center justify-center my-2">
-              <div className="border-t border-slate-200 dark:border-slate-700 w-full"></div>
-              <span className="bg-white dark:bg-slate-900 px-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider shrink-0">
-                {language === 'EN' ? 'OR DIRECT AUTHENTICATION' : 'या डायरेक्ट ऑथेंटिकेशन'}
-              </span>
-            </div>
-
+          {/* AUTH OPTIONS CONTAINER */}
+          <div className="w-full space-y-3 pt-1">
             {/* SUB-TABS: EMAIL OTP VS PASSWORD */}
             <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-2xl gap-1">
               <button
                 type="button"
                 onClick={() => { setAuthMode('otp'); setErrorMessage(null); setInfoMessage(null); }}
-                className={`flex-1 py-1.5 px-2 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+                className={`flex-1 py-2 px-3 text-xs font-black rounded-xl transition-all cursor-pointer ${
                   authMode === 'otp'
                     ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-xs'
                     : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
@@ -348,13 +220,13 @@ export default function LoginPromptModal({
               <button
                 type="button"
                 onClick={() => { setAuthMode('password'); setErrorMessage(null); setInfoMessage(null); }}
-                className={`flex-1 py-1.5 px-2 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+                className={`flex-1 py-2 px-3 text-xs font-black rounded-xl transition-all cursor-pointer ${
                   authMode === 'password'
                     ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-xs'
                     : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
                 }`}
               >
-                🔑 {language === 'EN' ? 'Password' : 'पासवर्ड'}
+                🔑 {language === 'EN' ? 'Email & Password' : 'ईमेल एवं पासवर्ड'}
               </button>
             </div>
 
@@ -368,7 +240,7 @@ export default function LoginPromptModal({
                       type="email"
                       value={emailInput}
                       onChange={(e) => setEmailInput(e.target.value)}
-                      placeholder={language === 'EN' ? 'Enter email for Brevo OTP' : 'OTP के लिए ईमेल दर्ज करें'}
+                      placeholder={language === 'EN' ? 'Enter email address for Brevo OTP' : 'OTP कोड के लिए अपना ईमेल दर्ज करें'}
                       className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl py-2.5 pl-10 pr-4 text-xs font-medium text-slate-900 dark:text-white outline-none focus:border-indigo-500 transition-all"
                       required
                     />
@@ -376,7 +248,7 @@ export default function LoginPromptModal({
                   <button
                     type="submit"
                     disabled={isLoadingOtp || !emailInput.trim()}
-                    className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-black text-xs py-2.5 px-4 rounded-2xl active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm shadow-indigo-600/20"
+                    className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-black text-xs py-3 px-4 rounded-2xl active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm shadow-indigo-600/20"
                   >
                     {isLoadingOtp ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
@@ -386,7 +258,7 @@ export default function LoginPromptModal({
                     <span>
                       {isLoadingOtp
                         ? (language === 'EN' ? 'Sending OTP Code...' : 'OTP कोड भेजा जा रहा है...')
-                        : (language === 'EN' ? 'Send 6-Digit OTP Code' : '6-अंकों का OTP कोड भेजें')}
+                        : (language === 'EN' ? 'Send 6-Digit Brevo OTP Code' : '6-अंकों का OTP कोड भेजें')}
                     </span>
                   </button>
                 </form>
@@ -418,7 +290,7 @@ export default function LoginPromptModal({
                   <button
                     type="submit"
                     disabled={isLoadingOtp || otpCode.trim().length < 4}
-                    className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-black text-xs py-2.5 px-4 rounded-2xl active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm shadow-emerald-600/20"
+                    className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-black text-xs py-3 px-4 rounded-2xl active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm shadow-emerald-600/20"
                   >
                     {isLoadingOtp ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
@@ -436,7 +308,15 @@ export default function LoginPromptModal({
             ) : (
               /* TAB 2: EMAIL & PASSWORD */
               <form onSubmit={handlePasswordAuth} className="space-y-2">
-                {isSignUp && (
+                {passwordSubMode === 'reset' && (
+                  <div className="bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 rounded-xl p-2 text-[11px] font-bold text-amber-800 dark:text-amber-200 text-left">
+                    🔑 {language === 'EN'
+                      ? 'Set or Reset Password for your Email / OTP Account:'
+                      : 'अपने ईमेल / OTP अकाउंट के लिए नया पासवर्ड सेट या रीसेट करें:'}
+                  </div>
+                )}
+
+                {passwordSubMode === 'signup' && (
                   <div className="relative">
                     <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
                     <input
@@ -445,7 +325,7 @@ export default function LoginPromptModal({
                       onChange={(e) => setNameInput(e.target.value)}
                       placeholder={language === 'EN' ? 'Your Full Name' : 'आपका पूरा नाम'}
                       className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl py-2.5 pl-10 pr-4 text-xs font-medium text-slate-900 dark:text-white outline-none focus:border-indigo-500 transition-all"
-                      required={isSignUp}
+                      required={passwordSubMode === 'signup'}
                     />
                   </div>
                 )}
@@ -455,7 +335,7 @@ export default function LoginPromptModal({
                     type="email"
                     value={emailInput}
                     onChange={(e) => setEmailInput(e.target.value)}
-                    placeholder={language === 'EN' ? 'Email address' : 'ईमेल आईडी'}
+                    placeholder={language === 'EN' ? 'Email address (e.g., baalvarta@gmail.com)' : 'ईमेल आईडी दर्ज करें'}
                     className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl py-2.5 pl-10 pr-4 text-xs font-medium text-slate-900 dark:text-white outline-none focus:border-indigo-500 transition-all"
                     required
                   />
@@ -466,7 +346,11 @@ export default function LoginPromptModal({
                     type="password"
                     value={passwordInput}
                     onChange={(e) => setPasswordInput(e.target.value)}
-                    placeholder={language === 'EN' ? 'Password (min 6 characters)' : 'पासवर्ड (कम से कम 6 अक्षर)'}
+                    placeholder={
+                      passwordSubMode === 'reset'
+                        ? (language === 'EN' ? 'Enter New Password (min 6 chars)' : 'नया पासवर्ड डालें (कम से कम 6 अक्षर)')
+                        : (language === 'EN' ? 'Password (min 6 characters)' : 'पासवर्ड (कम से कम 6 अक्षर)')
+                    }
                     className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl py-2.5 pl-10 pr-4 text-xs font-medium text-slate-900 dark:text-white outline-none focus:border-indigo-500 transition-all"
                     required
                   />
@@ -474,7 +358,11 @@ export default function LoginPromptModal({
                 <button
                   type="submit"
                   disabled={isLoadingPassword || !emailInput.trim() || !passwordInput.trim()}
-                  className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-black text-xs py-2.5 px-4 rounded-2xl active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm shadow-indigo-600/20"
+                  className={`w-full disabled:opacity-60 text-white font-black text-xs py-3 px-4 rounded-2xl active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm ${
+                    passwordSubMode === 'reset'
+                      ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/20'
+                      : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-600/20'
+                  }`}
                 >
                   {isLoadingPassword ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -483,19 +371,43 @@ export default function LoginPromptModal({
                   )}
                   <span>
                     {isLoadingPassword
-                      ? (language === 'EN' ? 'Authenticating...' : 'लॉगिन हो रहा है...')
-                      : isSignUp
+                      ? (language === 'EN' ? 'Processing...' : 'प्रोसेस हो रहा है...')
+                      : passwordSubMode === 'signup'
                         ? (language === 'EN' ? 'Create Account & Sign In' : 'अकाउंट बनाएं और लॉगिन करें')
-                        : (language === 'EN' ? 'Sign In with Password' : 'पासवर्ड से लॉगिन करें')}
+                        : passwordSubMode === 'reset'
+                          ? (language === 'EN' ? 'Save New Password & Sign In' : 'नया पासवर्ड सेव करें और लॉगिन करें')
+                          : (language === 'EN' ? 'Sign In with Password' : 'पासवर्ड से लॉगिन करें')}
                   </span>
                 </button>
-                <div className="flex justify-center pt-1">
+                <div className="flex flex-col items-center gap-1.5 pt-1">
+                  {passwordSubMode !== 'reset' ? (
+                    <button
+                      type="button"
+                      onClick={() => { setPasswordSubMode('reset'); setErrorMessage(null); setInfoMessage(null); }}
+                      className="text-[11px] font-extrabold text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer"
+                    >
+                      🔑 {language === 'EN' ? 'OTP User / Forgot Password? Set or Reset Password' : 'OTP यूज़र / पासवर्ड सेट या रीसेट करें'}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => { setPasswordSubMode('login'); setErrorMessage(null); setInfoMessage(null); }}
+                      className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                    >
+                      &larr; {language === 'EN' ? 'Back to Password Login' : 'वापस पासवर्ड लॉगिन पर जाएं'}
+                    </button>
+                  )}
+
                   <button
                     type="button"
-                    onClick={() => { setIsSignUp(!isSignUp); setErrorMessage(null); }}
+                    onClick={() => {
+                      setPasswordSubMode(passwordSubMode === 'signup' ? 'login' : 'signup');
+                      setErrorMessage(null);
+                      setInfoMessage(null);
+                    }}
                     className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
                   >
-                    {isSignUp 
+                    {passwordSubMode === 'signup'
                       ? (language === 'EN' ? 'Already have an account? Sign In' : 'पहले से अकाउंट है? लॉगिन करें')
                       : (language === 'EN' ? "Don't have an account? Create One" : 'नया अकाउंट बनाएं')}
                   </button>
@@ -506,7 +418,7 @@ export default function LoginPromptModal({
             {/* Guest Continue Button */}
             <button
               onClick={onClose}
-              disabled={isLoadingGoogle || isLoadingOtp}
+              disabled={isLoadingOtp || isLoadingPassword}
               className="w-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 font-extrabold text-xs py-2 px-4 rounded-2xl transition-colors cursor-pointer mt-1"
             >
               {language === 'EN' ? 'Continue Browsing as Guest' : 'अभी सिर्फ देखें (गेस्ट जारी रखें)'}
