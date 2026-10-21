@@ -24,7 +24,7 @@ export default function JobPortalSection({
   onBrowseJobs
 }: JobPortalSectionProps) {
   const { language } = useLanguage();
-  const [approvedCount, setApprovedCount] = useState<number>(2);
+  const [approvedCount, setApprovedCount] = useState<number>(0);
 
   useEffect(() => {
     fetchJobPortalItems({ status: 'approved' })
@@ -56,7 +56,7 @@ export default function JobPortalSection({
       {/* Two Distinct Side-by-Side Interactive Banners */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
         
-        {/* BANNER 1: Job Seeker (सिर्फ जॉब सीकर - नो एम्प्लॉयर) */}
+        {/* BANNER 1: Job / Work Registration */}
         <div className="relative overflow-hidden rounded-2xl p-4 bg-gradient-to-br from-blue-600 via-indigo-600 to-indigo-800 text-white shadow-md shadow-indigo-600/20 border border-blue-400/30 flex flex-col justify-between">
           {/* Background Decorative Blur */}
           <div className="absolute -right-4 -bottom-4 w-28 h-28 bg-white/10 rounded-full blur-xl pointer-events-none"></div>
@@ -65,22 +65,22 @@ export default function JobPortalSection({
           <div 
             onClick={handleSeekerRegistered}
             className="relative z-10 text-center pb-3 cursor-pointer select-none"
-            title="Click to view Job Seekers"
+            title={language === 'EN' ? 'Click to view Job Seekers' : 'काम तलाशने वाले उम्मीदवारों की सूची देखें'}
           >
             <div className="inline-flex items-center justify-center w-11 h-11 rounded-2xl bg-white/15 backdrop-blur-xs border border-white/30 text-2xl mb-1.5 shadow-inner">
               💼
             </div>
             <h3 className="text-base sm:text-lg font-black tracking-tight text-white leading-tight">
-              {language === 'EN' ? 'Job Seeker' : 'Job Seeker (जॉब सीकर)'}
+              {language === 'EN' ? 'Job / Work Registration' : 'जॉब / काम का रजिस्ट्रेशन'}
             </h3>
             <p className="text-[11px] text-blue-100 font-medium mt-1 leading-snug max-w-xs mx-auto">
               {language === 'EN'
                 ? 'Only for Job Seekers: View registered candidates or create your profile.'
-                : 'सिर्फ जॉब सीकर के लिए: रजिस्टर्ड उम्मीदवार देखें या अपनी प्रोफाइल बनाएं।'}
+                : 'सिर्फ काम चाहने वालों के लिए: रजिस्टर्ड उम्मीदवार देखें या अपनी प्रोफाइल बनाएं।'}
             </p>
           </div>
 
-          {/* Two Options: 1. Already Registered & 2. New Registration (Strictly for Job Seeker) */}
+          {/* Two Options: 1. Already Registered & 2. New Registration */}
           <div className="relative z-10 grid grid-cols-2 gap-2 pt-1 border-t border-white/15">
             {/* Option 1: Already Registered */}
             <motion.button
@@ -97,7 +97,7 @@ export default function JobPortalSection({
                 {language === 'EN' ? 'Already Registered' : 'पहले से रजिस्टर्ड'}
               </span>
               <span className="text-[10px] text-blue-200 font-semibold mt-0.5">
-                {language === 'EN' ? 'Job Seeker List' : 'जॉब सीकर लिस्ट'}
+                {language === 'EN' ? 'Registered Candidates' : 'उम्मीदवारों की सूची'}
               </span>
             </motion.button>
 
@@ -116,13 +116,13 @@ export default function JobPortalSection({
                 {language === 'EN' ? 'New Register' : 'नया रजिस्ट्रेशन'}
               </span>
               <span className="text-[10px] text-indigo-600 font-extrabold mt-0.5">
-                {language === 'EN' ? 'Seeker Profile' : 'जॉब सीकर प्रोफाइल'}
+                {language === 'EN' ? 'Create Profile' : 'प्रोफाइल बनाएं'}
               </span>
             </motion.button>
           </div>
         </div>
 
-        {/* BANNER 2: For Employer (सिर्फ एम्प्लॉयर - नो जॉब सीकर) */}
+        {/* BANNER 2: For Employer / Give a Job (Job Giver) */}
         <div className="relative overflow-hidden rounded-2xl p-4 bg-gradient-to-br from-amber-600 via-orange-600 to-amber-700 text-white shadow-md shadow-orange-600/20 border border-amber-400/30 flex flex-col justify-between">
           {/* Background Decorative Blur */}
           <div className="absolute -right-4 -bottom-4 w-28 h-28 bg-white/10 rounded-full blur-xl pointer-events-none"></div>
@@ -131,24 +131,24 @@ export default function JobPortalSection({
           <div 
             onClick={handleEmployerRegistered}
             className="relative z-10 text-center pb-3 cursor-pointer select-none"
-            title="Click to view Employer Vacancies"
+            title={language === 'EN' ? 'For Employer / Give a Job' : 'नौकरी / काम देने वाले (Employer)'}
           >
             <div className="inline-flex items-center justify-center w-11 h-11 rounded-2xl bg-white/15 backdrop-blur-xs border border-white/30 text-2xl mb-1.5 shadow-inner">
               🏢
             </div>
             <h3 className="text-base sm:text-lg font-black tracking-tight text-white leading-tight">
-              {language === 'EN' ? 'For Employer' : 'For Employer (दुकान व बिजनेस)'}
+              {language === 'EN' ? 'For Employer / Give a Job' : 'नौकरी / काम देने वाले (Employer)'}
             </h3>
             <p className="text-[11px] text-amber-100 font-medium mt-1 leading-snug max-w-xs mx-auto">
               {language === 'EN'
-                ? 'Only for Employers: View posted vacancies or register new vacancy.'
-                : 'सिर्फ एम्प्लॉयर के लिए: रजिस्टर्ड वेकेंसी देखें या नई वेकेंसी दर्ज करें।'}
+                ? 'Hire local staff: Link your registered shop/business or register as a new employer.'
+                : 'स्टाफ हायर करें: अपनी रजिस्टर्ड दुकान/बिज़नेस से सीधे जॉब पोस्ट करें या नया एम्प्लॉयर रजिस्टर करें।'}
             </p>
           </div>
 
-          {/* Two Options: 1. Already Registered & 2. New Registration (Strictly for Employer) */}
+          {/* Two Clear Options: Option A (Already Registered Shop/Business) & Option B (New Employer Registration) */}
           <div className="relative z-10 grid grid-cols-2 gap-2 pt-1 border-t border-white/15">
-            {/* Option 1: Already Registered */}
+            {/* Option A: Already Registered Shop/Business on LocoHelp */}
             <motion.button
               type="button"
               whileHover={{ scale: 1.02 }}
@@ -163,11 +163,11 @@ export default function JobPortalSection({
                 {language === 'EN' ? 'Already Registered' : 'पहले से रजिस्टर्ड'}
               </span>
               <span className="text-[10px] text-amber-200 font-semibold mt-0.5">
-                {language === 'EN' ? 'Vacancy List' : 'वेकेंसी लिस्ट'}
+                {language === 'EN' ? 'Link Shop & Post Job' : 'दुकान चुनें व जॉब दें'}
               </span>
             </motion.button>
 
-            {/* Option 2: New Registration */}
+            {/* Option B: New Employer Registration */}
             <motion.button
               type="button"
               whileHover={{ scale: 1.02 }}
@@ -179,10 +179,10 @@ export default function JobPortalSection({
                 <Briefcase className="w-3.5 h-3.5 text-orange-700" />
               </div>
               <span className="text-xs font-black leading-tight text-orange-950">
-                {language === 'EN' ? 'New Register' : 'नया रजिस्ट्रेशन'}
+                {language === 'EN' ? 'New Employer' : 'नया एम्प्लॉयर'}
               </span>
               <span className="text-[10px] text-orange-600 font-extrabold mt-0.5">
-                {language === 'EN' ? 'Post Vacancy' : 'वेकेंसी पोस्ट करें'}
+                {language === 'EN' ? 'Register & Post Job' : 'रजिस्टर व जॉब पोस्ट'}
               </span>
             </motion.button>
           </div>

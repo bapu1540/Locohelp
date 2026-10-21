@@ -1,259 +1,485 @@
 import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { 
-  ArrowLeft, 
-  Users, 
-  ShieldAlert, 
-  Trash2, 
-  CheckCircle2, 
-  RefreshCw, 
-  MessageSquare, 
-  Wrench, 
-  AlertTriangle, 
-  KeyRound, 
+  Shield, 
+  Lock, 
   Plus, 
+  Trash2, 
   ExternalLink, 
-  Globe, 
-  Tag, 
-  Star, 
-  MapPin, 
-  Sparkles, 
+  Eye, 
+  EyeOff,
   Search, 
-  ShieldCheck, 
-  Image as ImageIcon, 
-  Store, 
+  Megaphone, 
+  FileText, 
+  Users, 
+  CheckCircle2, 
+  AlertTriangle, 
+  ArrowLeft, 
   LogOut, 
+  RefreshCw, 
+  Sparkles, 
+  MapPin, 
+  Phone, 
+  Star, 
   Check, 
-  X,
-  Radio,
-  FileText,
+  X, 
+  Globe, 
+  MessageCircle, 
+  Zap,
+  LayoutGrid,
+  TrendingUp,
+  Award,
+  KeyRound,
+  Upload,
+  Image as ImageIcon,
+  ShieldCheck,
   Briefcase,
   Building2,
   UserCheck,
-  Phone,
-  MessageCircle,
   Clock,
-  Lock,
+  Store,
+  Edit3,
   Mail,
-  Eye,
-  EyeOff,
-  Download
+  ChevronRight,
+  Filter
 } from 'lucide-react';
-import LogoDownloadStudio from '../components/LogoDownloadStudio';
-import { getFreeHelperProfiles } from '../data/categories';
+import { getFreeHelperProfiles, CATEGORIES } from '../data/categories';
+import { getHelpers, getShops } from '../auth';
 import { 
   fetchLiveIntents, 
   deleteIntentOnServer, 
   fetchLiveAds, 
   createAdOnServer, 
-  deleteAdOnServer,
+  deleteAdOnServer, 
+  AdBannerItem,
   fetchJobPortalItems,
   updateJobPortalStatus,
   deleteJobPortalItem,
-  purgeDummyDataOnServer,
-  resetDatabaseOnServer,
+  JobPortalSubmission,
+  loginAdminOnServer,
+  sendAdminForgotPasswordOtpOnServer,
+  resetAdminPasswordWithOtpOnServer,
+  changeAdminPasswordOnServer,
+  getAuthHeaders,
   fetchAdminVerifications,
   updateAdminVerificationStatus,
-  VerificationRequestItem
+  AdminVerificationItem,
+  updateAdminIntentOnServer,
+  updateAdminHelperOnServer,
+  deleteAdminHelperOnServer,
+  fetchAdminUsersOnServer,
+  updateAdminUserOnServer,
+  deleteAdminUserOnServer,
+  updateAdminBusinessOnServer,
+  deleteAdminBusinessOnServer,
+  updateAdminJobPortalOnServer,
+  updateAdminReportOnServer,
+  deleteAdminReportOnServer
 } from '../api';
-import { AdBannerItem, DEFAULT_ADS } from '../components/AdBannerSection';
-import { JobPortalItem } from '../types';
+import { validateUploadedFile } from '../utils/security';
 
 interface AdminDashboardProps {
   onBack: () => void;
+  showToast: (msg: string) => void;
 }
 
-const PHOTO_PRESETS = [
-  { label: '📱 Electronics & Gadgets', url: 'https://images.unsplash.com/photo-1550009158-9ebf69173e03?auto=format&fit=crop&w=800&q=80' },
-  { label: '🥬 Grocery & Organic Mart', url: 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=800&q=80' },
-  { label: '🚗 Auto Workshop & Care', url: 'https://images.unsplash.com/photo-1613214149922-f1809c99b414?auto=format&fit=crop&w=800&q=80' },
-  { label: '👗 Fashion & Tailoring', url: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=800&q=80' },
-  { label: '☕ Cafe, Bakery & Dine', url: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=800&q=80' },
-  { label: '💊 Pharmacy & Health', url: 'https://images.unsplash.com/photo-1587854692152-cbe660dbde88?auto=format&fit=crop&w=800&q=80' },
-  { label: '🛠️ Hardware & Tools', url: 'https://images.unsplash.com/photo-1581783898377-1c85bf937427?auto=format&fit=crop&w=800&q=80' },
-  { label: '🛋️ Furniture & Home Decor', url: 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80' }
+type AdminModuleId =
+  | 'home'
+  | 'help_posts'
+  | 'helpers'
+  | 'simple_users'
+  | 'businesses'
+  | 'job_seekers'
+  | 'employers'
+  | 'feedback_categories'
+  | 'ads';
+
+const DEFAULT_ADS: AdBannerItem[] = [
+  {
+    id: 'ad_sharma_elec',
+    businessName: 'Sharma Electronics & Repair',
+    logo: '⚡',
+    category: 'Appliance & LED Repair',
+    offerBadge: '🔥 30% OFF Today',
+    offerTitle: 'AC, Fridge & LED TV Instant Home Service',
+    description: 'Authorized spares, 90-day warranty on all repairs. Express 30-min arrival in your sector.',
+    photoUrl: 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=600&q=80',
+    distance: 0.6,
+    area: 'Main Market, Sector 14',
+    rating: 4.9,
+    reviewCount: 214,
+    isVerified: true,
+    destinationUrl: 'https://google.com',
+    initialMessage: 'Namaste Sharma Electronics! Mujhe AC/Appliance repair offer ke baare me jaankari chahiye.'
+  }
 ];
 
-const EMOJI_OPTIONS = ['🏪', '📱', '🥬', '🚗', '👗', '☕', '💊', '🛠️', '🛋️', '✂️', '🛍️', '💎', '🍰'];
-
-const MASTER_ADMIN_EMAIL = "admin@locohelp.local";
-const DEFAULT_ADMIN_PASSWORD = "Bapu@1540";
-
-export default function AdminDashboard({ onBack }: AdminDashboardProps) {
-  // Session authentication (remembers during current session)
+export default function AdminDashboard({ onBack, showToast }: AdminDashboardProps) {
+  // Authentication State (Strictly 2-Step: Password -> OTP to baalvarta@gmail.com)
+  const OFFICIAL_ADMIN_EMAIL = 'baalvarta@gmail.com';
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() => {
     try {
-      return sessionStorage.getItem('locohelp_admin_logged_in') === 'true';
-    } catch (e) {
+      return (
+        sessionStorage.getItem('locohelp_admin_logged_in') === 'true' &&
+        Boolean(sessionStorage.getItem('locohelp_admin_token'))
+      );
+    } catch {
       return false;
     }
   });
-
-  // Fixed Master Admin Credentials & Login State
   const [adminPasswordInput, setAdminPasswordInput] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
+  const [showAdminPassword, setShowAdminPassword] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
 
-  // In-Dashboard Change Password Modal
-  const [isChangePasswordModalOpen, setIsChangePasswordModalOpen] = useState(false);
+  // 2-Step Admin Login & Forgot Password Flow State
+  const [adminAuthStep, setAdminAuthStep] = useState<'password' | 'otp' | 'forgot_password'>('password');
+  const [adminOtpInput, setAdminOtpInput] = useState('');
+  const [isSendingAdminOtp, setIsSendingAdminOtp] = useState(false);
+
+  // Forgot Password States
+  const [forgotOtpInput, setForgotOtpInput] = useState('');
+  const [forgotNewPasswordInput, setForgotNewPasswordInput] = useState('');
+  const [forgotConfirmPasswordInput, setForgotConfirmPasswordInput] = useState('');
+  const [forgotOtpSent, setForgotOtpSent] = useState(false);
+
+  // Top Bar Change Admin Password Section/Modal State
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const [changeOldPassword, setChangeOldPassword] = useState('');
   const [changeNewPassword, setChangeNewPassword] = useState('');
   const [changeConfirmPassword, setChangeConfirmPassword] = useState('');
   const [changePasswordError, setChangePasswordError] = useState<string | null>(null);
+  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
 
-  // Active navigation tab
-  const [activeTab, setActiveTab] = useState<'verifications' | 'ads' | 'moderation' | 'overview' | 'helpers' | 'job_approvals' | 'logo_download'>('verifications');
-
-  // Data states
-  const [ads, setAds] = useState<AdBannerItem[]>(DEFAULT_ADS);
-  const [intents, setIntents] = useState<any[]>([]);
-  const [reports, setReports] = useState<any[]>([]);
-  const [helpers, setHelpers] = useState<any[]>([]);
-  
-  // Job Portal Approvals State
-  const [jobPortalItems, setJobPortalItems] = useState<JobPortalItem[]>([]);
-  const [jobFilterStatus, setJobFilterStatus] = useState<'pending' | 'approved' | 'rejected' | 'all'>('pending');
-  const [jobFilterType, setJobFilterType] = useState<'all' | 'job_seeker' | 'employer_vacancy'>('all');
-  const [jobSearchQuery, setJobSearchQuery] = useState('');
-  const [isUpdatingJob, setIsUpdatingJob] = useState<string | null>(null);
-
-  // Identity Verification & Watermarked Documents State
-  const [verificationsList, setVerificationsList] = useState<VerificationRequestItem[]>([]);
-  const [verifFilterStatus, setVerifFilterStatus] = useState<'pending' | 'approved' | 'rejected' | 'all'>('pending');
-  const [verifFilterType, setVerifFilterType] = useState<'all' | 'user_profile' | 'business'>('all');
-  const [selectedVerifForDoc, setSelectedVerifForDoc] = useState<VerificationRequestItem | null>(null);
-  const [isUpdatingVerif, setIsUpdatingVerif] = useState<string | null>(null);
-  const [adminReviewNote, setAdminReviewNote] = useState('');
-  
-  // UI states
-  const [isDeleting, setIsDeleting] = useState<string | null>(null);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  // Active Dedicated Sub-Page Module
+  const [activeModule, setActiveModule] = useState<AdminModuleId>('home');
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterCategory, setFilterCategory] = useState('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // New Ad Banner Form Modal
+  // Live Data States for all 7 modules
+  const [intents, setIntents] = useState<any[]>([]);
+  const [helpers, setHelpers] = useState<any[]>([]);
+  const [simpleUsers, setSimpleUsers] = useState<any[]>([]);
+  const [businesses, setBusinesses] = useState<any[]>([]);
+  const [jobPortalItems, setJobPortalItems] = useState<JobPortalSubmission[]>([]);
+  const [reports, setReports] = useState<any[]>([]);
+  const [verificationsList, setVerificationsList] = useState<AdminVerificationItem[]>([]);
+  const [ads, setAds] = useState<AdBannerItem[]>([]);
+  const [customCategories, setCustomCategories] = useState<Array<{ id: string; name: string; nameHi: string; icon: string }>>(() => {
+    try {
+      const saved = localStorage.getItem('locohelp_custom_categories');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [newCatName, setNewCatName] = useState('');
+  const [newCatNameHi, setNewCatNameHi] = useState('');
+  const [newCatIcon, setNewCatIcon] = useState('🛠️');
+
+  // Action Loading States
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+
+  // View Full Details / ID Document Modal State
+  const [viewingItem, setViewingItem] = useState<{ module: AdminModuleId; data: any } | null>(null);
+
+  // Edit Entry Modal State
+  const [editingItem, setEditingItem] = useState<{
+    module: AdminModuleId;
+    id: string;
+    nameOrTitle: string;
+    categoryOrRole: string;
+    phone: string;
+    email: string;
+    areaOrLocation: string;
+    descriptionOrBio: string;
+    salaryOrPrice: string;
+    status: 'pending' | 'approved' | 'rejected';
+    raw: any;
+  } | null>(null);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+
+  // Ad Creation Modal State
   const [isCreateAdModalOpen, setIsCreateAdModalOpen] = useState(false);
   const [adBusinessName, setAdBusinessName] = useState('');
-  const [adLogo, setAdLogo] = useState('🏪');
-  const [adCategory, setAdCategory] = useState('Retail & Services');
-  const [adOfferBadge, setAdOfferBadge] = useState('🔥 Mega Deal • 25% OFF');
+  const [adLogo, setAdLogo] = useState('⚡');
+  const [adCategory, setAdCategory] = useState('Electronics & Repair');
+  const [adOfferBadge, setAdOfferBadge] = useState('🔥 25% OFF Today');
   const [adOfferTitle, setAdOfferTitle] = useState('');
   const [adDescription, setAdDescription] = useState('');
-  const [adPhotoUrl, setAdPhotoUrl] = useState(PHOTO_PRESETS[0].url);
-  const [adDestinationUrl, setAdDestinationUrl] = useState('');
+  const [adPhotoUrl, setAdPhotoUrl] = useState('https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=600&q=80');
+  const [adDistance, setAdDistance] = useState('0.8');
   const [adArea, setAdArea] = useState('');
-  const [adDistance, setAdDistance] = useState('0.5');
+  const [adDestinationUrl, setAdDestinationUrl] = useState('');
   const [isSubmittingAd, setIsSubmittingAd] = useState(false);
 
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3500);
+  // Reset filters when switching dedicated pages
+  const openModule = (mod: AdminModuleId) => {
+    setActiveModule(mod);
+    setSearchQuery('');
+    setStatusFilter('all');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Verify Master Admin Password (Fixed for Sanjay Chauhan: Bapu@1540)
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  // ==========================================
+  // 2-STEP ADMIN LOGIN HANDLERS (/bapu-admin)
+  // ==========================================
+  const handlePasswordStepSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const currentStoredPassword = localStorage.getItem('locohelp_admin_password') || DEFAULT_ADMIN_PASSWORD;
-    if (adminPasswordInput.trim() === currentStoredPassword || adminPasswordInput.trim() === DEFAULT_ADMIN_PASSWORD) {
+    if (!adminPasswordInput.trim()) {
+      setLoginError('कृपया एडमिन पासवर्ड दर्ज करें (Please enter Admin Password)');
+      return;
+    }
+    setLoginError(null);
+    setIsSendingAdminOtp(true);
+    const res = await loginAdminOnServer(adminPasswordInput.trim());
+    setIsSendingAdminOtp(false);
+
+    if (res.requiresOtp) {
+      setAdminOtpInput('');
+      setAdminAuthStep('otp');
+      showToast(`📧 6-अंकों का वेरिफिकेशन OTP ${OFFICIAL_ADMIN_EMAIL} पर भेज दिया गया है!`);
+    } else if (res.success && res.token) {
       setIsAdminAuthenticated(true);
-      setLoginError(null);
       setAdminPasswordInput('');
       try {
         sessionStorage.setItem('locohelp_admin_logged_in', 'true');
-      } catch (err) {}
-      showToast("👑 Welcome Admin Sanjay Chauhan!");
+      } catch {}
+      showToast('🔓 Welcome to LocoHelp Admin Dashboard!');
     } else {
-      setLoginError("गलत पासवर्ड! केवल अधिकृत एडमिन पासवर्ड ही मान्य है।");
+      setLoginError(res.error || 'गलत एडमिन पासवर्ड! कृपया सही पासवर्ड डालें।');
     }
   };
 
-  // In-dashboard password change
-  const handleChangePasswordSubmit = (e: React.FormEvent) => {
+  const handleOtpStepSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const currentStoredPassword = localStorage.getItem('locohelp_admin_password') || DEFAULT_ADMIN_PASSWORD;
-    if (changeOldPassword !== currentStoredPassword) {
-      setChangePasswordError("वर्तमान पासवर्ड गलत है");
+    if (!adminOtpInput || adminOtpInput.trim().length < 6) {
+      setLoginError(`कृपया ${OFFICIAL_ADMIN_EMAIL} पर भेजा गया 6-अंकों का OTP दर्ज करें।`);
       return;
     }
-    if (changeNewPassword.length < 6) {
-      setChangePasswordError("नया पासवर्ड कम से कम 6 अक्षरों का होना चाहिए");
+    setLoginError(null);
+    setIsSendingAdminOtp(true);
+    const res = await loginAdminOnServer(adminPasswordInput.trim(), adminOtpInput.trim());
+    setIsSendingAdminOtp(false);
+
+    if (res.success && res.token) {
+      setIsAdminAuthenticated(true);
+      setAdminPasswordInput('');
+      setAdminOtpInput('');
+      setAdminAuthStep('password');
+      try {
+        sessionStorage.setItem('locohelp_admin_logged_in', 'true');
+      } catch {}
+      showToast('🔓 2-Step Verification सफल! एडमिन डैशबोर्ड में आपका स्वागत है।');
+    } else {
+      setLoginError(res.error || 'गलत या समाप्त हो चुका OTP! कृपया दोबारा जांचें।');
+    }
+  };
+
+  const handleRequestForgotPasswordOtp = async () => {
+    setLoginError(null);
+    setIsSendingAdminOtp(true);
+    const res = await sendAdminForgotPasswordOtpOnServer();
+    setIsSendingAdminOtp(false);
+
+    if (res.success) {
+      setForgotOtpSent(true);
+      setAdminAuthStep('forgot_password');
+      showToast(`📧 पासवर्ड रीसेट OTP ${OFFICIAL_ADMIN_EMAIL} पर भेज दिया गया है!`);
+    } else {
+      setLoginError(res.error || `${OFFICIAL_ADMIN_EMAIL} पर OTP भेजने में समस्या आई।`);
+    }
+  };
+
+  const handleForgotPasswordResetSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!forgotOtpInput || forgotOtpInput.trim().length < 6) {
+      setLoginError(`कृपया ${OFFICIAL_ADMIN_EMAIL} पर आया 6-अंकों का OTP दर्ज करें।`);
       return;
     }
-    if (changeNewPassword !== changeConfirmPassword) {
-      setChangePasswordError("नए पासवर्ड मेल नहीं खा रहे हैं");
+    if (!forgotNewPasswordInput || forgotNewPasswordInput.trim().length < 6) {
+      setLoginError('नया एडमिन पासवर्ड कम से कम 6 अक्षरों का होना चाहिए।');
       return;
     }
-    try {
-      localStorage.setItem('locohelp_admin_password', changeNewPassword.trim());
-      setIsChangePasswordModalOpen(false);
+    if (forgotNewPasswordInput.trim() !== forgotConfirmPasswordInput.trim()) {
+      setLoginError('नए पासवर्ड आपस में मेल नहीं खा रहे हैं।');
+      return;
+    }
+
+    setLoginError(null);
+    setIsSendingAdminOtp(true);
+    const res = await resetAdminPasswordWithOtpOnServer(forgotOtpInput.trim(), forgotNewPasswordInput.trim());
+    setIsSendingAdminOtp(false);
+
+    if (res.success && res.token) {
+      setIsAdminAuthenticated(true);
+      setForgotOtpInput('');
+      setForgotNewPasswordInput('');
+      setForgotConfirmPasswordInput('');
+      setAdminAuthStep('password');
+      try {
+        sessionStorage.setItem('locohelp_admin_logged_in', 'true');
+      } catch {}
+      showToast('✅ एडमिन पासवर्ड सफलतापूर्वक रीसेट हो गया और डैशबोर्ड खुल गया!');
+    } else {
+      setLoginError(res.error || 'गलत OTP या पासवर्ड रीसेट विफल!');
+    }
+  };
+
+  const handleChangePasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setChangePasswordError(null);
+    if (!changeOldPassword.trim()) {
+      setChangePasswordError('कृपया वर्तमान पासवर्ड दर्ज करें (Current Password is required)');
+      return;
+    }
+    if (changeNewPassword.trim().length < 6) {
+      setChangePasswordError('नया पासवर्ड कम से कम 6 अक्षरों का होना चाहिए (Min 6 characters)');
+      return;
+    }
+    if (changeNewPassword.trim() !== changeConfirmPassword.trim()) {
+      setChangePasswordError('नया पासवर्ड और कन्फर्म पासवर्ड मेल नहीं खा रहे हैं (Passwords do not match)');
+      return;
+    }
+    setIsUpdatingPassword(true);
+    const res = await changeAdminPasswordOnServer(changeOldPassword.trim(), changeNewPassword.trim());
+    setIsUpdatingPassword(false);
+    if (res.success) {
+      setIsChangePasswordOpen(false);
       setChangeOldPassword('');
       setChangeNewPassword('');
       setChangeConfirmPassword('');
       setChangePasswordError(null);
-      showToast("✅ एडमिन पासवर्ड सफलतापूर्वक अपडेट हो गया!");
-    } catch (e) {
-      setChangePasswordError("पासवर्ड सेव करने में त्रुटि");
+      showToast('✅ Admin Password successfully changed!');
+    } else {
+      setChangePasswordError(res.error || 'Failed to update Admin password');
     }
   };
 
   const handleLogout = () => {
     setIsAdminAuthenticated(false);
+    setAdminAuthStep('password');
+    setAdminOtpInput('');
+    setAdminPasswordInput('');
     try {
       sessionStorage.removeItem('locohelp_admin_logged_in');
-    } catch (err) {}
+      sessionStorage.removeItem('locohelp_admin_token');
+      localStorage.removeItem('locohelp_admin_token');
+    } catch {}
+    showToast('🔒 Logged out from Admin Panel');
   };
 
-  // Load live data
+  // ==========================================
+  // LOAD ALL DATA ACROSS ALL 7 MODULES
+  // ==========================================
   const loadAllData = async () => {
     setIsRefreshing(true);
     try {
-      // 1. Fetch live ad banners
-      const liveAds = await fetchLiveAds();
-      if (Array.isArray(liveAds) && liveAds.length > 0) {
-        setAds(liveAds);
-      } else {
-        const stored = localStorage.getItem('locohelp_ad_banners');
-        if (stored) {
-          setAds(JSON.parse(stored));
-        } else {
-          setAds(DEFAULT_ADS);
-        }
-      }
-
-      // 2. Fetch live community posts
+      // 1. Help Posts (Intents)
       const liveIntents = await fetchLiveIntents();
       if (Array.isArray(liveIntents)) {
         setIntents(liveIntents);
       }
 
-      // 3. Load registered helpers
-      setHelpers(getFreeHelperProfiles());
+      // 2. Helpers & 4. Businesses/Shops
+      try {
+        const fetchedHelpers = await getHelpers(true);
+        const localHelpers = getFreeHelperProfiles(true);
+        const mergedHelpersMap = new Map<string, any>();
+        [...(Array.isArray(fetchedHelpers) ? fetchedHelpers : []), ...(Array.isArray(localHelpers) ? localHelpers : [])].forEach(h => {
+          if (h && h.id) mergedHelpersMap.set(h.id, h);
+        });
+        setHelpers(Array.from(mergedHelpersMap.values()));
+      } catch {
+        setHelpers(getFreeHelperProfiles(true));
+      }
 
-      // 4. Fetch all job portal submissions for approvals workflow
+      try {
+        const fetchedShops = await getShops(true);
+        if (Array.isArray(fetchedShops)) {
+          setBusinesses(fetchedShops);
+        }
+      } catch {}
+
+      // 3. Simple User Profiles & Identity Verifications
+      try {
+        const [usersList, liveVerifs] = await Promise.all([
+          fetchAdminUsersOnServer(),
+          fetchAdminVerifications()
+        ]);
+        if (Array.isArray(liveVerifs)) {
+          setVerificationsList(liveVerifs);
+        }
+        // Merge registered users + user_profile verifications into Simple User Profiles list
+        const userVerifs = (Array.isArray(liveVerifs) ? liveVerifs : []).filter(v => v.entityType === 'user_profile');
+        const combinedUsersMap = new Map<string, any>();
+
+        if (Array.isArray(usersList)) {
+          usersList.forEach(u => {
+            if (u && u.id) {
+              combinedUsersMap.set(u.id, {
+                ...u,
+                status: u.status || (u.isVerified ? 'approved' : 'pending')
+              });
+            }
+          });
+        }
+
+        userVerifs.forEach(uv => {
+          const existing = combinedUsersMap.get(uv.entityId) || combinedUsersMap.get(uv.userId);
+          if (existing) {
+            combinedUsersMap.set(existing.id, {
+              ...existing,
+              verificationId: uv.id,
+              idDocumentType: uv.idDocumentType,
+              idDocumentWatermarked: uv.idDocumentWatermarked,
+              status: uv.status || existing.status
+            });
+          } else {
+            combinedUsersMap.set(uv.id, {
+              id: uv.entityId || uv.id,
+              verificationId: uv.id,
+              name: uv.userName,
+              email: uv.userEmail,
+              phone: uv.userPhone,
+              area: uv.area || 'Local Area',
+              category: uv.category || 'Simple User Profile',
+              idDocumentType: uv.idDocumentType,
+              idDocumentWatermarked: uv.idDocumentWatermarked,
+              status: uv.status,
+              isVerified: uv.status === 'approved',
+              createdAt: uv.submittedAt
+            });
+          }
+        });
+
+        setSimpleUsers(Array.from(combinedUsersMap.values()));
+      } catch {}
+
+      // 5 & 6. Job Seekers & Employer Registrations / Job Postings
       const liveJobs = await fetchJobPortalItems({ status: 'all' });
       if (Array.isArray(liveJobs)) {
         setJobPortalItems(liveJobs);
       }
 
-      // 5. Fetch community reports
+      // 7. User Feedback & Reports
       try {
-        const res = await fetch('/api/reports');
+        const res = await fetch('/api/reports', { headers: getAuthHeaders() });
         if (res.ok) {
           const data = await res.json();
-          setReports(data);
+          if (Array.isArray(data)) setReports(data);
         }
-      } catch (e) {}
+      } catch {}
 
-      // 6. Fetch Identity Verification Queue with Auto-Watermarked Documents
-      try {
-        const liveVerifs = await fetchAdminVerifications();
-        if (Array.isArray(liveVerifs)) {
-          setVerificationsList(liveVerifs);
-        }
-      } catch (e) {}
-
+      // Bonus: Sponsored Ads
+      const liveAds = await fetchLiveAds();
+      if (Array.isArray(liveAds) && liveAds.length > 0) {
+        setAds(liveAds);
+      } else {
+        setAds(DEFAULT_ADS);
+      }
     } catch (err) {
-      console.warn("Admin load data warning:", err);
+      console.warn('Admin load data warning:', err);
     } finally {
       setIsRefreshing(false);
     }
@@ -263,2254 +489,1823 @@ export default function AdminDashboard({ onBack }: AdminDashboardProps) {
     if (!isAdminAuthenticated) return;
     loadAllData();
     const interval = setInterval(() => {
-      if (!document.hidden) {
-        loadAllData();
-      }
+      if (!document.hidden) loadAllData();
     }, 20000);
     return () => clearInterval(interval);
   }, [isAdminAuthenticated]);
 
-  // ==========================================
-  // IDENTITY VERIFICATIONS & APPROVALS WORKFLOW
-  // ==========================================
-
-  const handleUpdateVerification = async (id: string, status: 'approved' | 'rejected', notes?: string) => {
-    setIsUpdatingVerif(id);
-    try {
-      const res = await updateAdminVerificationStatus(id, status, notes);
-      if (res.success) {
-        setVerificationsList(prev => prev.map(v => v.id === id ? { 
-          ...v, 
-          status, 
-          adminNotes: notes || v.adminNotes, 
-          reviewedAt: new Date().toISOString() 
-        } : v));
-        showToast(status === 'approved' ? '✅ ID Verified & Approved! Badge granted.' : '❌ Verification request rejected.');
-        if (selectedVerifForDoc?.id === id) {
-          setSelectedVerifForDoc(null);
-        }
-      } else {
-        showToast(res.error || 'Failed to update verification status');
-      }
-    } catch (err: any) {
-      showToast(err.message || 'Error updating status');
-    } finally {
-      setIsUpdatingVerif(null);
+  // Helper to get normalize status ('pending' | 'approved' | 'rejected')
+  const getNormalizedStatus = (item: any, mod: AdminModuleId): 'pending' | 'approved' | 'rejected' => {
+    if (!item) return 'pending';
+    if (item.status === 'rejected') return 'rejected';
+    if (item.status === 'approved' || item.status === 'resolved') return 'approved';
+    if (item.status === 'pending') return 'pending';
+    if (mod === 'help_posts') {
+      return item.isApproved === false ? 'pending' : 'approved';
     }
+    if (mod === 'helpers' || mod === 'businesses' || mod === 'simple_users') {
+      if (item.isVerified === true) return 'approved';
+      return 'pending';
+    }
+    return 'pending';
+  };
+
+  // Find associated watermarked ID doc from verificationsList if not directly on item
+  const getItemIdDoc = (item: any): string | undefined => {
+    if (item?.idDocumentWatermarked) return item.idDocumentWatermarked;
+    const match = verificationsList.find(
+      v =>
+        v.entityId === item?.id ||
+        v.id === item?.verificationId ||
+        (item?.email && v.userEmail?.toLowerCase() === item.email.toLowerCase())
+    );
+    return match?.idDocumentWatermarked;
   };
 
   // ==========================================
-  // AD BANNER MANAGEMENT ACTIONS
+  // UNIFIED APPROVE / REJECT / DELETE / EDIT
   // ==========================================
+  const handleStatusAction = async (mod: AdminModuleId, item: any, newStatus: 'approved' | 'rejected') => {
+    const id = item.id;
+    setActionLoadingId(id);
+    const isApproved = newStatus === 'approved';
 
-  const handleCreateAd = async (e: React.FormEvent) => {
+    try {
+      if (mod === 'help_posts') {
+        const res = await updateAdminIntentOnServer(id, { status: newStatus, isApproved });
+        if (res.success) {
+          setIntents(prev => prev.map(i => (i.id === id ? { ...i, status: newStatus, isApproved } : i)));
+          showToast(isApproved ? '✅ Help Post Approved!' : '❌ Help Post Rejected.');
+        } else {
+          showToast(res.error || 'Failed to update Help Post');
+        }
+      } else if (mod === 'helpers') {
+        const res = await updateAdminHelperOnServer(id, { status: newStatus, isVerified: isApproved });
+        if (res.success) {
+          setHelpers(prev => prev.map(h => (h.id === id ? { ...h, status: newStatus, isVerified: isApproved } : h)));
+          // Sync local storage
+          try {
+            const raw = localStorage.getItem('locohelp_free_helper_profiles');
+            if (raw) {
+              const arr = JSON.parse(raw).map((h: any) => (h.id === id ? { ...h, status: newStatus, isVerified: isApproved } : h));
+              localStorage.setItem('locohelp_free_helper_profiles', JSON.stringify(arr));
+            }
+          } catch {}
+          showToast(isApproved ? '✅ Helper Profile Approved & Verified!' : '❌ Helper Profile Rejected.');
+        } else {
+          showToast(res.error || 'Failed to update Helper Profile');
+        }
+      } else if (mod === 'simple_users') {
+        if (item.verificationId) {
+          await updateAdminVerificationStatus(item.verificationId, newStatus);
+        }
+        const res = await updateAdminUserOnServer(id, { status: newStatus, isVerified: isApproved });
+        if (res.success || item.verificationId) {
+          setSimpleUsers(prev => prev.map(u => (u.id === id ? { ...u, status: newStatus, isVerified: isApproved } : u)));
+          showToast(isApproved ? '✅ Simple User Profile Approved!' : '❌ Simple User Profile Rejected.');
+        } else {
+          showToast(res.error || 'Failed to update User Profile');
+        }
+      } else if (mod === 'businesses') {
+        const res = await updateAdminBusinessOnServer(id, { status: newStatus, isVerified: isApproved });
+        if (res.success) {
+          setBusinesses(prev => prev.map(b => (b.id === id ? { ...b, status: newStatus, isVerified: isApproved } : b)));
+          try {
+            const raw = localStorage.getItem('locohelp_registered_shops');
+            if (raw) {
+              const arr = JSON.parse(raw).map((s: any) => (s.id === id ? { ...s, status: newStatus, isVerified: isApproved } : s));
+              localStorage.setItem('locohelp_registered_shops', JSON.stringify(arr));
+            }
+          } catch {}
+          showToast(isApproved ? '✅ Business / Shop Approved & Live!' : '❌ Business / Shop Rejected.');
+        } else {
+          showToast(res.error || 'Failed to update Business');
+        }
+      } else if (mod === 'job_seekers' || mod === 'employers') {
+        const res = await updateJobPortalStatus(id, newStatus);
+        if (res.success) {
+          setJobPortalItems(prev => prev.map(j => (j.id === id ? { ...j, status: newStatus } : j)));
+          showToast(isApproved ? '✅ Approved & Live on Job Portal!' : '❌ Entry Rejected.');
+        } else {
+          showToast(res.error || 'Failed to update Job Portal status');
+        }
+      } else if (mod === 'feedback_categories') {
+        const res = await updateAdminReportOnServer(id, { status: newStatus });
+        if (res.success) {
+          setReports(prev => prev.map(r => (r.id === id ? { ...r, status: newStatus } : r)));
+          showToast(isApproved ? '✅ Feedback / Report Marked Approved & Resolved!' : '❌ Feedback / Report Rejected.');
+        } else {
+          showToast(res.error || 'Failed to update Feedback');
+        }
+      }
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const handleDeleteAction = async (mod: AdminModuleId, item: any) => {
+    const id = item.id;
+    const label = item.name || item.fullName || item.companyOrShopName || item.description || item.reason || id;
+    if (!window.confirm(`Are you sure you want to permanently DELETE this entry?\n\n"${String(label).slice(0, 60)}"`)) {
+      return;
+    }
+
+    setActionLoadingId(id);
+    try {
+      if (mod === 'help_posts') {
+        await deleteIntentOnServer(id);
+        setIntents(prev => prev.filter(i => i.id !== id));
+        showToast('🗑️ Help Post deleted permanently.');
+      } else if (mod === 'helpers') {
+        await deleteAdminHelperOnServer(id);
+        setHelpers(prev => prev.filter(h => h.id !== id));
+        try {
+          const raw = localStorage.getItem('locohelp_free_helper_profiles');
+          if (raw) {
+            localStorage.setItem('locohelp_free_helper_profiles', JSON.stringify(JSON.parse(raw).filter((h: any) => h.id !== id)));
+          }
+        } catch {}
+        showToast('🗑️ Helper Profile deleted permanently.');
+      } else if (mod === 'simple_users') {
+        await deleteAdminUserOnServer(id);
+        setSimpleUsers(prev => prev.filter(u => u.id !== id));
+        showToast('🗑️ Simple User Profile deleted.');
+      } else if (mod === 'businesses') {
+        await deleteAdminBusinessOnServer(id);
+        setBusinesses(prev => prev.filter(b => b.id !== id));
+        try {
+          const raw = localStorage.getItem('locohelp_registered_shops');
+          if (raw) {
+            localStorage.setItem('locohelp_registered_shops', JSON.stringify(JSON.parse(raw).filter((s: any) => s.id !== id)));
+          }
+        } catch {}
+        showToast('🗑️ Business / Shop Registration deleted.');
+      } else if (mod === 'job_seekers' || mod === 'employers') {
+        await deleteJobPortalItem(id);
+        setJobPortalItems(prev => prev.filter(j => j.id !== id));
+        showToast('🗑️ Job Portal entry deleted.');
+      } else if (mod === 'feedback_categories') {
+        await deleteAdminReportOnServer(id);
+        setReports(prev => prev.filter(r => r.id !== id));
+        showToast('🗑️ Feedback / Report deleted.');
+      }
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const openEditModal = (mod: AdminModuleId, item: any) => {
+    const status = getNormalizedStatus(item, mod);
+    if (mod === 'help_posts') {
+      setEditingItem({
+        module: mod,
+        id: item.id,
+        nameOrTitle: item.userName || item.user_name || 'Community User',
+        categoryOrRole: item.category || 'General Help',
+        phone: item.phone || item.contactPhone || '',
+        email: item.email || '',
+        areaOrLocation: item.area || item.locationName || '',
+        descriptionOrBio: item.description || '',
+        salaryOrPrice: item.urgency || 'normal',
+        status,
+        raw: item
+      });
+    } else if (mod === 'helpers') {
+      setEditingItem({
+        module: mod,
+        id: item.id,
+        nameOrTitle: item.name || '',
+        categoryOrRole: item.category || item.service || '',
+        phone: item.phone || item.whatsapp || '',
+        email: item.email || '',
+        areaOrLocation: item.area || item.address || '',
+        descriptionOrBio: item.bio || item.description || item.experience || '',
+        salaryOrPrice: item.priceRange || '',
+        status,
+        raw: item
+      });
+    } else if (mod === 'simple_users') {
+      setEditingItem({
+        module: mod,
+        id: item.id,
+        nameOrTitle: item.name || item.userName || '',
+        categoryOrRole: item.category || 'Simple User Profile',
+        phone: item.phone || item.userPhone || '',
+        email: item.email || item.userEmail || '',
+        areaOrLocation: item.area || item.address || '',
+        descriptionOrBio: item.bio || item.adminNotes || '',
+        salaryOrPrice: '',
+        status,
+        raw: item
+      });
+    } else if (mod === 'businesses') {
+      setEditingItem({
+        module: mod,
+        id: item.id,
+        nameOrTitle: item.name || item.businessName || '',
+        categoryOrRole: item.category || '',
+        phone: item.phone || item.whatsapp || '',
+        email: item.email || '',
+        areaOrLocation: item.area || item.address || '',
+        descriptionOrBio: item.description || item.offerTitle || '',
+        salaryOrPrice: item.timings || item.openingHours || '',
+        status,
+        raw: item
+      });
+    } else if (mod === 'job_seekers') {
+      setEditingItem({
+        module: mod,
+        id: item.id,
+        nameOrTitle: item.fullName || '',
+        categoryOrRole: item.category || item.headline || '',
+        phone: item.phone || item.whatsapp || '',
+        email: item.email || '',
+        areaOrLocation: item.area || '',
+        descriptionOrBio: item.skills || item.experience || '',
+        salaryOrPrice: item.expectedSalary || '',
+        status,
+        raw: item
+      });
+    } else if (mod === 'employers') {
+      setEditingItem({
+        module: mod,
+        id: item.id,
+        nameOrTitle: item.companyOrShopName || '',
+        categoryOrRole: item.jobRole || item.category || '',
+        phone: item.phone || item.whatsapp || '',
+        email: item.email || '',
+        areaOrLocation: item.jobLocation || item.area || '',
+        descriptionOrBio: item.jobDescription || '',
+        salaryOrPrice: item.salaryOffer || '',
+        status,
+        raw: item
+      });
+    } else if (mod === 'feedback_categories') {
+      setEditingItem({
+        module: mod,
+        id: item.id,
+        nameOrTitle: item.reporterName || item.targetType || 'User Feedback',
+        categoryOrRole: item.reason || 'Feedback / Suggestion',
+        phone: item.phone || '',
+        email: item.email || '',
+        areaOrLocation: item.targetId || '',
+        descriptionOrBio: item.details || item.reason || '',
+        salaryOrPrice: '',
+        status,
+        raw: item
+      });
+    }
+  };
+
+  const handleSaveEditModal = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!adBusinessName.trim() || !adOfferTitle.trim() || !adDescription.trim()) {
-      showToast("⚠️ Kripya shop name, title aur description bharein");
-      return;
-    }
+    if (!editingItem) return;
+    setIsSavingEdit(true);
 
-    setIsSubmittingAd(true);
-
-    const newAd: AdBannerItem = {
-      id: 'ad_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
-      businessName: adBusinessName.trim(),
-      logo: adLogo,
-      category: adCategory,
-      offerBadge: adOfferBadge.trim() || '🔥 Special Offer',
-      offerTitle: adOfferTitle.trim(),
-      description: adDescription.trim(),
-      photoUrl: adPhotoUrl.trim() || PHOTO_PRESETS[0].url,
-      distance: parseFloat(adDistance) || 0.5,
-      area: adArea.trim() || 'Local Market Area',
-      rating: 5.0,
-      reviewCount: 1,
-      isVerified: true,
-      destinationUrl: adDestinationUrl.trim() || '',
-      initialMessage: `Namaste! ${adBusinessName.trim()} me aapka swagat hai. Hamare offer "${adOfferTitle.trim()}" ke baare me poochhein.`,
-      createdAt: new Date().toISOString()
-    };
+    const { module: mod, id, nameOrTitle, categoryOrRole, phone, email, areaOrLocation, descriptionOrBio, salaryOrPrice, status } = editingItem;
+    const isApproved = status === 'approved';
 
     try {
-      await createAdOnServer(newAd);
-      setAds(prev => [newAd, ...prev.filter(a => a.id !== newAd.id)]);
-      showToast("✅ Ad Banner Created & Live on Homepage!");
-      setIsCreateAdModalOpen(false);
-      
-      // Reset form
-      setAdBusinessName('');
-      setAdOfferTitle('');
-      setAdDescription('');
-      setAdDestinationUrl('');
-      setAdArea('');
-    } catch (err) {
-      console.error(err);
-      showToast("⚠️ Error saving ad banner");
-    } finally {
-      setIsSubmittingAd(false);
-    }
-  };
-
-  const handleAdPhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (reader.result) {
-          setAdPhotoUrl(reader.result as string);
+      if (mod === 'help_posts') {
+        const updates = {
+          userName: nameOrTitle,
+          category: categoryOrRole,
+          phone,
+          area: areaOrLocation,
+          description: descriptionOrBio,
+          urgency: salaryOrPrice,
+          status,
+          isApproved
+        };
+        const res = await updateAdminIntentOnServer(id, updates);
+        if (res.success) {
+          setIntents(prev => prev.map(i => (i.id === id ? { ...i, ...updates } : i)));
+          showToast('✅ Help Post updated successfully!');
+          setEditingItem(null);
+        } else {
+          showToast(res.error || 'Failed to update Help Post');
         }
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const handleDeleteAd = async (adId: string, businessName: string) => {
-    if (!window.confirm(`Kya aap "${businessName}" ka ad banner delete karna chahte hain?`)) return;
-
-    try {
-      setIsDeleting(adId);
-      await deleteAdOnServer(adId);
-      setAds(prev => prev.filter(a => a.id !== adId));
-      showToast(`🗑️ "${businessName}" Ad banner deleted`);
-    } catch (err) {
-      console.error(err);
-      showToast("⚠️ Failed to delete ad banner");
-    } finally {
-      setIsDeleting(null);
-    }
-  };
-
-  const handleTestRedirect = (url?: string) => {
-    if (!url || url.trim() === '') {
-      showToast("ℹ️ Is ad par koi redirection link set nahi hai");
-      return;
-    }
-    let target = url.trim();
-    if (!/^https?:\/\//i.test(target)) {
-      target = 'https://' + target;
-    }
-    window.open(target, '_blank', 'noopener,noreferrer');
-  };
-
-  // ==========================================
-  // POST MODERATION ACTIONS
-  // ==========================================
-
-  const handleDeletePost = async (id: string, description: string) => {
-    const preview = description.length > 35 ? description.substring(0, 35) + '...' : description;
-    if (!window.confirm(`Kya aap is post ko radar se permanently delete karna chahte hain?\n\n"${preview}"`)) return;
-
-    try {
-      setIsDeleting(id);
-      
-      // 1. Delete on Server (intents.json)
-      await deleteIntentOnServer(id);
-      
-      // 2. Remove from local storage records
-      try {
-        const deletedIds = JSON.parse(localStorage.getItem('locohelp_deleted_posts') || '[]');
-        if (!deletedIds.includes(id)) {
-          deletedIds.push(id);
-          localStorage.setItem('locohelp_deleted_posts', JSON.stringify(deletedIds));
+      } else if (mod === 'helpers') {
+        const updates = {
+          name: nameOrTitle,
+          category: categoryOrRole,
+          phone,
+          email,
+          area: areaOrLocation,
+          bio: descriptionOrBio,
+          priceRange: salaryOrPrice,
+          status,
+          isVerified: isApproved
+        };
+        const res = await updateAdminHelperOnServer(id, updates);
+        if (res.success) {
+          setHelpers(prev => prev.map(h => (h.id === id ? { ...h, ...updates } : h)));
+          showToast('✅ Helper Profile updated successfully!');
+          setEditingItem(null);
+        } else {
+          showToast(res.error || 'Failed to update Helper Profile');
         }
-
-        const storedCustom = localStorage.getItem('locohelp_custom_intents');
-        if (storedCustom) {
-          const arr = JSON.parse(storedCustom).filter((i: any) => i.id !== id);
-          localStorage.setItem('locohelp_custom_intents', JSON.stringify(arr));
+      } else if (mod === 'simple_users') {
+        const updates = {
+          name: nameOrTitle,
+          category: categoryOrRole,
+          phone,
+          email,
+          area: areaOrLocation,
+          bio: descriptionOrBio,
+          status,
+          isVerified: isApproved
+        };
+        const res = await updateAdminUserOnServer(id, updates);
+        if (res.success) {
+          setSimpleUsers(prev => prev.map(u => (u.id === id ? { ...u, ...updates } : u)));
+          showToast('✅ Simple User Profile updated successfully!');
+          setEditingItem(null);
+        } else {
+          showToast(res.error || 'Failed to update User Profile');
         }
-
-        const storedCached = localStorage.getItem('locohelp_cached_intents');
-        if (storedCached) {
-          const arr = JSON.parse(storedCached).filter((i: any) => i.id !== id);
-          localStorage.setItem('locohelp_cached_intents', JSON.stringify(arr));
+      } else if (mod === 'businesses') {
+        const updates = {
+          name: nameOrTitle,
+          category: categoryOrRole,
+          phone,
+          email,
+          area: areaOrLocation,
+          address: areaOrLocation,
+          description: descriptionOrBio,
+          timings: salaryOrPrice,
+          status,
+          isVerified: isApproved
+        };
+        const res = await updateAdminBusinessOnServer(id, updates);
+        if (res.success) {
+          setBusinesses(prev => prev.map(b => (b.id === id ? { ...b, ...updates } : b)));
+          showToast('✅ Business / Shop updated successfully!');
+          setEditingItem(null);
+        } else {
+          showToast(res.error || 'Failed to update Business');
         }
-      } catch (e) {}
-
-
-
-      // 4. Update UI
-      setIntents(prev => prev.filter(i => i.id !== id));
-      showToast("🗑️ Post permanently removed from radar");
-    } catch (err) {
-      console.error("Delete post error:", err);
-      showToast("⚠️ Post delete karne me samasya aayi");
+      } else if (mod === 'job_seekers') {
+        const updates: Partial<JobPortalSubmission> = {
+          fullName: nameOrTitle,
+          category: categoryOrRole,
+          headline: categoryOrRole,
+          phone,
+          email,
+          area: areaOrLocation,
+          skills: descriptionOrBio,
+          expectedSalary: salaryOrPrice,
+          status
+        };
+        const res = await updateAdminJobPortalOnServer(id, updates);
+        if (res.success) {
+          setJobPortalItems(prev => prev.map(j => (j.id === id ? { ...j, ...updates } : j)));
+          showToast('✅ Job Seeker Registration updated!');
+          setEditingItem(null);
+        } else {
+          showToast(res.error || 'Failed to update Job Seeker');
+        }
+      } else if (mod === 'employers') {
+        const updates: Partial<JobPortalSubmission> = {
+          companyOrShopName: nameOrTitle,
+          jobRole: categoryOrRole,
+          phone,
+          email,
+          jobLocation: areaOrLocation,
+          area: areaOrLocation,
+          jobDescription: descriptionOrBio,
+          salaryOffer: salaryOrPrice,
+          status
+        };
+        const res = await updateAdminJobPortalOnServer(id, updates);
+        if (res.success) {
+          setJobPortalItems(prev => prev.map(j => (j.id === id ? { ...j, ...updates } : j)));
+          showToast('✅ Employer & Job Posting updated!');
+          setEditingItem(null);
+        } else {
+          showToast(res.error || 'Failed to update Employer Posting');
+        }
+      } else if (mod === 'feedback_categories') {
+        const updates = {
+          reporterName: nameOrTitle,
+          reason: categoryOrRole,
+          phone,
+          email,
+          details: descriptionOrBio,
+          status
+        };
+        const res = await updateAdminReportOnServer(id, updates);
+        if (res.success) {
+          setReports(prev => prev.map(r => (r.id === id ? { ...r, ...updates } : r)));
+          showToast('✅ Feedback / Report updated!');
+          setEditingItem(null);
+        } else {
+          showToast(res.error || 'Failed to update Feedback');
+        }
+      }
     } finally {
-      setIsDeleting(null);
+      setIsSavingEdit(false);
     }
   };
 
   // ==========================================
-  // JOB PORTAL APPROVAL ACTIONS
+  // COUNTS & MODULE DEFINITIONS FOR BANNERS
   // ==========================================
+  const jobSeekersList = jobPortalItems.filter(i => i.type === 'job_seeker');
+  const employersList = jobPortalItems.filter(i => i.type === 'employer_vacancy');
 
-  const handleApproveJob = async (id: string) => {
-    try {
-      setIsUpdatingJob(id);
-      const res = await updateJobPortalStatus(id, 'approved');
-      if (res.success) {
-        setJobPortalItems(prev =>
-          prev.map(item => (item.id === id ? { ...item, status: 'approved', reviewedAt: new Date().toISOString() } : item))
-        );
-        showToast("✅ Approved! Profile/Vacancy is now live on the main website.");
-      } else {
-        showToast("⚠️ Could not approve item: " + (res.error || 'Server error'));
-      }
-    } catch (e: any) {
-      showToast("⚠️ Error while approving item");
-    } finally {
-      setIsUpdatingJob(null);
+  const countPending = (list: any[], mod: AdminModuleId) =>
+    list.filter(item => getNormalizedStatus(item, mod) === 'pending').length;
+
+  const ADMIN_MODULES: Array<{
+    id: AdminModuleId;
+    title: string;
+    titleHi: string;
+    subtitle: string;
+    icon: React.ReactNode;
+    gradient: string;
+    border: string;
+    badgeBg: string;
+    totalCount: number;
+    pendingCount: number;
+  }> = [
+    {
+      id: 'help_posts',
+      title: 'Help Posts Management',
+      titleHi: 'हेल्प पोस्ट्स मैनेजमेंट',
+      subtitle: 'Community help requests, radar broadcasts & urgent alerts',
+      icon: <MessageCircle className="w-5 h-5 text-white" />,
+      gradient: 'from-rose-600 to-orange-600',
+      border: 'border-rose-500/30 hover:border-rose-400',
+      badgeBg: 'bg-rose-500/15 text-rose-300 border-rose-500/30',
+      totalCount: intents.length,
+      pendingCount: countPending(intents, 'help_posts')
+    },
+    {
+      id: 'helpers',
+      title: 'Browse Local Helpers / Helper Profiles',
+      titleHi: 'लोकल हेल्पर्स और कारीगर प्रोफाइल',
+      subtitle: 'Registered skilled workers, electricians, plumbers & service helpers',
+      icon: <Users className="w-5 h-5 text-white" />,
+      gradient: 'from-emerald-600 to-teal-600',
+      border: 'border-emerald-500/30 hover:border-emerald-400',
+      badgeBg: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+      totalCount: helpers.length,
+      pendingCount: countPending(helpers, 'helpers')
+    },
+    {
+      id: 'simple_users',
+      title: 'Simple User Profiles',
+      titleHi: 'सामान्य यूज़र प्रोफाइल (Simple Users)',
+      subtitle: 'Standard user accounts, profile verifications & ID approvals',
+      icon: <UserCheck className="w-5 h-5 text-white" />,
+      gradient: 'from-sky-600 to-blue-600',
+      border: 'border-sky-500/30 hover:border-sky-400',
+      badgeBg: 'bg-sky-500/15 text-sky-300 border-sky-500/30',
+      totalCount: simpleUsers.length,
+      pendingCount: countPending(simpleUsers, 'simple_users')
+    },
+    {
+      id: 'businesses',
+      title: 'Business / Shop Registrations',
+      titleHi: 'दुकान और बिज़नेस रजिस्ट्रेशन',
+      subtitle: 'Local shops, showrooms, service centers & commercial listings',
+      icon: <Store className="w-5 h-5 text-white" />,
+      gradient: 'from-purple-600 to-indigo-600',
+      border: 'border-purple-500/30 hover:border-purple-400',
+      badgeBg: 'bg-purple-500/15 text-purple-300 border-purple-500/30',
+      totalCount: businesses.length,
+      pendingCount: countPending(businesses, 'businesses')
+    },
+    {
+      id: 'job_seekers',
+      title: 'Job / Work Registrations (Job Seekers)',
+      titleHi: 'नौकरी / काम चाहने वाले (Job Seekers)',
+      subtitle: 'Candidates looking for local jobs, daily wage or full-time work',
+      icon: <Briefcase className="w-5 h-5 text-white" />,
+      gradient: 'from-blue-600 to-indigo-700',
+      border: 'border-blue-500/30 hover:border-blue-400',
+      badgeBg: 'bg-blue-500/15 text-blue-300 border-blue-500/30',
+      totalCount: jobSeekersList.length,
+      pendingCount: countPending(jobSeekersList, 'job_seekers')
+    },
+    {
+      id: 'employers',
+      title: 'Employer Registrations & Job Postings',
+      titleHi: 'नौकरी / काम देने वाले (Job Givers)',
+      subtitle: 'Registered employers, linked shops & staff vacancy postings',
+      icon: <Building2 className="w-5 h-5 text-white" />,
+      gradient: 'from-amber-600 to-orange-600',
+      border: 'border-amber-500/30 hover:border-amber-400',
+      badgeBg: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+      totalCount: employersList.length,
+      pendingCount: countPending(employersList, 'employers')
+    },
+    {
+      id: 'feedback_categories',
+      title: 'User Feedback & Categories',
+      titleHi: 'यूज़र फीडबैक, शिकायतें और कैटेगरी',
+      subtitle: 'User feedback, safety reports & platform service categories',
+      icon: <FileText className="w-5 h-5 text-white" />,
+      gradient: 'from-pink-600 to-rose-600',
+      border: 'border-pink-500/30 hover:border-pink-400',
+      badgeBg: 'bg-pink-500/15 text-pink-300 border-pink-500/30',
+      totalCount: reports.length,
+      pendingCount: countPending(reports, 'feedback_categories')
     }
-  };
-
-  const handleRejectJob = async (id: string) => {
-    try {
-      setIsUpdatingJob(id);
-      const res = await updateJobPortalStatus(id, 'rejected');
-      if (res.success) {
-        setJobPortalItems(prev =>
-          prev.map(item => (item.id === id ? { ...item, status: 'rejected', reviewedAt: new Date().toISOString() } : item))
-        );
-        showToast("❌ Submission has been rejected.");
-      } else {
-        showToast("⚠️ Could not reject item: " + (res.error || 'Server error'));
-      }
-    } catch (e: any) {
-      showToast("⚠️ Error while rejecting item");
-    } finally {
-      setIsUpdatingJob(null);
-    }
-  };
-
-  const handleDeleteJob = async (id: string) => {
-    if (!window.confirm("Are you sure you want to permanently delete this submission?")) return;
-    try {
-      setIsUpdatingJob(id);
-      const ok = await deleteJobPortalItem(id);
-      if (ok) {
-        setJobPortalItems(prev => prev.filter(item => item.id !== id));
-        showToast("🗑️ Job portal entry permanently deleted");
-      } else {
-        showToast("⚠️ Could not delete item");
-      }
-    } catch (e: any) {
-      showToast("⚠️ Error while deleting item");
-    } finally {
-      setIsUpdatingJob(null);
-    }
-  };
-
-  const handlePurgeDummySeeds = async () => {
-    if (!window.confirm("क्या आप सभी डमी/सैंपल पोस्ट्स (Sample Dummy Posts) हटाकर सिर्फ नए यूज़र के रियल पोस्ट्स ही रखना चाहते हैं?")) return;
-    try {
-      setIsRefreshing(true);
-      const res = await purgeDummyDataOnServer();
-      if (res.success) {
-        showToast("✨ सभी डमी/सैंपल पोस्ट्स हटा दिए गए हैं! अब सिर्फ रियल यूज़र डेटा ही दिखेगा।");
-        try {
-          localStorage.removeItem('locohelp_cached_intents');
-          localStorage.removeItem('locohelp_custom_intents');
-          localStorage.removeItem('locohelp_ad_banners');
-        } catch (e) {}
-        await loadAllData();
-      } else {
-        showToast("⚠️ Purge failed: " + (res.message || 'Server error'));
-      }
-    } catch (e) {
-      showToast("⚠️ Error purging dummy data");
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
-
-  const handleResetDatabase = async () => {
-    if (!window.confirm("⚠️ DANGER: क्या आप पूरा डेटाबेस खाली (Complete Wipe) करना चाहते हैं? सभी पोस्ट और जॉब एंट्रीज़ मिट जाएंगी।")) return;
-    try {
-      setIsRefreshing(true);
-      const res = await resetDatabaseOnServer();
-      if (res.success) {
-        showToast("🚨 Database completely reset to empty live state.");
-        try {
-          localStorage.clear();
-        } catch (e) {}
-        await loadAllData();
-      } else {
-        showToast("⚠️ Reset failed: " + (res.message || 'Server error'));
-      }
-    } catch (e) {
-      showToast("⚠️ Error resetting database");
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
-
-
-  // Filter posts
-  const filteredIntents = intents.filter(item => {
-    const textMatch = !searchQuery.trim() || 
-      (item.description && item.description.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (item.authorName && item.authorName.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (item.tags && item.tags.some((t: string) => t.toLowerCase().includes(searchQuery.toLowerCase())));
-
-    if (!textMatch) return false;
-    if (filterCategory === 'all') return true;
-    if (filterCategory === 'active') return item.status === 'active';
-    if (filterCategory === 'completed') return item.status === 'completed';
-    return item.tags && item.tags.some((t: string) => t.toLowerCase().includes(filterCategory.toLowerCase()));
-  });
+  ];
 
   // ==========================================
-  // ==========================================
-  // MASTER ADMIN LOGIN & OTP SCREENS
+  // RENDER LOGIN GATE IF NOT AUTHENTICATED
   // ==========================================
   if (!isAdminAuthenticated) {
     return (
-      <div className="flex flex-col h-full bg-slate-950 text-white p-4 sm:p-6 justify-center items-center overflow-y-auto">
-        <div className="w-full max-w-md bg-slate-900 border-2 border-indigo-500/40 rounded-3xl p-6 sm:p-8 shadow-2xl relative overflow-hidden">
-          <div className="absolute top-0 inset-x-0 h-1.5 bg-gradient-to-r from-amber-400 via-indigo-500 to-purple-600"></div>
+      <div className="min-h-screen w-full bg-[#090D16] text-white flex flex-col items-center justify-center p-4 relative overflow-hidden">
+        <div className="absolute -top-32 -left-32 w-96 h-96 bg-orange-500/15 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-32 -right-32 w-96 h-96 bg-indigo-500/15 rounded-full blur-3xl pointer-events-none" />
 
-          {/* Icon Header */}
-          <div className="w-16 h-16 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex items-center justify-center mx-auto mb-4 text-amber-400 shadow-inner">
-            <Lock className="w-8 h-8 text-amber-400" />
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95, y: 15 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          className="w-full max-w-md bg-[#111827]/90 backdrop-blur-xl border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl relative z-10"
+        >
+          <button
+            onClick={onBack}
+            className="inline-flex items-center gap-2 text-xs font-bold text-slate-400 hover:text-white mb-6 transition-colors cursor-pointer"
+          >
+            <ArrowLeft size={15} /> Back to LocoHelp Home
+          </button>
+
+          <div className="flex items-center gap-3.5 mb-6">
+            <div className="w-13 h-13 rounded-2xl bg-gradient-to-br from-orange-500 to-amber-600 flex items-center justify-center shadow-lg shadow-orange-500/25 shrink-0">
+              <Shield className="w-7 h-7 text-white" />
+            </div>
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-orange-500/15 text-orange-400 border border-orange-500/30">
+                Secret Route • /bapu-admin
+              </span>
+              <h1 className="text-xl font-black text-white mt-1">LocoHelp Admin Security</h1>
+              <p className="text-xs text-slate-400">2-Step Verification (Password + Official Email OTP)</p>
+            </div>
           </div>
 
-          <div className="space-y-5">
-            <div className="text-center">
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px] font-black uppercase tracking-wider mb-2">
-                <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
-                <span>LocoHelp Master Control</span>
-              </div>
-              <h2 className="text-xl font-black text-white tracking-tight">Admin Portal Access</h2>
-              <p className="text-xs text-slate-400 mt-1">
-                केवल अधिकृत मास्टर पासवर्ड द्वारा सुरक्षित
-              </p>
+          {loginError && (
+            <div className="mb-4 p-3.5 rounded-2xl bg-red-500/10 border border-red-500/30 text-red-300 text-xs font-semibold flex items-start gap-2.5">
+              <AlertTriangle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+              <span>{loginError}</span>
             </div>
+          )}
 
-            <form onSubmit={handleLoginSubmit} className="space-y-4 pt-2">
+          {/* STEP 1: ADMIN PASSWORD */}
+          {adminAuthStep === 'password' && (
+            <form onSubmit={handlePasswordStepSubmit} className="space-y-4">
+              <div className="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800/80 text-xs text-slate-300 leading-relaxed">
+                <span className="font-black text-orange-400 block mb-0.5">🔒 Step 1 of 2: Enter Admin Password</span>
+                सही पासवर्ड वेरीफाई होने के बाद ही 6-अंकों का सुरक्षा OTP सीधे आधिकारिक एडमिन ईमेल पर भेजा जाएगा।
+              </div>
+
               <div>
-                <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5 mb-1.5">
-                  <Lock className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Admin Password</span>
+                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
+                  Admin Master Password
                 </label>
                 <div className="relative">
-                  <input 
-                    type={showPassword ? "text" : "password"}
+                  <Lock className="w-4 h-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
+                  <input
+                    type={showAdminPassword ? 'text' : 'password'}
                     value={adminPasswordInput}
-                    onChange={(e) => { setAdminPasswordInput(e.target.value); setLoginError(null); }}
-                    placeholder="••••••••••••"
-                    className="w-full bg-slate-950 border border-slate-700 focus:border-amber-500 rounded-2xl px-4 py-3 pr-11 text-sm font-bold text-white placeholder:text-slate-600 focus:outline-hidden focus:ring-2 focus:ring-amber-500/40"
+                    onChange={(e) => setAdminPasswordInput(e.target.value)}
+                    placeholder="Enter secret admin password..."
                     autoFocus
+                    className="w-full pl-11 pr-11 py-3.5 bg-slate-950/90 border border-slate-700/80 rounded-2xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-orange-500"
                   />
                   <button
                     type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3.5 top-3.5 text-slate-400 hover:text-white cursor-pointer"
-                    title={showPassword ? "Hide password" : "Show password"}
+                    onClick={() => setShowAdminPassword(!showAdminPassword)}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white cursor-pointer"
                   >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    {showAdminPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
                 </div>
               </div>
 
-              {loginError && (
-                <div className="p-3 bg-rose-950/70 border border-rose-800 rounded-xl text-rose-300 text-xs font-bold flex items-center gap-2 text-left">
-                  <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
-                  <span>{loginError}</span>
-                </div>
-              )}
-
               <button
                 type="submit"
-                className="w-full bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-600 hover:to-orange-700 text-white font-extrabold text-sm py-3.5 rounded-2xl shadow-lg shadow-amber-500/25 transition-all active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2"
+                disabled={isSendingAdminOtp}
+                className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white font-black text-sm shadow-lg shadow-orange-500/25 transition-all cursor-pointer disabled:opacity-50"
               >
-                <ShieldCheck className="w-4 h-4" />
-                <span>Unlock Admin Panel</span>
+                {isSendingAdminOtp ? 'Verifying Password & Sending OTP...' : 'Verify Password & Send OTP →'}
               </button>
 
-              <div className="text-center pt-2">
+              <div className="pt-2 text-center">
                 <button
                   type="button"
-                  onClick={onBack}
-                  className="text-xs font-bold text-slate-400 hover:text-white py-1 transition-colors cursor-pointer"
+                  onClick={handleRequestForgotPasswordOtp}
+                  disabled={isSendingAdminOtp}
+                  className="text-xs font-bold text-amber-400 hover:text-amber-300 underline underline-offset-4 cursor-pointer"
                 >
-                  &larr; Back to LocoHelp
+                  Forgot Admin Password? Reset via Email OTP
                 </button>
               </div>
             </form>
-          </div>
+          )}
 
-        </div>
+          {/* STEP 2: EMAIL OTP VERIFICATION */}
+          {adminAuthStep === 'otp' && (
+            <form onSubmit={handleOtpStepSubmit} className="space-y-4">
+              <div className="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-200 leading-relaxed">
+                <span className="font-black text-emerald-400 block mb-0.5">
+                  ✅ Password Verified! Step 2 of 2: Enter Email OTP
+                </span>
+                6-अंकों का वेरिफिकेशन OTP आधिकारिक एडमिन ईमेल <strong className="text-white">{OFFICIAL_ADMIN_EMAIL}</strong> पर भेजा गया है।
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
+                  6-Digit Verification OTP
+                </label>
+                <input
+                  type="text"
+                  maxLength={6}
+                  value={adminOtpInput}
+                  onChange={(e) => setAdminOtpInput(e.target.value.replace(/\D/g, ''))}
+                  placeholder="• • • • • •"
+                  autoFocus
+                  className="w-full px-4 py-3.5 bg-slate-950/90 border border-emerald-500/50 rounded-2xl text-center text-xl font-black tracking-[0.5em] text-white placeholder-slate-600 focus:outline-none focus:border-emerald-400"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={isSendingAdminOtp}
+                className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-black text-sm shadow-lg shadow-emerald-500/25 transition-all cursor-pointer disabled:opacity-50"
+              >
+                {isSendingAdminOtp ? 'Verifying OTP...' : 'Verify OTP & Open Admin Dashboard'}
+              </button>
+
+              <div className="flex items-center justify-between pt-2 text-xs">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAdminAuthStep('password');
+                    setLoginError(null);
+                  }}
+                  className="text-slate-400 hover:text-white font-bold cursor-pointer"
+                >
+                  ← Back to Password
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePasswordStepSubmit}
+                  disabled={isSendingAdminOtp}
+                  className="text-orange-400 hover:text-orange-300 font-bold cursor-pointer"
+                >
+                  Resend OTP
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* FORGOT ADMIN PASSWORD FLOW */}
+          {adminAuthStep === 'forgot_password' && (
+            <form onSubmit={handleForgotPasswordResetSubmit} className="space-y-4">
+              <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-200 leading-relaxed">
+                <span className="font-black text-amber-400 block mb-0.5">🔑 Reset Admin Password via OTP</span>
+                पासवर्ड रीसेट करने के लिए <strong className="text-white">{OFFICIAL_ADMIN_EMAIL}</strong> पर भेजा गया 6-अंकों का OTP और नया पासवर्ड दर्ज करें।
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
+                  6-Digit OTP (Sent to {OFFICIAL_ADMIN_EMAIL})
+                </label>
+                <input
+                  type="text"
+                  maxLength={6}
+                  value={forgotOtpInput}
+                  onChange={(e) => setForgotOtpInput(e.target.value.replace(/\D/g, ''))}
+                  placeholder="Enter 6-digit OTP"
+                  className="w-full px-4 py-3 bg-slate-950/90 border border-slate-700 rounded-xl text-center text-lg font-black tracking-widest text-white focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
+                  New Admin Password
+                </label>
+                <input
+                  type="password"
+                  value={forgotNewPasswordInput}
+                  onChange={(e) => setForgotNewPasswordInput(e.target.value)}
+                  placeholder="Min 6 characters"
+                  className="w-full px-4 py-3 bg-slate-950/90 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
+                  Confirm New Password
+                </label>
+                <input
+                  type="password"
+                  value={forgotConfirmPasswordInput}
+                  onChange={(e) => setForgotConfirmPasswordInput(e.target.value)}
+                  placeholder="Re-enter new password"
+                  className="w-full px-4 py-3 bg-slate-950/90 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={isSendingAdminOtp}
+                className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-600 text-white font-black text-sm shadow-lg transition-all cursor-pointer disabled:opacity-50"
+              >
+                {isSendingAdminOtp ? 'Resetting Password...' : 'Verify OTP & Save New Password'}
+              </button>
+
+              <div className="flex items-center justify-between pt-2 text-xs">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAdminAuthStep('password');
+                    setLoginError(null);
+                  }}
+                  className="text-slate-400 hover:text-white font-bold cursor-pointer"
+                >
+                  ← Back to Login
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRequestForgotPasswordOtp}
+                  disabled={isSendingAdminOtp}
+                  className="text-amber-400 hover:text-amber-300 font-bold cursor-pointer"
+                >
+                  Resend Reset OTP
+                </button>
+              </div>
+            </form>
+          )}
+        </motion.div>
       </div>
     );
   }
 
   // ==========================================
-  // AUTHENTICATED ADMIN CONTROL PANEL
+  // FILTERED ITEMS FOR DEDICATED SUB-PAGE
   // ==========================================
+  const getActiveModuleItems = (): any[] => {
+    let rawList: any[] = [];
+    if (activeModule === 'help_posts') rawList = intents;
+    else if (activeModule === 'helpers') rawList = helpers;
+    else if (activeModule === 'simple_users') rawList = simpleUsers;
+    else if (activeModule === 'businesses') rawList = businesses;
+    else if (activeModule === 'job_seekers') rawList = jobSeekersList;
+    else if (activeModule === 'employers') rawList = employersList;
+    else if (activeModule === 'feedback_categories') rawList = reports;
+
+    return rawList.filter(item => {
+      const normStatus = getNormalizedStatus(item, activeModule);
+      if (statusFilter !== 'all' && normStatus !== statusFilter) return false;
+      if (!searchQuery.trim()) return true;
+      const q = searchQuery.toLowerCase();
+      const hay = JSON.stringify(item).toLowerCase();
+      return hay.includes(q);
+    });
+  };
+
+  const currentModuleMeta = ADMIN_MODULES.find(m => m.id === activeModule);
+  const filteredModuleItems = getActiveModuleItems();
+
   return (
-    <div className="flex flex-col h-full bg-[#F4F1EA] dark:bg-slate-900 overflow-hidden relative text-slate-900 dark:text-slate-100 font-sans">
-      
-      {/* Toast Alert */}
-      {toastMessage && (
-        <div className="absolute top-4 inset-x-4 z-50 flex justify-center pointer-events-none">
-          <div className="bg-slate-900 text-white dark:bg-white dark:text-slate-900 px-4 py-2.5 rounded-2xl shadow-xl text-xs font-black flex items-center gap-2 border border-amber-400 animate-bounce">
-            <Sparkles className="w-4 h-4 text-amber-400 fill-amber-400 shrink-0" />
-            <span>{toastMessage}</span>
-          </div>
-        </div>
-      )}
-
-      {/* Top Admin Control Header */}
-      <div className="px-4 py-3.5 pt-6 bg-white dark:bg-slate-800 border-b border-[#DFDBCF] dark:border-slate-700 flex items-center justify-between sticky top-0 z-30 shadow-xs">
-        <div className="flex items-center gap-2.5">
-          <button 
-            onClick={onBack} 
-            className="p-2 -ml-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors cursor-pointer"
-            title="Go to App"
-          >
-            <ArrowLeft className="w-5 h-5 text-slate-800 dark:text-slate-200" />
-          </button>
-          <div>
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <h1 className="text-base sm:text-lg font-black text-slate-900 dark:text-white leading-tight">
-                Admin Control Panel
-              </h1>
-              <span className="text-[10px] bg-amber-500 text-slate-950 px-2 py-0.5 rounded-full font-black uppercase tracking-wider flex items-center gap-1 shadow-xs">
-                <span>👑</span>
-                <span>Master Admin</span>
-              </span>
+    <div className="min-h-screen w-full bg-[#090D16] text-slate-100 flex flex-col">
+      {/* ========================================== */}
+      {/* 1. TOP ADMIN BAR                           */}
+      {/* ========================================== */}
+      <header className="sticky top-0 z-30 bg-[#0F1624]/95 backdrop-blur-xl border-b border-slate-800/80 px-4 sm:px-6 py-3.5">
+        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+          {/* Left: Brand & Back to Site */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={onBack}
+              className="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer"
+              title="Back to Main Website"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <div
+              onClick={() => openModule('home')}
+              className="flex items-center gap-2.5 cursor-pointer"
+            >
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-amber-600 flex items-center justify-center shadow-md shadow-orange-500/20">
+                <Shield className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-base sm:text-lg font-black tracking-tight text-white">
+                    LocoHelp Admin Panel
+                  </h1>
+                  <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                    <ShieldCheck className="w-3 h-3" /> /bapu-admin
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  Master Moderation, Verifications & Category Controls
+                </p>
+              </div>
             </div>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
-              LocoHelp Central Management &bull; Ads, Moderation & Radar
-            </p>
+          </div>
+
+          {/* Right: Prominent Change Admin Password Button, Refresh & Logout */}
+          <div className="flex items-center gap-2 sm:gap-3">
+            <button
+              onClick={loadAllData}
+              disabled={isRefreshing}
+              className="px-3 py-2 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-200 text-xs font-bold flex items-center gap-1.5 border border-slate-700 transition-all cursor-pointer"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-orange-400' : ''}`} />
+              <span className="hidden sm:inline">Refresh</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setIsChangePasswordOpen(!isChangePasswordOpen);
+                setChangePasswordError(null);
+              }}
+              className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white text-xs font-black flex items-center gap-1.5 shadow-md shadow-orange-500/20 transition-all cursor-pointer"
+            >
+              <KeyRound className="w-3.5 h-3.5" />
+              <span>Change Admin Password</span>
+            </button>
+
+            <button
+              onClick={handleLogout}
+              className="px-3.5 py-2 rounded-xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/30 text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Logout</span>
+            </button>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => {
-              setChangeOldPassword('');
-              setChangeNewPassword('');
-              setChangeConfirmPassword('');
-              setChangePasswordError(null);
-              setIsChangePasswordModalOpen(true);
-            }}
-            className="text-xs font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-900 px-2.5 py-1.5 rounded-xl hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-all flex items-center gap-1 cursor-pointer"
-            title="Change Admin Password"
-          >
-            <KeyRound className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-            <span className="hidden sm:inline">Password</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('logo_download')}
-            className={`text-xs font-black px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-xs ${
-              activeTab === 'logo_download'
-                ? 'bg-amber-500 text-slate-950 ring-2 ring-amber-400'
-                : 'text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100'
-            }`}
-            title="Download LocoHelp Official Logos (SVG & PNG)"
-          >
-            <Download className="w-3.5 h-3.5 text-amber-500" />
-            <span className="hidden sm:inline">Download Logo</span>
-          </button>
-
-          <button
-            onClick={loadAllData}
-            disabled={isRefreshing}
-            className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 transition-all cursor-pointer"
-            title="Refresh All Data"
-          >
-            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-indigo-600' : ''}`} />
-          </button>
-          
-          <button 
-            onClick={handleLogout}
-            className="text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-900 px-3 py-1.5 rounded-xl hover:bg-rose-100 transition-all flex items-center gap-1 cursor-pointer"
-            title="Log out of admin session"
-          >
-            <LogOut className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Logout</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Admin Navigation Tabs */}
-      <div className="flex border-b border-[#DFDBCF] dark:border-slate-800 bg-white dark:bg-slate-800/90 px-3 pt-2 gap-1.5 shrink-0 overflow-x-auto scrollbar-hide">
-        {/* Tab: Identity & Document Verifications */}
-        <button
-          onClick={() => setActiveTab('verifications')}
-          className={`pb-2.5 px-3.5 text-xs font-black border-b-2 transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${
-            activeTab === 'verifications' 
-              ? 'border-emerald-600 text-emerald-600 dark:text-emerald-400' 
-              : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
-          }`}
-        >
-          <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-          <span>ID Verifications</span>
-          {verificationsList.filter(v => v.status === 'pending').length > 0 ? (
-            <span className="bg-emerald-600 text-white px-2 py-0.2 rounded-full text-[10px] font-black animate-pulse">
-              {verificationsList.filter(v => v.status === 'pending').length} Pending
-            </span>
-          ) : (
-            <span className="bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 px-2 py-0.2 rounded-full text-[10px] font-bold">
-              {verificationsList.length}
-            </span>
-          )}
-        </button>
-
-        {/* Tab 0: Job Portal Approvals */}
-        <button
-          onClick={() => setActiveTab('job_approvals')}
-          className={`pb-2.5 px-3.5 text-xs font-black border-b-2 transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${
-            activeTab === 'job_approvals' 
-              ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' 
-              : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
-          }`}
-        >
-          <Briefcase className="w-3.5 h-3.5" />
-          <span>Job Portal Approvals</span>
-          {jobPortalItems.filter(i => (i.status || 'pending') === 'pending').length > 0 ? (
-            <span className="bg-amber-500 text-white px-2 py-0.2 rounded-full text-[10px] font-black animate-pulse">
-              {jobPortalItems.filter(i => (i.status || 'pending') === 'pending').length} Pending
-            </span>
-          ) : (
-            <span className="bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 px-2 py-0.2 rounded-full text-[10px] font-bold">
-              {jobPortalItems.length}
-            </span>
-          )}
-        </button>
-
-        {/* Tab 1: Ad Banner Management */}
-        <button
-          onClick={() => setActiveTab('ads')}
-          className={`pb-2.5 px-3.5 text-xs font-black border-b-2 transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${
-            activeTab === 'ads' 
-              ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' 
-              : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
-          }`}
-        >
-          <Store className="w-3.5 h-3.5" />
-          <span>Ad Banners</span>
-          <span className="bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-200 px-2 py-0.2 rounded-full text-[10px] font-black">
-            {ads.length}
-          </span>
-        </button>
-
-        {/* Tab 2: Post Moderation */}
-        <button
-          onClick={() => setActiveTab('moderation')}
-          className={`pb-2.5 px-3.5 text-xs font-black border-b-2 transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${
-            activeTab === 'moderation' 
-              ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' 
-              : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
-          }`}
-        >
-          <ShieldAlert className="w-3.5 h-3.5" />
-          <span>Post Moderation</span>
-          <span className="bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-300 px-2 py-0.2 rounded-full text-[10px] font-black">
-            {intents.length}
-          </span>
-        </button>
-
-        {/* Tab 3: Overview & Stats */}
-        <button
-          onClick={() => setActiveTab('overview')}
-          className={`pb-2.5 px-3.5 text-xs font-black border-b-2 transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${
-            activeTab === 'overview' 
-              ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' 
-              : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
-          }`}
-        >
-          <Sparkles className="w-3.5 h-3.5" />
-          <span>Live Metrics</span>
-        </button>
-
-        {/* Tab 4: Helper Profiles */}
-        <button
-          onClick={() => setActiveTab('helpers')}
-          className={`pb-2.5 px-3.5 text-xs font-black border-b-2 transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${
-            activeTab === 'helpers' 
-              ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' 
-              : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
-          }`}
-        >
-          <Users className="w-3.5 h-3.5" />
-          <span>Helpers ({helpers.length})</span>
-        </button>
-
-        {/* Tab 5: Official LocoHelp Logo Download Studio */}
-        <button
-          onClick={() => setActiveTab('logo_download')}
-          className={`pb-2.5 px-3.5 text-xs font-black border-b-2 transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${
-            activeTab === 'logo_download' 
-              ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/30' 
-              : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
-          }`}
-        >
-          <Download className="w-3.5 h-3.5 text-amber-500" />
-          <span>Logo Download Studio</span>
-          <span className="bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-200 px-2 py-0.2 rounded-full text-[10px] font-black">
-            SVG / PNG
-          </span>
-        </button>
-      </div>
-
-      {/* Main Tab Content Body */}
-      <div className="flex-1 overflow-y-auto p-3.5 sm:p-5 space-y-4">
-        
-        {/* ========================================================= */}
-        {/* TAB: IDENTITY & DOCUMENT VERIFICATION APPROVALS QUEUE     */}
-        {/* ========================================================= */}
-        {activeTab === 'verifications' && (
-          <div className="space-y-4">
-            {/* Top Overview & Metrics Banner */}
-            <div className="bg-white dark:bg-slate-800 p-4 sm:p-5 rounded-3xl border border-[#DFDBCF] dark:border-slate-700 shadow-xs space-y-3">
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                <div className="space-y-1">
+        {/* Inline Expandable Change Admin Password Section right in the Top Bar */}
+        <AnimatePresence>
+          {isChangePasswordOpen && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="max-w-7xl mx-auto overflow-hidden"
+            >
+              <form
+                onSubmit={handleChangePasswordSubmit}
+                className="mt-4 p-4 sm:p-5 rounded-2xl bg-slate-900/95 border border-amber-500/40 shadow-xl"
+              >
+                <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-xs">
-                      <ShieldCheck className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white leading-tight">
-                        Identity Verification & Document Approval Queue
-                      </h3>
-                      <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-900">
-                        🔒 Strict Privacy: Visible to Admin Only
-                      </span>
-                    </div>
+                    <KeyRound className="w-4 h-4 text-amber-400" />
+                    <h3 className="text-sm font-black text-white">
+                      Change Admin Password (पासवर्ड बदलें)
+                    </h3>
                   </div>
-                  <p className="text-xs text-slate-600 dark:text-slate-300 max-w-2xl leading-relaxed mt-1">
-                    Review and verify uploaded Government ID documents (Aadhaar, PAN, Voter ID, Driving License, Trade License). 
-                    Every document is automatically embossed with an indelible security watermark ("For LocoHelp Verification Only") to prevent misuse.
-                    Once approved, profiles and businesses immediately receive the official green "Verified" badge.
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-2 self-stretch sm:self-auto">
                   <button
-                    onClick={loadAllData}
-                    disabled={isRefreshing}
-                    className="flex-1 sm:flex-none px-3.5 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                    type="button"
+                    onClick={() => setIsChangePasswordOpen(false)}
+                    className="text-slate-400 hover:text-white cursor-pointer"
                   >
-                    <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
-                    <span>Refresh Queue</span>
+                    <X className="w-4 h-4" />
                   </button>
                 </div>
+
+                {changePasswordError && (
+                  <div className="mb-3 p-2.5 rounded-xl bg-red-500/15 border border-red-500/30 text-red-300 text-xs font-bold">
+                    {changePasswordError}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                      Current Password *
+                    </label>
+                    <input
+                      type="password"
+                      value={changeOldPassword}
+                      onChange={(e) => setChangeOldPassword(e.target.value)}
+                      placeholder="Enter current password"
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                      New Password *
+                    </label>
+                    <input
+                      type="password"
+                      value={changeNewPassword}
+                      onChange={(e) => setChangeNewPassword(e.target.value)}
+                      placeholder="Min 6 characters"
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                      Confirm New Password *
+                    </label>
+                    <input
+                      type="password"
+                      value={changeConfirmPassword}
+                      onChange={(e) => setChangeConfirmPassword(e.target.value)}
+                      placeholder="Confirm new password"
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={isUpdatingPassword}
+                    className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-black text-xs shadow-md transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    {isUpdatingPassword ? 'Updating...' : 'Save New Password'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </header>
+
+      {/* ========================================== */}
+      {/* MAIN BODY                                  */}
+      {/* ========================================== */}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6">
+        {/* ============================================================ */}
+        {/* VIEW 1: ADMIN HOME DASHBOARD WITH CLICKABLE SMALL BANNERS    */}
+        {/* ============================================================ */}
+        {activeModule === 'home' && (
+          <div className="space-y-6">
+            {/* Welcome & Quick Overview Banner */}
+            <div className="rounded-3xl bg-gradient-to-r from-slate-900 via-indigo-950/80 to-slate-900 border border-slate-800 p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider text-orange-400 bg-orange-500/10 border border-orange-500/25 px-3 py-1 rounded-full mb-2">
+                  <LayoutGrid className="w-3.5 h-3.5" /> Admin Home Dashboard
+                </span>
+                <h2 className="text-xl sm:text-2xl font-black text-white">
+                  Select a Category Banner to Manage
+                </h2>
+                <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
+                  Click any module banner below to open its dedicated management page (View, Search, Approve, Reject, Edit, or Delete entries).
+                </p>
               </div>
 
-              {/* Status Counters Strip */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-100 dark:border-slate-700/60">
-                <div 
-                  onClick={() => setVerifFilterStatus('pending')}
-                  className={`p-3 rounded-2xl border transition-all cursor-pointer ${
-                    verifFilterStatus === 'pending'
-                      ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-300 ring-2 ring-amber-500'
-                      : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700/60 hover:bg-slate-100'
-                  }`}
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => setIsChangePasswordOpen(true)}
+                  className="px-4 py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-300 text-xs font-black flex items-center gap-2 cursor-pointer transition-all"
                 >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-amber-900 dark:text-amber-200">Pending Review</span>
-                    <Clock className="w-4 h-4 text-amber-600" />
-                  </div>
-                  <div className="text-xl font-black text-amber-900 dark:text-amber-100 mt-1">
-                    {verificationsList.filter(v => v.status === 'pending').length}
-                  </div>
-                  <p className="text-[10px] text-amber-700 dark:text-amber-400 font-medium">Requires verification</p>
-                </div>
-
-                <div 
-                  onClick={() => setVerifFilterStatus('approved')}
-                  className={`p-3 rounded-2xl border transition-all cursor-pointer ${
-                    verifFilterStatus === 'approved'
-                      ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 ring-2 ring-emerald-500'
-                      : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700/60 hover:bg-slate-100'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-emerald-900 dark:text-emerald-200">Verified & Approved</span>
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                  </div>
-                  <div className="text-xl font-black text-emerald-900 dark:text-emerald-100 mt-1">
-                    {verificationsList.filter(v => v.status === 'approved').length}
-                  </div>
-                  <p className="text-[10px] text-emerald-700 dark:text-emerald-400 font-medium">Badge active</p>
-                </div>
-
-                <div 
-                  onClick={() => setVerifFilterStatus('rejected')}
-                  className={`p-3 rounded-2xl border transition-all cursor-pointer ${
-                    verifFilterStatus === 'rejected'
-                      ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 ring-2 ring-rose-500'
-                      : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700/60 hover:bg-slate-100'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-rose-900 dark:text-rose-200">Rejected</span>
-                    <X className="w-4 h-4 text-rose-600" />
-                  </div>
-                  <div className="text-xl font-black text-rose-900 dark:text-rose-100 mt-1">
-                    {verificationsList.filter(v => v.status === 'rejected').length}
-                  </div>
-                  <p className="text-[10px] text-rose-700 dark:text-rose-400 font-medium">Needs re-upload</p>
-                </div>
-
-                <div 
-                  onClick={() => setVerifFilterStatus('all')}
-                  className={`p-3 rounded-2xl border transition-all cursor-pointer ${
-                    verifFilterStatus === 'all'
-                      ? 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-300 ring-2 ring-indigo-500'
-                      : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700/60 hover:bg-slate-100'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-indigo-900 dark:text-indigo-200">Total Requests</span>
-                    <FileText className="w-4 h-4 text-indigo-600" />
-                  </div>
-                  <div className="text-xl font-black text-indigo-900 dark:text-indigo-100 mt-1">
-                    {verificationsList.length}
-                  </div>
-                  <p className="text-[10px] text-indigo-700 dark:text-indigo-400 font-medium">All submissions</p>
-                </div>
+                  <KeyRound className="w-4 h-4 text-amber-400" />
+                  <span>Change Password</span>
+                </button>
               </div>
             </div>
 
-            {/* Filter Pills */}
-            <div className="flex flex-wrap items-center justify-between gap-2 bg-white dark:bg-slate-800 p-3 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs">
-              <div className="flex items-center gap-1.5 overflow-x-auto">
-                <span className="text-xs font-bold text-slate-500 mr-1">Status:</span>
-                {(['pending', 'approved', 'rejected', 'all'] as const).map(st => (
-                  <button
-                    key={st}
-                    onClick={() => setVerifFilterStatus(st)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer capitalize ${
-                      verifFilterStatus === st
-                        ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xs'
-                        : 'bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
-                    }`}
-                  >
-                    {st === 'pending' ? '⏳ Pending' : st === 'approved' ? '✅ Verified' : st === 'rejected' ? '❌ Rejected' : 'All'}
-                  </button>
-                ))}
-              </div>
+            {/* 2. GRID OF SMALL CLICKABLE ADMIN BANNERS (CARDS) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {ADMIN_MODULES.map((mod, idx) => (
+                <motion.button
+                  key={mod.id}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: idx * 0.04 }}
+                  onClick={() => openModule(mod.id)}
+                  className={`text-left group relative overflow-hidden rounded-2xl bg-[#111827] hover:bg-[#162033] border ${mod.border} p-4 sm:p-5 transition-all duration-200 shadow-lg hover:shadow-xl cursor-pointer flex flex-col justify-between`}
+                >
+                  {/* Top Row: Icon + Counts */}
+                  <div>
+                    <div className="flex items-start justify-between gap-3 mb-3">
+                      <div className={`w-11 h-11 rounded-2xl bg-gradient-to-br ${mod.gradient} flex items-center justify-center shadow-md shrink-0 group-hover:scale-105 transition-transform`}>
+                        {mod.icon}
+                      </div>
 
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs font-bold text-slate-500 mr-1">Type:</span>
-                {(['all', 'user_profile', 'business'] as const).map(tp => (
-                  <button
-                    key={tp}
-                    onClick={() => setVerifFilterType(tp)}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                      verifFilterType === tp
-                        ? 'bg-indigo-600 text-white shadow-xs'
-                        : 'bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300'
-                    }`}
-                  >
-                    {tp === 'all' ? 'All Types' : tp === 'user_profile' ? '👤 Users' : '🏬 Businesses'}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Verifications Requests Cards List */}
-            {(() => {
-              const filtered = verificationsList.filter(item => {
-                if (verifFilterStatus !== 'all' && item.status !== verifFilterStatus) return false;
-                if (verifFilterType !== 'all' && item.entityType !== verifFilterType) return false;
-                return true;
-              });
-
-              if (filtered.length === 0) {
-                return (
-                  <div className="bg-white dark:bg-slate-800 p-8 rounded-3xl border border-dashed border-slate-200 dark:border-slate-700 text-center space-y-3">
-                    <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-700 text-slate-400 mx-auto flex items-center justify-center">
-                      <ShieldCheck className="w-6 h-6" />
+                      <div className="flex flex-wrap items-center justify-end gap-1.5">
+                        <span className="px-2.5 py-1 rounded-xl bg-slate-800/90 border border-slate-700 text-[11px] font-black text-slate-200">
+                          Total: {mod.totalCount}
+                        </span>
+                        <span
+                          className={`px-2.5 py-1 rounded-xl text-[11px] font-black border ${
+                            mod.pendingCount > 0
+                              ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 animate-pulse'
+                              : 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                          }`}
+                        >
+                          Pending: {mod.pendingCount}
+                        </span>
+                      </div>
                     </div>
-                    <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200">
-                      No verification requests found in this view
-                    </h4>
-                    <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                      {verifFilterStatus === 'pending' 
-                        ? 'All identity submissions have been reviewed! When new users or businesses upload an ID, they will appear here.'
-                        : 'No records matching the selected status filter.'}
+
+                    {/* Module Titles */}
+                    <h3 className="text-base font-black text-white group-hover:text-orange-300 transition-colors leading-snug">
+                      {mod.title}
+                    </h3>
+                    <p className="text-xs font-bold text-slate-400 mt-0.5">
+                      {mod.titleHi}
+                    </p>
+                    <p className="text-[11px] text-slate-400/90 mt-2 line-clamp-2 leading-relaxed">
+                      {mod.subtitle}
                     </p>
                   </div>
-                );
-              }
 
-              return (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                  {filtered.map(item => (
-                    <div
-                      key={item.id}
-                      className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700/80 p-4 shadow-xs space-y-3 relative overflow-hidden"
-                    >
-                      {/* Top Header Strip */}
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="space-y-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-md uppercase ${
-                              item.entityType === 'business'
-                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-200'
-                                : 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950/80 dark:text-indigo-200'
-                            }`}>
-                              {item.entityType === 'business' ? '🏬 Business Listing' : '👤 User Profile'}
-                            </span>
-                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-1 ${
-                              item.status === 'approved'
-                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                                : item.status === 'rejected'
-                                ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
-                                : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                            }`}>
-                              {item.status === 'approved' ? (
-                                <><CheckCircle2 className="w-3 h-3" /> Verified</>
-                              ) : item.status === 'rejected' ? (
-                                <><X className="w-3 h-3" /> Rejected</>
-                              ) : (
-                                <><Clock className="w-3 h-3" /> Pending Review</>
-                              )}
-                            </span>
-                          </div>
+                  {/* Bottom Action Bar */}
+                  <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs font-black text-orange-400 group-hover:text-orange-300">
+                    <span>Open Dedicated View</span>
+                    <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                  </div>
+                </motion.button>
+              ))}
 
-                          <h4 className="text-sm font-black text-slate-900 dark:text-white truncate">
-                            {item.userName || 'Community User'}
-                          </h4>
-                          <p className="text-xs text-slate-600 dark:text-slate-400 font-medium">
-                            {item.title || 'Government Identity Document'}
-                          </p>
-                        </div>
-
-                        {/* ID Document Thumbnail Preview Trigger */}
-                        {item.idDocumentWatermarked && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedVerifForDoc(item);
-                              setAdminReviewNote(item.adminNotes || '');
-                            }}
-                            className="shrink-0 relative group rounded-xl overflow-hidden border-2 border-emerald-500/80 shadow-xs cursor-pointer"
-                            title="Click to inspect watermarked document"
-                          >
-                            <img
-                              src={item.idDocumentWatermarked}
-                              alt="ID Thumbnail"
-                              className="w-16 h-12 object-cover bg-slate-900 group-hover:scale-105 transition-transform"
-                            />
-                            <div className="absolute inset-0 bg-slate-950/40 group-hover:bg-slate-950/20 flex items-center justify-center transition-colors">
-                              <Eye className="w-4 h-4 text-white drop-shadow-md" />
-                            </div>
-                          </button>
-                        )}
-                      </div>
-
-                      {/* Contact & Details Grid */}
-                      <div className="bg-slate-50 dark:bg-slate-900/50 rounded-2xl p-2.5 text-xs space-y-1.5 border border-slate-100 dark:border-slate-800">
-                        {item.userPhone && (
-                          <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
-                            <span className="text-slate-400 font-medium flex items-center gap-1">
-                              <Phone className="w-3 h-3" /> Phone:
-                            </span>
-                            <a href={`tel:${item.userPhone}`} className="font-bold text-indigo-600 dark:text-indigo-400 hover:underline">
-                              +91 {item.userPhone}
-                            </a>
-                          </div>
-                        )}
-                        {item.userEmail && (
-                          <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
-                            <span className="text-slate-400 font-medium flex items-center gap-1">
-                              <Mail className="w-3 h-3" /> Email:
-                            </span>
-                            <span className="font-semibold truncate max-w-[180px]">{item.userEmail}</span>
-                          </div>
-                        )}
-                        <div className="flex items-center justify-between text-slate-500 text-[11px]">
-                          <span>Submitted:</span>
-                          <span>{new Date(item.createdAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</span>
-                        </div>
-                      </div>
-
-                      {/* Watermark Security Notice */}
-                      <div className="flex items-center gap-1.5 text-[10px] text-emerald-700 dark:text-emerald-400 font-bold bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-1 rounded-xl border border-emerald-200/80 dark:border-emerald-900/60">
-                        <Lock className="w-3 h-3 text-emerald-600 shrink-0" />
-                        <span className="truncate">Auto-Watermarked ("For LocoHelp Verification Only") • Strictly Private</span>
-                      </div>
-
-                      {/* Action Buttons */}
-                      <div className="flex items-center gap-2 pt-1 border-t border-slate-100 dark:border-slate-700/60">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedVerifForDoc(item);
-                            setAdminReviewNote(item.adminNotes || '');
-                          }}
-                          className="flex-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-white text-xs font-bold py-2 px-3 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                        >
-                          <Eye className="w-3.5 h-3.5 text-indigo-500" />
-                          <span>Inspect ID Doc</span>
-                        </button>
-
-                        {item.status !== 'approved' && (
-                          <button
-                            type="button"
-                            disabled={isUpdatingVerif === item.id}
-                            onClick={() => handleUpdateVerification(item.id, 'approved')}
-                            className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold py-2 px-3.5 rounded-xl shadow-xs transition-all flex items-center justify-center gap-1 cursor-pointer disabled:opacity-60"
-                          >
-                            <ShieldCheck className="w-3.5 h-3.5" />
-                            <span>Approve</span>
-                          </button>
-                        )}
-
-                        {item.status !== 'rejected' && (
-                          <button
-                            type="button"
-                            disabled={isUpdatingVerif === item.id}
-                            onClick={() => handleUpdateVerification(item.id, 'rejected')}
-                            className="bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 text-xs font-bold py-2 px-3 rounded-xl transition-all flex items-center justify-center gap-1 cursor-pointer disabled:opacity-60"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                            <span>Reject</span>
-                          </button>
-                        )}
-                      </div>
+              {/* Bonus Card: Sponsored Ad Banners */}
+              <motion.button
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.3 }}
+                onClick={() => openModule('ads')}
+                className="text-left group relative overflow-hidden rounded-2xl bg-[#111827] hover:bg-[#162033] border border-cyan-500/30 hover:border-cyan-400 p-4 sm:p-5 transition-all duration-200 shadow-lg hover:shadow-xl cursor-pointer flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-cyan-600 to-blue-600 flex items-center justify-center shadow-md shrink-0 group-hover:scale-105 transition-transform">
+                      <Megaphone className="w-5 h-5 text-white" />
                     </div>
+                    <span className="px-2.5 py-1 rounded-xl bg-slate-800/90 border border-slate-700 text-[11px] font-black text-slate-200">
+                      Active Ads: {ads.length}
+                    </span>
+                  </div>
+                  <h3 className="text-base font-black text-white group-hover:text-cyan-300 transition-colors leading-snug">
+                    Sponsored Ad Banners
+                  </h3>
+                  <p className="text-xs font-bold text-slate-400 mt-0.5">
+                    होमपेज विज्ञापन और स्पॉन्सर्ड बैनर
+                  </p>
+                  <p className="text-[11px] text-slate-400/90 mt-2 line-clamp-2 leading-relaxed">
+                    Create, preview, and remove promotional homepage ad banners.
+                  </p>
+                </div>
+                <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs font-black text-cyan-400 group-hover:text-cyan-300">
+                  <span>Manage Ad Banners</span>
+                  <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                </div>
+              </motion.button>
+            </div>
+          </div>
+        )}
+
+        {/* ============================================================ */}
+        {/* VIEW 2: DEDICATED MANAGEMENT SUB-PAGE FOR SELECTED MODULE    */}
+        {/* ============================================================ */}
+        {activeModule !== 'home' && activeModule !== 'ads' && currentModuleMeta && (
+          <div className="space-y-5">
+            {/* Top Back Button + Module Header */}
+            <div className="rounded-3xl bg-[#111827] border border-slate-800 p-5 sm:p-6">
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                <button
+                  onClick={() => openModule('home')}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs sm:text-sm font-black border border-slate-700 transition-all cursor-pointer"
+                >
+                  <ArrowLeft className="w-4 h-4 text-orange-400" />
+                  <span>← Back to Admin Dashboard</span>
+                </button>
+
+                <div className="flex items-center gap-2">
+                  <span className="px-3 py-1 rounded-xl bg-slate-800 border border-slate-700 text-xs font-black text-slate-200">
+                    Total: {currentModuleMeta.totalCount}
+                  </span>
+                  <span className="px-3 py-1 rounded-xl bg-amber-500/20 border border-amber-500/40 text-xs font-black text-amber-300">
+                    Pending Approval: {currentModuleMeta.pendingCount}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3.5">
+                <div className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${currentModuleMeta.gradient} flex items-center justify-center shadow-lg shrink-0`}>
+                  {currentModuleMeta.icon}
+                </div>
+                <div>
+                  <h2 className="text-xl sm:text-2xl font-black text-white">
+                    {currentModuleMeta.title}
+                  </h2>
+                  <p className="text-xs sm:text-sm text-slate-400 font-medium">
+                    {currentModuleMeta.titleHi} — {currentModuleMeta.subtitle}
+                  </p>
+                </div>
+              </div>
+
+              {/* Search & Status Filter Bar */}
+              <div className="mt-5 pt-4 border-t border-slate-800/90 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder={`Search in ${currentModuleMeta.title} (Name, Phone, Area, Category)...`}
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-orange-500"
+                  />
+                </div>
+
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+                  {(['all', 'pending', 'approved', 'rejected'] as const).map(st => (
+                    <button
+                      key={st}
+                      onClick={() => setStatusFilter(st)}
+                      className={`px-3 py-2 rounded-xl text-xs font-black capitalize transition-all cursor-pointer shrink-0 ${
+                        statusFilter === st
+                          ? 'bg-orange-500 text-white shadow-md shadow-orange-500/20'
+                          : 'bg-slate-800/80 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {st === 'all' ? 'All Entries' : st}
+                    </button>
                   ))}
                 </div>
-              );
-            })()}
+              </div>
+            </div>
 
-            {/* SECURE ADMIN-ONLY DOCUMENT PREVIEW MODAL */}
-            {selectedVerifForDoc && (
-              <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/85 backdrop-blur-sm overflow-y-auto">
-                <div className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col my-auto max-h-[92vh]">
-                  {/* Modal Header */}
-                  <div className="px-5 py-3.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-800/60">
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-xs">
-                        <Lock className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <h4 className="font-extrabold text-sm text-slate-900 dark:text-white">
-                          Confidential ID Inspection ({selectedVerifForDoc.userName})
-                        </h4>
-                        <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">
-                          Admin-Only Protected View &bull; Watermarked for Safety
-                        </p>
-                      </div>
-                    </div>
-
-                    <button
-                      onClick={() => setSelectedVerifForDoc(null)}
-                      className="p-1.5 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
-                    >
-                      <X className="w-5 h-5" />
-                    </button>
-                  </div>
-
-                  {/* Watermarked Document Full Preview */}
-                  <div className="p-4 overflow-y-auto space-y-3">
-                    <div className="bg-slate-950 rounded-2xl overflow-hidden border border-slate-800 flex items-center justify-center min-h-[260px] max-h-[55vh] shadow-inner">
-                      {selectedVerifForDoc.idDocumentWatermarked ? (
-                        <img
-                          src={selectedVerifForDoc.idDocumentWatermarked}
-                          alt="Confidential Watermarked ID Document"
-                          className="max-h-[55vh] w-auto object-contain mx-auto"
-                        />
-                      ) : (
-                        <p className="text-xs text-slate-400 font-bold p-8">No document image attached</p>
-                      )}
-                    </div>
-
-                    {/* Metadata & Admin Note */}
-                    <div className="bg-slate-50 dark:bg-slate-800/50 rounded-2xl p-3 border border-slate-200 dark:border-slate-700 space-y-2 text-xs">
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <span className="text-slate-400 block text-[10px]">Entity:</span>
-                          <span className="font-bold text-slate-800 dark:text-slate-200">
-                            {selectedVerifForDoc.entityType === 'business' ? 'Business Listing' : 'User Profile'}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-slate-400 block text-[10px]">Document Title:</span>
-                          <span className="font-bold text-slate-800 dark:text-slate-200">
-                            {selectedVerifForDoc.title}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-slate-400 block text-[10px]">Phone:</span>
-                          <span className="font-bold font-mono text-slate-800 dark:text-slate-200">
-                            +91 {selectedVerifForDoc.userPhone || 'N/A'}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-slate-400 block text-[10px]">Current Status:</span>
-                          <span className="font-bold capitalize text-slate-800 dark:text-slate-200">
-                            {selectedVerifForDoc.status}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="pt-1">
-                        <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
-                          Admin Review Remarks (Optional):
-                        </label>
-                        <input
-                          type="text"
-                          value={adminReviewNote}
-                          onChange={(e) => setAdminReviewNote(e.target.value)}
-                          placeholder="e.g. Valid Aadhaar Card, verified with address"
-                          className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-medium text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-emerald-500"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Modal Footer Actions */}
-                  <div className="px-5 py-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3 bg-slate-50 dark:bg-slate-800/40">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedVerifForDoc(null)}
-                      className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                    >
-                      Close
-                    </button>
-
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        disabled={isUpdatingVerif === selectedVerifForDoc.id}
-                        onClick={() => handleUpdateVerification(selectedVerifForDoc.id, 'rejected', adminReviewNote)}
-                        className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5 disabled:opacity-60"
-                      >
-                        <X className="w-4 h-4" />
-                        <span>Reject ID</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        disabled={isUpdatingVerif === selectedVerifForDoc.id}
-                        onClick={() => handleUpdateVerification(selectedVerifForDoc.id, 'approved', adminReviewNote)}
-                        className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black transition-all shadow-md cursor-pointer flex items-center gap-1.5 disabled:opacity-60"
-                      >
-                        <ShieldCheck className="w-4 h-4" />
-                        <span>Approve & Grant Verified Badge</span>
-                      </button>
-                    </div>
+            {/* Extra Platform Categories Manager inside 'feedback_categories' */}
+            {activeModule === 'feedback_categories' && (
+              <div className="rounded-3xl bg-[#111827] border border-slate-800 p-5">
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                  <div>
+                    <h3 className="text-sm sm:text-base font-black text-white flex items-center gap-2">
+                      <LayoutGrid className="w-4 h-4 text-pink-400" />
+                      Platform Categories ({CATEGORIES.length + customCategories.length} Active)
+                    </h3>
+                    <p className="text-xs text-slate-400">
+                      View core LocoHelp categories or add a new custom service category.
+                    </p>
                   </div>
                 </div>
+
+                {/* Add Category Form */}
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!newCatName.trim()) return;
+                    const newCat = {
+                      id: 'custom_' + Date.now(),
+                      name: newCatName.trim(),
+                      nameHi: newCatNameHi.trim() || newCatName.trim(),
+                      icon: newCatIcon.trim() || '🛠️'
+                    };
+                    const updated = [...customCategories, newCat];
+                    setCustomCategories(updated);
+                    try {
+                      localStorage.setItem('locohelp_custom_categories', JSON.stringify(updated));
+                    } catch {}
+                    setNewCatName('');
+                    setNewCatNameHi('');
+                    showToast('✅ Category added!');
+                  }}
+                  className="grid grid-cols-1 sm:grid-cols-4 gap-2.5 mb-4"
+                >
+                  <input
+                    type="text"
+                    value={newCatName}
+                    onChange={(e) => setNewCatName(e.target.value)}
+                    placeholder="Category Name (English)"
+                    className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white"
+                  />
+                  <input
+                    type="text"
+                    value={newCatNameHi}
+                    onChange={(e) => setNewCatNameHi(e.target.value)}
+                    placeholder="Category Name (Hindi)"
+                    className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white"
+                  />
+                  <input
+                    type="text"
+                    value={newCatIcon}
+                    onChange={(e) => setNewCatIcon(e.target.value)}
+                    placeholder="Emoji Icon (e.g. 🛠️)"
+                    className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white"
+                  />
+                  <button
+                    type="submit"
+                    className="px-4 py-2 rounded-xl bg-pink-600 hover:bg-pink-700 text-white text-xs font-black cursor-pointer"
+                  >
+                    + Add Category
+                  </button>
+                </form>
+
+                <div className="flex flex-wrap gap-2 max-h-36 overflow-y-auto pr-1">
+                  {CATEGORIES.map(c => (
+                    <span
+                      key={c.id}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-[11px] text-slate-300 font-semibold"
+                    >
+                      <span>{c.icon}</span>
+                      <span>{c.name}</span>
+                    </span>
+                  ))}
+                  {customCategories.map(c => (
+                    <span
+                      key={c.id}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-pink-500/15 border border-pink-500/30 text-[11px] text-pink-300 font-bold"
+                    >
+                      <span>{c.icon}</span>
+                      <span>{c.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const updated = customCategories.filter(x => x.id !== c.id);
+                          setCustomCategories(updated);
+                          try {
+                            localStorage.setItem('locohelp_custom_categories', JSON.stringify(updated));
+                          } catch {}
+                        }}
+                        className="ml-1 text-pink-400 hover:text-white cursor-pointer"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Entries List */}
+            {filteredModuleItems.length === 0 ? (
+              <div className="rounded-3xl bg-[#111827] border border-slate-800 p-12 text-center">
+                <p className="text-base font-bold text-slate-300">No entries found in this view</p>
+                <p className="text-xs text-slate-500 mt-1">
+                  Try clearing your search filter or switching the status tab above.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3.5">
+                {filteredModuleItems.map((item) => {
+                  const status = getNormalizedStatus(item, activeModule);
+                  const idDoc = getItemIdDoc(item);
+                  const isBusy = actionLoadingId === item.id;
+
+                  // Extract display fields cleanly across modules
+                  const title =
+                    item.name ||
+                    item.fullName ||
+                    item.companyOrShopName ||
+                    item.userName ||
+                    item.user_name ||
+                    item.reporterName ||
+                    item.reason ||
+                    'Entry #' + String(item.id).slice(-5);
+
+                  const subtitle =
+                    item.jobRole ||
+                    item.category ||
+                    item.headline ||
+                    item.service ||
+                    item.targetType ||
+                    'General';
+
+                  const phone = item.phone || item.whatsapp || item.userPhone || item.contactPhone || '';
+                  const email = item.email || item.userEmail || '';
+                  const area = item.area || item.jobLocation || item.address || item.locationName || '';
+                  const desc =
+                    item.description ||
+                    item.jobDescription ||
+                    item.skills ||
+                    item.bio ||
+                    item.details ||
+                    item.experience ||
+                    '';
+                  const extraBadge =
+                    item.salaryOffer ||
+                    item.expectedSalary ||
+                    item.priceRange ||
+                    item.timings ||
+                    item.urgency ||
+                    '';
+
+                  return (
+                    <div
+                      key={item.id}
+                      className="rounded-2xl bg-[#111827] border border-slate-800/90 hover:border-slate-700 p-4 sm:p-5 transition-all flex flex-col lg:flex-row lg:items-center justify-between gap-4"
+                    >
+                      {/* Left Content */}
+                      <div className="space-y-2 flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span
+                            className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border ${
+                              status === 'approved'
+                                ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                                : status === 'rejected'
+                                ? 'bg-red-500/15 text-red-400 border-red-500/30'
+                                : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                            }`}
+                          >
+                            {status === 'approved' ? '✓ Approved' : status === 'rejected' ? '✕ Rejected' : '⏳ Pending Approval'}
+                          </span>
+
+                          <span className="px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 text-[11px] font-bold">
+                            {subtitle}
+                          </span>
+
+                          {extraBadge && (
+                            <span className="px-2.5 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 text-[11px] font-bold">
+                              {extraBadge}
+                            </span>
+                          )}
+
+                          {item.linkedBusinessId && (
+                            <span className="px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[10px] font-black">
+                              🔗 Linked Registered Business
+                            </span>
+                          )}
+
+                          {idDoc && (
+                            <span className="px-2.5 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 text-[10px] font-black">
+                              🪪 ID Document Attached
+                            </span>
+                          )}
+                        </div>
+
+                        <h3 className="text-base sm:text-lg font-black text-white break-words">
+                          {title}
+                        </h3>
+
+                        {desc && (
+                          <p className="text-xs sm:text-sm text-slate-300 leading-relaxed break-words">
+                            {desc}
+                          </p>
+                        )}
+
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-400 pt-1">
+                          {phone && (
+                            <span className="inline-flex items-center gap-1 text-slate-300 font-semibold">
+                              <Phone className="w-3.5 h-3.5 text-emerald-400" /> {phone}
+                            </span>
+                          )}
+                          {email && (
+                            <span className="inline-flex items-center gap-1 text-slate-300">
+                              <Mail className="w-3.5 h-3.5 text-sky-400" /> {email}
+                            </span>
+                          )}
+                          {area && (
+                            <span className="inline-flex items-center gap-1">
+                              <MapPin className="w-3.5 h-3.5 text-orange-400" /> {area}
+                            </span>
+                          )}
+                          {(item.createdAt || item.submittedAt || item.timestamp) && (
+                            <span className="inline-flex items-center gap-1 text-slate-500">
+                              <Clock className="w-3.5 h-3.5" />
+                              {new Date(item.createdAt || item.submittedAt || item.timestamp).toLocaleString()}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Right Actions: View Details, Approve, Reject, Edit, Delete */}
+                      <div className="flex flex-wrap items-center gap-2 shrink-0 pt-3 lg:pt-0 border-t lg:border-t-0 border-slate-800/80">
+                        <button
+                          onClick={() => setViewingItem({ module: activeModule, data: { ...item, idDocumentWatermarked: idDoc } })}
+                          className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold flex items-center gap-1.5 border border-slate-700 cursor-pointer"
+                          title="View All Details & Documents"
+                        >
+                          <Eye className="w-3.5 h-3.5 text-cyan-400" />
+                          <span>View</span>
+                        </button>
+
+                        <button
+                          onClick={() => handleStatusAction(activeModule, item, 'approved')}
+                          disabled={isBusy}
+                          className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black flex items-center gap-1 shadow-sm cursor-pointer disabled:opacity-50"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Approve</span>
+                        </button>
+
+                        <button
+                          onClick={() => handleStatusAction(activeModule, item, 'rejected')}
+                          disabled={isBusy}
+                          className="px-3 py-2 rounded-xl bg-amber-600/20 hover:bg-amber-600/35 text-amber-300 border border-amber-500/30 text-xs font-black flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                          <span>Reject</span>
+                        </button>
+
+                        <button
+                          onClick={() => openEditModal(activeModule, item)}
+                          disabled={isBusy}
+                          className="px-3 py-2 rounded-xl bg-blue-600/20 hover:bg-blue-600/35 text-blue-300 border border-blue-500/30 text-xs font-black flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                          <span>Edit</span>
+                        </button>
+
+                        <button
+                          onClick={() => handleDeleteAction(activeModule, item)}
+                          disabled={isBusy}
+                          className="px-3 py-2 rounded-xl bg-red-600/20 hover:bg-red-600/35 text-red-300 border border-red-500/30 text-xs font-black flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Delete</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
         )}
 
-        {/* ========================================================= */}
-        {/* TAB 0: JOB PORTAL APPROVALS (SEEKER & EMPLOYER VACANCIES) */}
-        {/* ========================================================= */}
-        {activeTab === 'job_approvals' && (
-          <div className="space-y-4">
-            {/* Top Overview & Metrics Banner */}
-            <div className="bg-white dark:bg-slate-800 p-4 sm:p-5 rounded-3xl border border-[#DFDBCF] dark:border-slate-700 shadow-xs space-y-3">
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-xs">
-                      <Briefcase className="w-4 h-4" />
-                    </div>
-                    <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white">
-                      Job Portal Submissions & Approvals
-                    </h3>
-                  </div>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 max-w-2xl leading-relaxed">
-                    Review and verify Job Seeker candidate profiles and Employer job vacancies. Once approved, submissions instantly become active and live on the main website for the neighborhood to see and hire.
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-2 self-stretch sm:self-auto">
-                  <button
-                    onClick={loadAllData}
-                    disabled={isRefreshing}
-                    className="flex-1 sm:flex-none px-3.5 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
-                    <span>Refresh</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Status Counters Strip */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-100 dark:border-slate-700/60">
-                <div 
-                  onClick={() => setJobFilterStatus('pending')}
-                  className={`p-3 rounded-2xl border transition-all cursor-pointer ${
-                    jobFilterStatus === 'pending'
-                      ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-700'
-                      : 'bg-slate-50/60 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700'
-                  }`}
+        {/* ============================================================ */}
+        {/* BONUS VIEW: SPONSORED AD BANNERS                             */}
+        {/* ============================================================ */}
+        {activeModule === 'ads' && (
+          <div className="space-y-5">
+            <div className="rounded-3xl bg-[#111827] border border-slate-800 p-5 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => openModule('home')}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-black border border-slate-700 cursor-pointer"
                 >
-                  <span className="text-[10px] font-black uppercase text-amber-700 dark:text-amber-300 block">
-                    ⏳ Pending Approval
-                  </span>
-                  <div className="text-xl sm:text-2xl font-black text-amber-700 dark:text-amber-300 mt-0.5">
-                    {jobPortalItems.filter(i => (i.status || 'pending') === 'pending').length}
-                  </div>
-                  <span className="text-[10px] text-slate-400">Requires verification</span>
-                </div>
-
-                <div 
-                  onClick={() => setJobFilterStatus('approved')}
-                  className={`p-3 rounded-2xl border transition-all cursor-pointer ${
-                    jobFilterStatus === 'approved'
-                      ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-700'
-                      : 'bg-slate-50/60 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700'
-                  }`}
-                >
-                  <span className="text-[10px] font-black uppercase text-emerald-700 dark:text-emerald-300 block">
-                    ✅ Live on Website
-                  </span>
-                  <div className="text-xl sm:text-2xl font-black text-emerald-700 dark:text-emerald-300 mt-0.5">
-                    {jobPortalItems.filter(i => i.status === 'approved').length}
-                  </div>
-                  <span className="text-[10px] text-slate-400">Active & visible</span>
-                </div>
-
-                <div 
-                  onClick={() => setJobFilterStatus('rejected')}
-                  className={`p-3 rounded-2xl border transition-all cursor-pointer ${
-                    jobFilterStatus === 'rejected'
-                      ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 dark:border-rose-700'
-                      : 'bg-slate-50/60 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700'
-                  }`}
-                >
-                  <span className="text-[10px] font-black uppercase text-rose-700 dark:text-rose-300 block">
-                    ❌ Rejected
-                  </span>
-                  <div className="text-xl sm:text-2xl font-black text-rose-700 dark:text-rose-300 mt-0.5">
-                    {jobPortalItems.filter(i => i.status === 'rejected').length}
-                  </div>
-                  <span className="text-[10px] text-slate-400">Declined entries</span>
-                </div>
-
-                <div 
-                  onClick={() => setJobFilterStatus('all')}
-                  className={`p-3 rounded-2xl border transition-all cursor-pointer ${
-                    jobFilterStatus === 'all'
-                      ? 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-300 dark:border-indigo-700'
-                      : 'bg-slate-50/60 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700'
-                  }`}
-                >
-                  <span className="text-[10px] font-black uppercase text-indigo-700 dark:text-indigo-300 block">
-                    📋 Total Records
-                  </span>
-                  <div className="text-xl sm:text-2xl font-black text-indigo-700 dark:text-indigo-300 mt-0.5">
-                    {jobPortalItems.length}
-                  </div>
-                  <span className="text-[10px] text-slate-400">All submissions</span>
-                </div>
+                  <ArrowLeft className="w-4 h-4 text-orange-400" />
+                  <span>← Back to Admin Dashboard</span>
+                </button>
+                <h2 className="text-lg sm:text-xl font-black text-white">Sponsored Ad Banners ({ads.length})</h2>
               </div>
-            </div>
-
-            {/* Filter Toolbar: Status, Type & Search */}
-            <div className="bg-white dark:bg-slate-800 p-3 sm:p-4 rounded-3xl border border-[#DFDBCF] dark:border-slate-700 shadow-xs space-y-3">
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
-                {/* Status Segmented Buttons */}
-                <div className="flex gap-1 p-1 bg-slate-100 dark:bg-slate-700/80 rounded-2xl overflow-x-auto scrollbar-hide shrink-0">
-                  <button
-                    onClick={() => setJobFilterStatus('pending')}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer shrink-0 ${
-                      jobFilterStatus === 'pending'
-                        ? 'bg-amber-500 text-white shadow-xs'
-                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
-                    }`}
-                  >
-                    ⏳ Pending ({jobPortalItems.filter(i => (i.status || 'pending') === 'pending').length})
-                  </button>
-                  <button
-                    onClick={() => setJobFilterStatus('approved')}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer shrink-0 ${
-                      jobFilterStatus === 'approved'
-                        ? 'bg-emerald-600 text-white shadow-xs'
-                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
-                    }`}
-                  >
-                    ✅ Live ({jobPortalItems.filter(i => i.status === 'approved').length})
-                  </button>
-                  <button
-                    onClick={() => setJobFilterStatus('rejected')}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer shrink-0 ${
-                      jobFilterStatus === 'rejected'
-                        ? 'bg-rose-600 text-white shadow-xs'
-                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
-                    }`}
-                  >
-                    ❌ Rejected ({jobPortalItems.filter(i => i.status === 'rejected').length})
-                  </button>
-                  <button
-                    onClick={() => setJobFilterStatus('all')}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer shrink-0 ${
-                      jobFilterStatus === 'all'
-                        ? 'bg-indigo-600 text-white shadow-xs'
-                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
-                    }`}
-                  >
-                    All ({jobPortalItems.length})
-                  </button>
-                </div>
-
-                {/* Type Filter */}
-                <div className="flex gap-1.5 shrink-0">
-                  <button
-                    onClick={() => setJobFilterType('all')}
-                    className={`px-2.5 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
-                      jobFilterType === 'all'
-                        ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-400'
-                        : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
-                    }`}
-                  >
-                    All Types
-                  </button>
-                  <button
-                    onClick={() => setJobFilterType('job_seeker')}
-                    className={`px-2.5 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
-                      jobFilterType === 'job_seeker'
-                        ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-400'
-                        : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
-                    }`}
-                  >
-                    👤 Job Seekers ({jobPortalItems.filter(i => i.type === 'job_seeker').length})
-                  </button>
-                  <button
-                    onClick={() => setJobFilterType('employer_vacancy')}
-                    className={`px-2.5 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
-                      jobFilterType === 'employer_vacancy'
-                        ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-400'
-                        : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
-                    }`}
-                  >
-                    🏢 Vacancies ({jobPortalItems.filter(i => i.type === 'employer_vacancy').length})
-                  </button>
-                </div>
-              </div>
-
-              {/* Search Bar */}
-              <div className="relative">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  value={jobSearchQuery}
-                  onChange={(e) => setJobSearchQuery(e.target.value)}
-                  placeholder="Search by candidate name, shop/company, role, skills, phone, area..."
-                  className="w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-700/60 border border-slate-200 dark:border-slate-600 rounded-xl text-xs font-medium outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white"
-                />
-                {jobSearchQuery && (
-                  <button
-                    onClick={() => setJobSearchQuery('')}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-600"
-                  >
-                    ✕
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Submissions List */}
-            <div className="space-y-3">
-              {(() => {
-                const filtered = jobPortalItems.filter(item => {
-                  if (jobFilterStatus !== 'all') {
-                    const s = item.status || 'pending';
-                    if (s !== jobFilterStatus) return false;
-                  }
-                  if (jobFilterType !== 'all') {
-                    if (item.type !== jobFilterType) return false;
-                  }
-                  if (jobSearchQuery.trim()) {
-                    const q = jobSearchQuery.toLowerCase().trim();
-                    const matchName = (item.fullName || item.companyOrShopName || '').toLowerCase().includes(q);
-                    const matchRole = (item.headline || item.jobRole || '').toLowerCase().includes(q);
-                    const matchCat = (item.category || '').toLowerCase().includes(q);
-                    const matchPhone = (item.phone || item.whatsapp || '').includes(q);
-                    const matchArea = (item.area || item.address || '').toLowerCase().includes(q);
-                    const matchDesc = (item.description || '').toLowerCase().includes(q);
-                    const matchSkills = Array.isArray(item.skills) && item.skills.some((s: string) => s.toLowerCase().includes(q));
-                    return matchName || matchRole || matchCat || matchPhone || matchArea || matchDesc || matchSkills;
-                  }
-                  return true;
-                });
-
-                if (filtered.length === 0) {
-                  return (
-                    <div className="bg-white dark:bg-slate-800 p-10 rounded-3xl border border-[#DFDBCF] dark:border-slate-700 text-center space-y-3">
-                      <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-700 text-slate-400 mx-auto flex items-center justify-center text-3xl">
-                        📭
-                      </div>
-                      <div>
-                        <h4 className="text-sm font-black text-slate-800 dark:text-slate-200">
-                          No submissions found for "{jobFilterStatus}" filter
-                        </h4>
-                        <p className="text-xs text-slate-400 mt-1">
-                          When users submit a Job Seeker profile or Employer vacancy on the homepage, it will appear here for verification.
-                        </p>
-                      </div>
-                    </div>
-                  );
-                }
-
-                return filtered.map((item) => {
-                  const isSeeker = item.type === 'job_seeker';
-                  const isPending = (item.status || 'pending') === 'pending';
-                  const isApproved = item.status === 'approved';
-                  const isRejected = item.status === 'rejected';
-                  const isBusy = isUpdatingJob === item.id;
-
-                  return (
-                    <div
-                      key={item.id}
-                      className={`bg-white dark:bg-slate-800 border rounded-3xl p-4 sm:p-5 shadow-xs transition-all space-y-3.5 relative overflow-hidden ${
-                        isPending
-                          ? 'border-amber-300 dark:border-amber-700/80'
-                          : isApproved
-                          ? 'border-emerald-300 dark:border-emerald-800/80'
-                          : 'border-rose-200 dark:border-rose-900/60 opacity-80'
-                      }`}
-                    >
-                      {/* Top Header Tag & Status */}
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100 dark:border-slate-700/60">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          {/* Type Badge */}
-                          <span
-                            className={`text-[11px] font-black px-2.5 py-1 rounded-xl flex items-center gap-1.5 ${
-                              isSeeker
-                                ? 'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800'
-                                : 'bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
-                            }`}
-                          >
-                            {isSeeker ? <UserCheck className="w-3.5 h-3.5" /> : <Building2 className="w-3.5 h-3.5" />}
-                            <span>{isSeeker ? '👤 Job Seeker Profile' : '🏢 Employer Job Vacancy'}</span>
-                          </span>
-
-                          {/* Status Badge */}
-                          {isPending && (
-                            <span className="text-[11px] font-black px-2.5 py-1 rounded-xl bg-amber-500 text-white flex items-center gap-1 shadow-2xs animate-pulse">
-                              <Clock className="w-3.5 h-3.5" />
-                              <span>⏳ Pending Admin Approval</span>
-                            </span>
-                          )}
-                          {isApproved && (
-                            <span className="text-[11px] font-black px-2.5 py-1 rounded-xl bg-emerald-600 text-white flex items-center gap-1 shadow-2xs">
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              <span>✅ Approved & Live on Main Site</span>
-                            </span>
-                          )}
-                          {isRejected && (
-                            <span className="text-[11px] font-black px-2.5 py-1 rounded-xl bg-rose-600 text-white flex items-center gap-1 shadow-2xs">
-                              <X className="w-3.5 h-3.5" />
-                              <span>❌ Rejected</span>
-                            </span>
-                          )}
-
-                          <span className="text-[11px] text-slate-400 font-semibold">
-                            ID: {item.id}
-                          </span>
-                        </div>
-
-                        <div className="text-[11px] text-slate-400 font-medium">
-                          Submitted: {new Date(item.createdAt).toLocaleDateString()} {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </div>
-                      </div>
-
-                      {/* Main Info Section */}
-                      <div className="flex flex-col sm:flex-row items-start gap-4">
-                        {/* Photo / Logo */}
-                        <div className="w-20 h-20 rounded-2xl bg-slate-100 dark:bg-slate-700/80 border border-slate-200 dark:border-slate-600 overflow-hidden shrink-0 flex items-center justify-center shadow-inner">
-                          {item.photoOrLogoUrl ? (
-                            <img
-                              src={item.photoOrLogoUrl}
-                              alt={item.fullName || item.companyOrShopName}
-                              className="w-full h-full object-cover"
-                            />
-                          ) : (
-                            <div className="text-3xl">
-                              {isSeeker ? '👤' : '🏢'}
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Title, Category & Specific Details */}
-                        <div className="flex-1 space-y-2">
-                          <div>
-                            <span className="text-[10px] font-extrabold uppercase text-indigo-600 dark:text-indigo-400 tracking-wider">
-                              {item.category}
-                            </span>
-                            <h4 className="text-base sm:text-lg font-black text-slate-900 dark:text-white leading-tight">
-                              {isSeeker ? item.fullName : item.jobRole}
-                            </h4>
-                            <p className="text-xs font-bold text-slate-600 dark:text-slate-300">
-                              {isSeeker ? item.headline : item.companyOrShopName}
-                            </p>
-                          </div>
-
-                          {/* Key Specs Grid */}
-                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-xs">
-                            <div className="bg-slate-50 dark:bg-slate-700/40 p-2 rounded-xl">
-                              <span className="text-[10px] font-bold text-slate-400 block">
-                                {isSeeker ? 'Expected Salary' : 'Salary Offered'}
-                              </span>
-                              <span className="font-black text-emerald-600 dark:text-emerald-400">
-                                {isSeeker ? item.expectedSalary || 'Negotiable' : item.salaryOffered || 'Good Salary'}
-                              </span>
-                            </div>
-
-                            <div className="bg-slate-50 dark:bg-slate-700/40 p-2 rounded-xl">
-                              <span className="text-[10px] font-bold text-slate-400 block">Experience</span>
-                              <span className="font-bold text-slate-800 dark:text-slate-200">
-                                {item.experience || 'Fresher'}
-                              </span>
-                            </div>
-
-                            {isSeeker ? (
-                              <div className="bg-slate-50 dark:bg-slate-700/40 p-2 rounded-xl">
-                                <span className="text-[10px] font-bold text-slate-400 block">Education</span>
-                                <span className="font-bold text-slate-800 dark:text-slate-200">
-                                  {item.education || '12th Pass'}
-                                </span>
-                              </div>
-                            ) : (
-                              <div className="bg-slate-50 dark:bg-slate-700/40 p-2 rounded-xl">
-                                <span className="text-[10px] font-bold text-slate-400 block">Job Type & Openings</span>
-                                <span className="font-bold text-slate-800 dark:text-slate-200">
-                                  {item.vacancyType || 'Full-Time'} • {item.openingsCount || 1} Openings
-                                </span>
-                              </div>
-                            )}
-
-                            <div className="bg-slate-50 dark:bg-slate-700/40 p-2 rounded-xl">
-                              <span className="text-[10px] font-bold text-slate-400 block">
-                                {isSeeker ? 'Availability' : 'Hiring Urgency'}
-                              </span>
-                              <span className="font-bold text-amber-600 dark:text-amber-400">
-                                {isSeeker ? 'Immediate' : item.urgency || 'Immediate'}
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Skills Tags for Job Seeker */}
-                          {isSeeker && Array.isArray(item.skills) && item.skills.length > 0 && (
-                            <div className="flex flex-wrap gap-1.5 pt-1">
-                              {item.skills.map(skill => (
-                                <span
-                                  key={skill}
-                                  className="text-[10px] font-bold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 px-2.5 py-0.5 rounded-lg border border-blue-200/80 dark:border-blue-800/60"
-                                >
-                                  {skill}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-
-                          {/* Description Text */}
-                          {item.description && (
-                            <div className="bg-stone-50 dark:bg-slate-900/60 p-3 rounded-2xl border border-slate-200/70 dark:border-slate-700/60 text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
-                              <span className="font-bold text-[10px] uppercase text-slate-400 block mb-0.5">
-                                Description & Details:
-                              </span>
-                              {item.description}
-                            </div>
-                          )}
-
-                          {/* Contact & Location Strip */}
-                          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-700/50">
-                            <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300">
-                              <MapPin className="w-4 h-4 text-indigo-500 shrink-0" />
-                              <span className="font-semibold">{item.area}</span>
-                              {item.address && <span className="text-slate-400">({item.address})</span>}
-                            </div>
-
-                            <div className="flex items-center gap-2">
-                              {item.phone && (
-                                <a
-                                  href={`tel:${item.phone}`}
-                                  className="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 text-slate-800 dark:text-slate-200 font-bold text-xs flex items-center gap-1.5 active:scale-95 transition-all"
-                                  title="Call contact number"
-                                >
-                                  <Phone className="w-3.5 h-3.5 text-emerald-600" />
-                                  <span>{item.phone}</span>
-                                </a>
-                              )}
-
-                              {item.whatsapp && (
-                                <a
-                                  href={`https://wa.me/${item.whatsapp.replace(/[^0-9]/g, '')}`}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 font-bold text-xs flex items-center gap-1.5 hover:bg-emerald-100 transition-all"
-                                  title="Message on WhatsApp"
-                                >
-                                  <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
-                                  <span>WhatsApp</span>
-                                </a>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Admin Action Buttons (Approve, Reject, Delete) */}
-                      <div className="flex items-center justify-between gap-2 pt-3 border-t border-slate-100 dark:border-slate-700/60 bg-slate-50/50 dark:bg-slate-900/30 -mx-4 sm:-mx-5 -mb-4 sm:-mb-5 p-3 sm:p-4 rounded-b-3xl">
-                        <div className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-                          {isPending && "Action Required: Click Approve to publish live on main website"}
-                          {isApproved && "Active Status: Visible on main website"}
-                          {isRejected && "Rejected Status: Hidden from main website"}
-                        </div>
-
-                        <div className="flex items-center gap-2 shrink-0">
-                          {/* Reject Button */}
-                          {!isRejected && (
-                            <button
-                              onClick={() => handleRejectJob(item.id)}
-                              disabled={isBusy}
-                              className="px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-900 text-rose-700 dark:text-rose-300 text-xs font-black flex items-center gap-1.5 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
-                              title="Mark as rejected"
-                            >
-                              <X className="w-4 h-4" />
-                              <span>Reject</span>
-                            </button>
-                          )}
-
-                          {/* Approve Button */}
-                          {!isApproved && (
-                            <button
-                              onClick={() => handleApproveJob(item.id)}
-                              disabled={isBusy}
-                              className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black flex items-center gap-1.5 shadow-md shadow-emerald-600/25 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
-                              title="Approve and make live immediately"
-                            >
-                              <CheckCircle2 className="w-4 h-4" />
-                              <span>{isRejected ? 'Re-Approve & Make Live' : 'Approve & Make Live'}</span>
-                            </button>
-                          )}
-
-                          {/* Delete Button */}
-                          <button
-                            onClick={() => handleDeleteJob(item.id)}
-                            disabled={isBusy}
-                            className="p-2 rounded-xl bg-slate-100 hover:bg-rose-100 dark:bg-slate-700 hover:text-rose-600 text-slate-500 transition-all cursor-pointer disabled:opacity-50"
-                            title="Delete permanently"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                });
-              })()}
-            </div>
-          </div>
-        )}
-
-        {/* ========================================================= */}
-        {/* TAB 1: AD BANNER MANAGEMENT                               */}
-        {/* ========================================================= */}
-        {activeTab === 'ads' && (
-          <div className="space-y-4">
-            {/* Top Bar for Ad Management */}
-            <div className="bg-white dark:bg-slate-800 p-4 rounded-3xl border border-[#DFDBCF] dark:border-slate-700 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-              <div>
-                <h3 className="text-sm sm:text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
-                  <span>Ad Banners Management</span>
-                  <span className="text-xs bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200 px-2 py-0.5 rounded-full">
-                    {ads.length} Active Banners
-                  </span>
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  View, add, edit redirection links, and delete sponsored ads appearing below the broadcast section.
-                </p>
-              </div>
-
               <button
                 onClick={() => setIsCreateAdModalOpen(true)}
-                className="w-full sm:w-auto bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-600 hover:to-orange-600 text-white font-extrabold text-xs sm:text-sm px-4 py-2.5 rounded-2xl shadow-md shadow-orange-500/20 active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-orange-500 to-amber-600 text-white text-xs font-black flex items-center gap-1.5 cursor-pointer"
               >
-                <Plus className="w-4 h-4" />
-                <span>+ Add New Ad Banner</span>
+                <Plus className="w-4 h-4" /> Create New Ad Banner
               </button>
             </div>
 
-            {/* List of Current Ad Banners */}
-            <div className="grid grid-cols-1 gap-3.5">
-              {ads.map((ad, idx) => (
-                <div 
-                  key={ad.id}
-                  className="bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 rounded-3xl p-4 shadow-sm hover:border-amber-400 transition-all relative overflow-hidden"
-                >
-                  <div className="flex flex-col sm:flex-row items-start gap-4">
-                    {/* Thumbnail Image */}
-                    <div className="w-full sm:w-44 h-32 sm:h-28 rounded-2xl overflow-hidden bg-slate-100 dark:bg-slate-700 shrink-0 relative border border-slate-200 dark:border-slate-600">
-                      <img 
-                        src={ad.photoUrl} 
-                        alt={ad.businessName}
-                        className="w-full h-full object-cover"
-                        loading="lazy"
-                      />
-                      <span className="absolute top-2 left-2 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-amber-500 text-white">
-                        Ad #{idx + 1}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {ads.map(ad => (
+                <div key={ad.id} className="rounded-2xl bg-[#111827] border border-slate-800 p-4 flex flex-col justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    <div className="w-12 h-12 rounded-xl bg-slate-800 flex items-center justify-center text-2xl shrink-0">
+                      {ad.logo}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-300">
+                        {ad.offerBadge}
                       </span>
-                    </div>
-
-                    {/* Ad Details */}
-                    <div className="flex-1 min-w-0 space-y-1.5">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-lg">{ad.logo}</span>
-                        <h4 className="text-sm sm:text-base font-black text-slate-900 dark:text-white truncate">
-                          {ad.businessName}
-                        </h4>
-                        <span className="text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-md">
-                          {ad.category}
-                        </span>
-                        {ad.offerBadge && (
-                          <span className="text-[10px] font-black bg-rose-50 dark:bg-rose-950 text-rose-600 dark:text-rose-300 px-2 py-0.5 rounded-md border border-rose-200 dark:border-rose-900">
-                            {ad.offerBadge}
-                          </span>
-                        )}
-                      </div>
-
-                      <p className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                        {ad.offerTitle}
-                      </p>
-
-                      <p className="text-[11px] text-slate-600 dark:text-slate-400 line-clamp-2">
-                        {ad.description}
-                      </p>
-
-                      {/* Redirection Link Preview */}
-                      <div className="p-2 bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-700/80 flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <Globe className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
-                          <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 shrink-0">Redirection:</span>
-                          <span className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 truncate">
-                            {ad.destinationUrl || 'None specified (defaults to in-built chat)'}
-                          </span>
-                        </div>
-
-                        {ad.destinationUrl && (
-                          <button
-                            type="button"
-                            onClick={() => handleTestRedirect(ad.destinationUrl)}
-                            className="text-[10px] font-black bg-indigo-100 hover:bg-indigo-200 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 px-2 py-1 rounded-lg shrink-0 flex items-center gap-1 transition-colors cursor-pointer"
-                            title="Open Link in New Tab"
-                          >
-                            <span>Test Link</span>
-                            <ExternalLink className="w-3 h-3" />
-                          </button>
-                        )}
-                      </div>
-
-                      <div className="text-[10px] text-slate-400 flex items-center gap-3 pt-0.5">
-                        <span className="flex items-center gap-1">
-                          <MapPin className="w-3 h-3 text-slate-400" />
-                          {ad.area} ({ad.distance} km)
-                        </span>
-                        <span>⭐ {ad.rating} ({ad.reviewCount} reviews)</span>
-                      </div>
-                    </div>
-
-                    {/* Delete Action Button */}
-                    <div className="shrink-0 flex sm:flex-col items-center justify-end gap-2 w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 dark:border-slate-700">
-                      <button
-                        onClick={() => handleDeleteAd(ad.id, ad.businessName)}
-                        disabled={isDeleting === ad.id}
-                        className="w-full sm:w-auto p-2.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/70 dark:hover:bg-rose-900/80 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800 rounded-2xl transition-all active:scale-95 flex items-center justify-center gap-1.5 cursor-pointer text-xs font-bold"
-                        title="Delete this ad banner"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                        <span>Delete Ad</span>
-                      </button>
+                      <h3 className="text-base font-black text-white mt-1">{ad.businessName}</h3>
+                      <p className="text-xs font-bold text-amber-300">{ad.offerTitle}</p>
+                      <p className="text-xs text-slate-400 mt-1">{ad.description}</p>
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* ========================================================= */}
-        {/* TAB 2: POST MODERATION                                   */}
-        {/* ========================================================= */}
-        {activeTab === 'moderation' && (
-          <div className="space-y-3.5">
-            {/* Top Search & Filter Bar */}
-            <div className="bg-white dark:bg-slate-800 p-4 rounded-3xl border border-[#DFDBCF] dark:border-slate-700 shadow-xs space-y-3">
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
-                <div>
-                  <h3 className="text-sm sm:text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
-                    <span>Live Post Moderation</span>
-                    <span className="text-xs bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-300 px-2 py-0.5 rounded-full">
-                      {filteredIntents.length} Posts Shown
-                    </span>
-                  </h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Review all user broadcasts on LocoHelp. Click Delete to instantly remove spam, illegal, or inappropriate posts.
-                  </p>
-                </div>
-              </div>
-
-              {/* Search input & Category Filters */}
-              <div className="flex flex-col sm:flex-row gap-2">
-                <div className="relative flex-1">
-                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
-                  <input 
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search posts by description, author, keyword, or #tag..."
-                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl pl-10 pr-4 py-2.5 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
-                  />
-                  {searchQuery && (
-                    <button 
-                      onClick={() => setSearchQuery('')}
-                      className="absolute right-3 top-2.5 p-1 text-slate-400 hover:text-slate-600"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide py-0.5">
-                  {['all', 'active', 'emergency', 'plumber', 'electrician'].map((cat) => (
+                  <div className="flex items-center justify-between pt-3 border-t border-slate-800">
+                    <span className="text-xs text-slate-400">{ad.area}</span>
                     <button
-                      key={cat}
-                      onClick={() => setFilterCategory(cat)}
-                      className={`text-[11px] font-black px-3 py-2 rounded-xl uppercase transition-all shrink-0 cursor-pointer ${
-                        filterCategory === cat
-                          ? 'bg-indigo-600 text-white shadow-xs'
-                          : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
-                      }`}
+                      onClick={async () => {
+                        if (!window.confirm(`Delete ad for "${ad.businessName}"?`)) return;
+                        await deleteAdOnServer(ad.id);
+                        setAds(prev => prev.filter(a => a.id !== ad.id));
+                        showToast('🗑️ Ad Banner deleted');
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-red-500/20 text-red-300 text-xs font-bold cursor-pointer"
                     >
-                      {cat}
+                      Delete Ad
                     </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* List of broadcast posts */}
-            <div className="space-y-3">
-              {filteredIntents.length === 0 ? (
-                <div className="py-12 bg-white dark:bg-slate-800 rounded-3xl border border-[#DFDBCF] dark:border-slate-700 text-center text-slate-400">
-                  No posts match your filters
-                </div>
-              ) : (
-                filteredIntents.map((item) => (
-                  <div 
-                    key={item.id}
-                    className="bg-white dark:bg-slate-800 border border-[#DFDBCF] dark:border-slate-700 rounded-3xl p-4 shadow-xs relative overflow-hidden"
-                  >
-                    <div className="flex justify-between items-start gap-3">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                          <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${item.status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}`}>
-                            {item.status.toUpperCase()}
-                          </span>
-                          <span className="text-xs font-black text-slate-900 dark:text-white">{item.authorName}</span>
-                          <span className="text-[10px] text-slate-400 font-bold">• {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                        </div>
-                        <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed font-medium">
-                          {item.description}
-                        </p>
-                        <div className="flex flex-wrap gap-1 mt-2">
-                          {item.tags?.map((t: string) => (
-                            <span key={t} className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400">{t}</span>
-                          ))}
-                        </div>
-                      </div>
-                      <button 
-                        onClick={() => handleDeletePost(item.id, item.description)}
-                        disabled={isDeleting === item.id}
-                        className="p-2.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl transition-all active:scale-90 cursor-pointer"
-                        title="Delete this post"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
                   </div>
-                ))
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* ========================================================= */}
-        {/* TAB 3: LIVE METRICS & OVERVIEW                           */}
-        {/* ========================================================= */}
-        {activeTab === 'overview' && (
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div className="bg-white dark:bg-slate-800 p-4 rounded-3xl border border-[#DFDBCF] dark:border-slate-700 shadow-xs">
-                <span className="text-[11px] font-bold text-slate-500 block mb-1">Total Broadcasts</span>
-                <div className="text-2xl font-black text-slate-900 dark:text-white">
-                  {intents.length}
-                </div>
-                <span className="text-[10px] text-slate-400 font-bold mt-1 block">Saved in Database</span>
-              </div>
-              <div className="bg-white dark:bg-slate-800 p-4 rounded-3xl border border-[#DFDBCF] dark:border-slate-700 shadow-xs">
-                <span className="text-[11px] font-bold text-slate-500 block mb-1">Active Ads</span>
-                <div className="text-2xl font-black text-amber-600">
-                  {ads.length}
-                </div>
-                <span className="text-[10px] text-slate-400 font-bold mt-1 block">Revenue Assets</span>
-              </div>
-              <div className="bg-white dark:bg-slate-800 p-4 rounded-3xl border border-[#DFDBCF] dark:border-slate-700 shadow-xs">
-                <span className="text-[11px] font-bold text-slate-500 block mb-1">User Reports</span>
-                <div className="text-2xl font-black text-rose-600">
-                  {reports.length}
-                </div>
-                <span className="text-[10px] text-slate-400 font-bold mt-1 block">Safety Moderation</span>
-              </div>
-              <div className="bg-white dark:bg-slate-800 p-4 rounded-3xl border border-[#DFDBCF] dark:border-slate-700 shadow-xs">
-                <span className="text-[11px] font-bold text-slate-500 block mb-1">Helpers</span>
-                <div className="text-2xl font-black text-emerald-600">
-                  {helpers.length}
-                </div>
-                <span className="text-[10px] text-slate-400 font-bold mt-1 block">Mesh Network</span>
-              </div>
-            </div>
-
-            {/* Quick Actions Card */}
-            <div className="p-5 bg-gradient-to-r from-indigo-50 to-blue-50 dark:from-slate-800 dark:to-slate-800/80 border border-indigo-200 dark:border-slate-700 rounded-3xl space-y-3">
-              <h4 className="text-sm font-black text-indigo-900 dark:text-indigo-200 flex items-center gap-1.5">
-                <Sparkles className="w-4 h-4 text-indigo-600" />
-                <span>Admin Quick Controls & Database Maintenance</span>
-              </h4>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                <button
-                  onClick={() => { setActiveTab('ads'); setIsCreateAdModalOpen(true); }}
-                  className="p-3 bg-white dark:bg-slate-700 rounded-2xl border border-indigo-200 dark:border-slate-600 flex items-center justify-between text-left hover:shadow-md transition-all cursor-pointer"
-                >
-                  <div>
-                    <span className="text-xs font-black text-slate-900 dark:text-white block">+ Add Sponsored Shop/Ad</span>
-                    <span className="text-[10px] text-slate-500">Put local shop banner with redirect URL</span>
-                  </div>
-                  <Plus className="w-4 h-4 text-amber-500" />
-                </button>
-
-                <button
-                  onClick={() => setActiveTab('job_approvals')}
-                  className="p-3 bg-white dark:bg-slate-700 rounded-2xl border border-indigo-200 dark:border-slate-600 flex items-center justify-between text-left hover:shadow-md transition-all cursor-pointer"
-                >
-                  <div>
-                    <span className="text-xs font-black text-slate-900 dark:text-white block">Job Portal Approvals</span>
-                    <span className="text-[10px] text-slate-500">Approve/Reject pending Job Seekers & Vacancies</span>
-                  </div>
-                  <Briefcase className="w-4 h-4 text-indigo-600" />
-                </button>
-
-                {/* RESET DATABASE BUTTON */}
-                <button
-                  onClick={handleResetDatabase}
-                  className="p-3 bg-rose-50 dark:bg-rose-950/40 rounded-2xl border border-rose-300 dark:border-rose-800 flex items-center justify-between text-left hover:shadow-md transition-all cursor-pointer group"
-                >
-                  <div>
-                    <span className="text-xs font-black text-rose-900 dark:text-rose-200 block group-hover:underline">
-                      🚨 Complete Database Reset
-                    </span>
-                    <span className="text-[10px] text-rose-800 dark:text-rose-300 font-medium">
-                      Wipe all database records to completely empty state
-                    </span>
-                  </div>
-                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ========================================================= */}
-        {/* TAB 4: HELPER PROFILES                                   */}
-        {/* ========================================================= */}
-        {activeTab === 'helpers' && (
-          <div className="space-y-3">
-            <div className="bg-white dark:bg-slate-800 p-4 rounded-3xl border border-[#DFDBCF] dark:border-slate-700 shadow-xs">
-              <h3 className="text-sm font-black text-slate-900 dark:text-white">
-                Registered Helper Profiles ({helpers.length})
-              </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Verified community peers and local professionals available for immediate hire.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {helpers.map((h) => (
-                <div 
-                  key={h.id}
-                  className="p-3.5 bg-white dark:bg-slate-800 border border-[#DFDBCF] dark:border-slate-700 rounded-3xl flex items-center justify-between gap-3 shadow-xs"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 font-black flex items-center justify-center text-sm shrink-0">
-                      {h.name.charAt(0)}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <h4 className="text-xs font-extrabold text-slate-900 dark:text-white">{h.name}</h4>
-                        <span className="text-[10px] font-bold text-amber-600 bg-amber-50 dark:bg-amber-950/70 px-1.5 rounded">
-                          ★ {h.rating}
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                        {h.categoryName} &bull; {h.area} &bull; {h.phone}
-                      </p>
-                    </div>
-                  </div>
-
-                  <span className="text-[10px] bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 font-bold px-2 py-0.5 rounded-full shrink-0">
-                    Active
-                  </span>
                 </div>
               ))}
             </div>
           </div>
         )}
+      </main>
 
-        {/* ========================================================= */}
-        {/* TAB 5: LOGO & BRAND ASSETS STUDIO (SVG & PNG DOWNLOAD)    */}
-        {/* ========================================================= */}
-        {activeTab === 'logo_download' && (
-          <LogoDownloadStudio onNotify={showToast} />
+      {/* ============================================================ */}
+      {/* MODAL 1: VIEW ALL DETAILS & WATERMARKED ID DOCUMENT          */}
+      {/* ============================================================ */}
+      <AnimatePresence>
+        {viewingItem && (
+          <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-2xl bg-[#111827] border border-slate-700 rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col"
+            >
+              <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+                <h3 className="text-base font-black text-white flex items-center gap-2">
+                  <Eye className="w-4 h-4 text-cyan-400" />
+                  Complete Entry Details
+                </h3>
+                <button
+                  onClick={() => setViewingItem(null)}
+                  className="w-8 h-8 rounded-full bg-slate-800 text-slate-300 hover:text-white flex items-center justify-center cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="p-6 overflow-y-auto space-y-4 text-xs sm:text-sm">
+                {viewingItem.data.idDocumentWatermarked && (
+                  <div className="p-3 rounded-2xl bg-slate-950 border border-cyan-500/30">
+                    <p className="text-xs font-black text-cyan-400 mb-2">
+                      🪪 Uploaded Verification Document (Auto-Watermarked):
+                    </p>
+                    <img
+                      src={viewingItem.data.idDocumentWatermarked}
+                      alt="Verification ID"
+                      className="max-h-72 w-auto mx-auto rounded-xl border border-slate-800 object-contain"
+                    />
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {Object.entries(viewingItem.data).map(([key, val]) => {
+                    if (
+                      val === undefined ||
+                      val === null ||
+                      val === '' ||
+                      key === 'idDocumentWatermarked' ||
+                      key === 'photoUrl' ||
+                      key === 'avatar' ||
+                      typeof val === 'object'
+                    ) {
+                      return null;
+                    }
+                    return (
+                      <div key={key} className="p-3 rounded-xl bg-slate-900/90 border border-slate-800">
+                        <span className="text-[10px] font-black uppercase text-slate-400 block">
+                          {key}
+                        </span>
+                        <span className="text-xs sm:text-sm font-bold text-white break-words">
+                          {String(val)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="px-6 py-3.5 border-t border-slate-800 bg-slate-900/60 flex items-center justify-end gap-2">
+                <button
+                  onClick={() => {
+                    const mod = viewingItem.module;
+                    const item = viewingItem.data;
+                    setViewingItem(null);
+                    openEditModal(mod, item);
+                  }}
+                  className="px-4 py-2 rounded-xl bg-blue-600 text-white text-xs font-black cursor-pointer"
+                >
+                  Edit Entry
+                </button>
+                <button
+                  onClick={() => setViewingItem(null)}
+                  className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          </div>
         )}
+      </AnimatePresence>
 
-      </div>
-
-      {/* ========================================================= */}
-      {/* MODAL: ADD / CREATE NEW AD BANNER                         */}
-      {/* ========================================================= */}
-      {isCreateAdModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs">
-          <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl p-5 shadow-2xl border border-amber-300 dark:border-slate-700 max-h-[92vh] flex flex-col overflow-hidden">
-            
-            {/* Modal Header */}
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800 shrink-0">
-              <div className="flex items-center gap-2">
-                <div className="w-9 h-9 rounded-2xl bg-amber-500 text-white flex items-center justify-center shadow-md">
-                  <Store className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-black text-slate-900 dark:text-white leading-tight">
-                    Add New Ad Banner
-                  </h3>
-                  <p className="text-[11px] text-slate-500">
-                    Will appear live in homepage carousel with external redirection
-                  </p>
-                </div>
+      {/* ============================================================ */}
+      {/* MODAL 2: EDIT ENTRY MODAL                                    */}
+      {/* ============================================================ */}
+      <AnimatePresence>
+        {editingItem && (
+          <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-lg bg-[#111827] border border-slate-700 rounded-3xl shadow-2xl overflow-hidden"
+            >
+              <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+                <h3 className="text-base font-black text-white flex items-center gap-2">
+                  <Edit3 className="w-4 h-4 text-blue-400" />
+                  Edit Entry Details
+                </h3>
+                <button
+                  onClick={() => setEditingItem(null)}
+                  className="w-8 h-8 rounded-full bg-slate-800 text-slate-300 hover:text-white flex items-center justify-center cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
 
-              <button
-                type="button"
-                onClick={() => setIsCreateAdModalOpen(false)}
-                className="p-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 cursor-pointer"
+              <form onSubmit={handleSaveEditModal} className="p-6 space-y-3.5 text-xs">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-300 mb-1">Name / Business / Title</label>
+                    <input
+                      type="text"
+                      value={editingItem.nameOrTitle}
+                      onChange={(e) => setEditingItem({ ...editingItem, nameOrTitle: e.target.value })}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-300 mb-1">Category / Job Role</label>
+                    <input
+                      type="text"
+                      value={editingItem.categoryOrRole}
+                      onChange={(e) => setEditingItem({ ...editingItem, categoryOrRole: e.target.value })}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-300 mb-1">Phone / WhatsApp</label>
+                    <input
+                      type="text"
+                      value={editingItem.phone}
+                      onChange={(e) => setEditingItem({ ...editingItem, phone: e.target.value })}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-300 mb-1">Email</label>
+                    <input
+                      type="text"
+                      value={editingItem.email}
+                      onChange={(e) => setEditingItem({ ...editingItem, email: e.target.value })}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-300 mb-1">Area / Location / Address</label>
+                    <input
+                      type="text"
+                      value={editingItem.areaOrLocation}
+                      onChange={(e) => setEditingItem({ ...editingItem, areaOrLocation: e.target.value })}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-300 mb-1">Approval Status</label>
+                    <select
+                      value={editingItem.status}
+                      onChange={(e) =>
+                        setEditingItem({
+                          ...editingItem,
+                          status: e.target.value as 'pending' | 'approved' | 'rejected'
+                        })
+                      }
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
+                    >
+                      <option value="pending">Pending Approval</option>
+                      <option value="approved">Approved (Live)</option>
+                      <option value="rejected">Rejected</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-300 mb-1">Salary / Price / Timings / Urgency</label>
+                  <input
+                    type="text"
+                    value={editingItem.salaryOrPrice}
+                    onChange={(e) => setEditingItem({ ...editingItem, salaryOrPrice: e.target.value })}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-300 mb-1">Description / Skills / Details</label>
+                  <textarea
+                    rows={3}
+                    value={editingItem.descriptionOrBio}
+                    onChange={(e) => setEditingItem({ ...editingItem, descriptionOrBio: e.target.value })}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
+                  />
+                </div>
+
+                <div className="pt-2 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingItem(null)}
+                    className="px-4 py-2.5 rounded-xl bg-slate-800 text-slate-300 font-bold cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSavingEdit}
+                    className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-600 text-white font-black shadow-lg cursor-pointer disabled:opacity-50"
+                  >
+                    {isSavingEdit ? 'Saving Changes...' : 'Save Changes'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ============================================================ */}
+      {/* MODAL 3: CREATE AD BANNER MODAL                              */}
+      {/* ============================================================ */}
+      <AnimatePresence>
+        {isCreateAdModalOpen && (
+          <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-lg bg-[#111827] border border-slate-700 rounded-3xl shadow-2xl overflow-hidden"
+            >
+              <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+                <h3 className="text-base font-black text-white">Create Sponsored Ad Banner</h3>
+                <button
+                  onClick={() => setIsCreateAdModalOpen(false)}
+                  className="w-8 h-8 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!adBusinessName.trim() || !adOfferTitle.trim()) return;
+                  setIsSubmittingAd(true);
+                  const newAd: AdBannerItem = {
+                    id: 'ad_' + Date.now(),
+                    businessName: adBusinessName.trim(),
+                    logo: adLogo,
+                    category: adCategory,
+                    offerBadge: adOfferBadge,
+                    offerTitle: adOfferTitle.trim(),
+                    description: adDescription.trim(),
+                    photoUrl: adPhotoUrl,
+                    distance: parseFloat(adDistance) || 0.5,
+                    area: adArea.trim() || 'Local Market',
+                    rating: 5.0,
+                    reviewCount: 1,
+                    isVerified: true,
+                    destinationUrl: adDestinationUrl.trim(),
+                    initialMessage: `Namaste ${adBusinessName.trim()}!`
+                  };
+                  await createAdOnServer(newAd);
+                  setAds(prev => [newAd, ...prev]);
+                  setIsSubmittingAd(false);
+                  setIsCreateAdModalOpen(false);
+                  showToast('✅ Ad Banner published!');
+                }}
+                className="p-6 space-y-3 text-xs"
               >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Modal Form */}
-            <form onSubmit={handleCreateAd} className="flex-1 overflow-y-auto space-y-3.5 py-3 pr-1 text-xs">
-              
-              {/* Business Name & Logo Picker */}
-              <div className="grid grid-cols-4 gap-2">
-                <div className="col-span-3">
-                  <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                    Shop / Business Name *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={adBusinessName}
-                    onChange={(e) => setAdBusinessName(e.target.value)}
-                    placeholder="e.g. Mahavir Electronics & Mobiles"
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-amber-500"
-                  />
-                </div>
-
-                <div className="col-span-1">
-                  <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                    Logo
-                  </label>
-                  <select
-                    value={adLogo}
-                    onChange={(e) => setAdLogo(e.target.value)}
-                    className="w-full px-2 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-black text-base text-center text-slate-900 dark:text-white focus:outline-hidden"
-                  >
-                    {EMOJI_OPTIONS.map(em => (
-                      <option key={em} value={em}>{em}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* Category & Offer Badge */}
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                    Category *
-                  </label>
-                  <select
-                    value={adCategory}
-                    onChange={(e) => setAdCategory(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-900 dark:text-white focus:outline-hidden"
-                  >
-                    <option>Electronics & Mobiles</option>
-                    <option>Grocery & Fresh Produce</option>
-                    <option>Automobile & Care</option>
-                    <option>Fashion & Tailoring</option>
-                    <option>Food & Bakery</option>
-                    <option>Pharmacy & Health</option>
-                    <option>Home Services & Decor</option>
-                    <option>Hardware & Tools</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                    Offer Badge *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={adOfferBadge}
-                    onChange={(e) => setAdOfferBadge(e.target.value)}
-                    placeholder="e.g. 🔥 Mega Deal • 35% OFF"
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-amber-500"
-                  />
-                </div>
-              </div>
-
-              {/* Offer Headline / Title */}
-              <div>
-                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                  Catchy Offer Headline / Title *
-                </label>
+                <input
+                  type="text"
+                  required
+                  value={adBusinessName}
+                  onChange={(e) => setAdBusinessName(e.target.value)}
+                  placeholder="Business / Shop Name *"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
+                />
                 <input
                   type="text"
                   required
                   value={adOfferTitle}
                   onChange={(e) => setAdOfferTitle(e.target.value)}
-                  placeholder="e.g. Festive Discount on Smartphone Repairs & Accessories"
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-amber-500"
+                  placeholder="Offer Headline *"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
                 />
-              </div>
-
-              {/* Description */}
-              <div>
-                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                  Offer Description / Pitch *
-                </label>
                 <textarea
-                  required
                   rows={2}
                   value={adDescription}
                   onChange={(e) => setAdDescription(e.target.value)}
-                  placeholder="Write clear deal details, discounts, warranty, location directions..."
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-amber-500 resize-none"
+                  placeholder="Offer Description"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
                 />
-              </div>
-
-              {/* Action Redirection Link */}
-              <div>
-                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                  Action Link / Redirection URL (Optional)
-                </label>
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <Globe className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
-                    <input
-                      type="url"
-                      value={adDestinationUrl}
-                      onChange={(e) => setAdDestinationUrl(e.target.value)}
-                      placeholder="e.g. https://wa.me/919876543210"
-                      className="w-full pl-8 pr-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-900 dark:text-white focus:outline-hidden"
-                    />
-                  </div>
+                <input
+                  type="text"
+                  value={adArea}
+                  onChange={(e) => setAdArea(e.target.value)}
+                  placeholder="Market / Sector Area"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
+                />
+                <div className="flex justify-end gap-2 pt-2">
                   <button
                     type="button"
-                    onClick={() => handleTestRedirect(adDestinationUrl)}
-                    className="px-3 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold hover:bg-slate-200 transition-colors cursor-pointer"
+                    onClick={() => setIsCreateAdModalOpen(false)}
+                    className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-bold"
                   >
-                    Test
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingAd}
+                    className="px-5 py-2 rounded-xl bg-orange-500 text-white font-black"
+                  >
+                    Publish Ad
                   </button>
                 </div>
-                <p className="text-[10px] text-slate-400 mt-1">
-                  Leave blank to open a direct chat window within the app.
-                </p>
-              </div>
-
-              {/* Banner Photo */}
-              <div className="space-y-2">
-                <label className="font-bold text-slate-700 dark:text-slate-300 block">
-                  Banner Banner Photo *
-                </label>
-                
-                <div className="flex gap-2 items-start">
-                  <div className="w-24 h-24 rounded-2xl overflow-hidden bg-slate-100 border border-slate-200 shrink-0">
-                    <img src={adPhotoUrl} alt="Preview" className="w-full h-full object-cover" />
-                  </div>
-                  <div className="flex-1 space-y-2">
-                    <div className="grid grid-cols-2 gap-1">
-                      {PHOTO_PRESETS.slice(0, 4).map((p) => (
-                        <button
-                          key={p.label}
-                          type="button"
-                          onClick={() => setAdPhotoUrl(p.url)}
-                          className={`text-[9px] font-black py-1 px-1.5 rounded-lg border truncate ${adPhotoUrl === p.url ? 'bg-amber-100 border-amber-500 text-amber-800' : 'bg-white border-slate-200 text-slate-500'}`}
-                        >
-                          {p.label}
-                        </button>
-                      ))}
-                    </div>
-                    <label className="block w-full text-center py-1.5 bg-indigo-50 text-indigo-600 rounded-xl border border-indigo-200 font-bold cursor-pointer hover:bg-indigo-100">
-                      Upload Custom Photo
-                      <input type="file" accept="image/*" className="hidden" onChange={handleAdPhotoUpload} />
-                    </label>
-                  </div>
-                </div>
-              </div>
-
-              {/* Area & Distance */}
-              <div className="grid grid-cols-2 gap-2 pb-4">
-                <div>
-                  <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                    Display Area Name
-                  </label>
-                  <input
-                    type="text"
-                    value={adArea}
-                    onChange={(e) => setAdArea(e.target.value)}
-                    placeholder="e.g. Main Market, Sector 14"
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-900 dark:text-white focus:outline-hidden"
-                  />
-                </div>
-                <div>
-                  <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                    Distance (KM)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={adDistance}
-                    onChange={(e) => setAdDistance(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-900 dark:text-white focus:outline-hidden"
-                  />
-                </div>
-              </div>
-
-              {/* Submit Buttons */}
-              <div className="flex gap-2 pt-2 border-t border-slate-100 dark:border-slate-800 sticky bottom-0 bg-white dark:bg-slate-900 py-2">
-                <button
-                  type="button"
-                  onClick={() => setIsCreateAdModalOpen(false)}
-                  className="flex-1 py-3 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-2xl font-black transition-colors cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmittingAd}
-                  className="flex-2 py-3 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-600 hover:to-orange-700 text-white font-black rounded-2xl shadow-lg shadow-orange-500/25 transition-all active:scale-95 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-                >
-                  {isSubmittingAd ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                  <span>Save & Go Live</span>
-                </button>
-              </div>
-            </form>
+              </form>
+            </motion.div>
           </div>
-        </div>
-      )}
-
-      {/* In-Dashboard Change Password Modal */}
-      {isChangePasswordModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
-          <div className="w-full max-w-sm bg-slate-900 border-2 border-amber-500/50 rounded-3xl p-6 text-white shadow-2xl relative">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <div className="flex items-center gap-2">
-                <KeyRound className="w-5 h-5 text-amber-400" />
-                <h3 className="text-base font-black">Change Admin Password</h3>
-              </div>
-              <button 
-                onClick={() => setIsChangePasswordModalOpen(false)}
-                className="p-1 rounded-full text-slate-400 hover:text-white"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleChangePasswordSubmit} className="space-y-3.5 pt-4">
-              <div>
-                <label className="text-xs font-bold text-slate-300 block mb-1">
-                  Current Password (वर्तमान पासवर्ड)
-                </label>
-                <input 
-                  type="password"
-                  value={changeOldPassword}
-                  onChange={(e) => setChangeOldPassword(e.target.value)}
-                  placeholder="Enter current password"
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-sm font-bold text-white focus:outline-hidden focus:border-amber-500"
-                  autoFocus
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-slate-300 block mb-1">
-                  New Password (नया पासवर्ड)
-                </label>
-                <input 
-                  type="password"
-                  value={changeNewPassword}
-                  onChange={(e) => setChangeNewPassword(e.target.value)}
-                  placeholder="Min 6 characters"
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-sm font-bold text-white focus:outline-hidden focus:border-amber-500"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-slate-300 block mb-1">
-                  Confirm New Password (पुष्टि करें)
-                </label>
-                <input 
-                  type="password"
-                  value={changeConfirmPassword}
-                  onChange={(e) => setChangeConfirmPassword(e.target.value)}
-                  placeholder="Re-enter new password"
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-sm font-bold text-white focus:outline-hidden focus:border-amber-500"
-                />
-              </div>
-
-              {changePasswordError && (
-                <div className="p-2.5 bg-rose-950/70 border border-rose-800 rounded-xl text-rose-300 text-xs font-bold flex items-center gap-2">
-                  <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
-                  <span>{changePasswordError}</span>
-                </div>
-              )}
-
-              <div className="flex gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsChangePasswordModalOpen(false)}
-                  className="flex-1 py-2.5 bg-slate-800 text-slate-300 rounded-xl font-bold text-xs"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="flex-2 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded-xl text-xs shadow-md transition-all active:scale-95"
-                >
-                  Save New Password
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
+        )}
+      </AnimatePresence>
     </div>
   );
 }

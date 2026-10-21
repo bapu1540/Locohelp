@@ -3,6 +3,13 @@
  * Completely standalone - connects directly to Node.js/Express backend & Railway PostgreSQL
  */
 
+import {
+  sanitizePayload,
+  sanitizeText,
+  getOtpCooldownRemainingSeconds,
+  recordOtpSentTimestamp
+} from './lib/security';
+
 export interface AppUser {
   uid: string;
   displayName: string;
@@ -85,11 +92,9 @@ export function notifyAuthState(event: string, user: any) {
 export function ensureValidUUID(str: string): string {
   if (!str) return '00000000-0000-4000-a000-000000000000';
   
-  // Return directly if it's already a valid v4 UUID
   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   if (uuidRegex.test(str)) return str;
 
-  // Generate deterministic 32-character hex hash from input string
   let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
   for (let i = 0; i < str.length; i++) {
     const ch = str.charCodeAt(i);
@@ -142,12 +147,16 @@ export function isValidEmail(email: string): boolean {
   return emailRegex.test(trimmed);
 }
 
-
-
 /**
- * Email & Password Login with JWT session persistence
+ * Email & Password Login with JWT session persistence (Strictly requires pre-registered verified account)
  */
-export async function signInWithPassword(email: string, password: string): Promise<{ success: boolean; error?: string; user?: AppUser }> {
+export async function signInWithPassword(email: string, password: string): Promise<{
+  success: boolean;
+  error?: string;
+  needsOtp?: boolean;
+  needsReset?: boolean;
+  user?: AppUser;
+}> {
   const cleanEmail = email.trim().toLowerCase();
   if (!isValidEmail(cleanEmail)) {
     return { success: false, error: 'कृपया सही ईमेल दर्ज करें (Invalid email format)' };
@@ -164,14 +173,19 @@ export async function signInWithPassword(email: string, password: string): Promi
     });
     const data = await res.json();
     if (!res.ok || !data.success) {
-      return { success: false, error: data.error || 'Login failed' };
+      return {
+        success: false,
+        needsOtp: Boolean(data.needsOtp),
+        needsReset: Boolean(data.needsReset),
+        error: data.error || 'Login failed'
+      };
     }
 
     const userData: AppUser = {
       uid: ensureValidUUID(data.user?.uid || cleanEmail),
-      displayName: data.user?.displayName || cleanEmail.split('@')[0],
+      displayName: sanitizeText(data.user?.displayName || cleanEmail.split('@')[0]),
       email: cleanEmail,
-      phone: data.user?.phone || '',
+      phone: sanitizeText(data.user?.phone || ''),
       photoURL: 'https://lh3.googleusercontent.com/a/default-user',
       isGuest: false
     };
@@ -195,9 +209,15 @@ export async function signInWithPassword(email: string, password: string): Promi
 }
 
 /**
- * Email & Password Sign Up with JWT session persistence
+ * Email & Password Sign Up with mandatory 6-digit Email OTP verification
  */
-export async function signUpWithPassword(email: string, password: string, name?: string, phone?: string): Promise<{ success: boolean; error?: string; user?: AppUser }> {
+export async function signUpWithPassword(
+  email: string,
+  password: string,
+  name?: string,
+  phone?: string,
+  otpCode?: string
+): Promise<{ success: boolean; error?: string; needsOtp?: boolean; user?: AppUser }> {
   const cleanEmail = email.trim().toLowerCase();
   if (!isValidEmail(cleanEmail)) {
     return { success: false, error: 'कृपया सही ईमेल दर्ज करें (Invalid email format)' };
@@ -205,23 +225,43 @@ export async function signUpWithPassword(email: string, password: string, name?:
   if (!password || password.length < 6) {
     return { success: false, error: 'पासवर्ड कम से कम 6 अक्षरों का होना चाहिए' };
   }
+  if (!otpCode || otpCode.trim().length < 6) {
+    return {
+      success: false,
+      needsOtp: true,
+      error: 'असली ईमेल वेरिफाई करने के लिए ईमेल पर आया 6-अंकों का OTP कोड डालना अनिवार्य है।'
+    };
+  }
+
+  const cleanName = name ? sanitizeText(name) : undefined;
+  const cleanPhone = phone ? sanitizeText(phone) : undefined;
 
   try {
     const res = await fetch('/api/auth/register-password', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: cleanEmail, password, name, phone })
+      body: JSON.stringify({
+        email: cleanEmail,
+        password,
+        name: cleanName,
+        phone: cleanPhone,
+        otpCode: otpCode.trim()
+      })
     });
     const data = await res.json();
     if (!res.ok || !data.success) {
-      return { success: false, error: data.error || 'Registration failed' };
+      return {
+        success: false,
+        needsOtp: Boolean(data.needsOtp),
+        error: data.error || 'Registration failed'
+      };
     }
 
     const userData: AppUser = {
       uid: ensureValidUUID(data.user?.uid || cleanEmail),
-      displayName: data.user?.displayName || name || cleanEmail.split('@')[0],
+      displayName: sanitizeText(data.user?.displayName || cleanName || cleanEmail.split('@')[0]),
       email: cleanEmail,
-      phone: phone || '',
+      phone: cleanPhone || '',
       photoURL: 'https://lh3.googleusercontent.com/a/default-user',
       isGuest: false
     };
@@ -245,12 +285,27 @@ export async function signUpWithPassword(email: string, password: string, name?:
 }
 
 /**
- * Sends 6-Digit Numeric Email OTP Code via Backend Server (Brevo REST API)
+ * Sends 6-Digit Numeric Email OTP Code via Backend Server (with 60-second anti-spam cooldown)
  */
-export async function sendEmailOtp(email: string): Promise<{ success: boolean; error?: string; devCode?: string; provider?: string }> {
+export async function sendEmailOtp(email: string): Promise<{
+  success: boolean;
+  error?: string;
+  devCode?: string;
+  provider?: string;
+  cooldownRemaining?: number;
+}> {
   const cleanEmail = email.trim().toLowerCase();
   if (!isValidEmail(cleanEmail)) {
     return { success: false, error: 'कृपया मान्य ईमेल आईडी दर्ज करें (Please enter a valid email address)' };
+  }
+
+  const rem = getOtpCooldownRemainingSeconds(cleanEmail);
+  if (rem > 0) {
+    return {
+      success: false,
+      cooldownRemaining: rem,
+      error: `कृपया नया OTP भेजने से पहले ${rem} सेकंड प्रतीक्षा करें (Please wait ${rem}s before resending OTP)`
+    };
   }
 
   try {
@@ -261,9 +316,14 @@ export async function sendEmailOtp(email: string): Promise<{ success: boolean; e
     });
     const data = await res.json();
     if (!res.ok) {
-      return { success: false, error: data.error || 'Failed to send OTP' };
+      return {
+        success: false,
+        cooldownRemaining: data.cooldownRemaining,
+        error: data.error || 'Failed to send OTP'
+      };
     }
-    return { success: true, devCode: data.devOtp, provider: data.provider };
+    recordOtpSentTimestamp(cleanEmail);
+    return { success: true, devCode: data.devOtp, provider: data.provider, cooldownRemaining: 60 };
   } catch (err: any) {
     return { success: false, error: err?.message || 'Network error while sending OTP' };
   }
@@ -272,9 +332,14 @@ export async function sendEmailOtp(email: string): Promise<{ success: boolean; e
 export const sendEmailOtpViaSupabase = sendEmailOtp;
 
 /**
- * Sets or Resets Password for an existing / OTP user with instant JWT session login
+ * Sets or Resets Password for an existing / OTP user with mandatory 6-digit Email OTP verification
  */
-export async function resetUserPassword(email: string, newPassword: string, name?: string): Promise<{ success: boolean; error?: string; user?: AppUser }> {
+export async function resetUserPassword(
+  email: string,
+  newPassword: string,
+  name?: string,
+  otpCode?: string
+): Promise<{ success: boolean; error?: string; needsOtp?: boolean; user?: AppUser }> {
   const cleanEmail = email.trim().toLowerCase();
   if (!isValidEmail(cleanEmail)) {
     return { success: false, error: 'कृपया सही ईमेल दर्ज करें (Invalid email format)' };
@@ -282,23 +347,41 @@ export async function resetUserPassword(email: string, newPassword: string, name
   if (!newPassword || newPassword.length < 6) {
     return { success: false, error: 'पासवर्ड कम से कम 6 अक्षरों का होना चाहिए' };
   }
+  if (!otpCode || otpCode.trim().length < 6) {
+    return {
+      success: false,
+      needsOtp: true,
+      error: 'पासवर्ड सेट या रीसेट करने के लिए ईमेल पर आया 6-अंकों का OTP कोड डालना अनिवार्य है।'
+    };
+  }
+
+  const cleanName = name ? sanitizeText(name) : undefined;
 
   try {
     const res = await fetch('/api/auth/reset-password', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: cleanEmail, newPassword, name })
+      body: JSON.stringify({
+        email: cleanEmail,
+        newPassword,
+        name: cleanName,
+        otpCode: otpCode.trim()
+      })
     });
     const data = await res.json();
     if (!res.ok || !data.success) {
-      return { success: false, error: data.error || 'Password update failed' };
+      return {
+        success: false,
+        needsOtp: Boolean(data.needsOtp),
+        error: data.error || 'Password update failed'
+      };
     }
 
     const userData: AppUser = {
       uid: ensureValidUUID(data.user?.uid || cleanEmail),
-      displayName: data.user?.displayName || name || cleanEmail.split('@')[0],
+      displayName: sanitizeText(data.user?.displayName || cleanName || cleanEmail.split('@')[0]),
       email: cleanEmail,
-      phone: data.user?.phone || '',
+      phone: sanitizeText(data.user?.phone || ''),
       photoURL: 'https://lh3.googleusercontent.com/a/default-user',
       isGuest: false
     };
@@ -349,7 +432,7 @@ export async function verifyEmailOtp(email: string, code: string, newPassword?: 
 
     const userData: AppUser = {
       uid: ensureValidUUID(data.user?.uid || cleanEmail),
-      displayName: data.user?.displayName || cleanEmail.split('@')[0],
+      displayName: sanitizeText(data.user?.displayName || cleanEmail.split('@')[0]),
       email: cleanEmail,
       photoURL: 'https://lh3.googleusercontent.com/a/default-user',
       isGuest: false
@@ -417,12 +500,23 @@ export function getAuthHeaders(): Record<string, string> {
       headers['Authorization'] = `Bearer ${token}`;
       headers['x-auth-token'] = token;
     }
+    const adminToken = sessionStorage.getItem('locohelp_admin_token') || localStorage.getItem('locohelp_admin_token');
+    const isAdminLoggedIn = sessionStorage.getItem('locohelp_admin_logged_in') === 'true';
+    if (adminToken) {
+      headers['x-admin-token'] = adminToken;
+      if (!headers['Authorization']) {
+        headers['Authorization'] = `Bearer ${adminToken}`;
+      }
+    }
+    if (isAdminLoggedIn) {
+      headers['x-admin-email'] = 'chauhansanjay932@gmail.com';
+    }
   } catch (e) {}
   return headers;
 }
 
 /**
- * Saves or updates user profile in Railway PostgreSQL & LocalStorage
+ * Saves or updates user profile in Railway PostgreSQL & LocalStorage (XSS Sanitized)
  */
 export async function saveUserProfile(userData: Record<string, any>): Promise<void> {
   if (!userData) return;
@@ -431,7 +525,7 @@ export async function saveUserProfile(userData: Record<string, any>): Promise<vo
 
   const targetUid = ensureValidUUID(rawUid);
 
-  const dataToSave = {
+  const dataToSave = sanitizePayload({
     uid: targetUid,
     full_name: userData.displayName || userData.full_name || 'Community Member',
     email: userData.email || '',
@@ -442,14 +536,12 @@ export async function saveUserProfile(userData: Record<string, any>): Promise<vo
     experience: userData.experience || '',
     my_helper_profile: userData.myHelperProfile || userData.my_helper_profile || null,
     updated_at: new Date().toISOString(),
-  };
+  });
 
-  // Immediate localStorage save
   try {
     localStorage.setItem(`locohelp_user_profile_${targetUid}`, JSON.stringify(dataToSave));
   } catch (e) {}
 
-  // Save to Express Backend / Railway PostgreSQL with strict auth headers
   try {
     await fetch('/api/profiles', {
       method: 'POST',
@@ -470,7 +562,9 @@ export async function getUserProfile(uid: string): Promise<Record<string, any> |
   if (!uid || uid === 'guest_user') return null;
 
   try {
-    const res = await fetch(`/api/profiles/${encodeURIComponent(uid)}?_t=${Date.now()}`);
+    const res = await fetch(`/api/profiles/${encodeURIComponent(uid)}?_t=${Date.now()}`, {
+      headers: getAuthHeaders()
+    });
     if (res.ok) {
       const data = await res.json();
       if (data && data.uid) {
@@ -482,7 +576,6 @@ export async function getUserProfile(uid: string): Promise<Record<string, any> |
     console.warn("Fetch profile error:", e);
   }
 
-  // Fallback to local storage if network is offline
   try {
     const local = localStorage.getItem(`locohelp_user_profile_${uid}`);
     if (local) return JSON.parse(local);
@@ -494,7 +587,7 @@ export async function getUserProfile(uid: string): Promise<Record<string, any> |
 export const getUserProfileFromSupabase = getUserProfile;
 
 /**
- * Deletes user profile from Backend PostgreSQL
+ * Deletes user profile from Backend PostgreSQL (Owner or Admin only)
  */
 export async function deleteUserProfile(uid: string): Promise<boolean> {
   if (!uid || uid === 'guest_user') return false;
@@ -534,7 +627,7 @@ export async function ensureProfileExists(u: any) {
  * Broadcast Posts database queries
  */
 export async function saveBroadcastPost(post: any) {
-  const payload = {
+  const payload = sanitizePayload({
     id: post.id || 'intent_' + Date.now(),
     authorId: post.author_id || post.authorId || post.user_id,
     authorName: post.author_name || post.authorName || 'Community Member',
@@ -545,7 +638,7 @@ export async function saveBroadcastPost(post: any) {
     status: post.status || 'active',
     distance: post.distance || 0.5,
     createdAt: post.created_at || post.createdAt || new Date().toISOString()
-  };
+  });
 
   const res = await fetch('/api/intents', {
     method: 'POST',
@@ -560,7 +653,9 @@ export async function saveBroadcastPost(post: any) {
 
 export async function getBroadcastPosts(): Promise<any[]> {
   try {
-    const res = await fetch(`/api/intents?_t=${Date.now()}`);
+    const res = await fetch(`/api/intents?_t=${Date.now()}`, {
+      headers: getAuthHeaders()
+    });
     if (res.ok) {
       return await res.json();
     }
@@ -571,21 +666,22 @@ export async function getBroadcastPosts(): Promise<any[]> {
 }
 
 /**
- * Messaging database queries
+ * Messaging database queries (XSS sanitized & participant-authorized)
  */
 export async function sendMessage(senderId: string, receiverId: string, content: string, intentId?: string) {
+  const cleanContent = sanitizeText(content);
   const payload = {
     id: 'msg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
-    authorId: senderId,
-    senderId,
-    receiverId,
-    text: content,
-    content,
+    authorId: sanitizeText(senderId),
+    senderId: sanitizeText(senderId),
+    receiverId: sanitizeText(receiverId),
+    text: cleanContent,
+    content: cleanContent,
     createdAt: new Date().toISOString()
   };
 
   const targetId = intentId || 'general';
-  const res = await fetch(`/api/intents/${targetId}/messages`, {
+  const res = await fetch(`/api/intents/${encodeURIComponent(targetId)}/messages`, {
     method: 'POST',
     headers: getAuthHeaders(),
     body: JSON.stringify(payload)
@@ -599,7 +695,14 @@ export async function sendMessage(senderId: string, receiverId: string, content:
 export async function getMessages(userId: string, otherUserId: string, intentId?: string): Promise<any[]> {
   try {
     const targetId = intentId || 'general';
-    const res = await fetch(`/api/intents/${targetId}/messages?_t=${Date.now()}`);
+    const query = new URLSearchParams({
+      _t: String(Date.now()),
+      userId: userId || '',
+      otherUserId: otherUserId || ''
+    });
+    const res = await fetch(`/api/intents/${encodeURIComponent(targetId)}/messages?${query.toString()}`, {
+      headers: getAuthHeaders()
+    });
     if (res.ok) {
       const list = await res.json();
       return Array.isArray(list) ? list : [];
@@ -614,23 +717,44 @@ export async function getMessages(userId: string, otherUserId: string, intentId?
  * Shops database queries
  */
 export async function saveShop(shop: any): Promise<any> {
+  const cleanShop = sanitizePayload(shop);
   try {
     const res = await fetch('/api/shops', {
       method: 'POST',
       headers: getAuthHeaders(),
-      body: JSON.stringify(shop)
+      body: JSON.stringify(cleanShop)
     });
     if (res.ok) return await res.json();
   } catch (e) {
     console.warn("Save shop error:", e);
   }
-  return shop;
+  return cleanShop;
 }
 
-export async function getShops(): Promise<any[]> {
+export async function getShops(includePending = false): Promise<any[]> {
   try {
-    const res = await fetch(`/api/shops?_t=${Date.now()}`);
-    if (res.ok) return await res.json();
+    const query = includePending ? `includePending=true&_t=${Date.now()}` : `_t=${Date.now()}`;
+    const res = await fetch(`/api/shops?${query}`, {
+      headers: getAuthHeaders()
+    });
+    if (res.ok) {
+      const list = await res.json();
+      if (Array.isArray(list)) {
+        try {
+          const existingRaw = localStorage.getItem('locohelp_registered_shops');
+          const existing: any[] = existingRaw ? JSON.parse(existingRaw) : [];
+          const map = new Map<string, any>();
+          existing.filter(s => s && s.id && !String(s.id).startsWith('sample_shop_')).forEach(s => map.set(s.id, s));
+          list.forEach(s => {
+            if (s && s.id && !String(s.id).startsWith('sample_shop_')) {
+              map.set(s.id, { ...(map.get(s.id) || {}), ...s });
+            }
+          });
+          localStorage.setItem('locohelp_registered_shops', JSON.stringify(Array.from(map.values())));
+        } catch (e) {}
+        return list;
+      }
+    }
   } catch (e) {
     console.warn("Get shops error:", e);
   }
@@ -641,23 +765,58 @@ export async function getShops(): Promise<any[]> {
  * Helpers database queries
  */
 export async function saveHelper(helper: any): Promise<any> {
+  const cleanHelper = sanitizePayload(helper);
   try {
     const res = await fetch('/api/helpers', {
       method: 'POST',
       headers: getAuthHeaders(),
-      body: JSON.stringify(helper)
+      body: JSON.stringify(cleanHelper)
     });
     if (res.ok) return await res.json();
   } catch (e) {
     console.warn("Save helper error:", e);
   }
-  return helper;
+  return cleanHelper;
 }
 
-export async function getHelpers(): Promise<any[]> {
+export async function getHelpers(includePending = false): Promise<any[]> {
   try {
-    const res = await fetch(`/api/helpers?_t=${Date.now()}`);
-    if (res.ok) return await res.json();
+    const query = includePending ? `includePending=true&_t=${Date.now()}` : `_t=${Date.now()}`;
+    const res = await fetch(`/api/helpers?${query}`, {
+      headers: getAuthHeaders()
+    });
+    if (res.ok) {
+      const list = await res.json();
+      if (Array.isArray(list)) {
+        try {
+          const existingRaw = localStorage.getItem('locohelp_free_helper_profiles');
+          const existing: any[] = existingRaw ? JSON.parse(existingRaw) : [];
+          const map = new Map<string, any>();
+          existing.forEach(h => {
+            if (h && h.id && !/^h\d+/.test(String(h.id))) {
+              map.set(h.id, h);
+            }
+          });
+          list.forEach(h => {
+            if (h && h.id && !/^h\d+/.test(String(h.id))) {
+              map.set(h.id, { ...(map.get(h.id) || {}), ...h });
+            }
+          });
+          const merged = Array.from(map.values());
+          localStorage.setItem('locohelp_free_helper_profiles', JSON.stringify(merged));
+
+          const myHelperRaw = localStorage.getItem('locohelp_my_helper_profile');
+          if (myHelperRaw) {
+            const myHelper = JSON.parse(myHelperRaw);
+            const updatedMy = list.find(h => h.id === myHelper.id || (myHelper.phone && h.phone === myHelper.phone));
+            if (updatedMy) {
+              localStorage.setItem('locohelp_my_helper_profile', JSON.stringify({ ...myHelper, ...updatedMy }));
+            }
+          }
+        } catch (e) {}
+        return list;
+      }
+    }
   } catch (e) {
     console.warn("Get helpers error:", e);
   }
@@ -671,8 +830,12 @@ export async function saveChatHistory(prompt: string, response: string, userId?:
   try {
     await fetch('/api/ai-chat-history', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt, response, userId })
+      headers: getAuthHeaders(),
+      body: JSON.stringify({
+        prompt: sanitizeText(prompt),
+        response: sanitizeText(response),
+        userId: userId ? sanitizeText(userId) : undefined
+      })
     });
   } catch (e) {}
 }
@@ -687,7 +850,7 @@ export async function signupUser(userData: { id?: string; uid?: string; name: st
     const res = await fetch('/api/auth/signup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(userData)
+      body: JSON.stringify(sanitizePayload(userData))
     });
     if (res.ok) return await res.json();
   } catch (e) {

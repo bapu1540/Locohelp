@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Screen } from '../types';
-import { ArrowLeft, Shield, Map, LogOut, ChevronRight, LifeBuoy, User, ShieldAlert, Sun, Moon } from 'lucide-react';
+import { ArrowLeft, Shield, Map, LogOut, ChevronRight, LifeBuoy, User, Sun, Moon } from 'lucide-react';
 import { useLanguage } from '../i18n';
 import { logoutUser } from '../auth';
 
@@ -124,26 +124,6 @@ export default function SettingsMenu({ onNavigate, onBack }: { onNavigate: (s: S
               <span className="text-rose-600 dark:text-rose-400 font-bold tracking-wide text-xs">{t('set.logout') || 'Log Out'}</span>
             </div>
           </button>
-
-          {/* Emergency Hard Reset */}
-          <div className="p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 rounded-2xl">
-            <h4 className="text-[10px] font-black uppercase text-amber-700 dark:text-amber-500 mb-1 flex items-center gap-1">
-              <ShieldAlert className="w-3 h-3" /> Emergency Hard Reset
-            </h4>
-            <p className="text-[9px] text-amber-600 dark:text-amber-400 font-medium leading-tight mb-2">
-              If your profile is stuck with old dummy data, use this button to completely wipe all local cache and start fresh.
-            </p>
-            <button
-              onClick={() => {
-                localStorage.clear();
-                sessionStorage.clear();
-                window.location.reload();
-              }}
-              className="w-full py-2 bg-amber-600 text-white font-black text-[10px] rounded-lg shadow-xs active:scale-95 transition-all cursor-pointer"
-            >
-              CLEAR ALL DATA & REFRESH
-            </button>
-          </div>
         </div>
       </div>
     </div>

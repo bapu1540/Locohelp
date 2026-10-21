@@ -1,22 +1,23 @@
-import React from 'react';
-import { ArrowLeft, Trophy, Medal, Flame, Star, Award, TrendingUp } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { ArrowLeft, Trophy, Flame, Award, TrendingUp } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useLanguage } from '../i18n';
+import { getFreeHelperProfiles, FreeHelperProfile } from '../data/categories';
+import { getHelpers } from '../auth';
 
 interface LeaderboardScreenProps {
   onBack: () => void;
 }
 
-const LEADERS = [
-  { id: 1, name: 'Rahul V.', karma: 4850, tasks: 142, badge: 'gold' },
-  { id: 2, name: 'Priya S.', karma: 4230, tasks: 118, badge: 'silver' },
-  { id: 3, name: 'Amit K.', karma: 3900, tasks: 95, badge: 'bronze' },
-  { id: 4, name: 'Sanjay C.', karma: 3100, tasks: 88, badge: 'none' },
-  { id: 5, name: 'Neha R.', karma: 2850, tasks: 76, badge: 'none' },
-];
-
 export default function LeaderboardScreen({ onBack }: LeaderboardScreenProps) {
-  const { t } = useLanguage();
+  const { language } = useLanguage();
+  const [leaders, setLeaders] = useState<FreeHelperProfile[]>(() => getFreeHelperProfiles(false));
+
+  useEffect(() => {
+    getHelpers(false).then(() => {
+      setLeaders(getFreeHelperProfiles(false));
+    }).catch(() => {});
+  }, []);
 
   return (
     <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900 relative overflow-hidden transition-colors">
@@ -33,64 +34,48 @@ export default function LeaderboardScreen({ onBack }: LeaderboardScreenProps) {
       </div>
 
       <div className="flex-1 overflow-y-auto p-5 pb-32">
-        {/* Your Rank Card */}
-        <motion.div 
-          initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-          className="bg-gradient-to-br from-indigo-600 to-violet-700 rounded-3xl p-5 text-white shadow-lg shadow-indigo-600/30 mb-8 relative overflow-hidden"
-        >
-          <div className="absolute top-0 right-0 p-4 opacity-20">
-            <Trophy className="w-24 h-24" />
-          </div>
-          <div className="relative z-10">
-            <p className="text-indigo-200 text-sm font-bold uppercase tracking-wider mb-1">Your Karma</p>
-            <div className="flex items-end gap-2 mb-4">
-              <h2 className="text-4xl font-black">1,240</h2>
-              <span className="text-indigo-200 font-bold mb-1 flex items-center"><Flame className="w-4 h-4 mr-0.5 text-amber-400" /> Points</span>
-            </div>
-            <div className="bg-white/20 backdrop-blur-sm rounded-xl p-3 flex justify-between items-center border border-white/20">
-              <div>
-                <p className="text-xs font-bold text-indigo-100">Current Rank</p>
-                <p className="text-lg font-extrabold">#42 in New Delhi</p>
-              </div>
-              <TrendingUp className="w-6 h-6 text-emerald-300" />
-            </div>
-          </div>
-        </motion.div>
-
         {/* Top Helpers List */}
         <div className="space-y-4">
-          <h3 className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider px-1">Top Helpers This Month</h3>
+          <h3 className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider px-1">Verified Community Helpers</h3>
           
-          <div className="space-y-3">
-            {LEADERS.map((leader, index) => (
-              <motion.div 
-                initial={{ opacity: 0, x: -10 }} 
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: index * 0.1 }}
-                key={leader.id} 
-                className="bg-white dark:bg-slate-800 border border-violet-100 dark:border-slate-700 rounded-2xl p-4 flex items-center gap-4 shadow-sm relative overflow-hidden"
-              >
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 font-black text-lg ${leader.badge === 'gold' ? 'bg-amber-100 text-amber-600' : leader.badge === 'silver' ? 'bg-slate-200 text-slate-600' : leader.badge === 'bronze' ? 'bg-orange-100 text-orange-700' : 'bg-violet-50 dark:bg-slate-700 text-slate-400'}`}>
-                  #{index + 1}
-                </div>
-                
-                <div className="flex-1">
-                  <h4 className="font-bold text-slate-900 dark:text-white text-[15px] flex items-center gap-1.5">
-                    {leader.name}
-                    {leader.badge === 'gold' && <Award className="w-4 h-4 text-amber-500" />}
-                  </h4>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">{leader.tasks} Tasks Completed</p>
-                </div>
+          {leaders.length === 0 ? (
+            <div className="bg-white dark:bg-slate-800 border border-violet-100 dark:border-slate-700 rounded-2xl p-8 text-center">
+              <p className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                {language === 'EN' ? 'No verified community helpers listed yet.' : 'अभी तक कोई वेरिफाइड कम्युनिटी हेल्पर लिस्ट नहीं हुआ है।'}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {leaders.map((leader, index) => (
+                <motion.div 
+                  initial={{ opacity: 0, x: -10 }} 
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: index * 0.05 }}
+                  key={leader.id} 
+                  className="bg-white dark:bg-slate-800 border border-violet-100 dark:border-slate-700 rounded-2xl p-4 flex items-center gap-4 shadow-sm relative overflow-hidden"
+                >
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 font-black text-lg ${index === 0 ? 'bg-amber-100 text-amber-600' : index === 1 ? 'bg-slate-200 text-slate-600' : index === 2 ? 'bg-orange-100 text-orange-700' : 'bg-violet-50 dark:bg-slate-700 text-slate-400'}`}>
+                    #{index + 1}
+                  </div>
+                  
+                  <div className="flex-1">
+                    <h4 className="font-bold text-slate-900 dark:text-white text-[15px] flex items-center gap-1.5">
+                      {leader.name}
+                      {index === 0 && <Award className="w-4 h-4 text-amber-500" />}
+                    </h4>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">{leader.area} • Exp: {leader.experience}</p>
+                  </div>
 
-                <div className="flex flex-col items-end">
-                  <span className="font-extrabold text-indigo-600 dark:text-indigo-400 text-[15px] flex items-center gap-1">
-                    {leader.karma} <Flame className="w-3.5 h-3.5 text-amber-500" />
-                  </span>
-                  <span className="text-[10px] uppercase font-bold text-slate-400">Karma</span>
-                </div>
-              </motion.div>
-            ))}
-          </div>
+                  <div className="flex flex-col items-end">
+                    <span className="font-extrabold text-indigo-600 dark:text-indigo-400 text-[15px] flex items-center gap-1">
+                      ★ {leader.rating} <Flame className="w-3.5 h-3.5 text-amber-500" />
+                    </span>
+                    <span className="text-[10px] uppercase font-bold text-slate-400">Verified</span>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

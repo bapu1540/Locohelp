@@ -8,6 +8,7 @@ import UserProfileModal from './UserProfileModal';
 import LoginPromptModal from '../components/LoginPromptModal';
 import { isGuestUser } from '../lib/authUtils';
 import { fetchChatMessages, sendChatMessage, logAuditRecord } from '../api';
+import { validateUploadedFile, sanitizeText } from '../lib/security';
 
 interface ChatScreenProps {
   intent: Intent | null;
@@ -145,7 +146,7 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
       setIsLoginPromptOpen(true);
       return;
     }
-    const trimmed = textToSend.trim();
+    const trimmed = sanitizeText(textToSend.trim(), 2000);
     if (!trimmed && !attachmentUrl) return;
     setInput('');
 
@@ -209,9 +210,17 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
     });
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      const check = await validateUploadedFile(file, { allowPdf: true });
+      if (!check.valid) {
+        setCameraError(check.error || 'Only safe images (JPEG, PNG, WebP <= 2MB) or PDF (<= 5MB) are allowed.');
+        setIsCameraOpen(true);
+        if (e.target) e.target.value = '';
+        return;
+      }
+      setCameraError('');
       const reader = new FileReader();
       reader.onloadend = () => {
         const base64 = reader.result as string;

@@ -123,6 +123,75 @@ export default function HomeScreen({
     return () => window.removeEventListener('locohelp_location_changed', handleLocationChanged);
   }, []);
 
+  // Push browser history state whenever any modal / popup / chat inbox opens on HomeScreen
+  const isAnyHomeModalOpen = Boolean(
+    isPostSheetOpen ||
+    isLangModalOpen ||
+    isLoginPromptOpen ||
+    selectedUserForProfile ||
+    isGuideOpen ||
+    isPostAdModalOpen ||
+    isRegisterShopModalOpen ||
+    isFreeHelperModalOpen ||
+    postToDelete ||
+    isResponsesModalOpen ||
+    isLocationModalOpen ||
+    isJobSeekerModalOpen ||
+    isEmployerVacancyModalOpen ||
+    isJobBrowseModalOpen ||
+    isHomeCategoryDropdownOpen
+  );
+
+  const prevModalOpenRef = useRef(false);
+  useEffect(() => {
+    if (isAnyHomeModalOpen && !prevModalOpenRef.current) {
+      try {
+        window.history.pushState({ locohelpScreen: 'home', locohelpModal: true }, '');
+      } catch (e) {}
+    }
+    prevModalOpenRef.current = isAnyHomeModalOpen;
+  }, [isAnyHomeModalOpen]);
+
+  useEffect(() => {
+    const handleCloseActiveModal = (e: Event) => {
+      if (postToDelete) { e.preventDefault(); setPostToDelete(null); return; }
+      if (isLoginPromptOpen) { e.preventDefault(); setIsLoginPromptOpen(false); return; }
+      if (isResponsesModalOpen) { e.preventDefault(); setIsResponsesModalOpen(false); return; }
+      if (isPostSheetOpen) { e.preventDefault(); setIsPostSheetOpen(false); return; }
+      if (isLocationModalOpen) { e.preventDefault(); setIsLocationModalOpen(false); return; }
+      if (isRegisterShopModalOpen) { e.preventDefault(); setIsRegisterShopModalOpen(false); return; }
+      if (isFreeHelperModalOpen) { e.preventDefault(); setIsFreeHelperModalOpen(false); return; }
+      if (isJobSeekerModalOpen) { e.preventDefault(); setIsJobSeekerModalOpen(false); return; }
+      if (isEmployerVacancyModalOpen) { e.preventDefault(); setIsEmployerVacancyModalOpen(false); return; }
+      if (isJobBrowseModalOpen) { e.preventDefault(); setIsJobBrowseModalOpen(false); return; }
+      if (isPostAdModalOpen) { e.preventDefault(); setIsPostAdModalOpen(false); return; }
+      if (selectedUserForProfile) { e.preventDefault(); setSelectedUserForProfile(null); return; }
+      if (isGuideOpen) { e.preventDefault(); setIsGuideOpen(false); return; }
+      if (isLangModalOpen) { e.preventDefault(); setIsLangModalOpen(false); return; }
+      if (isHomeCategoryDropdownOpen) { e.preventDefault(); setIsHomeCategoryDropdownOpen(false); return; }
+      if (homeSearchQuery.trim()) { e.preventDefault(); setHomeSearchQuery(''); return; }
+    };
+    window.addEventListener('locohelp_close_active_modal', handleCloseActiveModal);
+    return () => window.removeEventListener('locohelp_close_active_modal', handleCloseActiveModal);
+  }, [
+    postToDelete,
+    isLoginPromptOpen,
+    isResponsesModalOpen,
+    isPostSheetOpen,
+    isLocationModalOpen,
+    isRegisterShopModalOpen,
+    isFreeHelperModalOpen,
+    isJobSeekerModalOpen,
+    isEmployerVacancyModalOpen,
+    isJobBrowseModalOpen,
+    isPostAdModalOpen,
+    selectedUserForProfile,
+    isGuideOpen,
+    isLangModalOpen,
+    isHomeCategoryDropdownOpen,
+    homeSearchQuery
+  ]);
+
   // Static reference coordinates for relative distance badge calculation (No browser GPS tracking)
   const [gpsCoords] = useState<{ lat: number; lng: number; active: boolean }>({
     lat: 23.0225,
@@ -518,13 +587,15 @@ export default function HomeScreen({
       (h.skills || []).some(s => s.toLowerCase().includes(q))
     );
 
-    // 3. Registered Shops & Businesses
+    // 3. Registered Shops & Businesses (Approved only)
     let shopsList: any[] = [];
     try {
       const stored = localStorage.getItem('locohelp_registered_shops');
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) shopsList = parsed;
+        if (Array.isArray(parsed)) {
+          shopsList = parsed.filter((s: any) => !String(s.id || '').startsWith('sample_shop_') && (s.isVerified === true || s.status === 'approved'));
+        }
       }
     } catch (e) {}
     const shops = shopsList.filter((s: any) =>
@@ -749,26 +820,35 @@ export default function HomeScreen({
     <div className="flex flex-col h-full min-h-0 bg-white dark:bg-slate-900 relative overflow-hidden transition-colors">
       
       {/* Fixed Top Sticky Header Bar (LocoHelp Logo, Language, Sign In, Notifications, Profile, Settings) */}
-      <header className="sticky top-0 z-30 shrink-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-100 dark:border-slate-800 shadow-sm px-3.5 sm:px-5 py-2.5 sm:py-3 flex items-center justify-between gap-1 max-w-full overflow-hidden">
+      <header className="sticky top-0 z-30 shrink-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-100 dark:border-slate-800 shadow-sm px-2 sm:px-5 py-2 sm:py-3 flex items-center justify-between gap-1 w-full max-w-full">
         <button 
           onClick={() => setIsLangModalOpen(true)} 
-          className="flex items-center gap-1 px-2.5 sm:px-3 py-1 sm:py-1.5 bg-white dark:bg-slate-800 rounded-full hover:bg-violet-100 dark:hover:bg-slate-700 transition-colors border border-slate-200 dark:border-slate-700 shadow-2xs shrink-0 active:scale-95 cursor-pointer"
+          className="flex items-center gap-1 px-2 sm:px-3 py-1 sm:py-1.5 bg-white dark:bg-slate-800 rounded-full hover:bg-violet-100 dark:hover:bg-slate-700 transition-colors border border-slate-200 dark:border-slate-700 shadow-2xs shrink-0 active:scale-95 cursor-pointer"
           title="Change Language"
         >
           <Globe className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-indigo-600 dark:text-indigo-400" />
           <span className="text-[11px] sm:text-xs font-black text-stone-800 dark:text-slate-200">{currentLangObj.nativeName}</span>
         </button>
         
-        <LocoHelpLogo size={36} showText={true} />
+        <div
+          onClick={() => {
+            onSelectCategory?.('all');
+            onNavigate('home');
+          }}
+          className="shrink-0 select-none cursor-pointer"
+          title="Home"
+        >
+          <LocoHelpLogo size={32} showText={true} textSize="sm" className="shrink-0" />
+        </div>
 
-        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
           {isGuestUser() ? (
             <button
               onClick={handleSafeProfileClick}
-              className="flex items-center gap-1.5 px-3 py-1 sm:py-1.5 bg-white dark:bg-slate-800 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 transition-all border border-indigo-200 dark:border-indigo-900/60 shadow-xs active:scale-95 cursor-pointer text-slate-800 dark:text-white"
+              className="flex items-center gap-1 px-2 sm:px-3 py-1 sm:py-1.5 bg-white dark:bg-slate-800 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 transition-all border border-indigo-200 dark:border-indigo-900/60 shadow-xs active:scale-95 cursor-pointer text-slate-800 dark:text-white shrink-0"
               title="Sign in with Email OTP or Password"
             >
-              <span className="text-xs font-black">
+              <span className="text-[11px] sm:text-xs font-black">
                 {language === 'EN' ? 'Sign In' : 'लॉगिन करें'}
               </span>
             </button>
@@ -777,22 +857,22 @@ export default function HomeScreen({
           <button
             type="button"
             onClick={() => setIsLocationModalOpen(true)}
-            className="flex items-center gap-1 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full bg-emerald-50 dark:bg-emerald-950/80 border border-emerald-300 dark:border-emerald-700 hover:bg-emerald-100 dark:hover:bg-emerald-900/80 text-emerald-800 dark:text-emerald-200 transition-all shadow-2xs active:scale-95 cursor-pointer max-w-[140px] sm:max-w-[180px]"
+            className="flex items-center gap-1 px-2 sm:px-3 py-1 sm:py-1.5 rounded-full bg-emerald-50 dark:bg-emerald-950/80 border border-emerald-300 dark:border-emerald-700 hover:bg-emerald-100 dark:hover:bg-emerald-900/80 text-emerald-800 dark:text-emerald-200 transition-all shadow-2xs active:scale-95 cursor-pointer max-w-[85px] xs:max-w-[110px] sm:max-w-[180px] shrink-0"
             title="Select Location (Pan-India)"
           >
             <span className="text-xs shrink-0">📍</span>
-            <span className="text-[11px] sm:text-xs font-black truncate">
-              {userLocation.district || (language === 'EN' ? 'Select Location' : 'लोकेशन चुनें')}
+            <span className="text-[10px] sm:text-xs font-black truncate">
+              {userLocation.district || (language === 'EN' ? 'Location' : 'लोकेशन')}
             </span>
           </button>
-          <button onClick={handleSafeProfileClick} className="p-1.5 sm:p-2 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-violet-100 dark:hover:bg-slate-700 transition-colors shadow-2xs cursor-pointer" title="Profile">
+          <button onClick={handleSafeProfileClick} className="p-1.5 sm:p-2 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-violet-100 dark:hover:bg-slate-700 transition-colors shadow-2xs cursor-pointer shrink-0" title="Profile">
             {activeUser.photoURL || getCurrentUser()?.photoURL ? (
               <img src={activeUser.photoURL || getCurrentUser()?.photoURL} alt="" className="w-4 h-4 sm:w-5 sm:h-5 rounded-full object-cover" />
             ) : (
               <User className="w-4 h-4 sm:w-5 sm:h-5 text-stone-700 dark:text-pink-400" />
             )}
           </button>
-          <button onClick={() => onNavigate('settings')} className="p-1.5 sm:p-2 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-violet-100 dark:hover:bg-slate-700 transition-colors shadow-2xs cursor-pointer" title="Settings">
+          <button onClick={() => onNavigate('settings')} className="p-1.5 sm:p-2 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-violet-100 dark:hover:bg-slate-700 transition-colors shadow-2xs cursor-pointer shrink-0" title="Settings">
             <Settings className="w-4 h-4 sm:w-5 sm:h-5 text-stone-700 dark:text-pink-400" />
           </button>
         </div>
@@ -1081,8 +1161,7 @@ export default function HomeScreen({
                 <div className="flex items-center gap-2">
                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
                   <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-1.5">
-                    <span>⚡ ACTIVE NEARBY</span>
-                    <span className="text-[10px] text-slate-400 font-normal">/ आस-पास की लाइव पोस्ट्स</span>
+                    <span>{language === 'EN' ? '⚡ ACTIVE NEARBY' : '⚡ आस-पास की लाइव पोस्ट्स'}</span>
                   </h3>
                 </div>
                 

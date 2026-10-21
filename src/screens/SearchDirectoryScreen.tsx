@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { ArrowLeft, Star, MapPin, MessageSquare, UserCheck, Search, Wrench, ShieldCheck, Store, Plus, Building, Phone, Globe, ExternalLink, CheckCircle2, Mic, Share2, Sparkles } from 'lucide-react';
+import { ArrowLeft, Star, MapPin, MessageSquare, UserCheck, Search, Wrench, ShieldCheck, Store, Plus, Building, Phone, Globe, ExternalLink, CheckCircle2, Mic, Share2, Sparkles, Edit3 } from 'lucide-react';
 import { ServiceProvider } from '../types';
 import { useLanguage } from '../i18n';
 import UserProfileModal from './UserProfileModal';
@@ -8,6 +8,8 @@ import RegisterShopModal, { RegisteredShop } from '../components/RegisterShopMod
 import FreeHelperRegisterModal from '../components/FreeHelperRegisterModal';
 import LoginPromptModal from '../components/LoginPromptModal';
 import { isGuestUser } from '../lib/authUtils';
+import { getCurrentUser } from '../auth';
+import { isEntityOwner } from '../lib/ownership';
 
 export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: () => void, onOpenChat: (intent?: any) => void }) {
   const { language, t } = useLanguage();
@@ -57,25 +59,52 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
     window.open(`https://api.whatsapp.com/send?text=${shareMsg}`, '_blank');
   };
 
-  // Load ONLY real user-registered shops (Zero dummy accounts)
-  const loadShops = () => {
+  // Load ONLY real Admin-approved user-registered shops (Zero dummy accounts)
+  const loadShops = async () => {
     try {
+      const res = await fetch(`/api/shops?_t=${Date.now()}`);
+      let serverShops: RegisteredShop[] = [];
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          serverShops = data.filter((s: any) => !String(s.id || '').startsWith('sample_shop_') && (s.isVerified === true || s.status === 'approved'));
+        }
+      }
       const stored = localStorage.getItem('locohelp_registered_shops');
-      const userShops: RegisteredShop[] = stored ? JSON.parse(stored) : [];
-      setShopsList(userShops);
+      const localShops: RegisteredShop[] = stored ? JSON.parse(stored) : [];
+      const approvedLocal = localShops.filter((s: any) => !String(s.id || '').startsWith('sample_shop_') && (s.isVerified === true || s.status === 'approved'));
+
+      const merged = new Map<string, RegisteredShop>();
+      [...serverShops, ...approvedLocal].forEach(s => {
+        if (s && s.id) merged.set(s.id, s);
+      });
+      setShopsList(Array.from(merged.values()));
     } catch (e) {
       setShopsList([]);
     }
   };
 
-  // Load ONLY real user-registered helpers (Zero mock providers)
-  const loadHelpers = () => {
+  // Load ONLY real Admin-approved user-registered helpers (Zero mock providers)
+  const loadHelpers = async () => {
     try {
-      const userHelpers = getFreeHelperProfiles();
+      const res = await fetch(`/api/helpers?_t=${Date.now()}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          // Sync with local storage
+          const stored = localStorage.getItem('locohelp_free_helper_profiles');
+          const localArr = stored ? JSON.parse(stored) : [];
+          const mergedMap = new Map<string, any>();
+          localArr.forEach((h: any) => { if (h && h.id) mergedMap.set(h.id, h); });
+          data.forEach((h: any) => { if (h && h.id) mergedMap.set(h.id, { ...(mergedMap.get(h.id) || {}), ...h, isVerified: true, status: 'approved' }); });
+          localStorage.setItem('locohelp_free_helper_profiles', JSON.stringify(Array.from(mergedMap.values())));
+        }
+      }
+      const userHelpers = getFreeHelperProfiles(false);
       const formattedUserHelpers: ServiceProvider[] = userHelpers.map(h => ({
         id: h.id,
         name: h.name,
-        skills: h.skills?.length > 0 ? h.skills : [h.area || 'Community Helper'],
+        skills: h.skills?.length > 0 ? h.skills : [h.customCategoryName || h.area || 'Community Helper'],
         trustScore: 99,
         rating: h.rating || 5.0,
         completedTasks: h.completedTasks || 1,
@@ -367,15 +396,27 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
                       <span className="hidden sm:inline">Share</span>
                     </button>
 
-                    {/* Direct Contact Button */}
-                    <button
-                      type="button"
-                      onClick={() => handleShopCallOrChat(shop)}
-                      className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-xs flex items-center gap-1 shadow-sm active:scale-95 transition-all cursor-pointer"
-                    >
-                      <MessageSquare className="w-3.5 h-3.5" />
-                      <span>{language === 'EN' ? 'Chat / Visit' : 'चैट / संपर्क'}</span>
-                    </button>
+                    {/* Direct Contact Button or Owner Edit Button */}
+                    {isEntityOwner(shop, getCurrentUser()) ? (
+                      <button
+                        type="button"
+                        onClick={() => setIsRegisterShopOpen(true)}
+                        className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-xs flex items-center gap-1 shadow-sm active:scale-95 transition-all cursor-pointer"
+                        title={language === 'EN' ? 'Edit your business details' : 'दुकान की जानकारी एडिट करें'}
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                        <span>{language === 'EN' ? 'Edit' : 'एडिट करें'}</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleShopCallOrChat(shop)}
+                        className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-xs flex items-center gap-1 shadow-sm active:scale-95 transition-all cursor-pointer"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" />
+                        <span>{language === 'EN' ? 'Chat / Visit' : 'चैट / संपर्क'}</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -480,27 +521,40 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
 
                 {/* Action Buttons */}
                 <div className="flex gap-2 pt-1">
-                  <button 
-                    onClick={() => {
-                      if (isGuestUser()) {
-                        setIsLoginPromptOpen(true);
-                        return;
-                      }
-                      onOpenChat({
-                        id: 'intent_' + provider.id,
-                        authorId: provider.id,
-                        description: `Inquiring for ${provider.name} (${provider.skills.join(', ')})`,
-                        tags: provider.skills,
-                        distance: provider.distance,
-                        status: 'active',
-                        createdAt: new Date().toISOString()
-                      });
-                    }} 
-                    className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 rounded-xl flex items-center justify-center gap-1.5 active:scale-95 transition-transform shadow-xs text-xs cursor-pointer"
-                  >
-                    <MessageSquare className="w-3.5 h-3.5" />
-                    <span>{t('dir.message') || 'Message'}</span>
-                  </button>
+                  {isEntityOwner(provider, getCurrentUser()) ? (
+                    <button
+                      type="button"
+                      onClick={() => setIsRegisterHelperOpen(true)}
+                      className="flex-1 bg-amber-500 hover:bg-amber-600 text-white font-bold py-2 rounded-xl flex items-center justify-center gap-1.5 active:scale-95 transition-transform shadow-xs text-xs cursor-pointer"
+                      title={language === 'EN' ? 'Edit your profile' : 'प्रोफ़ाइल एडिट करें'}
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                      <span>{language === 'EN' ? 'Edit Profile' : 'प्रोफ़ाइल एडिट करें'}</span>
+                    </button>
+                  ) : (
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        if (isGuestUser()) {
+                          setIsLoginPromptOpen(true);
+                          return;
+                        }
+                        onOpenChat({
+                          id: 'intent_' + provider.id,
+                          authorId: provider.id,
+                          description: `Inquiring for ${provider.name} (${provider.skills.join(', ')})`,
+                          tags: provider.skills,
+                          distance: provider.distance,
+                          status: 'active',
+                          createdAt: new Date().toISOString()
+                        });
+                      }} 
+                      className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 rounded-xl flex items-center justify-center gap-1.5 active:scale-95 transition-transform shadow-xs text-xs cursor-pointer"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      <span>{t('dir.message') || 'Message'}</span>
+                    </button>
+                  )}
                   <button 
                     onClick={() => setSelectedProvider(provider)}
                     className="flex-1 bg-white dark:bg-slate-700 hover:bg-slate-100 dark:hover:bg-slate-600 text-indigo-700 dark:text-indigo-300 font-bold py-2 rounded-xl flex items-center justify-center gap-1.5 active:scale-95 transition-transform border border-indigo-200 dark:border-slate-600 text-xs cursor-pointer"

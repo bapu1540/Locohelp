@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Lock, X, Sparkles, ArrowRight, ShieldCheck, CheckCircle2, User, Mail, KeyRound, Loader2, Check } from 'lucide-react';
 import { useLanguage } from '../i18n';
 import { sendEmailOtp, verifyEmailOtp, signInWithPassword, signUpWithPassword, resetUserPassword, isValidEmail } from '../auth';
+import { getOtpCooldownRemainingSeconds } from '../lib/security';
 
 interface LoginPromptModalProps {
   isOpen: boolean;
@@ -36,11 +37,23 @@ export default function LoginPromptModal({
   const [emailInput, setEmailInput] = useState('');
   const [otpCode, setOtpCode] = useState('');
   const [otpStep, setOtpStep] = useState<'input' | 'verify'>('input');
+  const [otpCooldownSeconds, setOtpCooldownSeconds] = useState(0);
   
   const [isLoadingOtp, setIsLoadingOtp] = useState(false);
   const [isLoadingPassword, setIsLoadingPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const tick = () => {
+      const rem = getOtpCooldownRemainingSeconds(emailInput);
+      setOtpCooldownSeconds(rem);
+    };
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [isOpen, emailInput]);
 
   if (!isOpen) return null;
 
@@ -48,6 +61,13 @@ export default function LoginPromptModal({
     e.preventDefault();
     if (!emailInput || !isValidEmail(emailInput)) {
       setErrorMessage(language === 'EN' ? 'Please enter a valid email address' : 'कृपया सही ईमेल आईडी दर्ज करें');
+      return;
+    }
+
+    const rem = getOtpCooldownRemainingSeconds(emailInput);
+    if (rem > 0) {
+      setOtpCooldownSeconds(rem);
+      setErrorMessage(language === 'EN' ? `Please wait ${rem}s before resending OTP.` : `कृपया नया OTP भेजने से पहले ${rem} सेकंड प्रतीक्षा करें।`);
       return;
     }
 
@@ -60,6 +80,7 @@ export default function LoginPromptModal({
 
     if (res.success) {
       setOtpStep('verify');
+      setOtpCooldownSeconds(60);
       const providerLabel = res.provider === 'Brevo API' ? ' (Sent via Brevo API support@locohelp.com)' : '';
       if (res.devCode) {
         setInfoMessage(language === 'EN' 
@@ -73,6 +94,7 @@ export default function LoginPromptModal({
         );
       }
     } else {
+      if (res.cooldownRemaining) setOtpCooldownSeconds(res.cooldownRemaining);
       setErrorMessage(res.error || (language === 'EN' ? 'Failed to send 6-digit OTP' : 'OTP भेजने में विफल'));
     }
   };
@@ -101,6 +123,50 @@ export default function LoginPromptModal({
     }
   };
 
+  const [passwordOtpSent, setPasswordOtpSent] = useState(false);
+
+  const handleSendPasswordOtp = async () => {
+    if (!emailInput || !isValidEmail(emailInput)) {
+      setErrorMessage(language === 'EN' ? 'Please enter a valid real email address first' : 'कृपया पहले अपनी असली ईमेल आईडी दर्ज करें');
+      return;
+    }
+
+    const rem = getOtpCooldownRemainingSeconds(emailInput);
+    if (rem > 0) {
+      setOtpCooldownSeconds(rem);
+      setErrorMessage(language === 'EN' ? `Please wait ${rem}s before resending OTP.` : `कृपया नया OTP भेजने से पहले ${rem} सेकंड प्रतीक्षा करें।`);
+      return;
+    }
+
+    setIsLoadingOtp(true);
+    setErrorMessage(null);
+    setInfoMessage(null);
+
+    const res = await sendEmailOtp(emailInput);
+    setIsLoadingOtp(false);
+
+    if (res.success) {
+      setPasswordOtpSent(true);
+      setOtpCooldownSeconds(60);
+      if (res.devCode) {
+        setInfoMessage(
+          language === 'EN'
+            ? `🔑 6-Digit OTP Code: ${res.devCode}`
+            : `🔑 6-अंकों का OTP कोड: ${res.devCode}`
+        );
+      } else {
+        setInfoMessage(
+          language === 'EN'
+            ? `📧 6-digit OTP sent to ${emailInput}. Check your Inbox and enter it below!`
+            : `📧 ${emailInput} पर 6-अंकों का OTP भेज दिया गया है। अपना इनबॉक्स देखकर नीचे दर्ज करें!`
+        );
+      }
+    } else {
+      if (res.cooldownRemaining) setOtpCooldownSeconds(res.cooldownRemaining);
+      setErrorMessage(res.error || (language === 'EN' ? 'Failed to send OTP' : 'OTP भेजने में विफल'));
+    }
+  };
+
   const handlePasswordAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!emailInput || !isValidEmail(emailInput)) {
@@ -112,12 +178,23 @@ export default function LoginPromptModal({
       return;
     }
 
+    if (passwordSubMode === 'signup' || passwordSubMode === 'reset') {
+      if (!otpCode || otpCode.trim().length < 6) {
+        setErrorMessage(
+          language === 'EN'
+            ? 'Please click "Send OTP to Email" and enter the 6-digit OTP sent to your real email address.'
+            : 'असली ईमेल वेरिफाई करने के लिए पहले "OTP भेजें" पर क्लिक करें और ईमेल पर आया 6-अंकों का OTP डालें।'
+        );
+        return;
+      }
+    }
+
     setIsLoadingPassword(true);
     setErrorMessage(null);
     setInfoMessage(null);
 
     if (passwordSubMode === 'signup') {
-      const res = await signUpWithPassword(emailInput, passwordInput, nameInput);
+      const res = await signUpWithPassword(emailInput, passwordInput, nameInput, undefined, otpCode);
       setIsLoadingPassword(false);
       if (res.success) {
         if (onSuccess) onSuccess();
@@ -126,7 +203,7 @@ export default function LoginPromptModal({
         setErrorMessage(res.error || (language === 'EN' ? 'Sign up failed' : 'रजिस्ट्रेशन विफल'));
       }
     } else if (passwordSubMode === 'reset') {
-      const res = await resetUserPassword(emailInput, passwordInput, nameInput);
+      const res = await resetUserPassword(emailInput, passwordInput, nameInput, otpCode);
       setIsLoadingPassword(false);
       if (res.success) {
         if (onSuccess) onSuccess();
@@ -177,15 +254,15 @@ export default function LoginPromptModal({
           {/* Title & Description */}
           <div>
             <span className="text-[10px] font-black uppercase tracking-wider text-indigo-700 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 px-2.5 py-1 rounded-full border border-indigo-200 dark:border-indigo-900">
-              ⚡ {language === 'EN' ? 'Email OTP & Password Login' : 'ईमेल OTP एवं पासवर्ड से लॉगिन'}
+              ⚡ {language === 'EN' ? 'Verified Real Email OTP & Password' : 'सत्यापित असली ईमेल OTP एवं पासवर्ड'}
             </span>
             <h3 className="text-lg font-black text-slate-900 dark:text-white mt-2 leading-snug">
               {language === 'EN' ? actionTitleEn : actionTitleHi}
             </h3>
             <p className="text-xs text-slate-600 dark:text-slate-300 font-medium leading-relaxed mt-1 px-1">
               {actionDescEn || (language === 'EN'
-                ? 'Sign in to post requirements, manage profile & chat directly with local helpers.'
-                : 'आवश्यकता पोस्ट करने, प्रोफाइल बनाने और हेल्पर्स से चैट करने के लिए लॉगिन करें।')}
+                ? 'Only real Email IDs verified via 6-digit OTP can register or sign in.'
+                : 'सुरक्षा के लिए केवल असली ईमेल आईडी (OTP वेरिफाइड) से ही लॉगिन हो सकता है।')}
             </p>
           </div>
 
@@ -240,14 +317,14 @@ export default function LoginPromptModal({
                       type="email"
                       value={emailInput}
                       onChange={(e) => setEmailInput(e.target.value)}
-                      placeholder={language === 'EN' ? 'Enter email address for Brevo OTP' : 'OTP कोड के लिए अपना ईमेल दर्ज करें'}
+                      placeholder={language === 'EN' ? 'Enter your real email address for OTP' : 'OTP कोड के लिए अपना असली ईमेल दर्ज करें'}
                       className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl py-2.5 pl-10 pr-4 text-xs font-medium text-slate-900 dark:text-white outline-none focus:border-indigo-500 transition-all"
                       required
                     />
                   </div>
                   <button
                     type="submit"
-                    disabled={isLoadingOtp || !emailInput.trim()}
+                    disabled={isLoadingOtp || !emailInput.trim() || otpCooldownSeconds > 0}
                     className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-black text-xs py-3 px-4 rounded-2xl active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm shadow-indigo-600/20"
                   >
                     {isLoadingOtp ? (
@@ -258,7 +335,9 @@ export default function LoginPromptModal({
                     <span>
                       {isLoadingOtp
                         ? (language === 'EN' ? 'Sending OTP Code...' : 'OTP कोड भेजा जा रहा है...')
-                        : (language === 'EN' ? 'Send 6-Digit Brevo OTP Code' : '6-अंकों का OTP कोड भेजें')}
+                        : otpCooldownSeconds > 0
+                          ? (language === 'EN' ? `Resend OTP in ${otpCooldownSeconds}s` : `${otpCooldownSeconds} सेकंड में पुनः भेजें`)
+                          : (language === 'EN' ? 'Send 6-Digit Email OTP Code' : '6-अंकों का OTP कोड भेजें')}
                     </span>
                   </button>
                 </form>
@@ -266,13 +345,25 @@ export default function LoginPromptModal({
                 <form onSubmit={handleVerifyEmailOtp} className="space-y-2">
                   <div className="flex items-center justify-between text-[11px] text-slate-500 font-bold px-1">
                     <span className="truncate">Email: {emailInput}</span>
-                    <button
-                      type="button"
-                      onClick={() => { setOtpStep('input'); setErrorMessage(null); setInfoMessage(null); }}
-                      className="text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer shrink-0 ml-1"
-                    >
-                      {language === 'EN' ? 'Change' : 'बदलें'}
-                    </button>
+                    <div className="flex items-center gap-2 shrink-0 ml-1">
+                      <button
+                        type="button"
+                        disabled={otpCooldownSeconds > 0 || isLoadingOtp}
+                        onClick={handleSendEmailOtp}
+                        className="text-emerald-600 dark:text-emerald-400 disabled:text-slate-400 hover:underline cursor-pointer"
+                      >
+                        {otpCooldownSeconds > 0
+                          ? (language === 'EN' ? `Resend (${otpCooldownSeconds}s)` : `पुनः भेजें (${otpCooldownSeconds}s)`)
+                          : (language === 'EN' ? 'Resend OTP' : 'OTP पुनः भेजें')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setOtpStep('input'); setErrorMessage(null); setInfoMessage(null); }}
+                        className="text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                      >
+                        {language === 'EN' ? 'Change' : 'बदलें'}
+                      </button>
+                    </div>
                   </div>
                   <div className="relative">
                     <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
@@ -306,13 +397,20 @@ export default function LoginPromptModal({
                 </form>
               )
             ) : (
-              /* TAB 2: EMAIL & PASSWORD */
+              /* TAB 2: EMAIL & PASSWORD (STRICTLY VERIFIED ACCOUNTS ONLY) */
               <form onSubmit={handlePasswordAuth} className="space-y-2">
                 {passwordSubMode === 'reset' && (
                   <div className="bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 rounded-xl p-2 text-[11px] font-bold text-amber-800 dark:text-amber-200 text-left">
-                    🔑 {language === 'EN'
-                      ? 'Set or Reset Password for your Email / OTP Account:'
-                      : 'अपने ईमेल / OTP अकाउंट के लिए नया पासवर्ड सेट या रीसेट करें:'}
+                    🛡️ {language === 'EN'
+                      ? 'Verify your real Email via 6-digit OTP to set or reset your password:'
+                      : 'पासवर्ड सेट या रीसेट करने के लिए अपने असली ईमेल पर OTP मंगाकर वेरिफाई करें:'}
+                  </div>
+                )}
+                {passwordSubMode === 'signup' && (
+                  <div className="bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800 rounded-xl p-2 text-[11px] font-bold text-indigo-800 dark:text-indigo-200 text-left">
+                    🛡️ {language === 'EN'
+                      ? 'New Account requires real Email OTP verification:'
+                      : 'नया अकाउंट बनाने के लिए असली ईमेल का OTP वेरिफिकेशन अनिवार्य है:'}
                   </div>
                 )}
 
@@ -329,17 +427,53 @@ export default function LoginPromptModal({
                     />
                   </div>
                 )}
+
                 <div className="relative">
                   <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
                   <input
                     type="email"
                     value={emailInput}
                     onChange={(e) => setEmailInput(e.target.value)}
-                    placeholder={language === 'EN' ? 'Email address (e.g., baalvarta@gmail.com)' : 'ईमेल आईडी दर्ज करें'}
+                    placeholder={language === 'EN' ? 'Your Verified Email Address' : 'अपनी ईमेल आईडी दर्ज करें'}
                     className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl py-2.5 pl-10 pr-4 text-xs font-medium text-slate-900 dark:text-white outline-none focus:border-indigo-500 transition-all"
                     required
                   />
                 </div>
+
+                {/* Mandatory 6-Digit Email OTP Verification for Signup & Password Reset */}
+                {(passwordSubMode === 'signup' || passwordSubMode === 'reset') && (
+                  <div className="space-y-1.5">
+                    <div className="flex gap-1.5">
+                      <div className="relative flex-1">
+                        <ShieldCheck className="w-4 h-4 text-emerald-500 absolute left-3 top-3" />
+                        <input
+                          type="text"
+                          maxLength={6}
+                          value={otpCode}
+                          onChange={(e) => setOtpCode(e.target.value.replace(/[^0-9]/g, ''))}
+                          placeholder={language === 'EN' ? '6-Digit Email OTP' : '6-अंकों का ईमेल OTP'}
+                          className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl py-2.5 pl-9 pr-2 text-xs font-black tracking-widest text-slate-900 dark:text-white outline-none focus:border-emerald-500 transition-all"
+                          required
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        disabled={isLoadingOtp || !emailInput.trim() || otpCooldownSeconds > 0}
+                        onClick={handleSendPasswordOtp}
+                        className="px-3 py-2 rounded-2xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white text-[11px] font-black shrink-0 cursor-pointer transition-all"
+                      >
+                        {isLoadingOtp
+                          ? '...'
+                          : otpCooldownSeconds > 0
+                            ? `${otpCooldownSeconds}s`
+                            : passwordOtpSent
+                              ? (language === 'EN' ? 'Resend OTP' : 'पुनः भेजें')
+                              : (language === 'EN' ? 'Send OTP' : 'OTP मंगाएं')}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <div className="relative">
                   <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
                   <input
@@ -371,11 +505,11 @@ export default function LoginPromptModal({
                   )}
                   <span>
                     {isLoadingPassword
-                      ? (language === 'EN' ? 'Processing...' : 'प्रोसेस हो रहा है...')
+                      ? (language === 'EN' ? 'Verifying...' : 'सत्यापित हो रहा है...')
                       : passwordSubMode === 'signup'
-                        ? (language === 'EN' ? 'Create Account & Sign In' : 'अकाउंट बनाएं और लॉगिन करें')
+                        ? (language === 'EN' ? 'Verify OTP & Create Account' : 'OTP वेरिफाई करें और अकाउंट बनाएं')
                         : passwordSubMode === 'reset'
-                          ? (language === 'EN' ? 'Save New Password & Sign In' : 'नया पासवर्ड सेव करें और लॉगिन करें')
+                          ? (language === 'EN' ? 'Verify OTP & Save Password' : 'OTP वेरिफाई करें और पासवर्ड सेव करें')
                           : (language === 'EN' ? 'Sign In with Password' : 'पासवर्ड से लॉगिन करें')}
                   </span>
                 </button>
@@ -386,7 +520,7 @@ export default function LoginPromptModal({
                       onClick={() => { setPasswordSubMode('reset'); setErrorMessage(null); setInfoMessage(null); }}
                       className="text-[11px] font-extrabold text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer"
                     >
-                      🔑 {language === 'EN' ? 'OTP User / Forgot Password? Set or Reset Password' : 'OTP यूज़र / पासवर्ड सेट या रीसेट करें'}
+                      🔑 {language === 'EN' ? 'Set or Reset Password via Email OTP' : 'ईमेल OTP द्वारा पासवर्ड सेट या रीसेट करें'}
                     </button>
                   ) : (
                     <button
@@ -408,8 +542,8 @@ export default function LoginPromptModal({
                     className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
                   >
                     {passwordSubMode === 'signup'
-                      ? (language === 'EN' ? 'Already have an account? Sign In' : 'पहले से अकाउंट है? लॉगिन करें')
-                      : (language === 'EN' ? "Don't have an account? Create One" : 'नया अकाउंट बनाएं')}
+                      ? (language === 'EN' ? 'Already have a verified account? Sign In' : 'पहले से वेरिफाइड अकाउंट है? लॉगिन करें')
+                      : (language === 'EN' ? 'New user? Verify Email OTP & Create Account' : 'नए यूज़र? ईमेल OTP से अकाउंट बनाएं')}
                   </button>
                 </div>
               </form>

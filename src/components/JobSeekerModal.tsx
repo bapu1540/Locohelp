@@ -19,11 +19,15 @@ import {
   Plus,
   UserCheck,
   ChevronRight,
-  ExternalLink
+  ExternalLink,
+  Edit3
 } from 'lucide-react';
 import { useLanguage } from '../i18n';
 import { submitJobPortalItem, fetchJobPortalItems } from '../api';
 import { JobPortalItem } from '../types';
+import { validateUploadedFile } from '../lib/security';
+import { getCurrentUser } from '../auth';
+import { isEntityOwner } from '../lib/ownership';
 
 interface JobSeekerModalProps {
   isOpen: boolean;
@@ -61,62 +65,7 @@ const JOB_CATEGORIES = [
   { id: "Other Skilled Work", labelEn: "Other Skilled Work", labelHi: "अन्य कुशल कार्य" }
 ];
 
-const INITIAL_SAMPLE_SEEKERS: JobPortalItem[] = [
-  {
-    id: 'sample_seeker_1',
-    type: 'job_seeker',
-    status: 'approved',
-    fullName: 'Rahul Sharma',
-    headline: 'Retail Billing & Inventory Specialist',
-    category: 'Retail & Shopping Mall',
-    skills: ['Retail Sales', 'Billing / POS', 'Tally Prime', 'Stock Inventory'],
-    experience: '2-3 Years',
-    expectedSalary: '₹18,000 - ₹22,000 / month',
-    education: 'Graduate (B.Com)',
-    phone: '9876543210',
-    whatsapp: '9876543210',
-    area: 'Main Market & Mall Road',
-    address: 'Near City Center Mall',
-    description: 'Experienced in billing counter, customer support, and stock register management. Punctual and hardworking.',
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: 'sample_seeker_2',
-    type: 'job_seeker',
-    status: 'approved',
-    fullName: 'Priya Patel',
-    headline: 'Accountant & Office Executive',
-    category: 'Office, Accounts & Admin',
-    skills: ['GST Filing', 'MS Excel', 'Tally Prime', 'Cash Handling'],
-    experience: '3 Years',
-    expectedSalary: '₹22,000 - ₹26,000 / month',
-    education: 'Post Graduate (M.Com)',
-    phone: '9825012345',
-    whatsapp: '9825012345',
-    area: 'Commercial Hub, Sector 12',
-    address: 'Near City Financial District',
-    description: 'Looking for full-time accounts executive role in showroom, agency, or office. Complete command over Tally and GST.',
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: 'sample_seeker_3',
-    type: 'job_seeker',
-    status: 'approved',
-    fullName: 'Amit Verma',
-    headline: 'Delivery & Logistics Associate',
-    category: 'Delivery & Logistics',
-    skills: ['Delivery / Courier', 'Driver (Car/Bike)', 'Customer Service'],
-    experience: '1-2 Years',
-    expectedSalary: '₹15,000 - ₹18,000 / month',
-    education: '12th Pass',
-    phone: '9909011223',
-    whatsapp: '9909011223',
-    area: 'City Center & Station Road',
-    address: 'Near Old Bus Station',
-    description: 'Own bike with valid driving license. Ready for immediate full-time delivery or store dispatch work.',
-    createdAt: new Date().toISOString()
-  }
-];
+const INITIAL_SAMPLE_SEEKERS: JobPortalItem[] = [];
 
 export default function JobSeekerModal({ 
   isOpen, 
@@ -126,11 +75,12 @@ export default function JobSeekerModal({
 }: JobSeekerModalProps) {
   const { language } = useLanguage();
 
-  // Modal active tab: 'registered' (Already Registered Job Seekers) vs 'new' (New Job Seeker Form)
+  // Modal active tab: 'registered' vs 'new'
   const [activeTab, setActiveTab] = useState<'registered' | 'new'>(initialTab);
+  const [editingSeekerId, setEditingSeekerId] = useState<string | null>(null);
 
   // Registered Candidates Browse State
-  const [seekersList, setSeekersList] = useState<JobPortalItem[]>(INITIAL_SAMPLE_SEEKERS);
+  const [seekersList, setSeekersList] = useState<JobPortalItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [isLoadingList, setIsLoadingList] = useState(false);
@@ -154,6 +104,23 @@ export default function JobSeekerModal({
   const [submitSuccessMessage, setSubmitSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  const handleStartEditSeeker = (seeker: JobPortalItem) => {
+    setEditingSeekerId(seeker.id);
+    setFullName(seeker.fullName || '');
+    setHeadline(seeker.headline || '');
+    setCategory(seeker.category || JOB_CATEGORIES[0].id);
+    if (Array.isArray(seeker.skills)) setSelectedSkills(seeker.skills);
+    setExperience(seeker.experience || '1-2 Years');
+    setExpectedSalary(seeker.expectedSalary || '');
+    setEducation(seeker.education || '12th Pass');
+    setPhone(seeker.phone || '');
+    setWhatsapp(seeker.whatsapp || '');
+    setArea(seeker.area || '');
+    setDescription(seeker.description || '');
+    setPhotoUrl(seeker.photoOrLogoUrl || null);
+    setActiveTab('new');
+  };
+
   useEffect(() => {
     if (isOpen) {
       setActiveTab(initialTab);
@@ -165,17 +132,12 @@ export default function JobSeekerModal({
     setIsLoadingList(true);
     try {
       const liveItems = await fetchJobPortalItems({ type: 'job_seeker', status: 'approved' });
-      // STRICT FILTER: Absolutely only job seekers (never employer vacancies)
-      const onlySeekers = Array.isArray(liveItems) ? liveItems.filter(l => l.type === 'job_seeker') : [];
-      if (onlySeekers.length > 0) {
-        // Merge deduplicated with initial samples
-        const merged = [...onlySeekers, ...INITIAL_SAMPLE_SEEKERS.filter(s => !onlySeekers.some(l => l.id === s.id))];
-        setSeekersList(merged);
-      } else {
-        setSeekersList(INITIAL_SAMPLE_SEEKERS);
-      }
+      const onlySeekers = Array.isArray(liveItems)
+        ? liveItems.filter(l => l.type === 'job_seeker' && !String(l.id || '').startsWith('sample_seeker_'))
+        : [];
+      setSeekersList(onlySeekers);
     } catch (e) {
-      setSeekersList(INITIAL_SAMPLE_SEEKERS);
+      setSeekersList([]);
     } finally {
       setIsLoadingList(false);
     }
@@ -202,9 +164,16 @@ export default function JobSeekerModal({
     }
   };
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      const check = await validateUploadedFile(file, { allowPdf: false });
+      if (!check.valid) {
+        setErrorMessage(language === 'EN' ? (check.error || 'Invalid image') : (check.errorHi || check.error || 'अमान्य इमेज'));
+        e.target.value = '';
+        return;
+      }
+      setErrorMessage(null);
       const reader = new FileReader();
       reader.onloadend = () => {
         setPhotoUrl(reader.result as string);
@@ -313,7 +282,7 @@ export default function JobSeekerModal({
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-base sm:text-lg font-black tracking-tight text-white">
-                  {language === 'EN' ? 'Job Seeker Portal' : 'जॉब सीकर (नौकरी चाहिए)'}
+                  {language === 'EN' ? 'Job / Work Registration' : 'जॉब / काम का रजिस्ट्रेशन'}
                 </h3>
                 <span className="text-[10px] font-black bg-emerald-400 text-slate-950 px-2 py-0.5 rounded-full flex items-center gap-0.5">
                   <ShieldCheck className="w-3 h-3" /> 100% Free
@@ -322,7 +291,7 @@ export default function JobSeekerModal({
               <p className="text-[11px] text-blue-100 font-medium">
                 {language === 'EN' 
                   ? 'Only for Job Seekers: View registered candidates or create your profile' 
-                  : 'सिर्फ जॉब सीकर के लिए: रजिस्टर्ड उम्मीदवार देखें या अपनी प्रोफाइल बनाएं'}
+                  : 'सिर्फ काम चाहने वालों के लिए: रजिस्टर्ड उम्मीदवार देखें या अपनी प्रोफाइल बनाएं'}
               </p>
             </div>
           </div>
@@ -334,7 +303,7 @@ export default function JobSeekerModal({
           </button>
         </div>
 
-        {/* Two Strict Tabs: 1. Already Registered Job Seekers & 2. New Registration (Job Seeker Only) */}
+        {/* Two Strict Tabs: 1. Already Registered Job Seekers & 2. New Registration */}
         <div className="flex border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850 shrink-0 p-1.5 gap-1.5">
           <button
             type="button"
@@ -351,8 +320,8 @@ export default function JobSeekerModal({
             <UserCheck className="w-4 h-4" />
             <span>
               {language === 'EN' 
-                ? `Already Registered Seekers (${filteredSeekers.length})` 
-                : `पहले से रजिस्टर्ड जॉब सीकर (${filteredSeekers.length})`}
+                ? `Already Registered Candidates (${filteredSeekers.length})` 
+                : `पहले से रजिस्टर्ड उम्मीदवार (${filteredSeekers.length})`}
             </span>
           </button>
 
@@ -366,7 +335,7 @@ export default function JobSeekerModal({
             }`}
           >
             <Plus className="w-4 h-4" />
-            <span>{language === 'EN' ? '+ New Register (Seeker)' : '+ नया रजिस्ट्रेशन (जॉब सीकर)'}</span>
+            <span>{language === 'EN' ? '+ New Registration' : '+ नया रजिस्ट्रेशन'}</span>
           </button>
         </div>
 
@@ -498,16 +467,28 @@ export default function JobSeekerModal({
                       </p>
                     )}
 
-                    {/* Direct Contact Buttons */}
+                    {/* Direct Contact Buttons or Owner Edit */}
                     <div className="flex items-center gap-2 pt-1 border-t border-slate-100 dark:border-slate-700/60">
-                      <button
-                        type="button"
-                        onClick={() => handleWhatsAppContact(seeker)}
-                        className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black shadow-xs active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                      >
-                        <MessageCircle className="w-3.5 h-3.5" />
-                        <span>{language === 'EN' ? 'Chat on WhatsApp' : 'व्हाट्सएप चैट करें'}</span>
-                      </button>
+                      {isEntityOwner(seeker, getCurrentUser()) ? (
+                        <button
+                          type="button"
+                          onClick={() => handleStartEditSeeker(seeker)}
+                          className="flex-1 py-2 px-3 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-black shadow-xs active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                          title={language === 'EN' ? 'Edit your profile details' : 'अपनी प्रोफाइल एडिट करें'}
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                          <span>{language === 'EN' ? 'Edit Profile' : 'प्रोफ़ाइल एडिट करें'}</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleWhatsAppContact(seeker)}
+                          className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black shadow-xs active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                        >
+                          <MessageCircle className="w-3.5 h-3.5" />
+                          <span>{language === 'EN' ? 'Chat on WhatsApp' : 'व्हाट्सएप चैट करें'}</span>
+                        </button>
+                      )}
 
                       {seeker.phone && (
                         <a

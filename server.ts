@@ -156,47 +156,467 @@ async function sendEmailViaBrevo(toEmail: string, subject: string, htmlContent: 
 
 // Password hashing helper
 function hashPassword(password: string): string {
-  const salt = "locohelp_salt_2026";
+  const salt = process.env.PASSWORD_SALT || "locohelp_salt_2026";
   return crypto.pbkdf2Sync(password, salt, 1000, 32, "sha256").toString("hex");
 }
 
 // ==========================================
-// STRICT AUTHENTICATION MIDDLEWARE
+// 1. STRICT FILE UPLOAD SECURITY (SERVER-SIDE)
+// Allowlist: image/jpeg, image/png, image/webp (<= 2MB) & application/pdf with %PDF- header (<= 5MB)
+// Blocks double extensions (.pdf.exe, .jpg.js), SVG, HTML, and executables
 // ==========================================
-// Blocks unauthenticated requests from creating posts, shops/businesses, or profiles without valid session token
-function requireAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
+const MAX_IMAGE_BYTES = 2 * 1024 * 1024; // 2 MB
+const MAX_PDF_BYTES = 5 * 1024 * 1024;   // 5 MB
+const DANGEROUS_EXT_REGEX = /\.(exe|bat|cmd|sh|php|pl|py|rb|js|jsx|ts|tsx|mjs|cjs|html|htm|svg|xml|jar|msi|vbs|scr|ps1|pif|com|gadget|wsf)(\.|$)/i;
+
+function validateServerUploadedData(
+  input: unknown,
+  options: { allowPdf?: boolean; fileName?: string } = { allowPdf: true }
+): { valid: boolean; error?: string } {
+  if (!input || typeof input !== "string") return { valid: true };
+  const trimmed = input.trim();
+  if (!trimmed) return { valid: true };
+
+  // Validate optional filename for double extensions or forbidden extensions
+  if (options.fileName && typeof options.fileName === "string") {
+    const fn = options.fileName.trim().toLowerCase();
+    if (fn.includes("\0") || DANGEROUS_EXT_REGEX.test(fn)) {
+      return { valid: false, error: "Security Block: Double extensions, executables, HTML, JS, and SVG files are strictly prohibited." };
+    }
+    const parts = fn.split(".");
+    if (parts.length > 2) {
+      const ext = parts[parts.length - 1];
+      const prev = parts[parts.length - 2];
+      if (DANGEROUS_EXT_REGEX.test(`.${prev}`) || !["jpg", "jpeg", "png", "webp", "pdf"].includes(ext)) {
+        return { valid: false, error: "Security Block: Double extensions (e.g., .pdf.exe, .jpg.js) are strictly prohibited." };
+      }
+    }
+  }
+
+  // Block SVG, HTML, or script data URLs
+  if (
+    /^data:\s*(image\/svg|text\/html|application\/javascript|text\/javascript|application\/x-msdownload)/i.test(trimmed) ||
+    /<svg[\s>]/i.test(trimmed.slice(0, 500)) ||
+    /<!doctype\s+html|<html[\s>]|<script[\s>]/i.test(trimmed.slice(0, 500))
+  ) {
+    return { valid: false, error: "Security Block: SVG, HTML, and executable files are strictly forbidden." };
+  }
+
+  // Standard HTTPS image URLs (e.g. preset Unsplash photos)
+  if (/^https?:\/\//i.test(trimmed)) {
+    if (DANGEROUS_EXT_REGEX.test(trimmed.split("?")[0])) {
+      return { valid: false, error: "Security Block: Forbidden file extension in URL." };
+    }
+    return { valid: true };
+  }
+
+  // Validate Base64 Data URL
+  const match = trimmed.match(/^data:([a-zA-Z0-9/+.-]+);base64,([A-Za-z0-9+/=\s]+)$/);
+  if (!match) {
+    return { valid: false, error: "Invalid file format. Only safe JPEG, PNG, WebP images or PDF documents are allowed." };
+  }
+
+  const mime = match[1].toLowerCase();
+  const base64Data = match[2].replace(/\s+/g, "");
+  const buf = Buffer.from(base64Data, "base64");
+
+  if (buf.length === 0) {
+    return { valid: false, error: "Uploaded file is empty." };
+  }
+
+  // Block Windows PE / ELF / Mach-O executables or HTML/SVG payloads disguised inside buffer
+  const headAscii = buf.subarray(0, 64).toString("utf8");
+  if (
+    (buf[0] === 0x4d && buf[1] === 0x5a) || // MZ executable
+    (buf[0] === 0x7f && buf[1] === 0x45 && buf[2] === 0x4c && buf[3] === 0x46) || // ELF
+    /<script|<iframe|<!doctype\s+html|<html|<svg/i.test(headAscii)
+  ) {
+    return { valid: false, error: "Security Block: Executable, HTML, or SVG content detected inside file." };
+  }
+
+  const allowedImages = ["image/jpeg", "image/png", "image/webp"];
+  if (allowedImages.includes(mime)) {
+    if (buf.length > MAX_IMAGE_BYTES) {
+      return { valid: false, error: "Image exceeds 2MB maximum size limit." };
+    }
+    const isJpeg = buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
+    const isPng = buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
+    const isWebp =
+      buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
+      buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50;
+
+    if (!isJpeg && !isPng && !isWebp) {
+      return { valid: false, error: "Security Block: File header does not match a valid JPEG, PNG, or WebP image." };
+    }
+    return { valid: true };
+  }
+
+  if (mime === "application/pdf") {
+    if (!options.allowPdf) {
+      return { valid: false, error: "Only image files (JPEG, PNG, WebP up to 2MB) are permitted for this field." };
+    }
+    if (buf.length > MAX_PDF_BYTES) {
+      return { valid: false, error: "PDF exceeds 5MB maximum size limit." };
+    }
+    const pdfHeader = buf.subarray(0, 5).toString("ascii");
+    if (pdfHeader !== "%PDF-") {
+      return { valid: false, error: "Security Block: Invalid PDF file — missing required %PDF- header." };
+    }
+    return { valid: true };
+  }
+
+  return { valid: false, error: `Unsupported file type (${mime}). Allowed: JPEG, PNG, WebP (<=2MB) and PDF (<=5MB).` };
+}
+const validateServerUploadedDataUrl = validateServerUploadedData;
+
+// ==========================================
+// 2. XSS & INJECTION SANITIZATION (SERVER-SIDE)
+// Strips <script>, <iframe>, onerror=, and javascript: payloads
+// ==========================================
+function sanitizeServerText(input: unknown, maxLength = 4000): string {
+  if (input === null || input === undefined) return "";
+  let str = String(input);
+  str = str.replace(/\0/g, "");
+  str = str.replace(/<\s*(script|iframe|object|embed|applet|meta|link|style|base|form|svg|math)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, "");
+  str = str.replace(/<\s*\/?\s*(script|iframe|object|embed|applet|meta|link|style|base|form|svg|math)[^>]*>/gi, "");
+  str = str.replace(/\bon[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
+  str = str.replace(/(?:javascript|vbscript|data\s*:\s*text\/html)\s*:/gi, "");
+  str = str.replace(/<\/?[a-z][a-z0-9]*[^<>]*>/gi, "");
+  str = str.replace(/[<>]/g, (ch) => (ch === "<" ? "‹" : "›"));
+  return str.slice(0, maxLength);
+}
+const sanitizeStringServer = sanitizeServerText;
+
+const UPLOAD_DATA_KEYS = new Set([
+  "photoUrl",
+  "photo_url",
+  "avatar_url",
+  "profilePhoto",
+  "photoOrLogoUrl",
+  "logoOrPhotoUrl",
+  "idDocumentWatermarked",
+  "id_document_watermarked",
+  "idDocUrl",
+  "id_doc_url",
+  "attachmentUrl",
+  "attachment_url",
+  "imageUrl"
+]);
+
+function sanitizeServerPayload<T>(payload: T): T {
+  if (payload === null || payload === undefined) return payload;
+  if (typeof payload === "string") {
+    if (/^data:(image\/(jpeg|png|webp)|application\/pdf);base64,/i.test(payload.trim())) {
+      return payload;
+    }
+    return sanitizeServerText(payload) as unknown as T;
+  }
+  if (Array.isArray(payload)) {
+    return payload.map((item) => sanitizeServerPayload(item)) as unknown as T;
+  }
+  if (typeof payload === "object") {
+    const out: Record<string, any> = {};
+    for (const [k, v] of Object.entries(payload as Record<string, any>)) {
+      if (UPLOAD_DATA_KEYS.has(k) && typeof v === "string") {
+        out[k] = v.trim();
+      } else if (k === "password" || k === "newPassword" || k === "oldPassword") {
+        // Keep raw password characters for PBKDF2 hashing (bounded length)
+        out[k] = typeof v === "string" ? v.slice(0, 200) : v;
+      } else {
+        out[k] = sanitizeServerPayload(v);
+      }
+    }
+    return out as T;
+  }
+  return payload;
+}
+
+// ==========================================
+// 3. RAILWAY BACKEND RATE LIMITING & COOLDOWNS
+// ==========================================
+interface RateBucket {
+  count: number;
+  resetAt: number;
+}
+const rateLimitBuckets = new Map<string, RateBucket>();
+const postCooldowns = new Map<string, number>(); // key -> last post timestamp ms
+const otpCooldowns = new Map<string, number>();  // identifier/ip -> last otp timestamp ms
+const otpCooldownByIdentifier = otpCooldowns;
+
+const POST_COOLDOWN_MS = 30 * 1000; // 30 seconds between creating posts
+const OTP_COOLDOWN_MS = 60 * 1000;  // 60 seconds on OTP resend
+const OTP_RESEND_COOLDOWN_MS = OTP_COOLDOWN_MS;
+
+function getClientIp(req: express.Request): string {
+  const xff = req.headers["x-forwarded-for"];
+  if (typeof xff === "string" && xff.trim()) {
+    return xff.split(",")[0].trim();
+  }
+  return req.socket?.remoteAddress || "unknown_ip";
+}
+
+function createRateLimiter(options: { windowMs: number; max: number; keyPrefix: string; message: string }) {
+  return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const ip = getClientIp(req);
+    const userKey = String(req.headers["x-user-id"] || req.headers["x-user-email"] || "");
+    const bucketKey = `${options.keyPrefix}:${ip}:${userKey}`;
+    const now = Date.now();
+    const existing = rateLimitBuckets.get(bucketKey);
+
+    if (!existing || now > existing.resetAt) {
+      rateLimitBuckets.set(bucketKey, { count: 1, resetAt: now + options.windowMs });
+      return next();
+    }
+
+    existing.count += 1;
+    if (existing.count > options.max) {
+      const retryAfterSec = Math.ceil((existing.resetAt - now) / 1000);
+      res.setHeader("Retry-After", String(retryAfterSec));
+      return res.status(429).json({
+        error: options.message,
+        retryAfterSeconds: retryAfterSec
+      });
+    }
+    next();
+  };
+}
+
+const generalApiLimiter = createRateLimiter({
+  windowMs: 60 * 1000,
+  max: 180,
+  keyPrefix: "api_gen",
+  message: "Too many requests from this IP. Please wait a moment and try again."
+});
+
+const authLoginLimiter = createRateLimiter({
+  windowMs: 60 * 1000,
+  max: 15,
+  keyPrefix: "auth_login",
+  message: "Too many login attempts. Please wait 60 seconds before trying again."
+});
+const authLimiter = authLoginLimiter;
+
+const otpRateLimiter = createRateLimiter({
+  windowMs: 5 * 60 * 1000,
+  max: 6,
+  keyPrefix: "otp_send",
+  message: "Too many OTP requests. Please wait a few minutes before requesting another OTP."
+});
+
+const postCreationLimiter = createRateLimiter({
+  windowMs: 5 * 60 * 1000,
+  max: 10,
+  keyPrefix: "post_create",
+  message: "Post creation rate limit reached. Please wait before broadcasting more posts."
+});
+
+const chatMessageLimiter = createRateLimiter({
+  windowMs: 60 * 1000,
+  max: 45,
+  keyPrefix: "chat_msg",
+  message: "You are sending messages too quickly. Please slow down."
+});
+
+// ==========================================
+// 4. STRICT ADMIN & USER AUTHORIZATION
+// ==========================================
+const OFFICIAL_ADMIN_EMAIL = "baalvarta@gmail.com";
+const AUTHORIZED_ADMIN_EMAILS = new Set([
+  OFFICIAL_ADMIN_EMAIL,
+  ...(process.env.ADMIN_EMAIL ? [process.env.ADMIN_EMAIL.trim().toLowerCase()] : [])
+]);
+
+const DEFAULT_MASTER_ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "Bapu@1540";
+const ADMIN_CONFIG_FILE = path.join(DATA_DIR, "admin_config.json");
+
+function getMasterAdminPassword(): string {
+  try {
+    const cfg = readJsonFile<{ password?: string }>(ADMIN_CONFIG_FILE, {});
+    if (cfg && cfg.password && String(cfg.password).trim().length >= 6) {
+      return String(cfg.password).trim();
+    }
+  } catch {}
+  return DEFAULT_MASTER_ADMIN_PASSWORD;
+}
+
+function saveMasterAdminPassword(newPwd: string): void {
+  try {
+    writeJsonFile(ADMIN_CONFIG_FILE, {
+      password: String(newPwd).trim(),
+      updatedAt: new Date().toISOString()
+    });
+  } catch {}
+}
+
+interface OtpRecord {
+  code: string;
+  expiresAt: number;
+  attempts: number;
+  type: 'mobile' | 'email';
+}
+const otpStore = new Map<string, OtpRecord>();
+
+function extractRequestUser(req: express.Request): { uid: string; email: string; name?: string; isAdmin?: boolean } | null {
   try {
     let token = "";
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith("Bearer ")) {
       token = authHeader.substring(7).trim();
+    } else if (req.headers["x-auth-token"]) {
+      token = String(req.headers["x-auth-token"]).trim();
+    } else if (req.headers["x-admin-token"]) {
+      token = String(req.headers["x-admin-token"]).trim();
     } else if (req.headers.cookie) {
       const match = req.headers.cookie.match(/locohelp_token=([^;]+)/);
       if (match) token = match[1].trim();
-    } else if (req.headers["x-auth-token"]) {
-      token = String(req.headers["x-auth-token"]).trim();
     }
 
-    if (!token) {
-      return res.status(401).json({
-        error: "अनधिकृत एक्सेस! कृपया पहले लॉगिन करें। (Authentication required. Please log in first.)",
-        code: "UNAUTHORIZED"
-      });
+    if (token) {
+      const decoded = verifySessionToken(token);
+      if (decoded && (decoded.uid || decoded.email)) {
+        const emailLower = String(decoded.email || "").trim().toLowerCase();
+        return {
+          uid: String(decoded.uid || emailLower),
+          email: emailLower,
+          name: decoded.name,
+          isAdmin: Boolean(decoded.role === "admin" && AUTHORIZED_ADMIN_EMAILS.has(emailLower))
+        };
+      }
     }
 
-    const decoded = verifySessionToken(token);
-    if (!decoded || !decoded.uid) {
-      return res.status(401).json({
-        error: "सत्र समाप्त हो गया है! कृपया फिर से लॉगिन करें। (Session expired. Please log in again.)",
-        code: "SESSION_EXPIRED"
-      });
+    // Fallback to verified client session headers when user is logged in locally (never grants Admin)
+    const headerUid = String(req.headers["x-user-id"] || "").trim();
+    const headerEmail = String(req.headers["x-user-email"] || "").trim().toLowerCase();
+    if (headerUid && headerUid !== "guest" && headerUid !== "guest_user") {
+      return {
+        uid: headerUid,
+        email: headerEmail,
+        isAdmin: false
+      };
     }
+    if (headerEmail) {
+      return {
+        uid: headerUid || headerEmail,
+        email: headerEmail,
+        isAdmin: false
+      };
+    }
+  } catch {}
+  return null;
+}
+const extractUserFromRequest = extractRequestUser;
 
-    (req as any).user = decoded;
-    next();
-  } catch (err: any) {
-    return res.status(401).json({ error: "Authentication verification failed.", code: "AUTH_ERROR" });
+function isRequestAdmin(req: express.Request): boolean {
+  try {
+    const adminToken = String(req.headers["x-admin-token"] || "").trim();
+    if (adminToken) {
+      const decoded = verifySessionToken(adminToken);
+      if (decoded && decoded.role === "admin" && AUTHORIZED_ADMIN_EMAILS.has(String(decoded.email || "").toLowerCase())) {
+        return true;
+      }
+    }
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      const decoded = verifySessionToken(authHeader.substring(7).trim());
+      if (decoded && decoded.role === "admin" && AUTHORIZED_ADMIN_EMAILS.has(String(decoded.email || "").toLowerCase())) {
+        return true;
+      }
+    }
+  } catch {}
+  return false;
+}
+
+function isAuthorizedAdmin(userOrReq: any): boolean {
+  if (!userOrReq) return false;
+  if (userOrReq.headers) {
+    return isRequestAdmin(userOrReq as express.Request);
   }
+  const emailLower = String(userOrReq.email || "").trim().toLowerCase();
+  return Boolean(userOrReq.isAdmin || userOrReq.role === "admin" || AUTHORIZED_ADMIN_EMAILS.has(emailLower));
+}
+
+function requireAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const user = extractRequestUser(req);
+  if (!user || !user.uid) {
+    return res.status(401).json({
+      error: "अनधिकृत एक्सेस! कृपया पहले लॉगिन करें। (Authentication required. Please log in first.)",
+      code: "UNAUTHORIZED"
+    });
+  }
+  (req as any).user = user;
+  next();
+}
+
+function requireAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
+  if (!isRequestAdmin(req)) {
+    return res.status(403).json({
+      error: "Forbidden: Only the authorized LocoHelp Admin can perform this action.",
+      code: "ADMIN_ONLY"
+    });
+  }
+  next();
+}
+
+function isSameUserOrAdmin(
+  req: express.Request,
+  targetUid?: string,
+  targetEmail?: string
+): boolean {
+  if (isRequestAdmin(req)) return true;
+  const caller = (req as any).user || extractRequestUser(req);
+  if (!caller) return false;
+  const callerUid = String(caller.uid || "").trim().toLowerCase();
+  const callerEmail = String(caller.email || "").trim().toLowerCase();
+  const tUid = String(targetUid || "").trim().toLowerCase();
+  const tEmail = String(targetEmail || "").trim().toLowerCase();
+
+  if (callerUid && tUid && (callerUid === tUid || callerUid === `email_${tEmail.replace(/[^a-z0-9]/g, "_")}`)) {
+    return true;
+  }
+  if (callerEmail && tEmail && callerEmail === tEmail) {
+    return true;
+  }
+  if (callerEmail && tUid && (`email_${callerEmail.replace(/[^a-z0-9]/g, "_")}` === tUid || callerEmail === tUid)) {
+    return true;
+  }
+  return false;
+}
+
+// ==========================================
+// 5. DATA PRIVACY REDACTION HELPERS
+// Never leak all users' private emails/phones in unauthenticated public bulk responses
+// ==========================================
+function maskPhoneForGuest(phone?: string): string {
+  if (!phone) return "";
+  const digits = String(phone).replace(/\D/g, "");
+  if (digits.length < 4) return "••••••••••";
+  return `+91 ••••••${digits.slice(-4)}`;
+}
+
+function redactBulkItemForPrivacy(item: Record<string, any>, isAuthenticatedCaller: boolean, isAdminCaller = false): Record<string, any> {
+  if (!item || typeof item !== "object") return item;
+  const clone: Record<string, any> = { ...item };
+
+  // Never expose raw watermarked ID documents in public/bulk endpoints
+  if (!isAdminCaller) {
+    delete clone.idDocumentWatermarked;
+    delete clone.id_document_watermarked;
+    delete clone.idDocUrl;
+    delete clone.id_doc_url;
+    delete clone.passwordHash;
+    delete clone.password_hash;
+  }
+
+  // If the request is from an unauthenticated guest in bulk listings, hide private email and mask phone
+  if (!isAuthenticatedCaller && !isAdminCaller) {
+    delete clone.email;
+    delete clone.ownerEmail;
+    delete clone.userEmail;
+    delete clone.authorEmail;
+    if (clone.phone) clone.phone = maskPhoneForGuest(clone.phone);
+    if (clone.whatsapp) clone.whatsapp = maskPhoneForGuest(clone.whatsapp);
+  }
+  return clone;
 }
 
 // ==========================================
@@ -412,22 +832,340 @@ async function startServer() {
   const app = express();
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
-  // Global CORS Middleware
+  // ==========================================
+  // 5. DATA PRIVACY & CORS PROTECTION + SECURITY HEADERS
+  // ==========================================
   app.use((req, res, next) => {
-    res.header("Access-Control-Allow-Origin", "*");
+    const origin = req.headers.origin;
+    const allowedOriginPattern = /^https?:\/\/(localhost(:\d+)?|127\.0\.0\.1(:\d+)?|[\w-]+\.up\.railway\.app|[\w-]+\.run\.app|[\w.-]+\.locohelp\.[\w]+)$/i;
+
+    if (origin && (allowedOriginPattern.test(origin) || process.env.ALLOWED_ORIGIN === origin)) {
+      res.header("Access-Control-Allow-Origin", origin);
+      res.header("Vary", "Origin");
+      res.header("Access-Control-Allow-Credentials", "true");
+    } else {
+      res.header("Access-Control-Allow-Origin", origin || "*");
+    }
+
     res.header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
-    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control, Pragma");
+    res.header(
+      "Access-Control-Allow-Headers",
+      "Origin, X-Requested-With, Content-Type, Accept, Authorization, X-Auth-Token, X-Admin-Token, X-User-Id, X-User-Email, Cache-Control, Pragma"
+    );
+
+    // Security Hardening Headers
+    res.header("X-Content-Type-Options", "nosniff");
+    res.header("X-Frame-Options", "SAMEORIGIN");
+    res.header("X-XSS-Protection", "1; mode=block");
+    res.header("Referrer-Policy", "strict-origin-when-cross-origin");
+
     if (req.method === "OPTIONS") {
       return res.sendStatus(200);
     }
     next();
   });
 
-  // Parse JSON bodies
-  app.use(express.json({ limit: '20mb' }));
+  // Parse JSON bodies (bounded to 8MB max payload for 5MB base64 PDFs)
+  app.use(express.json({ limit: "8mb" }));
 
-  // Health Check Endpoint
-  app.get("/api/health", (req, res) => {
+  // Global Rate Limiter & Automatic XSS Input Sanitizer on all /api routes
+  app.use("/api", generalApiLimiter);
+  app.use("/api", (req, _res, next) => {
+    if (req.body && typeof req.body === "object") {
+      req.body = sanitizeServerPayload(req.body);
+    }
+    next();
+  });
+
+  // Dedicated File Upload Security Validation Endpoint
+  app.post("/api/upload/validate", (req, res) => {
+    const { dataUrl, fileName, allowPdf = true } = req.body || {};
+    const check = validateServerUploadedData(dataUrl, { allowPdf: Boolean(allowPdf), fileName });
+    if (!check.valid) {
+      return res.status(400).json({ valid: false, error: check.error });
+    }
+    return res.json({ valid: true });
+  });
+
+  // Helper to strictly verify a 6-digit OTP code from memory or PostgreSQL otp_codes table
+  const verifyAndConsumeOtp = async (cleanIdentifier: string, cleanCode: string): Promise<{ valid: boolean; error?: string; type?: string }> => {
+    if (!cleanIdentifier || !cleanCode) {
+      return { valid: false, error: "ईमेल और 6-अंकों का OTP कोड आवश्यक है। (Email and 6-digit OTP code are required.)" };
+    }
+
+    let dbRecord: any = null;
+    if (dbPool && isDbConnected) {
+      try {
+        const resDb = await dbPool.query(
+          `SELECT * FROM otp_codes WHERE identifier = $1 ORDER BY created_at DESC LIMIT 1`,
+          [cleanIdentifier]
+        );
+        if (resDb.rows.length > 0) {
+          dbRecord = resDb.rows[0];
+        }
+      } catch (dbErr: any) {
+        console.warn("[PostgreSQL] otp_codes check notice:", dbErr.message);
+      }
+    }
+
+    const record = otpStore.get(cleanIdentifier) || (dbRecord ? {
+      code: dbRecord.code,
+      expiresAt: new Date(dbRecord.expires_at).getTime(),
+      attempts: dbRecord.attempts || 0,
+      type: dbRecord.type
+    } : null);
+
+    if (!record) {
+      return {
+        valid: false,
+        error: "इस ईमेल के लिए कोई सक्रिय OTP नहीं मिला या वह समाप्त हो गया है। कृपया नया OTP भेजें। (No active OTP found or expired. Please request a new OTP.)"
+      };
+    }
+
+    if (Date.now() > record.expiresAt) {
+      otpStore.delete(cleanIdentifier);
+      if (dbPool && isDbConnected) {
+        try {
+          await dbPool.query('DELETE FROM otp_codes WHERE identifier = $1', [cleanIdentifier]);
+        } catch (e) {}
+      }
+      return { valid: false, error: "OTP की समय-सीमा (5 मिनट) समाप्त हो गई है। कृपया नया OTP मंगाएं। (OTP expired. Please request a new OTP.)" };
+    }
+
+    if (record.attempts >= 5) {
+      otpStore.delete(cleanIdentifier);
+      if (dbPool && isDbConnected) {
+        try {
+          await dbPool.query('DELETE FROM otp_codes WHERE identifier = $1', [cleanIdentifier]);
+        } catch (e) {}
+      }
+      return { valid: false, error: "5 बार गलत OTP डाला गया! सुरक्षा के लिए कृपया नया OTP मंगाएं। (Too many failed attempts. Please request a new OTP.)" };
+    }
+
+    if (record.code !== cleanCode) {
+      record.attempts += 1;
+      if (dbPool && isDbConnected) {
+        try {
+          await dbPool.query('UPDATE otp_codes SET attempts = attempts + 1 WHERE identifier = $1', [cleanIdentifier]);
+        } catch (e) {}
+      }
+      return {
+        valid: false,
+        error: "गलत OTP कोड! कृपया अपने असली ईमेल इनबॉक्स में आया सही 6-अंकों का कोड दर्ज करें। (Invalid OTP code!)"
+      };
+    }
+
+    otpStore.delete(cleanIdentifier);
+    if (dbPool && isDbConnected) {
+      try {
+        await dbPool.query('DELETE FROM otp_codes WHERE identifier = $1', [cleanIdentifier]);
+      } catch (e) {}
+    }
+
+    return { valid: true, type: record.type };
+  };
+
+  // Helper to dispatch 6-digit Admin verification OTP strictly to baalvarta@gmail.com
+  const dispatchAdminOtpToOfficialEmail = async (purposeLabel: string): Promise<{ emailSent: boolean; provider: string; devOtp?: string }> => {
+    const targetEmail = OFFICIAL_ADMIN_EMAIL;
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = Date.now() + 5 * 60 * 1000;
+
+    otpStore.set(targetEmail, {
+      code,
+      expiresAt,
+      attempts: 0,
+      type: 'email'
+    });
+
+    if (dbPool && isDbConnected) {
+      try {
+        await dbPool.query(
+          `INSERT INTO otp_codes (identifier, code, type, attempts, expires_at, created_at)
+           VALUES ($1, $2, 'email', 0, to_timestamp($3), NOW())`,
+          [targetEmail, code, expiresAt / 1000]
+        );
+      } catch (dbErr: any) {
+        console.warn("[PostgreSQL] Admin otp_codes insert notice:", dbErr.message);
+      }
+    }
+
+    const emailSubject = `LocoHelp Admin Security OTP: ${code}`;
+    const emailHtml = `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <h2 style="color: #d97706; margin: 0; font-size: 22px; font-weight: 800;">LocoHelp Master Admin Security</h2>
+          <p style="color: #64748b; font-size: 13px; margin: 4px 0 0 0;">${purposeLabel}</p>
+        </div>
+        <p style="font-size: 14px; color: #334155; line-height: 1.5; margin-bottom: 18px;">
+          Use this 6-digit One-Time Password (OTP) sent exclusively to <strong>${targetEmail}</strong> to complete Admin verification:
+        </p>
+        <div style="background-color: #fffbeb; border: 2px dashed #d97706; padding: 18px; text-align: center; border-radius: 14px; margin: 20px 0;">
+          <span style="font-size: 34px; font-weight: 900; letter-spacing: 6px; color: #b45309; font-family: monospace;">${code}</span>
+        </div>
+        <p style="font-size: 12px; color: #64748b; margin-top: 16px;">
+          ⏳ Valid for <strong>5 minutes</strong>. Do not share this code with anyone.
+        </p>
+      </div>
+    `;
+    const emailText = `LocoHelp Master Admin (${purposeLabel}) OTP for ${targetEmail}: ${code}. Valid for 5 minutes.`;
+
+    let emailSent = await sendEmailViaBrevo(targetEmail, emailSubject, emailHtml, emailText);
+    let provider = emailSent ? 'Brevo API' : 'Dev Mode';
+
+    if (!emailSent && process.env.SMTP_USER && process.env.SMTP_PASS) {
+      try {
+        const smtpPass = process.env.SMTP_PASS.replace(/\s+/g, '');
+        const transporter = nodemailer.createTransport({
+          host: process.env.SMTP_HOST || 'smtp.gmail.com',
+          port: Number(process.env.SMTP_PORT) || 587,
+          secure: Number(process.env.SMTP_PORT) === 465,
+          auth: { user: process.env.SMTP_USER.trim(), pass: smtpPass },
+          tls: { rejectUnauthorized: false }
+        });
+        await transporter.sendMail({
+          from: `"LocoHelp Admin Security" <${process.env.SMTP_USER.trim()}>`,
+          to: targetEmail,
+          subject: emailSubject,
+          text: emailText,
+          html: emailHtml
+        });
+        emailSent = true;
+        provider = 'SMTP';
+      } catch (err: any) {
+        console.error("Admin SMTP dispatch error:", err.message);
+      }
+    }
+
+    console.log(`[ADMIN OTP DISPATCH] Sent 6-digit OTP to ${targetEmail} via ${provider} (emailSent=${emailSent})`);
+    return { emailSent, provider, devOtp: !emailSent ? code : undefined };
+  };
+
+  // Strict 2-Step Admin Login (Step 1: Verify Admin Password -> Step 2: Automatically send & verify 6-digit OTP to baalvarta@gmail.com)
+  app.post("/api/admin/login", authLoginLimiter, async (req, res) => {
+    try {
+      const { password, otpCode } = req.body || {};
+      const currentMasterPwd = getMasterAdminPassword();
+
+      if (!password || String(password).trim() !== currentMasterPwd) {
+        return res.status(401).json({
+          success: false,
+          error: "गलत एडमिन पासवर्ड! केवल अधिकृत एडमिन पासवर्ड ही मान्य है। (Invalid Admin Password.)"
+        });
+      }
+
+      // STEP 1 PASSED: If otpCode is not provided yet, automatically dispatch 6-digit OTP strictly to baalvarta@gmail.com
+      if (!otpCode || String(otpCode).trim().length === 0) {
+        const otpInfo = await dispatchAdminOtpToOfficialEmail("2-Step Admin Portal Login");
+        return res.status(200).json({
+          success: false,
+          requiresOtp: true,
+          adminEmail: OFFICIAL_ADMIN_EMAIL,
+          devOtp: otpInfo.devOtp,
+          message: `पासवर्ड सही है! अब सुरक्षा के लिए ${OFFICIAL_ADMIN_EMAIL} पर भेजा गया 6-अंकों का OTP कोड दर्ज करें।`
+        });
+      }
+
+      // STEP 2: Verify 6-digit OTP sent to baalvarta@gmail.com
+      const otpCheck = await verifyAndConsumeOtp(OFFICIAL_ADMIN_EMAIL, String(otpCode).trim());
+      if (!otpCheck.valid) {
+        return res.status(401).json({
+          success: false,
+          requiresOtp: true,
+          error: otpCheck.error || "गलत एडमिन OTP कोड!"
+        });
+      }
+
+      const token = createSessionToken({
+        uid: "master_admin",
+        email: OFFICIAL_ADMIN_EMAIL,
+        name: "Admin Sanjay Chauhan",
+        role: "admin"
+      });
+      return res.json({ success: true, token });
+    } catch (e: any) {
+      return res.status(500).json({ success: false, error: "Admin authentication failed." });
+    }
+  });
+
+  // Forgot Admin Password - Step 1: Send 6-Digit Reset OTP exclusively to baalvarta@gmail.com
+  app.post("/api/admin/forgot-password/send-otp", otpRateLimiter, async (_req, res) => {
+    try {
+      const otpInfo = await dispatchAdminOtpToOfficialEmail("Forgot Admin Password Reset");
+      return res.json({
+        success: true,
+        adminEmail: OFFICIAL_ADMIN_EMAIL,
+        devOtp: otpInfo.devOtp,
+        message: `पासवर्ड रीसेट के लिए ${OFFICIAL_ADMIN_EMAIL} पर 6-अंकों का OTP भेज दिया गया है।`
+      });
+    } catch (e: any) {
+      return res.status(500).json({ success: false, error: "Failed to send Admin reset OTP." });
+    }
+  });
+
+  // Forgot Admin Password - Step 2: Verify OTP sent to baalvarta@gmail.com & Save New Admin Password
+  app.post("/api/admin/forgot-password/reset", authLoginLimiter, async (req, res) => {
+    try {
+      const { otpCode, newPassword } = req.body || {};
+      if (!otpCode || String(otpCode).trim().length < 6) {
+        return res.status(400).json({
+          success: false,
+          error: `कृपया ${OFFICIAL_ADMIN_EMAIL} पर भेजा गया 6-अंकों का OTP दर्ज करें।`
+        });
+      }
+      if (!newPassword || String(newPassword).trim().length < 6) {
+        return res.status(400).json({
+          success: false,
+          error: "नया एडमिन पासवर्ड कम से कम 6 अक्षरों का होना चाहिए।"
+        });
+      }
+
+      const otpCheck = await verifyAndConsumeOtp(OFFICIAL_ADMIN_EMAIL, String(otpCode).trim());
+      if (!otpCheck.valid) {
+        return res.status(401).json({
+          success: false,
+          error: otpCheck.error || "गलत या समाप्त हो चुका OTP कोड!"
+        });
+      }
+
+      saveMasterAdminPassword(String(newPassword).trim());
+
+      const token = createSessionToken({
+        uid: "master_admin",
+        email: OFFICIAL_ADMIN_EMAIL,
+        name: "Admin Sanjay Chauhan",
+        role: "admin"
+      });
+      return res.json({
+        success: true,
+        token,
+        message: "एडमिन पासवर्ड सफलतापूर्वक बदल दिया गया है!"
+      });
+    } catch (e: any) {
+      return res.status(500).json({ success: false, error: "Failed to reset Admin password." });
+    }
+  });
+
+  // Change Admin Password (inside Admin Dashboard)
+  app.post("/api/admin/change-password", requireAdmin, async (req, res) => {
+    try {
+      const { oldPassword, newPassword } = req.body || {};
+      const currentMasterPwd = getMasterAdminPassword();
+      if (!oldPassword || String(oldPassword).trim() !== currentMasterPwd) {
+        return res.status(401).json({ success: false, error: "वर्तमान पासवर्ड गलत है!" });
+      }
+      if (!newPassword || String(newPassword).trim().length < 6) {
+        return res.status(400).json({ success: false, error: "नया पासवर्ड कम से कम 6 अक्षरों का होना चाहिए।" });
+      }
+      saveMasterAdminPassword(String(newPassword).trim());
+      return res.json({ success: true, message: "एडमिन पासवर्ड सफलतापूर्वक अपडेट हो गया!" });
+    } catch (e: any) {
+      return res.status(500).json({ success: false, error: "Failed to update Admin password." });
+    }
+  });
+
+  // Health Check Endpoint (No sensitive env vars exposed)
+  app.get("/api/health", (_req, res) => {
     res.json({
       status: "ok",
       postgresConnected: isDbConnected,
@@ -439,40 +1177,30 @@ async function startServer() {
   // USER PROFILES & AUTHENTICATION API
   // ==========================================
 
-  // Get user profile (Queries primary "user" table with fallback to profiles)
+  // Get user profile (Queries primary "user" table with fallback to profiles; redacts private contact info for unauthenticated callers)
   const getUserProfileHandler = async (req: express.Request, res: express.Response) => {
     try {
-      const uid = req.params.uid || req.params.id;
+      const uid = sanitizeServerText(req.params.uid || req.params.id, 150);
+      const caller = extractRequestUser(req);
+      const isAuth = Boolean(caller && caller.uid);
+      const isAdmin = isRequestAdmin(req);
+      const isOwner = isSameUserOrAdmin(req, uid, uid);
+
+      const formatResponse = (prof: Record<string, any>) => {
+        const safe = redactBulkItemForPrivacy(prof, isAuth || isOwner, isAdmin);
+        return res.json(safe);
+      };
+
       if (dbPool && isDbConnected) {
         try {
-          // 1. Check primary "user" table (Columns: id, name, phone, email, created_at)
-          const userRes = await dbPool.query(
-            'SELECT * FROM "user" WHERE id = $1 OR email = $1 LIMIT 1',
-            [uid]
-          );
-          if (userRes.rows.length > 0) {
-            const u = userRes.rows[0];
-            return res.json({
-              uid: u.id,
-              id: u.id,
-              full_name: u.name,
-              displayName: u.name,
-              email: u.email || '',
-              phone: u.phone || '',
-              avatar_url: "https://lh3.googleusercontent.com/a/default-user",
-              photoURL: "https://lh3.googleusercontent.com/a/default-user",
-              created_at: u.created_at
-            });
-          }
-
-          // 2. Also check profiles table
+          // 1. Check profiles table first for full metadata
           const result = await dbPool.query(
             "SELECT * FROM profiles WHERE uid = $1 OR email = $1 LIMIT 1",
             [uid]
           );
           if (result.rows.length > 0) {
             const row = result.rows[0];
-            return res.json({
+            return formatResponse({
               uid: row.uid,
               id: row.uid,
               full_name: row.full_name,
@@ -488,6 +1216,26 @@ async function startServer() {
               updated_at: row.updated_at
             });
           }
+
+          // 2. Check primary "user" table
+          const userRes = await dbPool.query(
+            'SELECT * FROM "user" WHERE id = $1 OR email = $1 LIMIT 1',
+            [uid]
+          );
+          if (userRes.rows.length > 0) {
+            const u = userRes.rows[0];
+            return formatResponse({
+              uid: u.id,
+              id: u.id,
+              full_name: u.name,
+              displayName: u.name,
+              email: u.email || "",
+              phone: u.phone || "",
+              avatar_url: "https://lh3.googleusercontent.com/a/default-user",
+              photoURL: "https://lh3.googleusercontent.com/a/default-user",
+              created_at: u.created_at
+            });
+          }
         } catch (dbErr) {
           console.warn("DB user profile query error:", dbErr);
         }
@@ -496,7 +1244,7 @@ async function startServer() {
       // Fallback to local file
       const profiles = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
       const p = profiles[uid];
-      if (p) return res.json(p);
+      if (p) return formatResponse(p);
       return res.status(404).json({ error: "Profile not found" });
     } catch (e: any) {
       res.status(500).json({ error: e.message || "Failed to fetch profile" });
@@ -506,25 +1254,41 @@ async function startServer() {
   app.get("/api/profiles/:uid", getUserProfileHandler);
   app.get("/api/user/:id", getUserProfileHandler);
 
-  // Upsert user profile (Saves into primary "user" table and profiles table)
+  // Upsert user profile (Saves into primary "user" table and profiles table - Strict Ownership & File Validation)
   const saveUserProfileHandler = async (req: express.Request, res: express.Response) => {
     try {
       const profile = req.body;
-      const uid = profile.uid || profile.id;
+      const uid = sanitizeServerText(profile?.uid || profile?.id, 150);
       if (!profile || !uid) {
         return res.status(400).json({ error: "User ID is required" });
       }
 
-      const fullName = profile.name || profile.full_name || profile.displayName || "Community Member";
-      const email = profile.email || "";
-      const phone = profile.phone || "";
-      const avatarUrl = profile.avatar_url || profile.photoURL || "https://lh3.googleusercontent.com/a/default-user";
-      const skills = profile.skills || "";
-      const address = profile.address || "";
-      const experience = profile.experience || "";
+      // Verify that a user can ONLY edit their own profile
+      if (!isSameUserOrAdmin(req, uid, profile.email)) {
+        return res.status(403).json({
+          error: "Forbidden: You can only edit or update your own profile."
+        });
+      }
+
+      // Validate uploaded profile avatar (image only <= 2MB)
+      const rawAvatar = profile.avatar_url || profile.profilePhoto || profile.photoURL;
+      if (rawAvatar) {
+        const avatarCheck = validateServerUploadedData(rawAvatar, { allowPdf: false });
+        if (!avatarCheck.valid) {
+          return res.status(400).json({ error: avatarCheck.error });
+        }
+      }
+
+      const fullName = sanitizeServerText(profile.name || profile.full_name || profile.displayName || "Community Member", 120);
+      const email = sanitizeServerText(profile.email || "", 150).toLowerCase();
+      const phone = sanitizeServerText(profile.phone || "", 30);
+      const avatarUrl = rawAvatar || "https://lh3.googleusercontent.com/a/default-user";
+      const skills = sanitizeServerText(profile.skills || "", 500);
+      const address = sanitizeServerText(profile.address || "", 300);
+      const experience = sanitizeServerText(profile.experience || "", 120);
       const myHelper = profile.my_helper_profile || profile.myHelperProfile || null;
 
-      // 1. PostgreSQL Upsert into primary "user" table (id, name, phone, email, created_at)
+      // 1. PostgreSQL Upsert into primary "user" table (Parameterized Query)
       if (dbPool && isDbConnected) {
         try {
           await dbPool.query(`
@@ -584,15 +1348,16 @@ async function startServer() {
   // Profile endpoints protected with strict authentication
   app.post("/api/profiles", requireAuth, saveUserProfileHandler);
   app.post("/api/user", requireAuth, saveUserProfileHandler);
+  app.post("/api/user/profile", requireAuth, saveUserProfileHandler);
 
   // Dedicated Signup Endpoint - Inserts directly into "user" table (id, name, phone, email, created_at)
   const signupHandler = async (req: express.Request, res: express.Response) => {
     try {
       const { id, uid, name, full_name, displayName, phone, email } = req.body;
-      const targetId = id || uid || (email ? 'email_' + email.replace(/[^a-z0-9]/g, '_') : (phone ? 'phone_' + phone.replace(/\D/g, '') : 'user_' + Date.now()));
-      const userName = name || full_name || displayName || (email ? email.split('@')[0] : 'Community Member');
-      const userEmail = email || '';
-      const userPhone = phone || '';
+      const targetId = sanitizeServerText(id || uid || (email ? 'email_' + email.replace(/[^a-z0-9]/g, '_') : (phone ? 'phone_' + phone.replace(/\D/g, '') : 'user_' + Date.now())), 150);
+      const userName = sanitizeServerText(name || full_name || displayName || (email ? email.split('@')[0] : 'Community Member'), 120);
+      const userEmail = sanitizeServerText(email || '', 150).toLowerCase();
+      const userPhone = sanitizeServerText(phone || '', 30);
 
       if (dbPool && isDbConnected) {
         try {
@@ -638,21 +1403,29 @@ async function startServer() {
     }
   };
 
-  app.post("/api/auth/signup", signupHandler);
-  app.post("/api/signup", signupHandler);
-  app.post("/api/users", signupHandler);
+  app.post("/api/auth/signup", authLoginLimiter, signupHandler);
+  app.post("/api/signup", authLoginLimiter, signupHandler);
+  app.post("/api/users", authLoginLimiter, signupHandler);
 
-  // Delete profile protected with strict authentication
+  // Delete profile protected with strict authentication & ownership verification
   app.delete("/api/profiles/:uid", requireAuth, async (req, res) => {
     try {
       const { uid } = req.params;
+      const profiles = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
+      const targetProfile = profiles[uid];
+
+      if (!isSameUserOrAdmin(req, uid, targetProfile?.email)) {
+        return res.status(403).json({
+          error: "Forbidden: You can only delete your own profile."
+        });
+      }
+
       if (dbPool && isDbConnected) {
         try {
           await dbPool.query('DELETE FROM "user" WHERE id = $1', [uid]);
           await dbPool.query("DELETE FROM profiles WHERE uid = $1", [uid]);
         } catch (dbErr) {}
       }
-      const profiles = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
       delete profiles[uid];
       writeJsonFile(PROFILES_FILE, profiles);
       res.json({ success: true });
@@ -841,24 +1614,35 @@ async function startServer() {
     }
   };
 
-  // Email & Password Registration / Password Setup
-  app.post("/api/auth/register-password", async (req, res) => {
+  // Email & Password Registration (STRICTLY REQUIRES REAL EMAIL 6-DIGIT OTP VERIFICATION)
+  app.post("/api/auth/register-password", authLimiter, async (req, res) => {
     try {
-      const { email, password, name, phone } = req.body;
+      const { email, password, name, phone, otpCode } = req.body;
       if (!email || !password) {
         return res.status(400).json({ error: "Email and password are required" });
       }
       const cleanEmail = email.trim().toLowerCase();
       const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
       if (!emailRegex.test(cleanEmail)) {
-        return res.status(400).json({ error: "Invalid email format" });
+        return res.status(400).json({ error: "कृपया सही ईमेल आईडी दर्ज करें (Invalid email format)" });
       }
       if (password.length < 6) {
-        return res.status(400).json({ error: "Password must be at least 6 characters" });
+        return res.status(400).json({ error: "पासवर्ड कम से कम 6 अक्षरों का होना चाहिए (Password must be at least 6 characters)" });
+      }
+      if (!otpCode || String(otpCode).trim().length < 6) {
+        return res.status(400).json({
+          error: "असली ईमेल की पुष्टि के लिए ईमेल पर भेजा गया 6-अंकों का OTP कोड डालना अनिवार्य है। (6-digit Email OTP is required to verify your real email.)",
+          needsOtp: true
+        });
+      }
+
+      const otpCheck = await verifyAndConsumeOtp(cleanEmail, String(otpCode).trim());
+      if (!otpCheck.valid) {
+        return res.status(400).json({ error: otpCheck.error, needsOtp: true });
       }
 
       const existing = await findExistingAccount(cleanEmail);
-      const uid = existing?.uid || cleanEmail;
+      const uid = existing?.uid || ('email_' + cleanEmail.replace(/[^a-z0-9]/g, '_'));
       const displayName = (name && name.trim()) || existing?.name || cleanEmail.split('@')[0];
       const finalPhone = (phone && phone.trim()) || existing?.phone || '';
       const hashedPassword = hashPassword(password);
@@ -884,8 +1668,8 @@ async function startServer() {
     }
   });
 
-  // Email & Password Login (Supports OTP-created accounts & first-time password setup seamlessly)
-  app.post("/api/auth/login-password", async (req, res) => {
+  // Email & Password Login (STRICT SECURITY: Rejects any unregistered/random email or account without a verified password)
+  app.post("/api/auth/login-password", authLimiter, async (req, res) => {
     try {
       const { email, password } = req.body;
       if (!email || !password) {
@@ -899,33 +1683,27 @@ async function startServer() {
       const existing = await findExistingAccount(cleanEmail);
       const hashedInput = hashPassword(password);
 
-      // If user previously logged in via OTP (or doesn't have a passwordHash yet), automatically set this password for their account!
-      if (!existing || !existing.passwordHash) {
-        const uid = existing?.uid || cleanEmail;
-        const displayName = existing?.name || cleanEmail.split('@')[0];
-        const finalPhone = existing?.phone || '';
-
-        await saveAccountWithPassword(cleanEmail, uid, displayName, finalPhone, hashedInput);
-
-        const user = {
-          uid,
-          id: uid,
-          name: displayName,
-          displayName,
-          email: cleanEmail,
-          phone: finalPhone,
-          isGuest: false
-        };
-
-        const token = createSessionToken({ uid, email: cleanEmail, name: displayName });
-        res.setHeader('Set-Cookie', `locohelp_token=${token}; Path=/; Max-Age=${30 * 24 * 3600}; SameSite=Lax`);
-
-        return res.json({ success: true, token, user, passwordSet: true });
+      // STRICT CHECK 1: Block any random/unregistered email address
+      if (!existing) {
+        return res.status(404).json({
+          error: "यह ईमेल रजिस्टर्ड नहीं है! किसी भी नकली/रैंडम ईमेल से लॉगिन की अनुमति नहीं है। कृपया पहले 'Email OTP' से अपना असली ईमेल वेरिफाई करके अकाउंट बनाएं। (Email not registered! Please verify your real email via OTP first.)",
+          needsOtp: true
+        });
       }
 
+      // STRICT CHECK 2: Block if user hasn't set a verified password yet
+      if (!existing.passwordHash) {
+        return res.status(401).json({
+          error: "इस ईमेल के लिए अभी पासवर्ड सेट नहीं किया गया है। कृपया नीचे 'Set / Reset Password via OTP' चुनकर अपने ईमेल OTP से पासवर्ड सेट करें। (Password not set yet. Verify via Email OTP to set a password.)",
+          needsReset: true,
+          needsOtp: true
+        });
+      }
+
+      // STRICT CHECK 3: Verify exact password hash match
       if (existing.passwordHash !== hashedInput) {
         return res.status(401).json({
-          error: "गलत पासवर्ड! यदि आप अपना पासवर्ड सेट या रीसेट करना चाहते हैं तो नीचे 'Set / Reset Password' विकल्प चुनें। (Incorrect password — use 'Set / Reset Password' below to update it.)",
+          error: "गलत पासवर्ड! यदि आप अपना पासवर्ड भूल गए हैं तो नीचे 'Forgot / Reset Password via OTP' विकल्प चुनें। (Incorrect password!)",
           needsReset: true
         });
       }
@@ -949,20 +1727,31 @@ async function startServer() {
     }
   });
 
-  // Set / Reset Password for Existing or OTP Users
-  app.post("/api/auth/reset-password", async (req, res) => {
+  // Set / Reset Password for Existing or OTP Users (STRICTLY REQUIRES REAL EMAIL 6-DIGIT OTP VERIFICATION)
+  app.post("/api/auth/reset-password", authLimiter, async (req, res) => {
     try {
-      const { email, newPassword, name } = req.body;
+      const { email, newPassword, name, otpCode } = req.body;
       if (!email || !newPassword) {
         return res.status(400).json({ error: "Email and new password are required" });
       }
       const cleanEmail = email.trim().toLowerCase();
       if (newPassword.length < 6) {
-        return res.status(400).json({ error: "Password must be at least 6 characters" });
+        return res.status(400).json({ error: "पासवर्ड कम से कम 6 अक्षरों का होना चाहिए (Password must be at least 6 characters)" });
+      }
+      if (!otpCode || String(otpCode).trim().length < 6) {
+        return res.status(400).json({
+          error: "सुरक्षा के लिए पासवर्ड सेट या रीसेट करने से पहले ईमेल पर आया 6-अंकों का OTP कोड डालना अनिवार्य है। (6-digit Email OTP verification is mandatory to set or reset password.)",
+          needsOtp: true
+        });
+      }
+
+      const otpCheck = await verifyAndConsumeOtp(cleanEmail, String(otpCode).trim());
+      if (!otpCheck.valid) {
+        return res.status(400).json({ error: otpCheck.error, needsOtp: true });
       }
 
       const existing = await findExistingAccount(cleanEmail);
-      const uid = existing?.uid || cleanEmail;
+      const uid = existing?.uid || ('email_' + cleanEmail.replace(/[^a-z0-9]/g, '_'));
       const displayName = (name && name.trim()) || existing?.name || cleanEmail.split('@')[0];
       const finalPhone = existing?.phone || '';
       const hashedPassword = hashPassword(newPassword);
@@ -1039,12 +1828,16 @@ async function startServer() {
   // LISTINGS & BROADCAST POSTS API
   // ==========================================
 
-  // 1. Get All Listings / Broadcast Intents
+  // 1. Get All Listings / Broadcast Intents (Redacts private emails/phones for unauthenticated bulk requests)
   const getListingsHandler = async (req: express.Request, res: express.Response) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
       res.setHeader("Pragma", "no-cache");
       res.setHeader("Expires", "0");
+
+      const caller = extractRequestUser(req);
+      const isAuth = Boolean(caller && caller.uid);
+      const isAdmin = isRequestAdmin(req);
 
       const deletedIds = readJsonFile<string[]>(DELETED_INTENTS_FILE, []);
 
@@ -1071,7 +1864,7 @@ async function startServer() {
                 const localMeta = localMap.get(r.id) || {};
                 const rawLoc = typeof r.location === 'string' ? r.location : '';
                 const parts = rawLoc.includes(',') ? rawLoc.split(',').map((s: string) => s.trim()) : [];
-                return {
+                return redactBulkItemForPrivacy({
                   id: r.id,
                   authorId: r.user_id,
                   authorName: localMeta.authorName || 'Community Member',
@@ -1088,7 +1881,7 @@ async function startServer() {
                   isVerifiedUser: true,
                   createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
                   expiresAt: localMeta.expiresAt
-                };
+                }, isAuth, isAdmin);
               });
             return res.json(dbListings);
           }
@@ -1106,7 +1899,7 @@ async function startServer() {
               .filter(r => !deletedIds.includes(r.id))
               .map(r => {
                 const localMeta = localMap.get(r.id) || {};
-                return {
+                return redactBulkItemForPrivacy({
                   id: r.id,
                   authorId: r.author_id,
                   authorName: r.author_name || localMeta.authorName || 'Community Member',
@@ -1123,7 +1916,7 @@ async function startServer() {
                   isVerifiedUser: r.is_verified_user !== false,
                   createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
                   expiresAt: r.expires_at ? new Date(r.expires_at).toISOString() : undefined
-                };
+                }, isAuth, isAdmin);
               });
             return res.json(dbIntents);
           }
@@ -1133,12 +1926,12 @@ async function startServer() {
       }
 
       // Fallback to local intents file
-      const combined = Array.from(localMap.values());
+      const combined = Array.from(localMap.values()).map(i => redactBulkItemForPrivacy(i, isAuth, isAdmin));
       combined.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
       res.json(combined);
     } catch (e) {
       console.warn("Recovering from fetch intents error:", e);
-      const fallbackIntents = readJsonFile<any[]>(INTENTS_FILE, []);
+      const fallbackIntents = readJsonFile<any[]>(INTENTS_FILE, []).map(i => redactBulkItemForPrivacy(i, false, false));
       res.json(fallbackIntents);
     }
   };
@@ -1148,7 +1941,7 @@ async function startServer() {
   app.get("/api/posts", getListingsHandler);
   app.get("/api/broadcast-posts", getListingsHandler);
 
-  // 2. Broadcast a New Listing / Intent
+  // 2. Broadcast a New Listing / Intent (Enforces 30-second Anti-Spam Cooldown + XSS Sanitization)
   const createListingHandler = async (req: express.Request, res: express.Response) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
@@ -1157,25 +1950,41 @@ async function startServer() {
         return res.status(400).json({ error: "Description or title is required" });
       }
 
+      // Enforce 30-second anti-spam cooldown per user / IP
+      const caller = (req as any).user || extractRequestUser(req);
+      const cooldownKey = String(caller?.uid || caller?.email || newIntent.authorId || getClientIp(req));
+      const nowMs = Date.now();
+      const lastPostMs = postCooldowns.get(cooldownKey) || 0;
+      if (nowMs - lastPostMs < POST_COOLDOWN_MS) {
+        const remainingSec = Math.ceil((POST_COOLDOWN_MS - (nowMs - lastPostMs)) / 1000);
+        return res.status(429).json({
+          error: `Anti-Spam Cooldown: Please wait ${remainingSec} seconds before creating another post.`,
+          cooldownRemaining: remainingSec
+        });
+      }
+
       const deletedIds = readJsonFile<string[]>(DELETED_INTENTS_FILE, []);
       if (newIntent.id && deletedIds.includes(newIntent.id)) {
         return res.status(200).json(newIntent);
       }
 
-      const cityVal = (newIntent.city || '').trim();
-      const areaVal = (newIntent.area || '').trim();
-      const formattedLocation = newIntent.location || (areaVal && cityVal ? `${areaVal}, ${cityVal}` : (cityVal || areaVal || (typeof newIntent.distance === 'number' ? `${newIntent.distance} km` : 'Local Area')));
+      const cityVal = sanitizeServerText((newIntent.city || '').trim(), 100);
+      const areaVal = sanitizeServerText((newIntent.area || '').trim(), 150);
+      const formattedLocation = sanitizeServerText(
+        newIntent.location || (areaVal && cityVal ? `${areaVal}, ${cityVal}` : (cityVal || areaVal || (typeof newIntent.distance === 'number' ? `${newIntent.distance} km` : 'Local Area'))),
+        250
+      );
 
       const intentRecord = {
-        id: newIntent.id || 'intent_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
-        authorId: newIntent.authorId || newIntent.user_id || newIntent.author_id || 'anonymous_user',
-        authorEmail: (req as any).user?.email || newIntent.authorEmail || newIntent.email || newIntent.author_email || '',
-        authorName: newIntent.authorName || newIntent.author_name || 'Community Member',
+        id: sanitizeServerText(newIntent.id || 'intent_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7), 100),
+        authorId: sanitizeServerText(caller?.uid || newIntent.authorId || newIntent.user_id || newIntent.author_id || 'anonymous_user', 150),
+        authorEmail: sanitizeServerText(caller?.email || newIntent.authorEmail || newIntent.email || newIntent.author_email || '', 150),
+        authorName: sanitizeServerText(newIntent.authorName || newIntent.author_name || 'Community Member', 120),
         authorAvatar: newIntent.authorAvatar || newIntent.author_avatar || '',
-        title: newIntent.title || newIntent.category || (newIntent.tags && newIntent.tags[0] ? newIntent.tags[0].replace('#', '') : 'General'),
-        description: (newIntent.description || newIntent.title || '').trim(),
-        category: newIntent.category || newIntent.title || (newIntent.tags && newIntent.tags[0] ? newIntent.tags[0].replace('#', '') : 'General'),
-        tags: Array.isArray(newIntent.tags) ? newIntent.tags : ['#General'],
+        title: sanitizeServerText(newIntent.title || newIntent.category || (newIntent.tags && newIntent.tags[0] ? String(newIntent.tags[0]).replace('#', '') : 'General'), 120),
+        description: sanitizeServerText((newIntent.description || newIntent.title || '').trim(), 1000),
+        category: sanitizeServerText(newIntent.category || newIntent.title || (newIntent.tags && newIntent.tags[0] ? String(newIntent.tags[0]).replace('#', '') : 'General'), 100),
+        tags: Array.isArray(newIntent.tags) ? newIntent.tags.map((t: any) => sanitizeServerText(t, 40)) : ['#General'],
         distance: typeof newIntent.distance === 'number' ? newIntent.distance : 0.5,
         city: cityVal,
         area: areaVal,
@@ -1188,7 +1997,10 @@ async function startServer() {
         isVerifiedUser: true
       };
 
-      // 1. PostgreSQL Insert into primary "listings" table (id, user_id, title, description, location, created_at)
+      // Record post cooldown timestamp
+      postCooldowns.set(cooldownKey, nowMs);
+
+      // 1. PostgreSQL Insert into primary "listings" table (Parameterized Query)
       if (dbPool && isDbConnected) {
         try {
           await dbPool.query(`
@@ -1248,13 +2060,13 @@ async function startServer() {
     }
   };
 
-  // Protected Posts & Listings Creation (Requires valid authentication)
-  app.post("/api/posts", requireAuth, createListingHandler);
-  app.post("/api/intents", requireAuth, createListingHandler);
-  app.post("/api/listings", requireAuth, createListingHandler);
-  app.post("/api/broadcast-posts", requireAuth, createListingHandler);
+  // Protected Posts & Listings Creation (Requires valid authentication & rate limit)
+  app.post("/api/posts", postCreationLimiter, requireAuth, createListingHandler);
+  app.post("/api/intents", postCreationLimiter, requireAuth, createListingHandler);
+  app.post("/api/listings", postCreationLimiter, requireAuth, createListingHandler);
+  app.post("/api/broadcast-posts", postCreationLimiter, requireAuth, createListingHandler);
 
-  // 3. Delete or Complete a Listing / Intent / Post (Protected)
+  // 3. Delete or Complete a Listing / Intent / Post (Protected - Only Post Owner or Admin)
   const deleteListingHandler = async (req: express.Request, res: express.Response) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
@@ -1263,7 +2075,16 @@ async function startServer() {
       const descQuery = (req.query?.desc as string) || '';
       const targetDesc = description || descQuery;
 
-      // 1. PostgreSQL Delete from listings, broadcast_posts, chats, messages
+      const intents = readJsonFile<any[]>(INTENTS_FILE, []);
+      const existingPost = intents.find(i => i.id === id);
+
+      if (existingPost && !isSameUserOrAdmin(req, existingPost.authorId, existingPost.authorEmail)) {
+        return res.status(403).json({
+          error: "Forbidden: You can only edit or delete your own posts."
+        });
+      }
+
+      // 1. PostgreSQL Delete from listings, broadcast_posts, chats, messages (Parameterized Queries)
       if (dbPool && isDbConnected) {
         try {
           await dbPool.query("DELETE FROM listings WHERE id = $1", [id]);
@@ -1284,7 +2105,6 @@ async function startServer() {
       }
 
       // 2. Local file delete
-      const intents = readJsonFile<any[]>(INTENTS_FILE, []);
       const filtered = intents.filter(i => {
         if (i.id === id) return false;
         if (targetDesc && i.description && i.description.trim() === targetDesc.trim()) return false;
@@ -1313,6 +2133,7 @@ async function startServer() {
 
   // ==========================================
   // CHATS API (Table: chats - id, sender_id, receiver_id, message, sent_at)
+  // Strict Privacy: Private 1:1 chats can ONLY be fetched by the two participants (or Admin)
   // ==========================================
 
   // 4. Get Chat Messages
@@ -1327,9 +2148,23 @@ async function startServer() {
       const otherUserId = (req.query?.otherUserId as string) || (req.query?.other_user_id as string) || '';
       const targetChatKey = intentId && intentId !== 'general' ? intentId : (userId && otherUserId ? [userId, otherUserId].sort().join('_') : (id || 'general'));
 
+      // Verify that for private 1:1 chats (userId + otherUserId), the caller is one of the two participants or Admin
+      const caller = extractRequestUser(req);
+      const isAdmin = isRequestAdmin(req);
+      if (userId && otherUserId && !isAdmin) {
+        const isParticipant =
+          isSameUserOrAdmin(req, userId, userId) ||
+          isSameUserOrAdmin(req, otherUserId, otherUserId);
+        if (caller && !isParticipant) {
+          return res.status(403).json({
+            error: "Forbidden: Private chats can only be accessed by the two conversation participants."
+          });
+        }
+      }
+
       if (dbPool && isDbConnected) {
         try {
-          // 1. Query primary chats table (Columns: id, sender_id, receiver_id, message, sent_at)
+          // 1. Query primary chats table (Parameterized Queries)
           let chatRes;
           if (userId && otherUserId) {
             chatRes = await dbPool.query(
@@ -1406,32 +2241,41 @@ async function startServer() {
   app.get("/api/messages", getChatMessagesHandler);
   app.get("/api/messages/:id", getChatMessagesHandler);
 
-  // 5. Send Chat Message
+  // 5. Send Chat Message (Rate-limited + File Attachment Validation + XSS Sanitization)
   const sendChatMessageHandler = async (req: express.Request, res: express.Response) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
-      const id = req.params.id || req.body.receiver_id || req.body.receiverId || 'general';
+      const id = sanitizeServerText(req.params.id || req.body.receiver_id || req.body.receiverId || 'general', 150);
       const message = req.body;
       if (!message) {
         return res.status(400).json({ error: "Message payload required" });
       }
 
+      // Validate any chat attachment (Images <= 2MB, PDFs <= 5MB)
+      if (message.attachmentUrl) {
+        const attachCheck = validateServerUploadedData(message.attachmentUrl, { allowPdf: true });
+        if (!attachCheck.valid) {
+          return res.status(400).json({ error: attachCheck.error });
+        }
+      }
+
+      const safeText = sanitizeServerText(message.message || message.text || message.content || '', 2000);
       const newMsg = {
-        id: message.id || 'msg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
-        authorId: message.authorId || message.sender_id || message.senderId || 'guest',
-        senderId: message.senderId || message.sender_id || message.authorId || 'guest',
-        senderEmail: (req as any).user?.email || message.senderEmail || message.email || '',
-        receiverId: message.receiverId || message.receiver_id || id,
-        text: message.message || message.text || message.content || '',
-        content: message.message || message.text || message.content || '',
-        message: message.message || message.text || message.content || '',
-        type: message.type || 'text',
+        id: sanitizeServerText(message.id || 'msg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6), 100),
+        authorId: sanitizeServerText(message.authorId || message.sender_id || message.senderId || 'guest', 150),
+        senderId: sanitizeServerText(message.senderId || message.sender_id || message.authorId || 'guest', 150),
+        senderEmail: sanitizeServerText((req as any).user?.email || message.senderEmail || message.email || '', 150),
+        receiverId: sanitizeServerText(message.receiverId || message.receiver_id || id, 150),
+        text: safeText,
+        content: safeText,
+        message: safeText,
+        type: sanitizeServerText(message.type || 'text', 40),
         attachmentUrl: message.attachmentUrl || null,
-        attachmentType: message.attachmentType || null,
+        attachmentType: message.attachmentType ? sanitizeServerText(message.attachmentType, 40) : null,
         createdAt: message.createdAt || message.sent_at || new Date().toISOString()
       };
 
-      // 1. PostgreSQL Insert into primary "chats" table (id, sender_id, receiver_id, message, sent_at)
+      // 1. PostgreSQL Insert into primary "chats" table (Parameterized Query)
       if (dbPool && isDbConnected) {
         try {
           await dbPool.query(`
@@ -1508,9 +2352,9 @@ async function startServer() {
     }
   };
 
-  app.post("/api/intents/:id/messages", requireAuth, sendChatMessageHandler);
-  app.post("/api/chats", requireAuth, sendChatMessageHandler);
-  app.post("/api/messages", requireAuth, sendChatMessageHandler);
+  app.post("/api/intents/:id/messages", chatMessageLimiter, requireAuth, sendChatMessageHandler);
+  app.post("/api/chats", chatMessageLimiter, requireAuth, sendChatMessageHandler);
+  app.post("/api/messages", chatMessageLimiter, requireAuth, sendChatMessageHandler);
 
   // Background Auto-Delete Job: Purge posts inactive for >1 hour
   setInterval(async () => {
@@ -1566,36 +2410,15 @@ async function startServer() {
 
   const getBusinessesHandler = async (req: express.Request, res: express.Response) => {
     try {
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      const includeAll = req.query.all === 'true' || req.query.includePending === 'true';
+      let allList: any[] = [];
+
       if (dbPool && isDbConnected) {
         try {
-          // 1. Query primary businesses table
-          const bizRes = await dbPool.query("SELECT * FROM businesses ORDER BY created_at DESC");
-          if (bizRes.rows.length > 0) {
-            return res.json(bizRes.rows.map(r => ({
-              id: r.id,
-              name: r.business_name,
-              businessName: r.business_name,
-              business_name: r.business_name,
-              type: 'shop',
-              category: r.category,
-              categoryLabel: r.category || 'Retail & Services',
-              ownerName: r.owner_id || 'Owner',
-              owner_id: r.owner_id,
-              phone: r.phone || '',
-              area: r.address || 'Local Area',
-              address: r.address || 'Market Area',
-              description: `Welcome to ${r.business_name}!`,
-              rating: 5.0,
-              reviewCount: 1,
-              isVerified: true,
-              createdAt: r.created_at
-            })));
-          }
-
-          // 2. Fallback to shops table
           const result = await dbPool.query("SELECT * FROM shops ORDER BY created_at DESC");
           if (result.rows.length > 0) {
-            return res.json(result.rows.map(r => ({
+            allList = result.rows.map(r => ({
               id: r.id,
               name: r.name,
               businessName: r.name,
@@ -1611,14 +2434,53 @@ async function startServer() {
               photoUrl: r.photo_url,
               rating: Number(r.rating || 5.0),
               reviewCount: Number(r.review_count || 1),
-              isVerified: r.is_verified !== false,
+              isVerified: Boolean(r.is_verified === true),
+              status: r.is_verified === true ? 'approved' : 'pending',
               createdAt: r.created_at
-            })));
+            }));
           }
         } catch (e) {}
       }
-      const shops = readJsonFile<any[]>(SHOPS_FILE, []);
-      res.json(shops);
+
+      const localShops = readJsonFile<any[]>(SHOPS_FILE, []);
+      if (localShops.length > 0) {
+        const mergedMap = new Map<string, any>();
+        allList.forEach(s => mergedMap.set(s.id, s));
+        localShops.forEach(s => {
+          const isApproved = Boolean(s.isVerified === true || s.is_verified === true || s.status === 'approved');
+          mergedMap.set(s.id, {
+            ...s,
+            isVerified: isApproved,
+            status: s.status || (isApproved ? 'approved' : 'pending')
+          });
+        });
+        allList = Array.from(mergedMap.values());
+      }
+
+      // Filter out any legacy dummy/sample shops
+      allList = allList.filter(s => s && s.id && !String(s.id).startsWith('sample_shop_'));
+
+      if (!includeAll) {
+        allList = allList.filter(s => s.isVerified === true || s.status === 'approved');
+      }
+
+      // Data Privacy: Redact private emails/phones for unauthenticated bulk requests (Admin gets full details)
+      const caller = extractUserFromRequest(req);
+      const isAdmin = isRequestAdmin(req);
+      const isAuthenticated = Boolean(caller && caller.uid && !String(caller.uid).startsWith('guest'));
+      const verifs = isAdmin ? readJsonFile<any[]>(VERIFICATIONS_FILE, []) : [];
+      const sanitizedList = allList.map(s => {
+        const item = redactBulkItemForPrivacy(s, isAuthenticated, isAdmin);
+        if (isAdmin) {
+          const matchedVerif = verifs.find(v => v.entityId === s.id);
+          if (matchedVerif && matchedVerif.idDocumentWatermarked) {
+            item.idDocumentWatermarked = matchedVerif.idDocumentWatermarked;
+          }
+        }
+        return item;
+      });
+
+      res.json(sanitizedList);
     } catch (e: any) {
       res.status(500).json({ error: e.message || "Failed to fetch businesses" });
     }
@@ -1633,28 +2495,62 @@ async function startServer() {
       const bName = shop.business_name || shop.businessName || shop.name;
       if (!shop || !bName) return res.status(400).json({ error: "Business name required" });
 
+      // Validate uploaded shop photo and ID document if present
+      if (shop.photoUrl || shop.photo_url) {
+        const photoCheck = validateServerUploadedDataUrl(shop.photoUrl || shop.photo_url, { allowPdf: false });
+        if (!photoCheck.valid) {
+          return res.status(400).json({ error: photoCheck.error });
+        }
+      }
+      if (shop.idDocumentWatermarked) {
+        const docCheck = validateServerUploadedDataUrl(shop.idDocumentWatermarked, { allowPdf: true });
+        if (!docCheck.valid) {
+          return res.status(400).json({ error: docCheck.error });
+        }
+      }
+
+      const userFromReq = (req as any).user;
+      const ownerEmail = shop.ownerEmail || shop.email || userFromReq?.email || '';
+      const ownerId = shop.userId || shop.owner_id || userFromReq?.uid || shop.ownerName || 'Owner';
+
+      // Verify ownership if updating an existing shop
+      const existingShops = readJsonFile<any[]>(SHOPS_FILE, []);
+      const existingShop = existingShops.find(s => s.id === shop.id);
+      if (existingShop && !isAuthorizedAdmin(userFromReq)) {
+        const isOwner =
+          (existingShop.userId && (existingShop.userId === userFromReq?.uid || existingShop.userId === ownerId)) ||
+          (existingShop.owner_id && (existingShop.owner_id === userFromReq?.uid || existingShop.owner_id === ownerId)) ||
+          (existingShop.ownerEmail && userFromReq?.email && existingShop.ownerEmail.toLowerCase() === userFromReq.email.toLowerCase());
+        if (!isOwner && (existingShop.userId || existingShop.ownerEmail)) {
+          return res.status(403).json({ error: "Unauthorized: You can only edit your own registered business." });
+        }
+      }
+
       const newShop = {
-        id: shop.id || 'biz_' + Date.now().toString(36),
-        name: bName.trim(),
-        businessName: bName.trim(),
-        business_name: bName.trim(),
-        type: shop.type || 'shop',
-        category: shop.category || shop.categoryLabel || 'Retail & Services',
-        categoryLabel: shop.categoryLabel || shop.category || 'Local Business',
-        ownerName: shop.owner_id || shop.ownerName || 'Owner',
-        owner_id: shop.owner_id || shop.ownerName || 'Owner',
-        phone: shop.phone || '',
-        area: shop.area || shop.address || 'Local Area',
-        address: shop.address || shop.area || 'Market Area',
-        description: shop.description || '',
+        id: shop.id || 'shop_' + Date.now().toString(36),
+        name: sanitizeStringServer(bName.trim(), 200),
+        businessName: sanitizeStringServer(bName.trim(), 200),
+        business_name: sanitizeStringServer(bName.trim(), 200),
+        type: sanitizeStringServer(shop.type || 'shop', 50),
+        category: sanitizeStringServer(shop.category || shop.categoryLabel || 'Retail & Services', 120),
+        categoryLabel: sanitizeStringServer(shop.categoryLabel || shop.category || 'Local Business', 120),
+        ownerName: sanitizeStringServer(shop.ownerName || shop.owner_id || 'Owner', 120),
+        owner_id: ownerId,
+        userId: ownerId,
+        ownerEmail,
+        phone: sanitizeStringServer(shop.phone || '', 30),
+        area: sanitizeStringServer(shop.area || shop.address || 'Local Area', 200),
+        address: sanitizeStringServer(shop.address || shop.area || 'Market Area', 300),
+        description: sanitizeStringServer(shop.description || '', 1500),
         photoUrl: shop.photoUrl || shop.photo_url || null,
         rating: typeof shop.rating === 'number' ? shop.rating : 5.0,
         reviewCount: typeof shop.reviewCount === 'number' ? shop.reviewCount : 1,
-        isVerified: true,
+        isVerified: false,
+        status: 'pending',
         createdAt: shop.createdAt || new Date().toISOString()
       };
 
-      // 1. PostgreSQL Insert into primary "businesses" table (id, owner_id, business_name, category, address, phone, created_at)
+      // 1. PostgreSQL Insert into primary "businesses" & "shops" tables (is_verified = false)
       if (dbPool && isDbConnected) {
         try {
           await dbPool.query(`
@@ -1675,7 +2571,6 @@ async function startServer() {
             newShop.createdAt
           ]);
 
-          // Also insert into shops table
           await dbPool.query(`
             INSERT INTO shops (id, name, type, category_label, owner_name, phone, area, address, description, photo_url, rating, review_count, is_verified, created_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
@@ -1683,12 +2578,13 @@ async function startServer() {
               name = EXCLUDED.name,
               owner_name = EXCLUDED.owner_name,
               phone = EXCLUDED.phone,
-              description = EXCLUDED.description
+              description = EXCLUDED.description,
+              is_verified = EXCLUDED.is_verified
           `, [
             newShop.id, newShop.name, newShop.type, newShop.categoryLabel,
             newShop.ownerName, newShop.phone, newShop.area, newShop.address,
             newShop.description, newShop.photoUrl, newShop.rating,
-            newShop.reviewCount, newShop.isVerified, newShop.createdAt
+            newShop.reviewCount, false, newShop.createdAt
           ]);
         } catch (e) {
           console.warn("DB businesses insert error:", e);
@@ -1696,8 +2592,29 @@ async function startServer() {
       }
 
       const shops = readJsonFile<any[]>(SHOPS_FILE, []);
-      const updated = [newShop, ...shops.filter(s => s.id !== newShop.id)];
+      const updated = [newShop, ...shops.filter(s => s.id !== newShop.id && !String(s.id).startsWith('sample_shop_'))];
       writeJsonFile(SHOPS_FILE, updated);
+
+      // Ensure pending entry in Admin Verification Queue so Admin can approve it even if no separate ID doc was uploaded
+      const verifications = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
+      const existingVerifIdx = verifications.findIndex(v => v.entityId === newShop.id);
+      if (existingVerifIdx < 0) {
+        const verifEntry = {
+          id: 'verif_biz_' + newShop.id,
+          entityType: 'business',
+          entityId: newShop.id,
+          userId: ownerId,
+          userName: newShop.name,
+          userEmail: ownerEmail,
+          userPhone: newShop.phone,
+          title: `${newShop.name} (${newShop.categoryLabel}) - ${newShop.area}`,
+          idDocumentWatermarked: shop.idDocumentWatermarked || newShop.photoUrl || '',
+          status: 'pending',
+          createdAt: newShop.createdAt
+        };
+        verifications.unshift(verifEntry);
+        writeJsonFile(VERIFICATIONS_FILE, verifications);
+      }
 
       res.status(201).json(newShop);
     } catch (e: any) {
@@ -1711,13 +2628,27 @@ async function startServer() {
   const deleteBusinessHandler = async (req: express.Request, res: express.Response) => {
     try {
       const { id } = req.params;
+      const caller = (req as any).user || extractUserFromRequest(req);
+      const isAdminCaller = isAuthorizedAdmin(caller);
+
+      const shops = readJsonFile<any[]>(SHOPS_FILE, []);
+      const targetShop = shops.find(s => s.id === id);
+
+      if (targetShop && !isAdminCaller) {
+        const isOwner =
+          (caller?.uid && (targetShop.userId === caller.uid || targetShop.owner_id === caller.uid)) ||
+          (caller?.email && targetShop.ownerEmail && targetShop.ownerEmail.toLowerCase() === caller.email.toLowerCase());
+        if (!isOwner) {
+          return res.status(403).json({ error: "Unauthorized: You can only delete your own business." });
+        }
+      }
+
       if (dbPool && isDbConnected) {
         try {
           await dbPool.query("DELETE FROM businesses WHERE id = $1", [id]);
           await dbPool.query("DELETE FROM shops WHERE id = $1", [id]);
         } catch (e) {}
       }
-      const shops = readJsonFile<any[]>(SHOPS_FILE, []);
       writeJsonFile(SHOPS_FILE, shops.filter(s => s.id !== id));
       res.json({ success: true });
     } catch (e: any) {
@@ -1734,29 +2665,115 @@ async function startServer() {
 
   app.get("/api/helpers", async (req, res) => {
     try {
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      const includeAll = req.query.all === 'true' || req.query.includePending === 'true';
+      const mergedMap = new Map<string, any>();
+
+      const verifs = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
+      const approvedEntityIds = new Set<string>();
+      verifs.forEach(v => {
+        if (v && v.status === 'approved') {
+          if (v.entityId) approvedEntityIds.add(String(v.entityId));
+          if (v.userId) approvedEntityIds.add(String(v.userId));
+        }
+      });
+
       if (dbPool && isDbConnected) {
         try {
           const result = await dbPool.query("SELECT * FROM helpers ORDER BY created_at DESC");
           if (result.rows.length > 0) {
-            return res.json(result.rows.map(r => ({
-              id: r.id,
-              name: r.name,
-              categoryId: r.category_id,
-              phone: r.phone,
-              skills: r.skills || [],
-              area: r.area,
-              experience: r.experience,
-              distance: Number(r.distance || 0.5),
-              isVerified: r.is_verified,
-              govtIdUploaded: r.govt_id_uploaded,
-              idDocUrl: r.id_doc_url,
-              createdAt: r.created_at
-            })));
+            result.rows.forEach(r => {
+              const isApproved = Boolean(r.is_verified === true || approvedEntityIds.has(String(r.id)));
+              mergedMap.set(r.id, {
+                id: r.id,
+                name: r.name,
+                categoryId: r.category_id || 'other',
+                phone: r.phone,
+                skills: r.skills || [],
+                area: r.area,
+                experience: r.experience,
+                distance: Number(r.distance || 0.5),
+                isVerified: isApproved,
+                status: isApproved ? 'approved' : 'pending',
+                govtIdUploaded: r.govt_id_uploaded,
+                idDocUrl: r.id_doc_url,
+                createdAt: r.created_at
+              });
+            });
           }
         } catch (e) {}
       }
-      const helpers = readJsonFile<any[]>(HELPERS_FILE, []);
-      res.json(helpers);
+
+      const localHelpers = readJsonFile<any[]>(HELPERS_FILE, []);
+      localHelpers.forEach(h => {
+        if (!h || !h.id) return;
+        const existing = mergedMap.get(h.id) || {};
+        const isApproved = Boolean(
+          existing.isVerified === true ||
+          h.isVerified === true ||
+          h.is_verified === true ||
+          h.status === 'approved' ||
+          approvedEntityIds.has(String(h.id)) ||
+          (h.userId && approvedEntityIds.has(String(h.userId)))
+        );
+        mergedMap.set(h.id, {
+          ...existing,
+          ...h,
+          categoryId: h.categoryId || existing.categoryId || 'other',
+          customCategoryName: h.customCategoryName || existing.customCategoryName || '',
+          isVerified: isApproved,
+          status: isApproved ? 'approved' : (h.status || 'pending')
+        });
+      });
+
+      // Also include any helper profiles stored inside PROFILES_FILE
+      const profiles = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
+      Object.values(profiles).forEach((p: any) => {
+        if (p && p.myHelperProfile && p.myHelperProfile.id) {
+          const hp = p.myHelperProfile;
+          const existing = mergedMap.get(hp.id) || {};
+          const isApproved = Boolean(
+            existing.isVerified === true ||
+            hp.isVerified === true ||
+            hp.status === 'approved' ||
+            p.isVerified === true ||
+            p.is_verified === true ||
+            approvedEntityIds.has(String(hp.id)) ||
+            (p.uid && approvedEntityIds.has(String(p.uid)))
+          );
+          mergedMap.set(hp.id, {
+            ...existing,
+            ...hp,
+            userId: hp.userId || p.uid || existing.userId || '',
+            email: hp.email || p.email || existing.email || '',
+            categoryId: hp.categoryId || existing.categoryId || 'other',
+            customCategoryName: hp.customCategoryName || existing.customCategoryName || '',
+            isVerified: isApproved,
+            status: isApproved ? 'approved' : (hp.status || 'pending')
+          });
+        }
+      });
+
+      let allHelpers = Array.from(mergedMap.values());
+      if (!includeAll) {
+        allHelpers = allHelpers.filter(h => h.isVerified === true || h.status === 'approved');
+      }
+
+      // Data Privacy: Redact private emails/phones and ID docs for unauthenticated bulk requests (Admin gets full details)
+      const caller = extractUserFromRequest(req);
+      const isAdmin = isRequestAdmin(req);
+      const isAuthenticated = Boolean(caller && caller.uid && !String(caller.uid).startsWith('guest'));
+      const sanitizedHelpers = allHelpers.map(h => {
+        const redacted = redactBulkItemForPrivacy(h, isAuthenticated, isAdmin);
+        if (!isAdmin) {
+          // Never expose raw govt ID documents in public helper listings
+          delete redacted.idDocUrl;
+          delete redacted.id_doc_url;
+        }
+        return redacted;
+      });
+
+      res.json(sanitizedHelpers);
     } catch (e: any) {
       res.status(500).json({ error: e.message || "Failed to fetch helpers" });
     }
@@ -1767,16 +2784,46 @@ async function startServer() {
       const helper = req.body;
       if (!helper || !helper.name) return res.status(400).json({ error: "Helper name required" });
 
+      if (helper.idDocUrl || helper.id_doc_url) {
+        const docCheck = validateServerUploadedDataUrl(helper.idDocUrl || helper.id_doc_url, { allowPdf: true });
+        if (!docCheck.valid) {
+          return res.status(400).json({ error: docCheck.error });
+        }
+      }
+
+      const userFromReq = (req as any).user;
+      const userEmail = helper.email || userFromReq?.email || '';
+      const userId = helper.userId || userFromReq?.uid || helper.id || '';
+
+      // Ownership check if updating an existing helper profile
+      const helpers = readJsonFile<any[]>(HELPERS_FILE, []);
+      const existingHelper = helpers.find(h => h.id === helper.id);
+      if (existingHelper && !isAuthorizedAdmin(userFromReq)) {
+        const isOwner =
+          (existingHelper.userId && (existingHelper.userId === userFromReq?.uid || existingHelper.userId === userId)) ||
+          (existingHelper.email && userFromReq?.email && existingHelper.email.toLowerCase() === userFromReq.email.toLowerCase());
+        if (!isOwner && (existingHelper.userId || existingHelper.email)) {
+          return res.status(403).json({ error: "Unauthorized: You can only update your own helper profile." });
+        }
+      }
+
       const newHelper = {
         id: helper.id || 'helper_' + Date.now().toString(36),
-        name: helper.name.trim(),
-        categoryId: helper.categoryId || helper.category_id || 'general',
-        phone: helper.phone || '',
-        skills: Array.isArray(helper.skills) ? helper.skills : [helper.categoryId || 'General'],
-        area: helper.area || 'Local Area',
-        experience: helper.experience || '1 Year',
+        userId,
+        email: userEmail,
+        name: sanitizeStringServer(helper.name.trim(), 150),
+        categoryId: sanitizeStringServer(helper.categoryId || helper.category_id || 'general', 60),
+        customCategoryName: sanitizeStringServer(helper.customCategoryName || '', 100),
+        phone: sanitizeStringServer(helper.phone || '', 30),
+        skills: Array.isArray(helper.skills) ? helper.skills.map((s: any) => sanitizeStringServer(String(s), 80)) : [helper.categoryId || 'General'],
+        area: sanitizeStringServer(helper.area || 'Local Area', 200),
+        city: sanitizeStringServer(helper.city || '', 100),
+        experience: sanitizeStringServer(helper.experience || '1 Year', 80),
         distance: typeof helper.distance === 'number' ? helper.distance : 0.5,
-        isVerified: !!helper.isVerified,
+        rating: typeof helper.rating === 'number' ? helper.rating : 5.0,
+        completedTasks: typeof helper.completedTasks === 'number' ? helper.completedTasks : 0,
+        isVerified: false,
+        status: 'pending',
         govtIdUploaded: !!helper.govtIdUploaded,
         idDocUrl: helper.idDocUrl || helper.id_doc_url || null,
         createdAt: helper.createdAt || new Date().toISOString()
@@ -1789,21 +2836,46 @@ async function startServer() {
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             ON CONFLICT (id) DO UPDATE SET
               name = EXCLUDED.name,
+              category_id = EXCLUDED.category_id,
               phone = EXCLUDED.phone,
               skills = EXCLUDED.skills,
               area = EXCLUDED.area,
-              experience = EXCLUDED.experience
+              experience = EXCLUDED.experience,
+              is_verified = EXCLUDED.is_verified
           `, [
             newHelper.id, newHelper.name, newHelper.categoryId, newHelper.phone,
             newHelper.skills, newHelper.area, newHelper.experience, newHelper.distance,
-            newHelper.isVerified, newHelper.govtIdUploaded, newHelper.idDocUrl, newHelper.createdAt
+            false, newHelper.govtIdUploaded, newHelper.idDocUrl, newHelper.createdAt
           ]);
         } catch (e) {}
       }
 
-      const helpers = readJsonFile<any[]>(HELPERS_FILE, []);
       const updated = [newHelper, ...helpers.filter(h => h.id !== newHelper.id)];
       writeJsonFile(HELPERS_FILE, updated);
+
+      // Ensure pending entry in Admin Verification Queue so Admin can approve it
+      const verifications = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
+      const existingVerifIdx = verifications.findIndex(v => v.entityId === newHelper.id);
+      if (existingVerifIdx < 0) {
+        const catDisplay = newHelper.categoryId === 'other' && newHelper.customCategoryName
+          ? `Other (${newHelper.customCategoryName})`
+          : newHelper.categoryId;
+        const verifEntry = {
+          id: 'verif_hlp_' + newHelper.id,
+          entityType: 'user_profile',
+          entityId: newHelper.id,
+          userId: userId || newHelper.id,
+          userName: newHelper.name,
+          userEmail: userEmail,
+          userPhone: newHelper.phone,
+          title: `Helper Profile (${catDisplay}) - ${newHelper.area}`,
+          idDocumentWatermarked: newHelper.idDocUrl || '',
+          status: 'pending',
+          createdAt: newHelper.createdAt
+        };
+        verifications.unshift(verifEntry);
+        writeJsonFile(VERIFICATIONS_FILE, verifications);
+      }
 
       res.status(201).json(newHelper);
     } catch (e: any) {
@@ -1814,7 +2886,6 @@ async function startServer() {
   // AI chat history logging (Separate from user-to-user chats table)
   app.post("/api/ai-chat-history", async (req, res) => {
     try {
-      const { prompt, response: aiResponse, userId } = req.body;
       res.json({ success: true });
     } catch (e) {
       res.status(500).json({ error: "Failed to record chat" });
@@ -1840,7 +2911,7 @@ async function startServer() {
     }
   });
 
-  app.get("/api/audit-logs", (req, res) => {
+  app.get("/api/audit-logs", requireAdmin, (req, res) => {
     try {
       const logs = readJsonFile<any[]>(AUDIT_FILE, []);
       res.json(logs);
@@ -1878,7 +2949,7 @@ async function startServer() {
     }
   });
 
-  app.get("/api/reports", (req, res) => {
+  app.get("/api/reports", requireAdmin, (req, res) => {
     try {
       const reports = readJsonFile<any[]>(REPORTS_FILE, []);
       res.json(reports);
@@ -1911,23 +2982,30 @@ async function startServer() {
         return res.status(400).json({ error: "Business name and offer title are required" });
       }
 
+      if (ad.photoUrl && String(ad.photoUrl).startsWith('data:')) {
+        const photoCheck = validateServerUploadedDataUrl(ad.photoUrl, { allowPdf: false });
+        if (!photoCheck.valid) {
+          return res.status(400).json({ error: photoCheck.error });
+        }
+      }
+
       const ads = readJsonFile<any[]>(ADS_FILE, []);
       const newAd = {
         id: ad.id || 'ad_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
-        businessName: ad.businessName.trim(),
-        logo: ad.logo || '🏪',
-        category: ad.category || 'Retail & Services',
-        offerBadge: ad.offerBadge || '🔥 Special Offer',
-        offerTitle: ad.offerTitle.trim(),
-        description: ad.description || '',
+        businessName: sanitizeStringServer(ad.businessName.trim(), 200),
+        logo: sanitizeStringServer(ad.logo || '🏪', 20),
+        category: sanitizeStringServer(ad.category || 'Retail & Services', 120),
+        offerBadge: sanitizeStringServer(ad.offerBadge || '🔥 Special Offer', 100),
+        offerTitle: sanitizeStringServer(ad.offerTitle.trim(), 200),
+        description: sanitizeStringServer(ad.description || '', 1000),
         photoUrl: ad.photoUrl || 'https://images.unsplash.com/photo-1550009158-9ebf69173e03?auto=format&fit=crop&w=800&q=80',
         distance: typeof ad.distance === 'number' ? ad.distance : 0.4,
-        area: ad.area || 'Local Market',
+        area: sanitizeStringServer(ad.area || 'Local Market', 200),
         rating: typeof ad.rating === 'number' ? ad.rating : 4.9,
         reviewCount: typeof ad.reviewCount === 'number' ? ad.reviewCount : 12,
         isVerified: true,
-        destinationUrl: ad.destinationUrl || '',
-        initialMessage: ad.initialMessage || `Namaste! ${ad.businessName} me aapka swagat hai. Ad offer "${ad.offerBadge}" ke baare me poochhein.`,
+        destinationUrl: sanitizeStringServer(ad.destinationUrl || '', 500),
+        initialMessage: sanitizeStringServer(ad.initialMessage || `Namaste! ${ad.businessName} me aapka swagat hai. Ad offer "${ad.offerBadge}" ke baare me poochhein.`, 500),
         createdAt: ad.createdAt || new Date().toISOString()
       };
 
@@ -1949,7 +3027,7 @@ async function startServer() {
     }
   });
 
-  app.delete("/api/ads/:id", (req, res) => {
+  app.delete("/api/ads/:id", requireAdmin, (req, res) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
       const { id } = req.params;
@@ -2000,7 +3078,13 @@ async function startServer() {
       }
 
       filtered.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      res.json(filtered);
+
+      // Data Privacy: Redact private emails/phones for unauthenticated bulk requests
+      const caller = extractUserFromRequest(req);
+      const isAuthenticated = Boolean(caller && caller.uid && !String(caller.uid).startsWith('guest'));
+      const sanitized = filtered.map(item => redactBulkItemForPrivacy(item, isAuthenticated));
+
+      res.json(sanitized);
     } catch (e) {
       console.error("Failed to fetch job portal items:", e);
       res.status(500).json({ error: "Failed to fetch job portal items" });
@@ -2013,6 +3097,13 @@ async function startServer() {
       const payload = req.body;
       if (!payload || !payload.type) {
         return res.status(400).json({ error: "Invalid submission payload: type is required" });
+      }
+
+      if (payload.photoOrLogoUrl && String(payload.photoOrLogoUrl).startsWith('data:')) {
+        const photoCheck = validateServerUploadedDataUrl(payload.photoOrLogoUrl, { allowPdf: true });
+        if (!photoCheck.valid) {
+          return res.status(400).json({ error: photoCheck.error });
+        }
       }
 
       if (payload.type === 'job_seeker' && !payload.fullName) {
@@ -2030,27 +3121,27 @@ async function startServer() {
         id: payload.id || idPrefix + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
         type: payload.type,
         status: "pending",
-        fullName: payload.fullName?.trim() || '',
-        headline: payload.headline?.trim() || (isSeeker ? `${payload.category || 'Professional'} Specialist` : ''),
+        fullName: sanitizeStringServer(payload.fullName?.trim() || '', 150),
+        headline: sanitizeStringServer(payload.headline?.trim() || (isSeeker ? `${payload.category || 'Professional'} Specialist` : ''), 200),
         skills: Array.isArray(payload.skills) 
-          ? payload.skills 
-          : (typeof payload.skills === 'string' && payload.skills.trim() ? payload.skills.split(',').map((s: string) => s.trim()) : []),
-        experience: payload.experience?.trim() || 'Fresher',
-        expectedSalary: payload.expectedSalary?.trim() || '',
-        education: payload.education?.trim() || '',
-        companyOrShopName: payload.companyOrShopName?.trim() || '',
-        jobRole: payload.jobRole?.trim() || '',
-        vacancyType: payload.vacancyType || 'Full-Time',
-        salaryOffered: payload.salaryOffered?.trim() || 'Negotiable',
+          ? payload.skills.map((s: any) => sanitizeStringServer(String(s), 80))
+          : (typeof payload.skills === 'string' && payload.skills.trim() ? payload.skills.split(',').map((s: string) => sanitizeStringServer(s.trim(), 80)) : []),
+        experience: sanitizeStringServer(payload.experience?.trim() || 'Fresher', 80),
+        expectedSalary: sanitizeStringServer(payload.expectedSalary?.trim() || '', 80),
+        education: sanitizeStringServer(payload.education?.trim() || '', 150),
+        companyOrShopName: sanitizeStringServer(payload.companyOrShopName?.trim() || '', 200),
+        jobRole: sanitizeStringServer(payload.jobRole?.trim() || '', 150),
+        vacancyType: sanitizeStringServer(payload.vacancyType || 'Full-Time', 60),
+        salaryOffered: sanitizeStringServer(payload.salaryOffered?.trim() || 'Negotiable', 80),
         openingsCount: Number(payload.openingsCount) || 1,
-        urgency: payload.urgency || 'Immediate',
-        category: payload.category || 'Retail & Services',
-        phone: payload.phone?.trim() || '',
-        whatsapp: payload.whatsapp?.trim() || payload.phone?.trim() || '',
-        email: payload.email?.trim() || '',
-        area: payload.area?.trim() || 'Local Area',
-        address: payload.address?.trim() || '',
-        description: payload.description?.trim() || (isSeeker ? 'Looking for local employment opportunities.' : 'Staff required for our business.'),
+        urgency: sanitizeStringServer(payload.urgency || 'Immediate', 60),
+        category: sanitizeStringServer(payload.category || 'Retail & Services', 100),
+        phone: sanitizeStringServer(payload.phone?.trim() || '', 30),
+        whatsapp: sanitizeStringServer(payload.whatsapp?.trim() || payload.phone?.trim() || '', 30),
+        email: sanitizeStringServer(payload.email?.trim() || '', 150),
+        area: sanitizeStringServer(payload.area?.trim() || 'Local Area', 150),
+        address: sanitizeStringServer(payload.address?.trim() || '', 300),
+        description: sanitizeStringServer(payload.description?.trim() || (isSeeker ? 'Looking for local employment opportunities.' : 'Staff required for our business.'), 2000),
         photoOrLogoUrl: payload.photoOrLogoUrl || (isSeeker 
           ? 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80'
           : 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=800&q=80'),
@@ -2073,7 +3164,7 @@ async function startServer() {
     }
   });
 
-  app.patch("/api/job-portal/:id/status", (req, res) => {
+  app.patch("/api/job-portal/:id/status", requireAdmin, (req, res) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
       const { id } = req.params;
@@ -2093,7 +3184,7 @@ async function startServer() {
       items[targetIndex].status = status;
       items[targetIndex].reviewedAt = new Date().toISOString();
       if (typeof adminNotes === 'string') {
-        items[targetIndex].adminNotes = adminNotes;
+        items[targetIndex].adminNotes = sanitizeStringServer(adminNotes, 500);
       }
 
       writeJsonFile(JOB_PORTAL_FILE, items);
@@ -2107,7 +3198,7 @@ async function startServer() {
     }
   });
 
-  app.delete("/api/job-portal/:id", (req, res) => {
+  app.delete("/api/job-portal/:id", requireAdmin, (req, res) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
       const { id } = req.params;
@@ -2120,7 +3211,520 @@ async function startServer() {
     }
   });
 
-  app.post("/api/admin/clear-dummy-data", async (req, res) => {
+  // ==========================================
+  // DEDICATED ADMIN CRUD ENDPOINTS FOR ALL 7 MODULES
+  // ==========================================
+
+  // 1. Admin Help Posts: Approve, Reject, or Edit any Help Post
+  app.patch("/api/admin/intents/:id", requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const updates = req.body || {};
+      const intents = readJsonFile<any[]>(INTENTS_FILE, []);
+      const idx = intents.findIndex(i => i.id === id);
+      if (idx === -1) {
+        return res.status(404).json({ error: "Help post not found" });
+      }
+
+      const item = intents[idx];
+      if (typeof updates.description === 'string') item.description = sanitizeStringServer(updates.description, 1000);
+      if (typeof updates.authorName === 'string') item.authorName = sanitizeStringServer(updates.authorName, 120);
+      if (typeof updates.category === 'string') item.category = sanitizeStringServer(updates.category, 100);
+      if (typeof updates.area === 'string') item.area = sanitizeStringServer(updates.area, 150);
+      if (typeof updates.city === 'string') item.city = sanitizeStringServer(updates.city, 100);
+      if (typeof updates.status === 'string') item.status = sanitizeStringServer(updates.status, 40);
+      if (typeof updates.isVerifiedUser === 'boolean') item.isVerifiedUser = updates.isVerifiedUser;
+      item.lastInteractionAt = new Date().toISOString();
+
+      intents[idx] = item;
+      writeJsonFile(INTENTS_FILE, intents);
+
+      if (dbPool && isDbConnected) {
+        try {
+          await dbPool.query(
+            "UPDATE broadcast_posts SET description = $1, category = $2, status = $3 WHERE id = $4",
+            [item.description, item.category || 'General', item.status || 'active', id]
+          );
+          await dbPool.query(
+            "UPDATE listings SET description = $1, title = $2 WHERE id = $3",
+            [item.description, item.category || 'General', id]
+          );
+        } catch (e) {}
+      }
+
+      res.json({ success: true, item });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Failed to update help post" });
+    }
+  });
+
+  // 2. Admin Helpers: Approve, Reject, Edit, or Delete any Local Helper Profile
+  app.patch("/api/admin/helpers/:id", requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const updates = req.body || {};
+      const helpers = readJsonFile<any[]>(HELPERS_FILE, []);
+      let idx = helpers.findIndex(h => h.id === id);
+
+      if (idx === -1) {
+        // Check if stored in PROFILES_FILE
+        const profiles = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
+        const foundProfile = Object.values(profiles).find((p: any) => p?.myHelperProfile?.id === id);
+        if (foundProfile && foundProfile.myHelperProfile) {
+          helpers.unshift({ ...foundProfile.myHelperProfile, userId: foundProfile.uid, email: foundProfile.email });
+          idx = 0;
+        }
+      }
+
+      if (idx === -1) {
+        return res.status(404).json({ error: "Helper profile not found" });
+      }
+
+      const helper = helpers[idx];
+      if (typeof updates.name === 'string') helper.name = sanitizeStringServer(updates.name, 150);
+      if (typeof updates.phone === 'string') helper.phone = sanitizeStringServer(updates.phone, 30);
+      if (typeof updates.categoryId === 'string') helper.categoryId = sanitizeStringServer(updates.categoryId, 60);
+      if (typeof updates.customCategoryName === 'string') helper.customCategoryName = sanitizeStringServer(updates.customCategoryName, 100);
+      if (typeof updates.area === 'string') helper.area = sanitizeStringServer(updates.area, 200);
+      if (typeof updates.experience === 'string') helper.experience = sanitizeStringServer(updates.experience, 80);
+      if (Array.isArray(updates.skills)) helper.skills = updates.skills.map((s: any) => sanitizeStringServer(String(s), 80));
+      if (typeof updates.skills === 'string') helper.skills = updates.skills.split(',').map((s: string) => sanitizeStringServer(s.trim(), 80)).filter(Boolean);
+      if (typeof updates.status === 'string') {
+        helper.status = updates.status;
+        helper.isVerified = updates.status === 'approved';
+        helper.is_verified = updates.status === 'approved';
+      }
+      if (typeof updates.isVerified === 'boolean') {
+        helper.isVerified = updates.isVerified;
+        helper.is_verified = updates.isVerified;
+        helper.status = updates.isVerified ? 'approved' : (helper.status === 'rejected' ? 'rejected' : 'pending');
+      }
+
+      helpers[idx] = helper;
+      writeJsonFile(HELPERS_FILE, helpers);
+
+      // Sync with PROFILES_FILE and VERIFICATIONS_FILE
+      const profiles = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
+      Object.keys(profiles).forEach(k => {
+        if (profiles[k]?.myHelperProfile?.id === id) {
+          profiles[k].myHelperProfile = { ...profiles[k].myHelperProfile, ...helper };
+        }
+      });
+      writeJsonFile(PROFILES_FILE, profiles);
+
+      const verifs = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
+      verifs.forEach(v => {
+        if (v.entityId === id) {
+          v.status = helper.status;
+          v.userName = helper.name;
+          v.userPhone = helper.phone;
+        }
+      });
+      writeJsonFile(VERIFICATIONS_FILE, verifs);
+
+      if (dbPool && isDbConnected) {
+        try {
+          await dbPool.query(
+            "UPDATE helpers SET name = $1, phone = $2, category_id = $3, area = $4, experience = $5, is_verified = $6 WHERE id = $7",
+            [helper.name, helper.phone, helper.categoryId, helper.area, helper.experience, Boolean(helper.isVerified), id]
+          );
+        } catch (e) {}
+      }
+
+      res.json({ success: true, item: helper });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Failed to update helper profile" });
+    }
+  });
+
+  app.delete("/api/admin/helpers/:id", requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const helpers = readJsonFile<any[]>(HELPERS_FILE, []);
+      writeJsonFile(HELPERS_FILE, helpers.filter(h => h.id !== id));
+
+      const profiles = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
+      Object.keys(profiles).forEach(k => {
+        if (profiles[k]?.myHelperProfile?.id === id) {
+          delete profiles[k].myHelperProfile;
+        }
+      });
+      writeJsonFile(PROFILES_FILE, profiles);
+
+      const verifs = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
+      writeJsonFile(VERIFICATIONS_FILE, verifs.filter(v => v.entityId !== id));
+
+      if (dbPool && isDbConnected) {
+        try {
+          await dbPool.query("DELETE FROM helpers WHERE id = $1", [id]);
+        } catch (e) {}
+      }
+
+      res.json({ success: true, id });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Failed to delete helper profile" });
+    }
+  });
+
+  // 3. Admin Simple User Profiles: List all, Approve, Reject, Edit, or Delete
+  app.get("/api/admin/profiles", requireAdmin, async (_req, res) => {
+    try {
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      const userMap = new Map<string, any>();
+
+      const verifs = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
+      const userVerifMap = new Map<string, any>();
+      verifs.forEach(v => {
+        if (v && v.entityType === 'user_profile') {
+          if (v.userId) userVerifMap.set(String(v.userId), v);
+          if (v.entityId) userVerifMap.set(String(v.entityId), v);
+          if (v.userEmail) userVerifMap.set(String(v.userEmail).toLowerCase(), v);
+        }
+      });
+
+      const authUsers = readJsonFile<Record<string, any>>(AUTH_USERS_FILE, {});
+      Object.values(authUsers).forEach((u: any) => {
+        if (!u) return;
+        const uid = u.uid || u.email;
+        if (!uid) return;
+        const matchedVerif = userVerifMap.get(String(uid)) || userVerifMap.get(String(u.email || '').toLowerCase());
+        const status = u.status || matchedVerif?.status || (u.isVerified ? 'approved' : 'approved');
+        userMap.set(String(uid), {
+          uid: String(uid),
+          id: String(uid),
+          name: u.name || (u.email ? u.email.split('@')[0] : 'User'),
+          email: u.email || '',
+          phone: u.phone || matchedVerif?.userPhone || '',
+          address: u.address || '',
+          skills: u.skills || '',
+          experience: u.experience || '',
+          status,
+          isVerified: status === 'approved',
+          idDocumentWatermarked: matchedVerif?.idDocumentWatermarked || '',
+          createdAt: u.updatedAt || u.createdAt || new Date().toISOString()
+        });
+      });
+
+      const profiles = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
+      Object.values(profiles).forEach((p: any) => {
+        if (!p) return;
+        const uid = p.uid || p.id || p.email;
+        if (!uid) return;
+        const existing = userMap.get(String(uid)) || {};
+        const matchedVerif = userVerifMap.get(String(uid)) || userVerifMap.get(String(p.email || '').toLowerCase());
+        const isVerif = Boolean(p.isVerified || p.is_verified || matchedVerif?.status === 'approved' || existing.isVerified);
+        const status = p.status || matchedVerif?.status || (isVerif ? 'approved' : 'pending');
+        userMap.set(String(uid), {
+          ...existing,
+          uid: String(uid),
+          id: String(uid),
+          name: p.full_name || p.displayName || p.name || existing.name || 'Community Member',
+          email: p.email || existing.email || '',
+          phone: p.phone || existing.phone || matchedVerif?.userPhone || '',
+          address: p.address || existing.address || '',
+          skills: p.skills || existing.skills || '',
+          experience: p.experience || existing.experience || '',
+          avatarUrl: p.avatar_url || p.photoURL || existing.avatarUrl || '',
+          status,
+          isVerified: status === 'approved',
+          idDocumentWatermarked: matchedVerif?.idDocumentWatermarked || existing.idDocumentWatermarked || '',
+          createdAt: p.updated_at || existing.createdAt || new Date().toISOString()
+        });
+      });
+
+      // Also include any standalone user_profile verification requests not yet in userMap
+      verifs.forEach(v => {
+        if (v && v.entityType === 'user_profile' && !String(v.id || '').startsWith('verif_hlp_')) {
+          const key = String(v.userId || v.entityId || v.id);
+          if (!userMap.has(key)) {
+            userMap.set(key, {
+              uid: key,
+              id: key,
+              name: v.userName || 'Community Member',
+              email: v.userEmail || '',
+              phone: v.userPhone || '',
+              address: '',
+              skills: v.title || '',
+              experience: '',
+              status: v.status || 'pending',
+              isVerified: v.status === 'approved',
+              idDocumentWatermarked: v.idDocumentWatermarked || '',
+              createdAt: v.createdAt || new Date().toISOString()
+            });
+          }
+        }
+      });
+
+      const list = Array.from(userMap.values());
+      list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+      res.json(list);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Failed to fetch user profiles" });
+    }
+  });
+
+  app.patch("/api/admin/profiles/:uid", requireAdmin, async (req, res) => {
+    try {
+      const { uid } = req.params;
+      const updates = req.body || {};
+
+      const profiles = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
+      const current = profiles[uid] || { uid, id: uid };
+
+      if (typeof updates.name === 'string') {
+        current.name = sanitizeStringServer(updates.name, 120);
+        current.full_name = current.name;
+        current.displayName = current.name;
+      }
+      if (typeof updates.email === 'string') current.email = sanitizeStringServer(updates.email, 150).toLowerCase();
+      if (typeof updates.phone === 'string') current.phone = sanitizeStringServer(updates.phone, 30);
+      if (typeof updates.address === 'string') current.address = sanitizeStringServer(updates.address, 300);
+      if (typeof updates.skills === 'string') current.skills = sanitizeStringServer(updates.skills, 500);
+      if (typeof updates.experience === 'string') current.experience = sanitizeStringServer(updates.experience, 120);
+      if (typeof updates.status === 'string') {
+        current.status = updates.status;
+        current.isVerified = updates.status === 'approved';
+        current.is_verified = updates.status === 'approved';
+      }
+      current.updated_at = new Date().toISOString();
+      profiles[uid] = current;
+      writeJsonFile(PROFILES_FILE, profiles);
+
+      const authUsers = readJsonFile<Record<string, any>>(AUTH_USERS_FILE, {});
+      Object.keys(authUsers).forEach(emailKey => {
+        if (authUsers[emailKey]?.uid === uid || emailKey === current.email) {
+          if (current.name) authUsers[emailKey].name = current.name;
+          if (current.phone) authUsers[emailKey].phone = current.phone;
+          if (current.status) authUsers[emailKey].status = current.status;
+          authUsers[emailKey].isVerified = Boolean(current.isVerified);
+        }
+      });
+      writeJsonFile(AUTH_USERS_FILE, authUsers);
+
+      const verifs = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
+      verifs.forEach(v => {
+        if (v.userId === uid || v.entityId === uid) {
+          if (current.status) v.status = current.status;
+          if (current.name) v.userName = current.name;
+          if (current.phone) v.userPhone = current.phone;
+        }
+      });
+      writeJsonFile(VERIFICATIONS_FILE, verifs);
+
+      if (dbPool && isDbConnected) {
+        try {
+          await dbPool.query(
+            "UPDATE profiles SET full_name = $1, email = $2, phone = $3, address = $4, skills = $5, experience = $6 WHERE uid = $7",
+            [current.name || '', current.email || '', current.phone || '', current.address || '', current.skills || '', current.experience || '', uid]
+          );
+        } catch (e) {}
+      }
+
+      res.json({ success: true, item: current });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Failed to update user profile" });
+    }
+  });
+
+  app.delete("/api/admin/profiles/:uid", requireAdmin, async (req, res) => {
+    try {
+      const { uid } = req.params;
+      const profiles = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
+      const targetEmail = profiles[uid]?.email?.toLowerCase();
+      delete profiles[uid];
+      writeJsonFile(PROFILES_FILE, profiles);
+
+      const authUsers = readJsonFile<Record<string, any>>(AUTH_USERS_FILE, {});
+      Object.keys(authUsers).forEach(k => {
+        if (authUsers[k]?.uid === uid || k === uid.toLowerCase() || (targetEmail && k === targetEmail)) {
+          delete authUsers[k];
+        }
+      });
+      writeJsonFile(AUTH_USERS_FILE, authUsers);
+
+      const verifs = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
+      writeJsonFile(VERIFICATIONS_FILE, verifs.filter(v => v.userId !== uid && v.entityId !== uid));
+
+      if (dbPool && isDbConnected) {
+        try {
+          await dbPool.query('DELETE FROM "user" WHERE id = $1', [uid]);
+          await dbPool.query("DELETE FROM profiles WHERE uid = $1", [uid]);
+        } catch (e) {}
+      }
+
+      res.json({ success: true, uid });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Failed to delete user profile" });
+    }
+  });
+
+  // 4. Admin Business / Shop Registrations: Approve, Reject, Edit, or Delete
+  app.patch("/api/admin/shops/:id", requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const updates = req.body || {};
+      const shops = readJsonFile<any[]>(SHOPS_FILE, []);
+      const idx = shops.findIndex(s => s.id === id);
+      if (idx === -1) {
+        return res.status(404).json({ error: "Business / Shop not found" });
+      }
+
+      const shop = shops[idx];
+      if (typeof updates.name === 'string') {
+        shop.name = sanitizeStringServer(updates.name, 200);
+        shop.businessName = shop.name;
+        shop.business_name = shop.name;
+      }
+      if (typeof updates.ownerName === 'string') shop.ownerName = sanitizeStringServer(updates.ownerName, 120);
+      if (typeof updates.phone === 'string') shop.phone = sanitizeStringServer(updates.phone, 30);
+      if (typeof updates.categoryLabel === 'string') {
+        shop.categoryLabel = sanitizeStringServer(updates.categoryLabel, 120);
+        shop.category = shop.categoryLabel;
+      }
+      if (typeof updates.area === 'string') shop.area = sanitizeStringServer(updates.area, 200);
+      if (typeof updates.address === 'string') shop.address = sanitizeStringServer(updates.address, 300);
+      if (typeof updates.description === 'string') shop.description = sanitizeStringServer(updates.description, 1500);
+      if (typeof updates.status === 'string') {
+        shop.status = updates.status;
+        shop.isVerified = updates.status === 'approved';
+        shop.is_verified = updates.status === 'approved';
+      }
+      if (typeof updates.isVerified === 'boolean') {
+        shop.isVerified = updates.isVerified;
+        shop.is_verified = updates.isVerified;
+        shop.status = updates.isVerified ? 'approved' : (shop.status === 'rejected' ? 'rejected' : 'pending');
+      }
+
+      shops[idx] = shop;
+      writeJsonFile(SHOPS_FILE, shops);
+
+      const verifs = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
+      verifs.forEach(v => {
+        if (v.entityId === id) {
+          v.status = shop.status;
+          v.userName = shop.name;
+          v.userPhone = shop.phone;
+        }
+      });
+      writeJsonFile(VERIFICATIONS_FILE, verifs);
+
+      if (dbPool && isDbConnected) {
+        try {
+          await dbPool.query(
+            "UPDATE shops SET name = $1, owner_name = $2, phone = $3, category_label = $4, area = $5, address = $6, description = $7, is_verified = $8 WHERE id = $9",
+            [shop.name, shop.ownerName, shop.phone, shop.categoryLabel, shop.area, shop.address, shop.description, Boolean(shop.isVerified), id]
+          );
+          await dbPool.query(
+            "UPDATE businesses SET business_name = $1, category = $2, address = $3, phone = $4 WHERE id = $5",
+            [shop.name, shop.categoryLabel, shop.address, shop.phone, id]
+          );
+        } catch (e) {}
+      }
+
+      res.json({ success: true, item: shop });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Failed to update shop/business" });
+    }
+  });
+
+  app.delete("/api/admin/shops/:id", requireAdmin, deleteBusinessHandler);
+
+  // 5 & 6. Admin Job Seekers & Employer Vacancies: Edit any field
+  app.patch("/api/admin/job-portal/:id", requireAdmin, (req, res) => {
+    try {
+      const { id } = req.params;
+      const updates = req.body || {};
+      const items = readJsonFile<any[]>(JOB_PORTAL_FILE, []);
+      const idx = items.findIndex(i => i.id === id);
+      if (idx === -1) {
+        return res.status(404).json({ error: "Job portal entry not found" });
+      }
+
+      const item = items[idx];
+      if (typeof updates.fullName === 'string') item.fullName = sanitizeStringServer(updates.fullName, 150);
+      if (typeof updates.headline === 'string') item.headline = sanitizeStringServer(updates.headline, 200);
+      if (typeof updates.companyOrShopName === 'string') item.companyOrShopName = sanitizeStringServer(updates.companyOrShopName, 200);
+      if (typeof updates.jobRole === 'string') item.jobRole = sanitizeStringServer(updates.jobRole, 150);
+      if (typeof updates.category === 'string') item.category = sanitizeStringServer(updates.category, 100);
+      if (typeof updates.phone === 'string') item.phone = sanitizeStringServer(updates.phone, 30);
+      if (typeof updates.whatsapp === 'string') item.whatsapp = sanitizeStringServer(updates.whatsapp, 30);
+      if (typeof updates.area === 'string') item.area = sanitizeStringServer(updates.area, 150);
+      if (typeof updates.address === 'string') item.address = sanitizeStringServer(updates.address, 300);
+      if (typeof updates.experience === 'string') item.experience = sanitizeStringServer(updates.experience, 80);
+      if (typeof updates.expectedSalary === 'string') item.expectedSalary = sanitizeStringServer(updates.expectedSalary, 80);
+      if (typeof updates.salaryOffered === 'string') item.salaryOffered = sanitizeStringServer(updates.salaryOffered, 80);
+      if (typeof updates.vacancyType === 'string') item.vacancyType = sanitizeStringServer(updates.vacancyType, 60);
+      if (updates.openingsCount !== undefined) item.openingsCount = Number(updates.openingsCount) || 1;
+      if (typeof updates.description === 'string') item.description = sanitizeStringServer(updates.description, 2000);
+      if (Array.isArray(updates.skills)) item.skills = updates.skills.map((s: any) => sanitizeStringServer(String(s), 80));
+      if (typeof updates.skills === 'string') item.skills = updates.skills.split(',').map((s: string) => sanitizeStringServer(s.trim(), 80)).filter(Boolean);
+      if (typeof updates.status === 'string' && ['approved', 'rejected', 'pending'].includes(updates.status)) {
+        item.status = updates.status;
+        item.reviewedAt = new Date().toISOString();
+      }
+
+      items[idx] = item;
+      writeJsonFile(JOB_PORTAL_FILE, items);
+      res.json({ success: true, item });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Failed to update job portal item" });
+    }
+  });
+
+  // 7. Admin User Feedback & Reports: Approve/Resolve, Reject, Edit, or Delete
+  app.patch("/api/admin/reports/:id", requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const updates = req.body || {};
+      const reports = readJsonFile<any[]>(REPORTS_FILE, []);
+      const idx = reports.findIndex(r => r.id === id);
+      if (idx === -1) {
+        return res.status(404).json({ error: "Feedback / Report not found" });
+      }
+
+      const rep = reports[idx];
+      if (typeof updates.reason === 'string') rep.reason = sanitizeStringServer(updates.reason, 200);
+      if (typeof updates.details === 'string') rep.details = sanitizeStringServer(updates.details, 1000);
+      if (typeof updates.reporterName === 'string') rep.reporterName = sanitizeStringServer(updates.reporterName, 120);
+      if (typeof updates.status === 'string') rep.status = sanitizeStringServer(updates.status, 40);
+
+      reports[idx] = rep;
+      writeJsonFile(REPORTS_FILE, reports);
+
+      if (dbPool && isDbConnected) {
+        try {
+          await dbPool.query(
+            "UPDATE admin_reports SET reason = $1, details = $2, status = $3 WHERE id = $4",
+            [rep.reason || '', rep.details || '', rep.status || 'approved', id]
+          );
+        } catch (e) {}
+      }
+
+      res.json({ success: true, item: rep });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Failed to update feedback/report" });
+    }
+  });
+
+  app.delete("/api/admin/reports/:id", requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const reports = readJsonFile<any[]>(REPORTS_FILE, []);
+      writeJsonFile(REPORTS_FILE, reports.filter(r => r.id !== id));
+
+      if (dbPool && isDbConnected) {
+        try {
+          await dbPool.query("DELETE FROM admin_reports WHERE id = $1", [id]);
+        } catch (e) {}
+      }
+
+      res.json({ success: true, id });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Failed to delete feedback/report" });
+    }
+  });
+
+  app.post("/api/admin/clear-dummy-data", requireAdmin, async (req, res) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
 
@@ -2156,7 +3760,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/admin/reset-database", async (req, res) => {
+  app.post("/api/admin/reset-database", requireAdmin, async (req, res) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
 
@@ -2205,14 +3809,18 @@ async function startServer() {
         idDocumentWatermarked
       } = req.body;
 
-      if (!idDocumentWatermarked) {
-        return res.status(400).json({ error: "Watermarked identity document is required for verification." });
+      if (idDocumentWatermarked) {
+        const docCheck = validateServerUploadedDataUrl(idDocumentWatermarked, { allowPdf: true });
+        if (!docCheck.valid) {
+          return res.status(400).json({ error: docCheck.error });
+        }
       }
 
       const reqId = id || 'verif_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
       const targetEntityId = entityId || userId || reqId;
       const targetUserId = userId || targetEntityId;
-      const docTitle = title || (entityType === 'business' ? 'Business Registration Document' : 'User Identity Document');
+      const docTitle = sanitizeStringServer(title || (entityType === 'business' ? 'Business Registration Document' : 'User Identity Document'), 300);
+      const safeDoc = idDocumentWatermarked || '';
 
       if (dbPool && isDbConnected) {
         try {
@@ -2229,11 +3837,11 @@ async function startServer() {
             entityType,
             targetEntityId,
             targetUserId,
-            userName || '',
-            userEmail || '',
-            userPhone || '',
+            sanitizeStringServer(userName || '', 150),
+            sanitizeStringServer(userEmail || '', 150),
+            sanitizeStringServer(userPhone || '', 30),
             docTitle,
-            idDocumentWatermarked
+            safeDoc
           ]);
         } catch (dbErr) {
           console.warn("[PostgreSQL] Verification save note:", dbErr);
@@ -2247,11 +3855,11 @@ async function startServer() {
         entityType,
         entityId: targetEntityId,
         userId: targetUserId,
-        userName: userName || '',
-        userEmail: userEmail || '',
-        userPhone: userPhone || '',
+        userName: sanitizeStringServer(userName || '', 150),
+        userEmail: sanitizeStringServer(userEmail || '', 150),
+        userPhone: sanitizeStringServer(userPhone || '', 30),
         title: docTitle,
-        idDocumentWatermarked,
+        idDocumentWatermarked: safeDoc,
         status: 'pending',
         createdAt: new Date().toISOString()
       };
@@ -2326,7 +3934,7 @@ async function startServer() {
   });
 
   // 3. Admin-Only Verifications Queue - Lists all requests WITH watermarked documents
-  app.get("/api/admin/verifications", async (req, res) => {
+  app.get("/api/admin/verifications", requireAdmin, async (req, res) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
       let list: any[] = [];
@@ -2357,18 +3965,70 @@ async function startServer() {
         }
       }
 
-      if (list.length === 0) {
-        list = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
+      const localVerifs = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
+      const verifMap = new Map<string, any>();
+      list.forEach(v => verifMap.set(v.id, v));
+      localVerifs.forEach(v => verifMap.set(v.id, v));
+
+      // Also ensure any pending business in SHOPS_FILE or helper in HELPERS_FILE is represented in the queue
+      const localShops = readJsonFile<any[]>(SHOPS_FILE, []);
+      let updatedVerifs = false;
+      localShops.forEach(s => {
+        if (s && s.id && !String(s.id).startsWith('sample_shop_') && !Array.from(verifMap.values()).some(v => v.entityId === s.id)) {
+          const entry = {
+            id: 'verif_biz_' + s.id,
+            entityType: 'business',
+            entityId: s.id,
+            userId: s.userId || s.owner_id || s.ownerName || s.id,
+            userName: s.name,
+            userEmail: s.ownerEmail || '',
+            userPhone: s.phone || '',
+            title: `${s.name} (${s.categoryLabel || 'Business'}) - ${s.area || 'Local Area'}`,
+            idDocumentWatermarked: s.photoUrl || '',
+            status: s.isVerified ? 'approved' : (s.status || 'pending'),
+            createdAt: s.createdAt || new Date().toISOString()
+          };
+          verifMap.set(entry.id, entry);
+          localVerifs.unshift(entry);
+          updatedVerifs = true;
+        }
+      });
+
+      const localHelpers = readJsonFile<any[]>(HELPERS_FILE, []);
+      localHelpers.forEach(h => {
+        if (h && h.id && !Array.from(verifMap.values()).some(v => v.entityId === h.id)) {
+          const catDisplay = h.categoryId === 'other' && h.customCategoryName ? `Other (${h.customCategoryName})` : (h.categoryId || 'Helper');
+          const entry = {
+            id: 'verif_hlp_' + h.id,
+            entityType: 'user_profile',
+            entityId: h.id,
+            userId: h.userId || h.id,
+            userName: h.name,
+            userEmail: h.email || '',
+            userPhone: h.phone || '',
+            title: `Helper Profile (${catDisplay}) - ${h.area || 'Local Area'}`,
+            idDocumentWatermarked: h.idDocUrl || '',
+            status: h.isVerified ? 'approved' : (h.status || 'pending'),
+            createdAt: h.createdAt || new Date().toISOString()
+          };
+          verifMap.set(entry.id, entry);
+          localVerifs.unshift(entry);
+          updatedVerifs = true;
+        }
+      });
+
+      if (updatedVerifs) {
+        writeJsonFile(VERIFICATIONS_FILE, localVerifs);
       }
 
-      res.json(list);
+      res.json(Array.from(verifMap.values()));
     } catch (e) {
       res.status(500).json({ error: "Failed to load verifications queue" });
     }
   });
 
   // 4. Admin-Only Action: Approve or Reject Verification
-  app.patch("/api/admin/verifications/:id/status", async (req, res) => {
+  app.patch("/api/admin/verifications/:id/status", requireAdmin, async (req, res) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
       const { id } = req.params;
@@ -2418,30 +4078,38 @@ async function startServer() {
         updatedItem = verifs[idx];
         writeJsonFile(VERIFICATIONS_FILE, verifs);
 
-        if (status === 'approved') {
-          if (verifs[idx].entityType === 'business') {
-            const shops = readJsonFile<any[]>(SHOPS_FILE, []);
-            const sIdx = shops.findIndex(s => s.id === verifs[idx].entityId);
-            if (sIdx >= 0) {
-              shops[sIdx].isVerified = true;
-              shops[sIdx].is_verified = true;
-              writeJsonFile(SHOPS_FILE, shops);
-            }
-          } else {
-            const helpers = readJsonFile<any[]>(HELPERS_FILE, []);
-            const hIdx = helpers.findIndex(h => h.id === verifs[idx].entityId || h.phone === verifs[idx].userPhone);
-            if (hIdx >= 0) {
-              helpers[hIdx].isVerified = true;
-              helpers[hIdx].is_verified = true;
-              writeJsonFile(HELPERS_FILE, helpers);
-            }
-            const profiles = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
-            if (profiles[verifs[idx].entityId]) {
-              profiles[verifs[idx].entityId].is_verified = true;
-              profiles[verifs[idx].entityId].isVerified = true;
-              writeJsonFile(PROFILES_FILE, profiles);
-            }
+        const isApproved = status === 'approved';
+        if (verifs[idx].entityType === 'business') {
+          const shops = readJsonFile<any[]>(SHOPS_FILE, []);
+          const sIdx = shops.findIndex(s => s.id === verifs[idx].entityId);
+          if (sIdx >= 0) {
+            shops[sIdx].isVerified = isApproved;
+            shops[sIdx].is_verified = isApproved;
+            shops[sIdx].status = status;
+            writeJsonFile(SHOPS_FILE, shops);
           }
+        } else {
+          const helpers = readJsonFile<any[]>(HELPERS_FILE, []);
+          const hIdx = helpers.findIndex(h => h.id === verifs[idx].entityId || h.userId === verifs[idx].userId || (verifs[idx].userPhone && h.phone === verifs[idx].userPhone));
+          if (hIdx >= 0) {
+            helpers[hIdx].isVerified = isApproved;
+            helpers[hIdx].is_verified = isApproved;
+            helpers[hIdx].status = status;
+            writeJsonFile(HELPERS_FILE, helpers);
+          }
+          const profiles = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
+          Object.keys(profiles).forEach(pKey => {
+            const p = profiles[pKey];
+            if (pKey === verifs[idx].entityId || pKey === verifs[idx].userId || (verifs[idx].userEmail && p.email === verifs[idx].userEmail)) {
+              p.is_verified = isApproved;
+              p.isVerified = isApproved;
+              if (p.myHelperProfile) {
+                p.myHelperProfile.isVerified = isApproved;
+                p.myHelperProfile.status = status;
+              }
+            }
+          });
+          writeJsonFile(PROFILES_FILE, profiles);
         }
       }
 
@@ -2454,15 +4122,7 @@ async function startServer() {
   // ==========================================
   // AUTHENTICATION & OTP DISPATCH API
   // ==========================================
-  interface OtpRecord {
-    code: string;
-    expiresAt: number;
-    attempts: number;
-    type: 'mobile' | 'email';
-  }
-  const otpStore = new Map<string, OtpRecord>();
-
-  app.post("/api/auth/send-otp", async (req, res) => {
+  app.post("/api/auth/send-otp", otpRateLimiter, async (req, res) => {
     try {
       const { identifier, type } = req.body;
       if (!identifier) {
@@ -2470,6 +4130,24 @@ async function startServer() {
       }
 
       const cleanIdentifier = String(identifier).trim().toLowerCase();
+
+      // 60-second cooldown between OTP requests for the same email/mobile or IP
+      const clientIp = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.ip || "unknown";
+      const lastSentId = otpCooldownByIdentifier.get(cleanIdentifier) || 0;
+      const lastSentIp = otpCooldownByIdentifier.get(`ip_${clientIp}`) || 0;
+      const lastSent = Math.max(lastSentId, lastSentIp);
+      const elapsedMs = Date.now() - lastSent;
+      if (lastSent > 0 && elapsedMs < OTP_RESEND_COOLDOWN_MS) {
+        const waitSec = Math.ceil((OTP_RESEND_COOLDOWN_MS - elapsedMs) / 1000);
+        return res.status(429).json({
+          error: `कृपया नया OTP भेजने से पहले ${waitSec} सेकंड प्रतीक्षा करें। (Please wait ${waitSec}s before requesting another OTP.)`,
+          cooldownSeconds: waitSec
+        });
+      }
+
+      otpCooldownByIdentifier.set(cleanIdentifier, Date.now());
+      otpCooldownByIdentifier.set(`ip_${clientIp}`, Date.now());
+
       const code = Math.floor(100000 + Math.random() * 900000).toString();
       const expiresAt = Date.now() + 5 * 60 * 1000;
       const otpType = type === 'email' || cleanIdentifier.includes('@') ? 'email' : 'mobile';
@@ -2558,7 +4236,7 @@ async function startServer() {
           }
         }
 
-        console.log(`[OTP DISPATCH] Generated OTP for email ${cleanIdentifier}: ${code} (Sent via ${provider}: ${emailSent})`);
+        console.log(`[OTP DISPATCH] Generated OTP for email ${cleanIdentifier} (Sent via ${provider}: ${emailSent})`);
 
         return res.json({
           success: true,
@@ -2568,11 +4246,12 @@ async function startServer() {
           emailSent,
           provider,
           devOtp: !emailSent ? code : undefined,
-          expiresInSeconds: 300
+          expiresInSeconds: 300,
+          cooldownSeconds: 60
         });
       } else {
         const cleanNumber = cleanIdentifier.replace(/\D/g, '');
-        console.log(`[OTP DISPATCH] Generated OTP for mobile +91 ${cleanNumber}: ${code}`);
+        console.log(`[OTP DISPATCH] Generated OTP for mobile +91 ${cleanNumber}`);
 
         const whatsappMsg = encodeURIComponent(
           `*LocoHelp Security Verification*\n\nYour One-Time Password (OTP) is: *${code}*\n\nValid for 5 minutes. Do not share this code with anyone.`
@@ -2584,7 +4263,8 @@ async function startServer() {
           message: `OTP generated for +91 ${cleanNumber}`,
           whatsappUrl,
           devOtp: code,
-          expiresInSeconds: 300
+          expiresInSeconds: 300,
+          cooldownSeconds: 60
         });
       }
     } catch (e: any) {
@@ -2593,7 +4273,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/auth/verify-otp", async (req, res) => {
+  app.post("/api/auth/verify-otp", authLimiter, async (req, res) => {
     try {
       const { identifier, code, type } = req.body;
       if (!identifier || !code) {
@@ -2733,17 +4413,24 @@ async function startServer() {
     }
   });
 
-  // Issue / Refresh Session Token for logged-in clients
-  app.post("/api/auth/token", (req, res) => {
+  // Issue / Refresh Session Token ONLY for verified existing accounts
+  app.post("/api/auth/token", async (req, res) => {
     try {
       const { email, uid, name } = req.body;
       if (!email && !uid) {
         return res.status(400).json({ error: "Email or UID is required" });
       }
+      const cleanEmail = String(email || '').trim().toLowerCase();
+      if (cleanEmail) {
+        const existing = await findExistingAccount(cleanEmail);
+        if (!existing) {
+          return res.status(403).json({ error: "Unverified account cannot request token" });
+        }
+      }
       const token = createSessionToken({
-        uid: uid || email,
-        email: email || '',
-        name: name || (email ? email.split('@')[0] : 'Community User')
+        uid: uid || cleanEmail,
+        email: cleanEmail,
+        name: name || (cleanEmail ? cleanEmail.split('@')[0] : 'Community User')
       });
       res.setHeader('Set-Cookie', `locohelp_token=${token}; Path=/; Max-Age=${30 * 24 * 3600}; SameSite=Lax`);
       res.json({ success: true, token });

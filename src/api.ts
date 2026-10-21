@@ -1,4 +1,12 @@
 import { Intent, JobPortalItem } from './types';
+import {
+  sanitizePayload,
+  sanitizeText,
+  getPostCooldownRemainingSeconds,
+  recordPostCreatedTimestamp,
+  getOtpCooldownRemainingSeconds,
+  recordOtpSentTimestamp
+} from './lib/security';
 
 export interface ChatMessage {
   id: string;
@@ -11,7 +19,7 @@ export interface ChatMessage {
 }
 
 /**
- * Helper to retrieve session authentication headers for API requests
+ * Helper to retrieve session authentication headers (including Admin authorization when logged into Admin panel)
  */
 export function getAuthHeaders(): Record<string, string> {
   const headers: Record<string, string> = {};
@@ -21,8 +29,148 @@ export function getAuthHeaders(): Record<string, string> {
       headers['Authorization'] = `Bearer ${token}`;
       headers['x-auth-token'] = token;
     }
+    const adminToken = sessionStorage.getItem('locohelp_admin_token') || localStorage.getItem('locohelp_admin_token');
+    const isAdminLoggedIn = sessionStorage.getItem('locohelp_admin_logged_in') === 'true';
+    if (adminToken) {
+      headers['x-admin-token'] = adminToken;
+      if (!headers['Authorization']) {
+        headers['Authorization'] = `Bearer ${adminToken}`;
+      }
+    }
+    if (isAdminLoggedIn) {
+      headers['x-admin-email'] = 'baalvarta@gmail.com';
+    }
   } catch (e) {}
   return headers;
+}
+
+/**
+ * Authenticates Admin with backend using Strict 2-Step Security (Step 1: Password -> Step 2: 6-Digit Email OTP sent to baalvarta@gmail.com)
+ */
+export async function loginAdminOnServer(
+  password: string,
+  otpCode?: string
+): Promise<{
+  success: boolean;
+  token?: string;
+  requiresOtp?: boolean;
+  adminEmail?: string;
+  devOtp?: string;
+  message?: string;
+  error?: string;
+}> {
+  try {
+    const res = await fetch('/api/admin/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password, otpCode })
+    });
+    const data = await res.json();
+    if (res.ok && data.success && data.token) {
+      try {
+        sessionStorage.setItem('locohelp_admin_token', data.token);
+        localStorage.setItem('locohelp_admin_token', data.token);
+      } catch (e) {}
+      return { success: true, token: data.token };
+    }
+    return {
+      success: false,
+      requiresOtp: Boolean(data.requiresOtp),
+      adminEmail: data.adminEmail || 'baalvarta@gmail.com',
+      devOtp: data.devOtp,
+      message: data.message,
+      error: data.error || 'Admin authentication failed'
+    };
+  } catch (e: any) {
+    return { success: false, error: e.message || 'Network error during admin login' };
+  }
+}
+
+export const authenticateAdminOnServer = loginAdminOnServer;
+
+/**
+ * Sends a 6-digit Forgot Admin Password OTP strictly to baalvarta@gmail.com
+ */
+export async function sendAdminForgotPasswordOtpOnServer(): Promise<{
+  success: boolean;
+  adminEmail?: string;
+  devOtp?: string;
+  message?: string;
+  error?: string;
+}> {
+  try {
+    const res = await fetch('/api/admin/forgot-password/send-otp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      return {
+        success: true,
+        adminEmail: data.adminEmail || 'baalvarta@gmail.com',
+        devOtp: data.devOtp,
+        message: data.message
+      };
+    }
+    return { success: false, error: data.error || 'Failed to send Admin reset OTP' };
+  } catch (e: any) {
+    return { success: false, error: e.message || 'Network error sending Admin OTP' };
+  }
+}
+
+/**
+ * Verifies the 6-digit OTP sent to baalvarta@gmail.com and resets the Master Admin Password
+ */
+export async function resetAdminPasswordWithOtpOnServer(
+  otpCode: string,
+  newPassword: string
+): Promise<{
+  success: boolean;
+  token?: string;
+  message?: string;
+  error?: string;
+}> {
+  try {
+    const res = await fetch('/api/admin/forgot-password/reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ otpCode, newPassword })
+    });
+    const data = await res.json();
+    if (res.ok && data.success && data.token) {
+      try {
+        sessionStorage.setItem('locohelp_admin_token', data.token);
+        localStorage.setItem('locohelp_admin_token', data.token);
+      } catch (e) {}
+      return { success: true, token: data.token, message: data.message };
+    }
+    return { success: false, error: data.error || 'Failed to reset Admin password' };
+  } catch (e: any) {
+    return { success: false, error: e.message || 'Network error resetting Admin password' };
+  }
+}
+
+/**
+ * Updates Admin password from inside the authenticated Admin Dashboard
+ */
+export async function changeAdminPasswordOnServer(
+  oldPassword: string,
+  newPassword: string
+): Promise<{ success: boolean; message?: string; error?: string }> {
+  try {
+    const res = await fetch('/api/admin/change-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      body: JSON.stringify({ oldPassword, newPassword })
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      return { success: true, message: data.message };
+    }
+    return { success: false, error: data.error || 'Failed to change Admin password' };
+  } catch (e: any) {
+    return { success: false, error: e.message || 'Network error changing Admin password' };
+  }
 }
 
 /**
@@ -35,13 +183,13 @@ export async function fetchLiveIntents(): Promise<Intent[]> {
       cache: 'no-store',
       headers: {
         'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache'
+        'Pragma': 'no-cache',
+        ...getAuthHeaders()
       }
     });
     if (res.ok) {
       const serverIntents: Intent[] = await res.json();
       if (Array.isArray(serverIntents)) {
-        // Cache to localStorage for instant offline access
         try {
           localStorage.setItem('locohelp_cached_intents', JSON.stringify(serverIntents));
         } catch (e) {}
@@ -52,7 +200,6 @@ export async function fetchLiveIntents(): Promise<Intent[]> {
     console.warn("Server fetch intents fallback to local storage:", err);
   }
 
-  // Fallback to local cache if network is offline
   try {
     const cached = localStorage.getItem('locohelp_cached_intents') || localStorage.getItem('locohelp_custom_intents');
     if (cached) {
@@ -65,14 +212,21 @@ export async function fetchLiveIntents(): Promise<Intent[]> {
 }
 
 /**
- * Broadcasts a new intent to all phones via central server.
+ * Broadcasts a new intent to all phones via central server (with XSS sanitization & 30s anti-spam cooldown).
  */
 export async function broadcastIntentToServer(intent: Intent): Promise<Intent> {
+  const cleanIntent = sanitizePayload(intent);
+
+  const cooldownRem = getPostCooldownRemainingSeconds();
+  if (cooldownRem > 0) {
+    throw new Error(`Please wait ${cooldownRem} seconds before creating another post (30s anti-spam cooldown).`);
+  }
+
   // Always save locally first so user never loses their post
   try {
     const stored = localStorage.getItem('locohelp_custom_intents');
     const existing: Intent[] = stored ? JSON.parse(stored) : [];
-    localStorage.setItem('locohelp_custom_intents', JSON.stringify([intent, ...existing.slice(0, 50)]));
+    localStorage.setItem('locohelp_custom_intents', JSON.stringify([cleanIntent, ...existing.slice(0, 50)]));
   } catch (e) {}
 
   try {
@@ -83,26 +237,37 @@ export async function broadcastIntentToServer(intent: Intent): Promise<Intent> {
         'Cache-Control': 'no-cache',
         ...getAuthHeaders()
       },
-      body: JSON.stringify(intent)
+      body: JSON.stringify(cleanIntent)
     });
 
+    if (res.status === 429) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || 'Rate limit: Please wait 30 seconds before posting again.');
+    }
+
     if (res.ok) {
+      recordPostCreatedTimestamp();
       const saved = await res.json();
       return saved;
     }
-  } catch (err) {
+  } catch (err: any) {
+    if (err?.message && err.message.includes('wait')) {
+      throw err;
+    }
     console.warn("Failed to broadcast to server (operating offline):", err);
   }
 
-  return intent;
+  recordPostCreatedTimestamp();
+  return cleanIntent;
 }
 
 /**
- * Deletes or completes an intent on server permanently
+ * Deletes or completes an intent on server permanently (Protected: Owner or Admin only)
  */
 export async function deleteIntentOnServer(id: string, description?: string): Promise<boolean> {
   try {
-    const url = `/api/intents/${id}?_t=${Date.now()}${description ? `&desc=${encodeURIComponent(description)}` : ''}`;
+    const cleanDesc = description ? sanitizeText(description) : undefined;
+    const url = `/api/intents/${encodeURIComponent(id)}?_t=${Date.now()}${cleanDesc ? `&desc=${encodeURIComponent(cleanDesc)}` : ''}`;
     const res = await fetch(url, { 
       method: 'DELETE',
       headers: { 
@@ -110,7 +275,7 @@ export async function deleteIntentOnServer(id: string, description?: string): Pr
         'Cache-Control': 'no-cache',
         ...getAuthHeaders()
       },
-      body: JSON.stringify({ description })
+      body: JSON.stringify({ description: cleanDesc })
     });
     return res.ok;
   } catch (e) {
@@ -119,20 +284,21 @@ export async function deleteIntentOnServer(id: string, description?: string): Pr
 }
 
 /**
- * Fetches messages for a chat / intent from the central server.
+ * Fetches messages for a chat / intent from the central server (Authorized participants only).
  */
 export async function fetchChatMessages(intentId: string): Promise<ChatMessage[]> {
   try {
-    const res = await fetch(`/api/intents/${intentId}/messages?_t=${Date.now()}`, {
+    const res = await fetch(`/api/intents/${encodeURIComponent(intentId)}/messages?_t=${Date.now()}`, {
       cache: 'no-store',
       headers: { 
         'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache'
+        'Pragma': 'no-cache',
+        ...getAuthHeaders()
       }
     });
     if (res.ok) {
       const msgs = await res.json();
-      return msgs;
+      return Array.isArray(msgs) ? msgs : [];
     }
   } catch (err) {
     console.warn("Failed to fetch messages from server:", err);
@@ -141,13 +307,13 @@ export async function fetchChatMessages(intentId: string): Promise<ChatMessage[]
 }
 
 /**
- * Sends a message in an intent chat to sync with the other phone.
+ * Sends a message in an intent chat to sync with the other phone (XSS sanitized).
  */
 export async function sendChatMessage(intentId: string, msg: Partial<ChatMessage>): Promise<ChatMessage> {
   const payload = {
     id: msg.id || 'msg_' + Date.now(),
-    authorId: msg.authorId || 'guest',
-    text: msg.text || '',
+    authorId: sanitizeText(msg.authorId || 'guest'),
+    text: sanitizeText(msg.text || ''),
     type: msg.type || 'text',
     attachmentUrl: msg.attachmentUrl || null,
     attachmentType: msg.attachmentType || null,
@@ -155,7 +321,7 @@ export async function sendChatMessage(intentId: string, msg: Partial<ChatMessage
   };
 
   try {
-    const res = await fetch(`/api/intents/${intentId}/messages?_t=${Date.now()}`, {
+    const res = await fetch(`/api/intents/${encodeURIComponent(intentId)}/messages?_t=${Date.now()}`, {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
@@ -181,8 +347,11 @@ export async function logAuditRecord(auditPayload: any): Promise<void> {
   try {
     await fetch('/api/audit-logs', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(auditPayload)
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders()
+      },
+      body: JSON.stringify(sanitizePayload(auditPayload))
     });
   } catch (e) {
     console.warn("Audit log save note:", e);
@@ -198,7 +367,8 @@ export async function fetchLiveAds(): Promise<any[]> {
       cache: 'no-store',
       headers: {
         'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache'
+        'Pragma': 'no-cache',
+        ...getAuthHeaders()
       }
     });
     if (res.ok) {
@@ -229,11 +399,11 @@ export async function fetchLiveAds(): Promise<any[]> {
  * Creates or updates an ad banner on server
  */
 export async function createAdOnServer(ad: any): Promise<any> {
-  // Update local storage first
+  const cleanAd = sanitizePayload(ad);
   try {
     const stored = localStorage.getItem('locohelp_ad_banners');
     const existing = stored ? JSON.parse(stored) : [];
-    const updated = [ad, ...existing.filter((a: any) => a.id !== ad.id)];
+    const updated = [cleanAd, ...existing.filter((a: any) => a.id !== cleanAd.id)];
     localStorage.setItem('locohelp_ad_banners', JSON.stringify(updated));
     window.dispatchEvent(new Event('storage'));
   } catch (e) {}
@@ -243,9 +413,10 @@ export async function createAdOnServer(ad: any): Promise<any> {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Cache-Control': 'no-cache'
+        'Cache-Control': 'no-cache',
+        ...getAuthHeaders()
       },
-      body: JSON.stringify(ad)
+      body: JSON.stringify(cleanAd)
     });
     if (res.ok) {
       return await res.json();
@@ -253,14 +424,13 @@ export async function createAdOnServer(ad: any): Promise<any> {
   } catch (err) {
     console.warn("Failed to save ad to server (offline mode):", err);
   }
-  return ad;
+  return cleanAd;
 }
 
 /**
- * Deletes an ad banner from server
+ * Deletes an ad banner from server (Admin Protected)
  */
 export async function deleteAdOnServer(id: string): Promise<boolean> {
-  // Update local storage
   try {
     const stored = localStorage.getItem('locohelp_ad_banners');
     if (stored) {
@@ -272,9 +442,12 @@ export async function deleteAdOnServer(id: string): Promise<boolean> {
   } catch (e) {}
 
   try {
-    const res = await fetch(`/api/ads/${id}?_t=${Date.now()}`, {
+    const res = await fetch(`/api/ads/${encodeURIComponent(id)}?_t=${Date.now()}`, {
       method: 'DELETE',
-      headers: { 'Cache-Control': 'no-cache' }
+      headers: {
+        'Cache-Control': 'no-cache',
+        ...getAuthHeaders()
+      }
     });
     return res.ok;
   } catch (e) {
@@ -283,7 +456,7 @@ export async function deleteAdOnServer(id: string): Promise<boolean> {
 }
 
 /**
- * Sends OTP to Mobile or Email
+ * Sends OTP to Mobile or Email (with 60s resend cooldown)
  */
 export async function sendAuthOtp(identifier: string, type: 'mobile' | 'email'): Promise<{ 
   success: boolean; 
@@ -291,18 +464,34 @@ export async function sendAuthOtp(identifier: string, type: 'mobile' | 'email'):
   whatsappUrl?: string; 
   devCode?: string;
   emailSent?: boolean;
+  cooldownRemaining?: number;
   error?: string; 
 }> {
+  const cleanId = sanitizeText(identifier).toLowerCase();
+  const rem = getOtpCooldownRemainingSeconds(cleanId);
+  if (rem > 0) {
+    return {
+      success: false,
+      cooldownRemaining: rem,
+      error: `Please wait ${rem} seconds before resending OTP (60s anti-spam cooldown).`
+    };
+  }
+
   try {
     const res = await fetch('/api/auth/send-otp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ identifier, type })
+      body: JSON.stringify({ identifier: cleanId, type })
     });
     const data = await res.json();
     if (!res.ok) {
-      return { success: false, error: data.error || 'Failed to send OTP' };
+      return {
+        success: false,
+        cooldownRemaining: data.cooldownRemaining,
+        error: data.error || 'Failed to send OTP'
+      };
     }
+    recordOtpSentTimestamp(cleanId);
     return data;
   } catch (err: any) {
     return { success: false, error: err.message || 'Network error while sending OTP' };
@@ -321,7 +510,11 @@ export async function verifyAuthOtp(identifier: string, code: string, type: 'mob
     const res = await fetch('/api/auth/verify-otp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ identifier, code, type })
+      body: JSON.stringify({
+        identifier: sanitizeText(identifier).toLowerCase(),
+        code: sanitizeText(code),
+        type
+      })
     });
     const data = await res.json();
     if (!res.ok) {
@@ -337,10 +530,6 @@ export async function verifyAuthOtp(identifier: string, code: string, type: 'mob
 // JOB PORTAL (SEEKER & EMPLOYER) CLIENT API
 // ==========================================
 
-/**
- * Fetches Job Portal items from server (by default, only approved for public view).
- * For admin panel, pass { status: 'all' } or { status: 'pending' }.
- */
 export async function fetchJobPortalItems(params?: {
   status?: 'approved' | 'pending' | 'rejected' | 'all';
   type?: 'job_seeker' | 'employer_vacancy' | 'all';
@@ -351,13 +540,14 @@ export async function fetchJobPortalItems(params?: {
     query.set('_t', Date.now().toString());
     if (params?.status) query.set('status', params.status);
     if (params?.type && params.type !== 'all') query.set('type', params.type);
-    if (params?.search) query.set('search', params.search);
+    if (params?.search) query.set('search', sanitizeText(params.search));
 
     const res = await fetch(`/api/job-portal?${query.toString()}`, {
       cache: 'no-store',
       headers: {
         'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache'
+        'Pragma': 'no-cache',
+        ...getAuthHeaders()
       }
     });
 
@@ -380,7 +570,6 @@ export async function fetchJobPortalItems(params?: {
     console.warn("Job portal fetch notice (falling back to cache):", err);
   }
 
-  // Fallback to cache for approved items if offline
   try {
     const cached = localStorage.getItem('locohelp_live_jobs_cache');
     if (cached) {
@@ -399,7 +588,7 @@ export async function fetchJobPortalItems(params?: {
 }
 
 /**
- * Submits a new Job Seeker profile or Employer job vacancy.
+ * Submits a new Job Seeker profile or Employer job vacancy (XSS sanitized).
  * Always saves with status: "pending" on the server.
  */
 export async function submitJobPortalItem(item: Partial<JobPortalItem>): Promise<{
@@ -409,13 +598,15 @@ export async function submitJobPortalItem(item: Partial<JobPortalItem>): Promise
   error?: string;
 }> {
   try {
+    const cleanItem = sanitizePayload(item);
     const res = await fetch(`/api/job-portal?_t=${Date.now()}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Cache-Control': 'no-cache'
+        'Cache-Control': 'no-cache',
+        ...getAuthHeaders()
       },
-      body: JSON.stringify(item)
+      body: JSON.stringify(cleanItem)
     });
 
     const data = await res.json();
@@ -438,7 +629,7 @@ export async function submitJobPortalItem(item: Partial<JobPortalItem>): Promise
 }
 
 /**
- * Updates status of a Job Portal entry (Approve or Reject in Admin Panel).
+ * Updates status of a Job Portal entry (Approve or Reject in Admin Panel - Admin Protected).
  */
 export async function updateJobPortalStatus(
   id: string,
@@ -446,13 +637,14 @@ export async function updateJobPortalStatus(
   adminNotes?: string
 ): Promise<{ success: boolean; item?: JobPortalItem; error?: string }> {
   try {
-    const res = await fetch(`/api/job-portal/${id}/status?_t=${Date.now()}`, {
+    const res = await fetch(`/api/job-portal/${encodeURIComponent(id)}/status?_t=${Date.now()}`, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
-        'Cache-Control': 'no-cache'
+        'Cache-Control': 'no-cache',
+        ...getAuthHeaders()
       },
-      body: JSON.stringify({ status, adminNotes })
+      body: JSON.stringify({ status, adminNotes: adminNotes ? sanitizeText(adminNotes) : undefined })
     });
 
     const data = await res.json();
@@ -467,13 +659,16 @@ export async function updateJobPortalStatus(
 }
 
 /**
- * Deletes a Job Portal entry permanently.
+ * Deletes a Job Portal entry permanently (Admin Protected).
  */
 export async function deleteJobPortalItem(id: string): Promise<boolean> {
   try {
-    const res = await fetch(`/api/job-portal/${id}?_t=${Date.now()}`, {
+    const res = await fetch(`/api/job-portal/${encodeURIComponent(id)}?_t=${Date.now()}`, {
       method: 'DELETE',
-      headers: { 'Cache-Control': 'no-cache' }
+      headers: {
+        'Cache-Control': 'no-cache',
+        ...getAuthHeaders()
+      }
     });
     return res.ok;
   } catch (e) {
@@ -482,7 +677,7 @@ export async function deleteJobPortalItem(id: string): Promise<boolean> {
 }
 
 /**
- * Purges all sample/dummy seed data from server.
+ * Purges all sample/dummy seed data from server (Admin Protected).
  */
 export async function purgeDummyDataOnServer(): Promise<{ success: boolean; message?: string; counts?: any }> {
   try {
@@ -490,7 +685,8 @@ export async function purgeDummyDataOnServer(): Promise<{ success: boolean; mess
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
-        'Cache-Control': 'no-cache'
+        'Cache-Control': 'no-cache',
+        ...getAuthHeaders()
       }
     });
     return await res.json();
@@ -500,7 +696,7 @@ export async function purgeDummyDataOnServer(): Promise<{ success: boolean; mess
 }
 
 /**
- * Completely resets database to empty state.
+ * Completely resets database to empty state (Admin Protected).
  */
 export async function resetDatabaseOnServer(): Promise<{ success: boolean; message?: string }> {
   try {
@@ -508,7 +704,8 @@ export async function resetDatabaseOnServer(): Promise<{ success: boolean; messa
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
-        'Cache-Control': 'no-cache'
+        'Cache-Control': 'no-cache',
+        ...getAuthHeaders()
       }
     });
     return await res.json();
@@ -548,16 +745,17 @@ export async function submitVerification(payload: {
   userEmail?: string;
   userPhone?: string;
   title?: string;
-  idDocumentWatermarked: string;
+  idDocumentWatermarked?: string;
 }): Promise<{ success: boolean; message?: string; verificationId?: string; error?: string }> {
   try {
+    const cleanPayload = sanitizePayload(payload);
     const res = await fetch('/api/verifications', {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
         ...getAuthHeaders()
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(cleanPayload)
     });
     const data = await res.json();
     if (!res.ok) {
@@ -574,7 +772,9 @@ export async function submitVerification(payload: {
  */
 export async function getVerificationStatus(entityId: string): Promise<{ status: string; isVerified: boolean }> {
   try {
-    const res = await fetch(`/api/verifications/status/${encodeURIComponent(entityId)}?_t=${Date.now()}`);
+    const res = await fetch(`/api/verifications/status/${encodeURIComponent(entityId)}?_t=${Date.now()}`, {
+      headers: getAuthHeaders()
+    });
     if (res.ok) {
       return await res.json();
     }
@@ -588,7 +788,8 @@ export async function getVerificationStatus(entityId: string): Promise<{ status:
 export async function fetchAdminVerifications(): Promise<VerificationRequestItem[]> {
   try {
     const res = await fetch(`/api/admin/verifications?_t=${Date.now()}`, {
-      cache: 'no-store'
+      cache: 'no-store',
+      headers: getAuthHeaders()
     });
     if (res.ok) {
       const data = await res.json();
@@ -611,8 +812,11 @@ export async function updateAdminVerificationStatus(
   try {
     const res = await fetch(`/api/admin/verifications/${encodeURIComponent(id)}/status`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status, adminNotes })
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders()
+      },
+      body: JSON.stringify({ status, adminNotes: adminNotes ? sanitizeText(adminNotes) : undefined })
     });
     const data = await res.json();
     if (!res.ok) {
@@ -624,5 +828,197 @@ export async function updateAdminVerificationStatus(
   }
 }
 
+// ==========================================
+// DEDICATED ADMIN CRUD HELPERS FOR ALL 7 MODULES
+// ==========================================
 
+export async function updateAdminIntentOnServer(
+  id: string,
+  updates: Record<string, any>
+): Promise<{ success: boolean; item?: any; error?: string }> {
+  try {
+    const res = await fetch(`/api/admin/intents/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      body: JSON.stringify(sanitizePayload(updates))
+    });
+    const data = await res.json();
+    if (!res.ok) return { success: false, error: data.error || 'Failed to update help post' };
+    return { success: true, item: data.item };
+  } catch (e: any) {
+    return { success: false, error: e.message || 'Network error' };
+  }
+}
 
+export async function updateAdminHelperOnServer(
+  id: string,
+  updates: Record<string, any>
+): Promise<{ success: boolean; item?: any; error?: string }> {
+  try {
+    const res = await fetch(`/api/admin/helpers/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      body: JSON.stringify(sanitizePayload(updates))
+    });
+    const data = await res.json();
+    if (!res.ok) return { success: false, error: data.error || 'Failed to update helper profile' };
+    return { success: true, item: data.item };
+  } catch (e: any) {
+    return { success: false, error: e.message || 'Network error' };
+  }
+}
+
+export async function deleteAdminHelperOnServer(id: string): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/admin/helpers/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
+    return res.ok;
+  } catch (e) {
+    return false;
+  }
+}
+
+export async function fetchAdminUserProfiles(): Promise<any[]> {
+  try {
+    const res = await fetch(`/api/admin/profiles?_t=${Date.now()}`, {
+      cache: 'no-store',
+      headers: getAuthHeaders()
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    }
+  } catch (e) {}
+  return [];
+}
+
+export async function updateAdminUserProfileOnServer(
+  uid: string,
+  updates: Record<string, any>
+): Promise<{ success: boolean; item?: any; error?: string }> {
+  try {
+    const res = await fetch(`/api/admin/profiles/${encodeURIComponent(uid)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      body: JSON.stringify(sanitizePayload(updates))
+    });
+    const data = await res.json();
+    if (!res.ok) return { success: false, error: data.error || 'Failed to update user profile' };
+    return { success: true, item: data.item };
+  } catch (e: any) {
+    return { success: false, error: e.message || 'Network error' };
+  }
+}
+
+export async function deleteAdminUserProfileOnServer(uid: string): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/admin/profiles/${encodeURIComponent(uid)}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
+    return res.ok;
+  } catch (e) {
+    return false;
+  }
+}
+
+export async function updateAdminShopOnServer(
+  id: string,
+  updates: Record<string, any>
+): Promise<{ success: boolean; item?: any; error?: string }> {
+  try {
+    const res = await fetch(`/api/admin/shops/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      body: JSON.stringify(sanitizePayload(updates))
+    });
+    const data = await res.json();
+    if (!res.ok) return { success: false, error: data.error || 'Failed to update shop' };
+    return { success: true, item: data.item };
+  } catch (e: any) {
+    return { success: false, error: e.message || 'Network error' };
+  }
+}
+
+export async function deleteAdminShopOnServer(id: string): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/admin/shops/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
+    return res.ok;
+  } catch (e) {
+    return false;
+  }
+}
+
+export async function updateAdminJobPortalItemOnServer(
+  id: string,
+  updates: Record<string, any>
+): Promise<{ success: boolean; item?: any; error?: string }> {
+  try {
+    const res = await fetch(`/api/admin/job-portal/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      body: JSON.stringify(sanitizePayload(updates))
+    });
+    const data = await res.json();
+    if (!res.ok) return { success: false, error: data.error || 'Failed to update job portal item' };
+    return { success: true, item: data.item };
+  } catch (e: any) {
+    return { success: false, error: e.message || 'Network error' };
+  }
+}
+
+export async function fetchAdminReportsOnServer(): Promise<any[]> {
+  try {
+    const res = await fetch(`/api/reports?_t=${Date.now()}`, {
+      cache: 'no-store',
+      headers: getAuthHeaders()
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    }
+  } catch (e) {}
+  return [];
+}
+
+export async function updateAdminReportOnServer(
+  id: string,
+  updates: Record<string, any>
+): Promise<{ success: boolean; item?: any; error?: string }> {
+  try {
+    const res = await fetch(`/api/admin/reports/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      body: JSON.stringify(sanitizePayload(updates))
+    });
+    const data = await res.json();
+    if (!res.ok) return { success: false, error: data.error || 'Failed to update feedback/report' };
+    return { success: true, item: data.item };
+  } catch (e: any) {
+    return { success: false, error: e.message || 'Network error' };
+  }
+}
+
+export async function deleteAdminReportOnServer(id: string): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/admin/reports/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
+    return res.ok;
+  } catch (e) {
+    return false;
+  }
+}
+
+export const fetchAdminUsersOnServer = fetchAdminUserProfiles;
+export const updateAdminUserOnServer = updateAdminUserProfileOnServer;
+export const deleteAdminUserOnServer = deleteAdminUserProfileOnServer;
+export const updateAdminBusinessOnServer = updateAdminShopOnServer;
+export const deleteAdminBusinessOnServer = deleteAdminShopOnServer;
+export const updateAdminJobPortalOnServer = updateAdminJobPortalItemOnServer;

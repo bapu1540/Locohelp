@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { X, Sparkles, Store, Image as ImageIcon, Tag, MapPin, CheckCircle2 } from 'lucide-react';
+import { X, Sparkles, Store, Image as ImageIcon, Tag, MapPin, CheckCircle2, AlertCircle } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useLanguage } from '../i18n';
 import { AdBannerItem } from './AdBannerSection';
+import { validateUploadedFile, sanitizeText } from '../lib/security';
 
 interface PostAdModalProps {
   isOpen: boolean;
@@ -34,14 +35,22 @@ export default function PostAdModal({ isOpen, onClose, onAdCreated }: PostAdModa
   const [photoUrl, setPhotoUrl] = useState('');
   const [area, setArea] = useState('');
   const [destinationUrl, setDestinationUrl] = useState('');
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
 
   if (!isOpen) return null;
 
-  const handleAdPhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAdPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      setUploadError(null);
+      const check = await validateUploadedFile(file, { allowPdf: false });
+      if (!check.valid) {
+        setUploadError(check.error || 'Only safe JPEG, PNG, or WebP images up to 2MB are allowed.');
+        e.target.value = '';
+        return;
+      }
       const reader = new FileReader();
       reader.onloadend = () => {
         if (reader.result) {

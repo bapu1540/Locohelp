@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { useLanguage } from '../i18n';
 import { applyIdWatermark } from '../lib/watermark';
+import { validateUploadedFile } from '../lib/security';
 import { submitVerification } from '../api';
 import { getCurrentUser } from '../auth';
 
@@ -68,8 +69,10 @@ export default function IdentityVerificationModal({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!file.type.startsWith('image/')) {
-      setErrorMessage(language === 'EN' ? 'Please upload a photo or image of your ID.' : 'कृपया पहचान पत्र की फ़ोटो या इमेज अपलोड करें।');
+    const validation = await validateUploadedFile(file, { allowPdf: true });
+    if (!validation.valid) {
+      setErrorMessage(language === 'EN' ? (validation.error || 'Invalid file') : (validation.errorHi || validation.error || 'अमान्य फ़ाइल'));
+      if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
 
@@ -89,7 +92,7 @@ export default function IdentityVerificationModal({
       setWatermarkedPreview(watermarked);
     } catch (err: any) {
       console.error("Watermarking error:", err);
-      setErrorMessage(language === 'EN' ? 'Failed to process document image.' : 'दस्तावेज़ इमेज प्रोसेस करने में विफल।');
+      setErrorMessage(err?.message || (language === 'EN' ? 'Failed to process document file.' : 'दस्तावेज़ प्रोसेस करने में विफल।'));
     } finally {
       setIsWatermarking(false);
     }
@@ -255,7 +258,7 @@ export default function IdentityVerificationModal({
                   <input
                     type="file"
                     ref={fileInputRef}
-                    accept="image/*"
+                    accept="image/jpeg,image/png,image/webp,application/pdf,.jpg,.jpeg,.png,.webp,.pdf"
                     onChange={handleFileChange}
                     className="hidden"
                     id="id-document-file-input"
@@ -278,26 +281,34 @@ export default function IdentityVerificationModal({
                       <div>
                         <p className="text-xs font-bold text-slate-800 dark:text-slate-200">
                           {isWatermarking
-                            ? (language === 'EN' ? 'Applying Security Watermark...' : 'सुरक्षा वाटरमार्क लगाया जा रहा है...')
-                            : (language === 'EN' ? 'Click to Upload Document Photo' : 'दस्तावेज़ फ़ोटो अपलोड करने के लिए क्लिक करें')}
+                            ? (language === 'EN' ? 'Validating & Watermarking...' : 'सत्यापित और वाटरमार्क किया जा रहा है...')
+                            : (language === 'EN' ? 'Click to Upload Document (Image or PDF)' : 'दस्तावेज़ अपलोड करने के लिए क्लिक करें (इमेज या PDF)')}
                         </p>
                         <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
-                          JPG, PNG, WEBP (Max 15MB) • Camera / Gallery
+                          JPG, PNG, WEBP (Max 2MB) • PDF (Max 5MB)
                         </p>
                       </div>
                     </button>
                   ) : (
                     <div className="space-y-2">
                       {/* Watermarked Document Preview */}
-                      <div className="relative rounded-2xl border-2 border-emerald-500/60 overflow-hidden bg-slate-900 shadow-md max-h-56 flex items-center justify-center">
-                        <img
-                          src={watermarkedPreview}
-                          alt="Watermarked ID Document Preview"
-                          className="max-h-56 w-auto object-contain"
-                        />
+                      <div className="relative rounded-2xl border-2 border-emerald-500/60 overflow-hidden bg-slate-900 shadow-md max-h-56 flex items-center justify-center p-3">
+                        {watermarkedPreview.startsWith('data:application/pdf') ? (
+                          <div className="text-center py-6 px-4 text-white space-y-1.5">
+                            <FileCheck2 className="w-10 h-10 text-emerald-400 mx-auto" />
+                            <p className="text-xs font-bold">{originalFile?.name || 'Verified_ID_Document.pdf'}</p>
+                            <p className="text-[10px] text-emerald-300">Valid PDF (%PDF- verified • Max 5MB)</p>
+                          </div>
+                        ) : (
+                          <img
+                            src={watermarkedPreview}
+                            alt="Watermarked ID Document Preview"
+                            className="max-h-52 w-auto object-contain"
+                          />
+                        )}
                         <div className="absolute top-2 left-2 bg-emerald-600/90 text-white text-[10px] font-black px-2 py-0.5 rounded-md flex items-center gap-1 shadow-sm backdrop-blur-xs">
                           <CheckCircle2 className="w-3 h-3" />
-                          <span>{language === 'EN' ? 'Watermark Applied' : 'वाटरमार्क लगा दिया गया'}</span>
+                          <span>{language === 'EN' ? 'Verified & Protected' : 'सत्यापित एवं सुरक्षित'}</span>
                         </div>
                         <button
                           type="button"

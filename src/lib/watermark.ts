@@ -11,6 +11,8 @@
  * 4. Strictly prevents unwatermarked identity document leakage
  */
 
+import { validateUploadedFile } from './security';
+
 export interface WatermarkOptions {
   entityType?: 'user_profile' | 'business';
   userName?: string;
@@ -22,6 +24,23 @@ export async function applyIdWatermark(
   imageSource: File | string,
   options?: WatermarkOptions
 ): Promise<string> {
+  if (imageSource instanceof File) {
+    const check = await validateUploadedFile(imageSource, { allowPdf: true });
+    if (!check.valid) {
+      throw new Error(check.error || 'Invalid file format or size');
+    }
+    if (check.isPdf) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => resolve(e.target?.result as string);
+        reader.onerror = () => reject(new Error('Failed to read PDF file'));
+        reader.readAsDataURL(imageSource);
+      });
+    }
+  } else if (typeof imageSource === 'string' && imageSource.startsWith('data:application/pdf;base64,')) {
+    return imageSource;
+  }
+
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
@@ -35,8 +54,8 @@ export async function applyIdWatermark(
           return;
         }
 
-        // Maintain resolution with reasonable maximum dimensions for performance and storage
-        const maxDim = 1600;
+        // Maintain resolution with reasonable maximum dimensions to guarantee < 2MB output
+        const maxDim = 1400;
         let width = img.naturalWidth || img.width;
         let height = img.naturalHeight || img.height;
 
@@ -97,18 +116,16 @@ export async function applyIdWatermark(
 
         for (let y = -diagonal; y <= diagonal * 2; y += ySpacing) {
           for (let x = -diagonal; x <= diagonal * 2; x += xSpacing) {
-            // Shadow for readability on dark or light backgrounds
             ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
             ctx.shadowBlur = 4;
             ctx.shadowOffsetX = 1;
             ctx.shadowOffsetY = 1;
 
-            // Translucent white with dark outline
             ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
             ctx.fillText(watermarkText, x, y);
 
             ctx.font = `600 ${Math.round(fontSize * 0.7)}px sans-serif`;
-            ctx.fillStyle = 'rgba(255, 230, 0, 0.50)'; // gold tint for security stamp
+            ctx.fillStyle = 'rgba(255, 230, 0, 0.50)';
             ctx.fillText(subWatermarkText, x, y + fontSize * 1.1);
             ctx.font = `bold ${fontSize}px sans-serif`;
           }
@@ -117,10 +134,10 @@ export async function applyIdWatermark(
 
         // 4. Draw Official Top & Bottom Tamper-Proof Security Banners
         const bannerHeight = Math.max(36, Math.round(height * 0.055));
-        
+
         // Top Security Banner
         ctx.save();
-        ctx.fillStyle = 'rgba(15, 23, 42, 0.88)'; // dark slate
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
         ctx.fillRect(0, 0, width, bannerHeight);
         ctx.fillStyle = '#f8fafc';
         ctx.font = `bold ${Math.max(12, Math.round(bannerHeight * 0.42))}px sans-serif`;
@@ -133,7 +150,7 @@ export async function applyIdWatermark(
         ctx.save();
         ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
         ctx.fillRect(0, height - bannerHeight, width, bannerHeight);
-        ctx.fillStyle = '#fbbf24'; // amber-400
+        ctx.fillStyle = '#fbbf24';
         ctx.font = `600 ${Math.max(11, Math.round(bannerHeight * 0.38))}px sans-serif`;
         ctx.textAlign = 'right';
         ctx.textBaseline = 'middle';
@@ -143,8 +160,13 @@ export async function applyIdWatermark(
         ctx.fillText(`🔒 ${refText}${userText}WATERMARKED: ${nowFormatted} IST`, width - 15, height - bannerHeight / 2);
         ctx.restore();
 
-        // Export as JPEG with optimal quality
-        const watermarkedDataUrl = canvas.toDataURL('image/jpeg', 0.88);
+        // Export as JPEG and ensure byte size is strictly <= 2MB
+        let quality = 0.85;
+        let watermarkedDataUrl = canvas.toDataURL('image/jpeg', quality);
+        while (watermarkedDataUrl.length > 2.6 * 1024 * 1024 && quality > 0.45) {
+          quality -= 0.15;
+          watermarkedDataUrl = canvas.toDataURL('image/jpeg', quality);
+        }
         resolve(watermarkedDataUrl);
       } catch (err) {
         reject(err);

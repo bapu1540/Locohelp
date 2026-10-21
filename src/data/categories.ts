@@ -133,7 +133,7 @@ export const CATEGORIES: CategoryItem[] = [
     iconName: 'Wrench',
     tag: '#Plumber',
     description: 'Leaking pipe, tap repair, water tank cleaning, bathroom fittings',
-    helperCount: 8,
+    helperCount: 0,
   },
   {
     id: 'electrician',
@@ -151,7 +151,7 @@ export const CATEGORIES: CategoryItem[] = [
     iconName: 'Zap',
     tag: '#Electrician',
     description: 'Wiring fault, switch board, fan repair, inverter connection',
-    helperCount: 11,
+    helperCount: 0,
   },
   {
     id: 'mechanic',
@@ -169,7 +169,7 @@ export const CATEGORIES: CategoryItem[] = [
     iconName: 'Car',
     tag: '#Mechanic',
     description: 'Car breakdown, bike puncture, battery jumpstart, towing',
-    helperCount: 9,
+    helperCount: 0,
   },
   {
     id: 'carpenter',
@@ -187,7 +187,7 @@ export const CATEGORIES: CategoryItem[] = [
     iconName: 'Hammer',
     tag: '#Carpenter',
     description: 'Door lock, bed repair, modular kitchen, furniture fitting',
-    helperCount: 6,
+    helperCount: 0,
   },
   {
     id: 'painter',
@@ -205,7 +205,7 @@ export const CATEGORIES: CategoryItem[] = [
     iconName: 'Paintbrush',
     tag: '#Painter',
     description: 'Wall painting, waterproof putty, touchups, polish',
-    helperCount: 5,
+    helperCount: 0,
   },
   {
     id: 'ac_repair',
@@ -223,7 +223,7 @@ export const CATEGORIES: CategoryItem[] = [
     iconName: 'Fan',
     tag: '#AC_Repair',
     description: 'AC gas refill, fridge cooling, washing machine, microwave',
-    helperCount: 7,
+    helperCount: 0,
   },
   {
     id: 'mason',
@@ -241,7 +241,7 @@ export const CATEGORIES: CategoryItem[] = [
     iconName: 'HardHat',
     tag: '#Mason',
     description: 'Tiles fitting, wall plaster, floor work, cement repairs',
-    helperCount: 4,
+    helperCount: 0,
   },
 
   // 2. Sports & Fitness
@@ -261,7 +261,7 @@ export const CATEGORIES: CategoryItem[] = [
     iconName: 'Trophy',
     tag: '#Cricket',
     description: 'Weekend cricket match, bowler/batsman needed, turf team',
-    helperCount: 14,
+    helperCount: 0,
   },
   {
     id: 'badminton',
@@ -279,7 +279,7 @@ export const CATEGORIES: CategoryItem[] = [
     iconName: 'Activity',
     tag: '#Badminton',
     description: 'Morning court player, singles/doubles game companion',
-    helperCount: 9,
+    helperCount: 0,
   },
   {
     id: 'gym_fitness',
@@ -291,13 +291,13 @@ export const CATEGORIES: CategoryItem[] = [
     nameBn: 'জিম ও ব্যায়াম সঙ্গী',
     nameTa: 'ஜிம் ஒர்க்அவுட் பார்ட்னர்',
     nameTe: 'జిమ్ వర్కౌట్ మిత్రుడు',
-    nameKn: 'ಜಿಮ್ ವರ್ಕೌಟ್ ಸ್ನೇಹಿತ',
+    nameKn: 'ಜಿಮ್ ವರ್కౌಟ್ ಸ್ನೇಹಿತ',
     namePa: 'ਜਿਮ ਤੇ ਕਸਰਤ ਸਾਥੀ',
     nameMl: 'ജിം വ്യായാമ കൂട്ടാളി',
     iconName: 'Dumbbell',
     tag: '#Gym_Fitness',
     description: 'Weight lifting spotter, workout motivation partner, cardio buddy',
-    helperCount: 12,
+    helperCount: 0,
   },
   {
     id: 'running_yoga',
@@ -315,7 +315,7 @@ export const CATEGORIES: CategoryItem[] = [
     iconName: 'Footprints',
     tag: '#Running_Yoga',
     description: 'Morning 5km jog, park running group, open yoga sessions',
-    helperCount: 8,
+    helperCount: 0,
   },
 
   // 3. Social & Casual
@@ -335,7 +335,7 @@ export const CATEGORIES: CategoryItem[] = [
     iconName: 'Coffee',
     tag: '#Chai_Coffee',
     description: 'Evening tea discussions, friendly café chat, casual talks',
-    helperCount: 15,
+    helperCount: 0,
   },
   {
     id: 'companion',
@@ -353,7 +353,7 @@ export const CATEGORIES: CategoryItem[] = [
     iconName: 'Users',
     tag: '#Companion',
     description: 'Park evening walks, sharing neighborhood stories, companionship',
-    helperCount: 10,
+    helperCount: 0,
   },
   {
     id: 'board_games',
@@ -371,7 +371,7 @@ export const CATEGORIES: CategoryItem[] = [
     iconName: 'Smile',
     tag: '#Board_Games',
     description: 'Carrom, Chess, Ludo players, casual evening weekend games',
-    helperCount: 7,
+    helperCount: 0,
   },
   {
     id: 'pet_walking',
@@ -389,7 +389,7 @@ export const CATEGORIES: CategoryItem[] = [
     iconName: 'Dog',
     tag: '#Pet_Walking',
     description: 'Dog walking buddy, weekend pet playdates, temporary care',
-    helperCount: 6,
+    helperCount: 0,
   },
 
   // 4. Daily Support & Errand
@@ -409,7 +409,7 @@ export const CATEGORIES: CategoryItem[] = [
     iconName: 'HeartHandshake',
     tag: '#Senior_Help',
     description: 'Medicine purchase, doctor visit escort, bank form assistance',
-    helperCount: 11,
+    helperCount: 0,
   },
   {
     id: 'study_project',
@@ -427,7 +427,7 @@ export const CATEGORIES: CategoryItem[] = [
     iconName: 'GraduationCap',
     tag: '#Study_Project',
     description: 'College project peer help, printout help, typing & study notes',
-    helperCount: 8,
+    helperCount: 0,
   },
   {
     id: 'cleaning',
@@ -445,7 +445,7 @@ export const CATEGORIES: CategoryItem[] = [
     iconName: 'Sparkles',
     tag: '#Cleaning',
     description: 'Deep home cleaning, bathroom scrubbing, kitchen, maid help',
-    helperCount: 12,
+    helperCount: 0,
   },
   {
     id: 'delivery',
@@ -463,7 +463,7 @@ export const CATEGORIES: CategoryItem[] = [
     iconName: 'Package',
     tag: '#Delivery',
     description: 'Local luggage shift, grocery pickup, tempo transport',
-    helperCount: 10,
+    helperCount: 0,
   },
   {
     id: 'tutor',
@@ -481,7 +481,7 @@ export const CATEGORIES: CategoryItem[] = [
     iconName: 'BookOpen',
     tag: '#Tutor',
     description: 'School home tuition, maths, science, english lessons',
-    helperCount: 6,
+    helperCount: 0,
   },
   {
     id: 'other',
@@ -499,7 +499,7 @@ export const CATEGORIES: CategoryItem[] = [
     iconName: 'PlusCircle',
     tag: '#Other',
     description: 'Register any custom business or hospital (e.g. Hospital, Medical Store, Clinic, Bakery, Shop, etc.)',
-    helperCount: 15,
+    helperCount: 0,
   },
 ];
 
@@ -529,8 +529,11 @@ export function getMasterCategorySubtitle(master: MasterCategory | undefined, la
 
 export interface FreeHelperProfile {
   id: string;
+  userId?: string;
+  email?: string;
   name: string;
   categoryId: string;
+  customCategoryName?: string;
   masterCategory: 'utility_emergency' | 'sports_fitness' | 'social_casual' | 'daily_errands';
   phone: string;
   skills: string[];
@@ -542,6 +545,7 @@ export interface FreeHelperProfile {
   completedTasks: number;
   createdAt: string;
   isVerified?: boolean;
+  status?: 'pending' | 'approved' | 'rejected';
   govtIdUploaded?: boolean;
   shopPhotoUploaded?: boolean;
   idDocUrl?: string;
@@ -549,302 +553,44 @@ export interface FreeHelperProfile {
 
 const STORAGE_KEY = 'locohelp_free_helper_profiles';
 
-export const INITIAL_HELPERS: FreeHelperProfile[] = [
-  // Utility & Emergency
-  {
-    id: 'h1',
-    name: 'Ramesh Plumber & Pipe Works',
-    categoryId: 'plumber',
-    masterCategory: 'utility_emergency',
-    phone: '+91 98765 43210',
-    skills: ['Plumber', 'Pipe Fitting', 'Tank Cleaning', 'Bathroom Fittings'],
-    area: 'Navrangpura',
-    city: 'Ahmedabad',
-    experience: '7 Years',
-    distance: 0.8,
-    rating: 4.9,
-    completedTasks: 142,
-    createdAt: new Date().toISOString(),
-    isVerified: true,
-    govtIdUploaded: true,
-    shopPhotoUploaded: true,
-  },
-  {
-    id: 'h2',
-    name: 'Amit Electrician Services',
-    categoryId: 'electrician',
-    masterCategory: 'utility_emergency',
-    phone: '+91 98112 34567',
-    skills: ['Electrician', 'Short Circuit Wiring', 'Inverter Fitting', 'Fan Repair'],
-    area: 'Maninagar',
-    city: 'Ahmedabad',
-    experience: '5 Years',
-    distance: 1.4,
-    rating: 4.8,
-    completedTasks: 98,
-    createdAt: new Date().toISOString(),
-    isVerified: true,
-    govtIdUploaded: true,
-    shopPhotoUploaded: true,
-  },
-  {
-    id: 'h3',
-    name: 'Pappu Auto Garage & Puncture',
-    categoryId: 'mechanic',
-    masterCategory: 'utility_emergency',
-    phone: '+91 98221 00998',
-    skills: ['Mechanic', 'Bike Puncture', 'Battery Jumpstart', 'Emergency Towing'],
-    area: 'Ring Road',
-    city: 'Surat',
-    experience: '10 Years',
-    distance: 1.1,
-    rating: 4.9,
-    completedTasks: 210,
-    createdAt: new Date().toISOString(),
-    isVerified: true,
-    govtIdUploaded: true,
-    shopPhotoUploaded: true,
-  },
-  {
-    id: 'h4',
-    name: 'Mohan Lal Mistri',
-    categoryId: 'carpenter',
-    masterCategory: 'utility_emergency',
-    phone: '+91 96543 21098',
-    skills: ['Carpenter', 'Door Locks', 'Furniture'],
-    area: 'Shanti Colony',
-    experience: '8 Years',
-    distance: 2.1,
-    rating: 4.8,
-    completedTasks: 63,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'h5',
-    name: 'Suresh AC Care',
-    categoryId: 'ac_repair',
-    masterCategory: 'utility_emergency',
-    phone: '+91 99887 76655',
-    skills: ['AC Repair', 'Gas Charging', 'Fridge'],
-    area: 'Main Bazar',
-    experience: '4 Years',
-    distance: 2.3,
-    rating: 4.6,
-    completedTasks: 51,
-    createdAt: new Date().toISOString(),
-  },
+// Zero dummy helpers - only real user-created and admin-approved helper profiles are shown
+export const INITIAL_HELPERS: FreeHelperProfile[] = [];
 
-  // Sports & Fitness
-  {
-    id: 'h7',
-    name: 'Rahul Verma (Cricket All-Rounder)',
-    categoryId: 'cricket',
-    masterCategory: 'sports_fitness',
-    phone: '+91 98223 11445',
-    skills: ['All-rounder', 'Leather Ball', 'Turf Player', 'Weekend Match'],
-    area: 'Sports Complex Ground',
-    experience: '6 Years',
-    distance: 1.2,
-    rating: 4.9,
-    completedTasks: 47,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'h8',
-    name: 'Vikram Singh (Gym & Fitness Partner)',
-    categoryId: 'gym_fitness',
-    masterCategory: 'sports_fitness',
-    phone: '+91 98334 22556',
-    skills: ['Weightlifting Spotter', 'Diet Guide', 'Calisthenics', 'Workout Buddy'],
-    area: 'FitZone Gym Area',
-    experience: '4 Years',
-    distance: 0.9,
-    rating: 4.8,
-    completedTasks: 35,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'h9',
-    name: 'Pooja Patel (Badminton & Table Tennis)',
-    categoryId: 'badminton',
-    masterCategory: 'sports_fitness',
-    phone: '+91 98445 33667',
-    skills: ['Badminton Doubles', 'Morning Game', 'Table Tennis'],
-    area: 'Club Sports Ground',
-    experience: '5 Years',
-    distance: 1.5,
-    rating: 4.9,
-    completedTasks: 29,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'h9_running',
-    name: 'Manish Rawat (Morning Runner & Marathoner)',
-    categoryId: 'running',
-    masterCategory: 'sports_fitness',
-    phone: '+91 98119 44332',
-    skills: ['5K/10K Pacer', 'Morning Jogging', 'Stamina Training'],
-    area: 'City Lake Park',
-    experience: '3 Years',
-    distance: 0.8,
-    rating: 4.9,
-    completedTasks: 38,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'h9_football',
-    name: 'Sameer Khan (Football & Turf Games)',
-    categoryId: 'football',
-    masterCategory: 'sports_fitness',
-    phone: '+91 98770 22110',
-    skills: ['Football Striker', '7v7 Turf Match', 'Weekend Football'],
-    area: 'Greenfield Arena',
-    experience: '5 Years',
-    distance: 1.7,
-    rating: 4.8,
-    completedTasks: 42,
-    createdAt: new Date().toISOString(),
-  },
-
-  // Social & Casual
-  {
-    id: 'h10',
-    name: 'Chai Enthusiasts Group (Ankit)',
-    categoryId: 'chai_coffee',
-    masterCategory: 'social_casual',
-    phone: '+91 98556 44778',
-    skills: ['Tea Meets', 'Startup Talks', 'Evening Walk', 'Chill Vibe'],
-    area: 'Tapri Point & Central Square',
-    experience: 'Active Member',
-    distance: 0.6,
-    rating: 4.9,
-    completedTasks: 62,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'h11',
-    name: 'Devraj Joshi (Chess & Book Club)',
-    categoryId: 'companion',
-    masterCategory: 'social_casual',
-    phone: '+91 98667 55889',
-    skills: ['Evening Walk Companion', 'Chess Player', 'Book Club'],
-    area: 'Rose Garden Colony',
-    experience: 'Friendly Host',
-    distance: 1.3,
-    rating: 4.8,
-    completedTasks: 41,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'h11_gaming',
-    name: 'Karan Malhotra (Gaming & Board Games)',
-    categoryId: 'gaming',
-    masterCategory: 'social_casual',
-    phone: '+91 98321 88776',
-    skills: ['PS5 Gaming', 'Catan', 'Monopoly', 'LAN Parties'],
-    area: 'University Hostel Road',
-    experience: 'Avid Gamer',
-    distance: 1.1,
-    rating: 4.9,
-    completedTasks: 34,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'h11_pet',
-    name: 'Sneha & Bruno (Dog Walkers & Pet Lovers)',
-    categoryId: 'pet_care',
-    masterCategory: 'social_casual',
-    phone: '+91 98990 11223',
-    skills: ['Dog Walking', 'Pet Playdates', 'Foster Care'],
-    area: 'South City Greens',
-    experience: 'Pet Parent',
-    distance: 0.7,
-    rating: 5.0,
-    completedTasks: 53,
-    createdAt: new Date().toISOString(),
-  },
-
-  // Daily Support & Errand
-  {
-    id: 'h6',
-    name: 'Sunita Devi (Home Care & Maid)',
-    categoryId: 'cleaning',
-    masterCategory: 'daily_errands',
-    phone: '+91 91234 56780',
-    skills: ['House Cleaning', 'Utensils', 'Deep Cleaning'],
-    area: 'Green Park',
-    experience: '6 Years',
-    distance: 1.1,
-    rating: 4.9,
-    completedTasks: 110,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'h12',
-    name: 'Aakash Mehta (Student Volunteer)',
-    categoryId: 'senior_help',
-    masterCategory: 'daily_errands',
-    phone: '+91 98778 66990',
-    skills: ['Elder Care Assist', 'Medicine Delivery', 'Bank Work'],
-    area: 'Civil Lines',
-    experience: '3 Years Volunteer',
-    distance: 0.7,
-    rating: 5.0,
-    completedTasks: 74,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'h13',
-    name: 'Rohan Express Delivery',
-    categoryId: 'delivery',
-    masterCategory: 'daily_errands',
-    phone: '+91 98889 77001',
-    skills: ['Local Luggage', 'Grocery Pickup', 'Bike Delivery'],
-    area: 'Sector 9 Hub',
-    experience: '3 Years',
-    distance: 1.4,
-    rating: 4.7,
-    completedTasks: 88,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'h14_tutor',
-    name: 'Pooja Mathur (Home Tutor - Math & Science)',
-    categoryId: 'tutor',
-    masterCategory: 'daily_errands',
-    phone: '+91 98450 66778',
-    skills: ['Class 6-10 Math', 'Science Concepts', 'Doubt Solving'],
-    area: 'Sector 15 Campus',
-    experience: '4 Years',
-    distance: 1.0,
-    rating: 4.9,
-    completedTasks: 45,
-    createdAt: new Date().toISOString(),
-  },
-];
-
-export function getFreeHelperProfiles(): FreeHelperProfile[] {
+export function getFreeHelperProfiles(includePending = false): FreeHelperProfile[] {
   try {
     const data = localStorage.getItem(STORAGE_KEY);
     const custom: FreeHelperProfile[] = data ? JSON.parse(data) : [];
-    // Only return helpers whose profiles have been approved by Admin (isVerified === true)
-    const approvedHelpers = custom.filter(h => h.isVerified === true);
-    return approvedHelpers;
+    // Filter out any legacy dummy helpers (h1..h14)
+    const realOnly = custom.filter(h => h && h.id && !/^h\d+/.test(String(h.id)));
+    if (includePending) {
+      return realOnly;
+    }
+    // Only return helpers whose profiles have been approved by Admin (isVerified === true or status === 'approved')
+    return realOnly.filter(h => h.isVerified === true || h.status === 'approved');
   } catch {
     return [];
   }
 }
 
-export function saveFreeHelperProfile(profile: Omit<FreeHelperProfile, 'id' | 'rating' | 'completedTasks' | 'createdAt' | 'masterCategory'> & { masterCategory?: 'utility_emergency' | 'sports_fitness' | 'social_casual' | 'daily_errands'; govtIdUploaded?: boolean; idDocUrl?: string; isVerified?: boolean }): FreeHelperProfile {
+export function saveFreeHelperProfile(
+  profile: Omit<FreeHelperProfile, 'id' | 'rating' | 'completedTasks' | 'createdAt' | 'masterCategory'> & {
+    id?: string;
+    masterCategory?: 'utility_emergency' | 'sports_fitness' | 'social_casual' | 'daily_errands';
+    govtIdUploaded?: boolean;
+    idDocUrl?: string;
+    isVerified?: boolean;
+  }
+): FreeHelperProfile {
   const matched = CATEGORIES.find(c => c.id === profile.categoryId);
   const hasDoc = Boolean(profile.govtIdUploaded || profile.idDocUrl || profile.isVerified);
   const newProfile: FreeHelperProfile = {
     ...profile,
     masterCategory: profile.masterCategory || (matched ? matched.masterCategory : 'utility_emergency'),
-    id: 'hp_' + Date.now(),
+    id: profile.id || 'hp_' + Date.now(),
     rating: 5.0,
     completedTasks: 0,
     isVerified: false, // Strict requirement: Pending Admin approval before Verified badge and public directory visibility
+    status: 'pending',
     govtIdUploaded: hasDoc,
     createdAt: new Date().toISOString(),
   };
@@ -852,12 +598,22 @@ export function saveFreeHelperProfile(profile: Omit<FreeHelperProfile, 'id' | 'r
   try {
     const existing = localStorage.getItem(STORAGE_KEY);
     const list: FreeHelperProfile[] = existing ? JSON.parse(existing) : [];
-    list.unshift(newProfile);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+    const filtered = list.filter(
+      h =>
+        h &&
+        h.id &&
+        !/^h\d+/.test(String(h.id)) &&
+        h.id !== newProfile.id &&
+        !(newProfile.email && h.email && h.email.toLowerCase() === newProfile.email.toLowerCase()) &&
+        !(newProfile.userId && h.userId && h.userId === newProfile.userId)
+    );
+    filtered.unshift(newProfile);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
   } catch (e) {
     console.error('Failed to save helper profile', e);
   }
 
   return newProfile;
 }
+
 

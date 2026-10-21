@@ -16,11 +16,14 @@ import {
   Filter, 
   ExternalLink,
   ChevronRight,
-  Share2
+  Share2,
+  Edit3
 } from 'lucide-react';
 import { useLanguage } from '../i18n';
 import { JobPortalItem } from '../types';
 import { fetchJobPortalItems } from '../api';
+import { getCurrentUser } from '../auth';
+import { isEntityOwner } from '../lib/ownership';
 
 interface JobPortalBrowseModalProps {
   isOpen: boolean;
@@ -190,7 +193,7 @@ export default function JobPortalBrowseModal({
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
                 }`}
               >
-                All ({items.length})
+                {language === 'EN' ? `All (${items.length})` : `सभी सूचियाँ (${items.length})`}
               </button>
               <button
                 onClick={() => setActiveTab('employer_vacancy')}
@@ -200,7 +203,7 @@ export default function JobPortalBrowseModal({
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
                 }`}
               >
-                <span>🏢 Vacancies ({vacancyCount})</span>
+                <span>🏢 {language === 'EN' ? `Shops & Businesses (${vacancyCount})` : `दुकानें व बिज़नेस (${vacancyCount})`}</span>
               </button>
               <button
                 onClick={() => setActiveTab('job_seeker')}
@@ -210,7 +213,7 @@ export default function JobPortalBrowseModal({
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
                 }`}
               >
-                <span>👤 Candidates ({seekerCount})</span>
+                <span>👤 {language === 'EN' ? `Job / Work (${seekerCount})` : `जॉब / काम (${seekerCount})`}</span>
               </button>
             </div>
           )}
@@ -392,14 +395,38 @@ export default function JobPortalBrowseModal({
                         </a>
                       )}
 
-                      <button
-                        onClick={() => handleWhatsAppContact(item)}
-                        className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black shadow-xs flex items-center gap-1 active:scale-95 transition-all cursor-pointer"
-                        title="Chat on WhatsApp"
-                      >
-                        <MessageCircle className="w-3.5 h-3.5" />
-                        <span>{isSeeker ? 'Hire on WhatsApp' : 'Apply on WhatsApp'}</span>
-                      </button>
+                      {isEntityOwner(item, getCurrentUser()) ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onClose();
+                            if (isSeeker) {
+                              onOpenSeekerForm();
+                            } else {
+                              onOpenEmployerForm();
+                            }
+                          }}
+                          className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-black shadow-xs flex items-center gap-1 active:scale-95 transition-all cursor-pointer"
+                          title={language === 'EN' ? 'Edit listing details' : 'जानकारी एडिट करें'}
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                          <span>{language === 'EN' ? 'Edit Listing' : 'एडिट करें'}</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleWhatsAppContact(item)}
+                          className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black shadow-xs flex items-center gap-1 active:scale-95 transition-all cursor-pointer"
+                          title="Chat on WhatsApp"
+                        >
+                          <MessageCircle className="w-3.5 h-3.5" />
+                          <span>
+                            {isSeeker
+                              ? (language === 'EN' ? 'Hire on WhatsApp' : 'व्हाट्सएप संपर्क')
+                              : (language === 'EN' ? 'Apply on WhatsApp' : 'व्हाट्सएप आवेदन')}
+                          </span>
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>

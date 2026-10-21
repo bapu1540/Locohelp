@@ -1,12 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { X, Send, MapPin, Clock, Loader2, Sparkles, Mic } from 'lucide-react';
+import { X, Send, MapPin, Clock, Loader2, Sparkles, Mic, AlertCircle } from 'lucide-react';
 import { useLanguage } from '../i18n';
 import { getCurrentUser } from '../auth';
 import { Intent } from '../types';
 import { broadcastIntentToServer } from '../api';
 import LoginPromptModal from '../components/LoginPromptModal';
 import { isGuestUser, getUserProfile } from '../lib/authUtils';
+import {
+  sanitizeText,
+  getPostCooldownRemainingSeconds,
+  recordPostCreatedTimestamp
+} from '../lib/security';
 import {
   PAN_INDIA_STATES_DISTRICTS,
   DISTRICT_POPULAR_AREAS,
@@ -28,6 +33,19 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
   const [customTags, setCustomTags] = useState<string[]>([]);
   const [isListening, setIsListening] = useState(false);
   const [isLoginPromptOpen, setIsLoginPromptOpen] = useState(false);
+  const [postError, setPostError] = useState<string | null>(null);
+  const [cooldownRemaining, setCooldownRemaining] = useState<number>(() => getPostCooldownRemainingSeconds());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const rem = getPostCooldownRemainingSeconds();
+      setCooldownRemaining(rem);
+      if (rem === 0 && postError?.includes('wait')) {
+        setPostError(null);
+      }
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [postError]);
 
   // Pan-India State, District/City & Local Area/Village Selection (Pre-filled from saved location)
   const initialSavedLoc = React.useMemo(() => getSavedUserLocation(), []);
@@ -96,7 +114,7 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
 
       recognition.start();
     } else {
-      alert("Voice recognition is not supported in this browser.");
+      setPostError("Voice recognition is not supported in this browser.");
     }
   };
 
@@ -107,9 +125,23 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
       setIsLoginPromptOpen(true);
       return;
     }
-    if (!text.trim() || isPosting || isSubmittingRef.current) return;
+
+    const rem = getPostCooldownRemainingSeconds();
+    if (rem > 0) {
+      setCooldownRemaining(rem);
+      setPostError(
+        language === 'EN'
+          ? `Anti-Spam Protection: Please wait ${rem}s before creating another post.`
+          : `स्पैम सुरक्षा: अगली पोस्ट करने के लिए कृपया ${rem} सेकंड प्रतीक्षा करें।`
+      );
+      return;
+    }
+
+    const safeText = sanitizeText(text.trim(), 1000);
+    if (!safeText || isPosting || isSubmittingRef.current) return;
     isSubmittingRef.current = true;
     setIsPosting(true);
+    setPostError(null);
 
     try {
       const now = new Date();
@@ -117,9 +149,9 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
       const activeUid = profile.uid || 'user_' + Math.random().toString(36).substring(2, 8);
       const intentId = 'intent_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
 
-      const finalState = (selectedState || 'Gujarat').trim();
-      const finalCity = (selectedCity === 'Other' ? (customCity.trim() || 'Gandhinagar') : selectedCity).trim();
-      const finalArea = (localArea.trim() || (popularAreasForCity[0] || 'Main Area')).trim();
+      const finalState = sanitizeText((selectedState || 'Gujarat').trim(), 100);
+      const finalCity = sanitizeText((selectedCity === 'Other' ? (customCity.trim() || 'Gandhinagar') : selectedCity).trim(), 100);
+      const finalArea = sanitizeText((localArea.trim() || (popularAreasForCity[0] || 'Main Area')).trim(), 150);
       const fullLocationLabel = `${finalArea}, ${finalCity}`;
 
       try {
@@ -131,10 +163,10 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
       
       const newIntent: Intent = {
         id: intentId,
-        description: text.trim(),
-        tags: combinedTags.length > 0 ? combinedTags : ['#General'],
+        description: safeText,
+        tags: combinedTags.length > 0 ? combinedTags.map(t => sanitizeText(t, 40)) : ['#General'],
         authorId: activeUid,
-        authorName: profile.displayName || 'Community Member',
+        authorName: sanitizeText(profile.displayName || 'Community Member', 100),
         state: finalState,
         city: finalCity,
         area: finalArea,
@@ -147,7 +179,20 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
         isVerifiedUser: true
       };
 
-      // 1. Record in user's created post IDs
+      // 1. Sync to central Express backend & PostgreSQL
+      const serverResp: any = await broadcastIntentToServer(newIntent);
+      if (serverResp && serverResp.error && serverResp.cooldownRemaining) {
+        setCooldownRemaining(serverResp.cooldownRemaining);
+        setPostError(serverResp.error);
+        setIsPosting(false);
+        isSubmittingRef.current = false;
+        return;
+      }
+
+      // 2. Record cooldown & post ID
+      recordPostCreatedTimestamp();
+      setCooldownRemaining(30);
+
       try {
         const myIds = JSON.parse(localStorage.getItem('locohelp_my_post_ids') || '[]');
         if (!myIds.includes(newIntent.id)) {
@@ -156,14 +201,7 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
         }
       } catch (e) {}
 
-      // 2. Sync to central Express backend & PostgreSQL
-      try {
-        await broadcastIntentToServer(newIntent);
-      } catch (serverErr) {
-        console.warn("Server broadcast notice:", serverErr);
-      }
-
-      // 4. Update UI instantly
+      // 3. Update UI instantly
       if (onPostCreated) {
         onPostCreated(newIntent);
       }
@@ -443,15 +481,25 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
         </div>
 
         {/* Clean Docked Bottom Action Bar */}
-        <div className="px-6 py-4 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0 shadow-lg">
+        <div className="px-6 py-4 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0 shadow-lg space-y-2">
+          {postError && (
+            <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-xs font-bold text-rose-700 dark:text-rose-300 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{postError}</span>
+            </div>
+          )}
           <button 
             type="button"
-            disabled={text.trim().length === 0 || isPosting}
+            disabled={text.trim().length === 0 || isPosting || cooldownRemaining > 0}
             onClick={handlePost}
             className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 dark:disabled:bg-slate-700 text-white font-black text-sm py-3.5 rounded-2xl flex items-center justify-center gap-2 active:scale-[0.98] transition-all shadow-md shadow-indigo-600/30 cursor-pointer"
           >
             {isPosting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-            <span>{t('post.btn') || "Broadcast Now"}</span>
+            <span>
+              {cooldownRemaining > 0
+                ? (language === 'EN' ? `Wait ${cooldownRemaining}s to Post Again` : `अगली पोस्ट के लिए ${cooldownRemaining}s रुकें`)
+                : (t('post.btn') || "Broadcast Now")}
+            </span>
           </button>
         </div>
       </motion.div>

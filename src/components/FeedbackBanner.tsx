@@ -1,6 +1,7 @@
 import React from 'react';
-import { Mail, MessageSquareHeart, Sparkles } from 'lucide-react';
+import { Mail, Sparkles } from 'lucide-react';
 import { useLanguage } from '../i18n';
+import LocoHelpLogo from './LocoHelpLogo';
 
 export default function FeedbackBanner() {
   const { t, language } = useLanguage();
@@ -8,8 +9,8 @@ export default function FeedbackBanner() {
   return (
     <div className="w-full px-4 py-8 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 mt-6">
       <div className="max-w-2xl mx-auto text-center space-y-4">
-        <div className="inline-flex items-center justify-center p-3 bg-indigo-50 dark:bg-indigo-950/40 rounded-2xl mb-2">
-          <MessageSquareHeart className="w-8 h-8 text-indigo-600 dark:text-indigo-400" />
+        <div className="inline-flex items-center justify-center p-2.5 bg-white dark:bg-slate-800 rounded-2xl mb-2 border border-slate-200/80 dark:border-slate-700 shadow-xs">
+          <LocoHelpLogo size={36} showText={false} />
         </div>
         
         <div className="space-y-3">

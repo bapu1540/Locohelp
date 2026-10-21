@@ -57,15 +57,41 @@ export default function App() {
 
 function AppContent() {
   const { language, setLanguage, t } = useLanguage();
-  // Directly open main page (home) so anyone can freely browse immediately without being stopped by a login screen
-  const [currentScreen, setCurrentScreen] = useState<Screen>('home');
+
+  const checkAdminRoute = (): boolean => {
+    try {
+      const path = window.location.pathname.toLowerCase().replace(/\/+$/, '');
+      const hash = window.location.hash.toLowerCase().replace(/\/+$/, '');
+      return path === '/bapu-admin' || hash === '#/bapu-admin' || hash === '#bapu-admin';
+    } catch (e) {
+      return false;
+    }
+  };
+
+  // Directly open main page (home) or '/bapu-admin' route if navigated to directly
+  const [currentScreen, setCurrentScreen] = useState<Screen>(() => {
+    return checkAdminRoute() ? 'admin' : 'home';
+  });
 
   const [activeIntent, setActiveIntent] = useState<Intent | null>(null);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [prevScreen, setPrevScreen] = useState<Screen>('home');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  
 
+  // Listen to URL changes for '/bapu-admin' route
+  useEffect(() => {
+    const handleRouteChange = () => {
+      if (checkAdminRoute()) {
+        setCurrentScreen('admin');
+      }
+    };
+    window.addEventListener('hashchange', handleRouteChange);
+    window.addEventListener('popstate', handleRouteChange);
+    return () => {
+      window.removeEventListener('hashchange', handleRouteChange);
+      window.removeEventListener('popstate', handleRouteChange);
+    };
+  }, []);
 
   // Listen to Supabase Auth state for seamless persistent login
   useEffect(() => {
@@ -109,6 +135,75 @@ function AppContent() {
     };
   }, []);
 
+  // Initialize base history entry so mobile/tablet hardware Back button stays inside the app
+  useEffect(() => {
+    try {
+      const initialScreen = checkAdminRoute() ? 'admin' : 'home';
+      window.history.replaceState({ locohelpScreen: initialScreen, locohelpBase: true }, '');
+      window.history.pushState({ locohelpScreen: initialScreen }, '');
+    } catch (e) {}
+  }, []);
+
+  // Push history state when report modal opens
+  useEffect(() => {
+    if (isReportModalOpen) {
+      try {
+        window.history.pushState({ locohelpScreen: currentScreen, locohelpModal: 'report' }, '');
+      } catch (e) {}
+    }
+  }, [isReportModalOpen]);
+
+  // Global Hardware Back Button (popstate) listener
+  useEffect(() => {
+    const handlePopState = () => {
+      if (checkAdminRoute()) {
+        setCurrentScreen('admin');
+        return;
+      }
+
+      // 1. Close ReportModal if open
+      if (isReportModalOpen) {
+        setIsReportModalOpen(false);
+        return;
+      }
+
+      // 2. Ask active screen if it has an open modal, popup, chat inbox, or sub-view to close first
+      const closeModalEvent = new CustomEvent('locohelp_close_active_modal', { cancelable: true });
+      window.dispatchEvent(closeModalEvent);
+      if (closeModalEvent.defaultPrevented) {
+        return;
+      }
+
+      // 3. If on any sub-screen (profile, categories, chat, directory, settings, admin, etc.), return to Home
+      if (currentScreen !== 'home') {
+        setCurrentScreen('home');
+        try {
+          window.history.pushState({ locohelpScreen: 'home' }, '', '/');
+        } catch (e) {}
+        return;
+      }
+
+      // 4. If on Home screen with a category filter selected, reset category filter
+      if (selectedCategory !== 'all') {
+        setSelectedCategory('all');
+        try {
+          window.history.pushState({ locohelpScreen: 'home' }, '');
+        } catch (e) {}
+        return;
+      }
+
+      // 5. Keep safety history entry on Home so accidental Back press does not exit the website
+      try {
+        window.history.pushState({ locohelpScreen: 'home' }, '');
+      } catch (e) {}
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [currentScreen, isReportModalOpen, selectedCategory]);
+
   const navigate = (screen: Screen) => {
     setPrevScreen(currentScreen);
     if (screen === 'login' as any) {
@@ -118,10 +213,23 @@ function AppContent() {
       return;
     }
 
+    if (screen !== currentScreen) {
+      try {
+        window.history.pushState({ locohelpScreen: screen }, '');
+      } catch (e) {}
+    }
+
     setCurrentScreen(screen);
   };
 
-  const topHelpers = getFreeHelperProfiles().slice(0, 4);
+  const handleSelectCategory = (cat: string) => {
+    if (cat !== selectedCategory && cat !== 'all') {
+      try {
+        window.history.pushState({ locohelpScreen: currentScreen, locohelpCategory: cat }, '');
+      } catch (e) {}
+    }
+    setSelectedCategory(cat);
+  };
 
   return (
     <div className="min-h-screen h-dvh w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-sans antialiased flex flex-col overflow-x-hidden">
@@ -133,14 +241,14 @@ function AppContent() {
             onNavigate={navigate} 
             onOpenChat={(intent) => { setActiveIntent(intent); navigate('chat'); }} 
             selectedCategory={selectedCategory}
-            onSelectCategory={setSelectedCategory}
+            onSelectCategory={handleSelectCategory}
           />
         )}
         {currentScreen === 'categories' && (
           <CategoriesScreen 
             onBack={() => navigate('home')}
             selectedCategory={selectedCategory}
-            onSelectCategory={setSelectedCategory}
+            onSelectCategory={handleSelectCategory}
             onOpenChat={(intent) => { setActiveIntent(intent); navigate('chat'); }}
           />
         )}
@@ -156,18 +264,26 @@ function AppContent() {
         {currentScreen === 'mesh' && <MeshScreen onBack={() => navigate('settings')} />}
         {currentScreen === 'leaderboard' && <LeaderboardScreen onBack={() => navigate('home')} />}
         {currentScreen === 'professionals' && <ProfessionalsScreen onBack={() => navigate('home')} onHire={() => navigate('chat')} />}
-        {currentScreen === 'admin' && <AdminDashboard onBack={() => navigate('settings')} />}
+        {currentScreen === 'admin' && (
+          <AdminDashboard
+            onBack={() => {
+              try {
+                window.history.pushState({ locohelpScreen: 'home' }, '', '/');
+              } catch (e) {}
+              setCurrentScreen('home');
+            }}
+          />
+        )}
       </main>
 
-      {/* Footer */}
+      {/* Footer (Admin Panel link removed from public view for security) */}
       <footer className="bg-slate-900 border-t border-slate-800/80 py-4 px-4 text-center text-xs text-slate-500 shrink-0">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
           <span>{t('footer.copyright').replace('{year}', new Date().getFullYear().toString())}</span>
           <div className="flex items-center gap-4 text-[11px]">
-            <button onClick={() => navigate('guidelines')} className="hover:text-slate-300">{t('footer.guidelines')}</button>
-            <button onClick={() => navigate('roadmap')} className="hover:text-slate-300">{t('footer.roadmap')}</button>
-            <button onClick={() => navigate('support')} className="hover:text-slate-300">{t('footer.support')}</button>
-            <button onClick={() => navigate('admin')} className="text-amber-400 hover:text-amber-300 font-bold flex items-center gap-1 cursor-pointer">🛡️ {t('footer.admin')}</button>
+            <button onClick={() => navigate('guidelines')} className="hover:text-slate-300 cursor-pointer">{t('footer.guidelines')}</button>
+            <button onClick={() => navigate('roadmap')} className="hover:text-slate-300 cursor-pointer">{t('footer.roadmap')}</button>
+            <button onClick={() => navigate('support')} className="hover:text-slate-300 cursor-pointer">{t('footer.support')}</button>
           </div>
         </div>
       </footer>

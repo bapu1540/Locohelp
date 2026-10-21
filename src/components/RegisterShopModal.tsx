@@ -1,13 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Store, Building, Building2, ShoppingBag, X, Check, Camera, MapPin, Phone, Tag, ShieldCheck, Plus, Search, MessageSquare, Star, ExternalLink, Sparkles, Lock, FileCheck2, Upload, AlertCircle, CheckCircle2, RefreshCw } from 'lucide-react';
+import { Store, Building, Building2, ShoppingBag, X, Check, Camera, MapPin, Phone, Tag, ShieldCheck, Plus, Search, MessageSquare, Star, ExternalLink, Sparkles, Lock, FileCheck2, Upload, AlertCircle, CheckCircle2, RefreshCw, Edit3 } from 'lucide-react';
 import { useLanguage } from '../i18n';
-import { getShops, saveShop } from '../auth';
+import { getShops, saveShop, getCurrentUser } from '../auth';
 import { applyIdWatermark } from '../lib/watermark';
+import { validateUploadedFile } from '../lib/security';
 import { submitVerification } from '../api';
+import { isEntityOwner } from '../lib/ownership';
 
 export interface RegisteredShop {
   id: string;
+  userId?: string;
+  ownerEmail?: string;
   name: string;
   type: 'shop' | 'showroom' | 'mall' | 'mart' | 'bakery' | 'pharmacy' | 'other';
   categoryLabel: string;
@@ -20,67 +24,20 @@ export interface RegisteredShop {
   rating: number;
   reviewCount: number;
   isVerified: boolean;
+  status?: 'pending' | 'approved' | 'rejected';
   createdAt: string;
 }
 
 export const SHOP_TYPES = [
-  { id: 'shop', nameEn: 'Shop & Retail Store', nameHi: '🏪 दुकान / रिटेल स्टोर', icon: '🏪' },
-  { id: 'showroom', nameEn: 'Showroom & Brand Outlet', nameHi: '🏬 शोरूम व ब्रांड आउटलेट', icon: '🏬' },
-  { id: 'mall', nameEn: 'Shopping Mall & Commercial Complex', nameHi: '🏢 शॉपिंग मॉल व कॉम्प्लेक्स', icon: '🏢' },
-  { id: 'service_center', nameEn: 'Service Center & Workshop', nameHi: '⚙️ सर्विस सेंटर व वर्कशॉप', icon: '⚙️' },
-  { id: 'mart', nameEn: 'SuperMarket & Grocery Mart', nameHi: '🛒 सुपरमार्केट व ग्रॉसरी मार्ट', icon: '🛒' },
-  { id: 'restaurant', nameEn: 'Restaurant, Cafe & Hotel', nameHi: '🍽️ रेस्टोरेंट, कैफे व होटल', icon: '🍽️' },
-  { id: 'pharmacy', nameEn: 'Hospital, Clinic & Pharmacy', nameHi: '💊 अस्पताल, क्लिनिक व फार्मेसी', icon: '💊' },
-  { id: 'coaching', nameEn: 'Educational Coaching & Academy', nameHi: '🎓 कोचिंग व अकादमी', icon: '🎓' },
-  { id: 'other', nameEn: 'Other Business / Venue', nameHi: '📍 अन्य बिज़नेस व वेन्यू', icon: '📍' },
-];
-
-const INITIAL_SAMPLE_SHOPS: RegisteredShop[] = [
-  {
-    id: 'sample_shop_1',
-    name: 'Shree Ram Departmental Store & SuperMart',
-    type: 'mart',
-    categoryLabel: '🛒 सुपरमार्केट व ग्रॉसरी मार्ट',
-    ownerName: 'Ramesh Patel',
-    phone: '9876543210',
-    area: 'Main Market Area',
-    address: 'Shop #12, Near Central Bus Station',
-    description: 'All grocery, household items & daily needs. Flat 10% off on monthly ration!',
-    rating: 4.9,
-    reviewCount: 48,
-    isVerified: true,
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: 'sample_shop_2',
-    name: 'Apex Mobile & Electronics Showroom',
-    type: 'showroom',
-    categoryLabel: '🏬 शोरूम व ब्रांड आउटलेट',
-    ownerName: 'Sanjay Sharma',
-    phone: '9825012345',
-    area: 'Station Road Market',
-    address: 'Plot 45, Opp. City Bank',
-    description: 'Latest smartphones, AC, TV, Fridge & Appliances with easy EMI options.',
-    rating: 4.8,
-    reviewCount: 36,
-    isVerified: true,
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: 'sample_shop_3',
-    name: 'Modern Hardware & Plumbing Tools',
-    type: 'shop',
-    categoryLabel: '🏪 दुकान / रिटेल स्टोर',
-    ownerName: 'Mahesh Verma',
-    phone: '9909011223',
-    area: 'Industrial Area',
-    address: 'Shed 8, Main Highway Corner',
-    description: 'Complete plumbing pipes, taps, sanitaryware, electric switches & wiring.',
-    rating: 4.9,
-    reviewCount: 52,
-    isVerified: true,
-    createdAt: new Date().toISOString()
-  }
+  { id: 'shop', nameEn: 'Shop & Retail Store', nameHi: 'दुकान व रिटेल स्टोर', icon: '🏪' },
+  { id: 'showroom', nameEn: 'Showroom & Brand Outlet', nameHi: 'शोरूम व ब्रांड आउटलेट', icon: '🏬' },
+  { id: 'mall', nameEn: 'Shopping Mall & Commercial Complex', nameHi: 'शॉपिंग मॉल व कॉम्प्लेक्स', icon: '🏢' },
+  { id: 'service_center', nameEn: 'Service Center & Workshop', nameHi: 'सर्विस सेंटर व वर्कशॉप', icon: '⚙️' },
+  { id: 'mart', nameEn: 'SuperMarket & Grocery Mart', nameHi: 'सुपरमार्केट व ग्रॉसरी मार्ट', icon: '🛒' },
+  { id: 'restaurant', nameEn: 'Restaurant, Cafe & Hotel', nameHi: 'रेस्टोरेंट, कैफे व होटल', icon: '🍽️' },
+  { id: 'pharmacy', nameEn: 'Hospital, Clinic & Pharmacy', nameHi: 'अस्पताल, क्लिनिक व फार्मेसी', icon: '💊' },
+  { id: 'coaching', nameEn: 'Educational Coaching & Academy', nameHi: 'कोचिंग व अकादमी', icon: '🎓' },
+  { id: 'other', nameEn: 'Other Business & Venue', nameHi: 'अन्य बिज़नेस व वेन्यू', icon: '📍' },
 ];
 
 interface RegisterShopModalProps {
@@ -106,6 +63,21 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess }: Regist
   const [description, setDescription] = useState('');
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [pendingNotice, setPendingNotice] = useState<string | null>(null);
+  const [editingShopId, setEditingShopId] = useState<string | null>(null);
+
+  const handleStartEditShop = (shop: RegisteredShop) => {
+    setEditingShopId(shop.id);
+    setShopName(shop.name);
+    setShopType(shop.type || 'shop');
+    setOwnerName(shop.ownerName || '');
+    setPhone(shop.phone || '');
+    setArea(shop.area || '');
+    setAddress(shop.address || '');
+    setDescription(shop.description || '');
+    setPhotoUrl(shop.photoUrl || null);
+    setActiveTab('new');
+  };
 
   // Identity Verification & Document Upload States
   const [idDocumentWatermarked, setIdDocumentWatermarked] = useState<string | null>(null);
@@ -113,9 +85,9 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess }: Regist
   const [isWatermarkingId, setIsWatermarkingId] = useState(false);
   const [idUploadNotice, setIdUploadNotice] = useState<string | null>(null);
 
-  const [registeredShopsList, setRegisteredShopsList] = useState<RegisteredShop[]>(INITIAL_SAMPLE_SHOPS);
+  const [registeredShopsList, setRegisteredShopsList] = useState<RegisteredShop[]>([]);
 
-  // Load registered shops from localStorage & Cloud Firestore
+  // Load approved registered shops from localStorage & backend
   useEffect(() => {
     if (!isOpen) return;
 
@@ -123,32 +95,34 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess }: Regist
       const stored = localStorage.getItem('locohelp_registered_shops');
       if (stored) {
         const parsed: RegisteredShop[] = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          // Merge user registered shops with samples deduplicated
-          const merged = [...parsed, ...INITIAL_SAMPLE_SHOPS.filter(s => !parsed.some(p => p.id === s.id))];
-          setRegisteredShopsList(merged);
+        if (Array.isArray(parsed)) {
+          const cleaned = parsed.filter(s => s && s.id && !String(s.id).startsWith('sample_shop_'));
+          localStorage.setItem('locohelp_registered_shops', JSON.stringify(cleaned));
+          setRegisteredShopsList(cleaned.filter(s => s.isVerified === true || s.status === 'approved'));
         }
       }
     } catch (e) {}
 
-    // PostgreSQL backend fetch
-    getShops().then((cloudShops) => {
-      if (cloudShops && cloudShops.length > 0) {
-        setRegisteredShopsList(prev => {
-          const combined = [...cloudShops, ...prev];
-          const uniqueMap = new Map<string, RegisteredShop>();
-          combined.forEach(s => uniqueMap.set(s.id, s));
-          return Array.from(uniqueMap.values());
-        });
+    // Backend fetch (returns only admin-approved businesses by default)
+    getShops(false).then((cloudShops) => {
+      if (Array.isArray(cloudShops)) {
+        const approvedOnly = cloudShops.filter(s => s && s.id && !String(s.id).startsWith('sample_shop_') && (s.isVerified === true || s.status === 'approved'));
+        setRegisteredShopsList(approvedOnly);
       }
     }).catch(() => {});
   }, [isOpen]);
 
   if (!isOpen) return null;
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      const check = await validateUploadedFile(file, { allowPdf: false });
+      if (!check.valid) {
+        setIdUploadNotice(language === 'EN' ? (check.error || 'Invalid image') : (check.errorHi || check.error || 'अमान्य इमेज'));
+        e.target.value = '';
+        return;
+      }
       const reader = new FileReader();
       reader.onloadend = () => {
         setPhotoUrl(reader.result as string);
@@ -161,6 +135,13 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess }: Regist
     const file = e.target.files?.[0];
     if (!file) return;
 
+    const check = await validateUploadedFile(file, { allowPdf: true });
+    if (!check.valid) {
+      setIdUploadNotice(language === 'EN' ? (check.error || 'Invalid document file') : (check.errorHi || check.error || 'अमान्य दस्तावेज़ फ़ाइल'));
+      e.target.value = '';
+      return;
+    }
+
     setIsWatermarkingId(true);
     setIdUploadNotice(null);
 
@@ -171,10 +152,10 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess }: Regist
         customText: 'FOR LOCOHELP VERIFICATION ONLY • DO NOT REUSE • BUSINESS ID'
       });
       setIdDocumentWatermarked(watermarked);
-      setIdUploadNotice(language === 'EN' ? 'ID photo successfully watermarked with security stamp!' : 'पहचान पत्र पर सुरक्षा वाटरमार्क लगा दिया गया है!');
+      setIdUploadNotice(language === 'EN' ? 'ID document verified & watermarked with security stamp!' : 'पहचान पत्र सत्यापित और सुरक्षा वाटरमार्क लगा दिया गया है!');
     } catch (err: any) {
       console.warn("Watermark error:", err);
-      setIdUploadNotice(language === 'EN' ? 'Could not process document image.' : 'दस्तावेज़ इमेज प्रोसेस नहीं हो सकी।');
+      setIdUploadNotice(err?.message || (language === 'EN' ? 'Could not process document file.' : 'दस्तावेज़ प्रोसेस नहीं हो सका।'));
     } finally {
       setIsWatermarkingId(false);
     }
@@ -195,20 +176,22 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess }: Regist
 
     setIsSubmitting(true);
 
+    const activeUser = getCurrentUser();
     const typeObj = SHOP_TYPES.find(t => t.id === shopType);
     const label = shopType === 'other' && customType.trim()
       ? customType.trim()
       : (typeObj ? (language === 'EN' ? typeObj.nameEn : typeObj.nameHi) : 'Local Business');
 
-    const shopId = 'shop_' + Date.now().toString(36);
-    const hasVerificationDoc = !!idDocumentWatermarked;
+    const shopId = editingShopId || ('shop_' + Date.now().toString(36));
 
     const newShop: RegisteredShop = {
       id: shopId,
+      userId: activeUser?.uid || '',
+      ownerEmail: activeUser?.email || localStorage.getItem('locohelp_last_logged_in_email') || '',
       name: shopName.trim(),
       type: shopType as any,
       categoryLabel: label,
-      ownerName: ownerName.trim() || 'Owner',
+      ownerName: ownerName.trim() || activeUser?.displayName || 'Owner',
       phone: phone.trim(),
       area: area.trim() || 'Local Area',
       address: address.trim() || 'Market Area',
@@ -216,44 +199,48 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess }: Regist
       photoUrl: photoUrl || undefined,
       rating: 5.0,
       reviewCount: 1,
-      isVerified: !hasVerificationDoc, // If doc submitted, it goes into pending admin approval queue
+      isVerified: false, // Strict requirement: Must be approved by Admin first
+      status: 'pending',
       createdAt: new Date().toISOString()
     };
 
-    // Save locally
+    // Save locally (with pending status, will only appear in public list once approved)
     try {
       const existingStr = localStorage.getItem('locohelp_registered_shops');
       const existingShops: RegisteredShop[] = existingStr ? JSON.parse(existingStr) : [];
-      const updatedShops = [newShop, ...existingShops];
+      const updatedShops = [newShop, ...existingShops.filter(s => s && s.id && s.id !== shopId && !String(s.id).startsWith('sample_shop_'))];
       localStorage.setItem('locohelp_registered_shops', JSON.stringify(updatedShops));
-      setRegisteredShopsList(updatedShops);
+      localStorage.setItem('locohelp_my_business_profile', JSON.stringify(newShop));
     } catch (e) {}
 
-    // Save to PostgreSQL businesses table
+    // Save to backend businesses table (also creates pending Admin verification queue item)
     try {
-      await saveShop(newShop);
+      await saveShop({
+        ...newShop,
+        idDocumentWatermarked: idDocumentWatermarked || photoUrl || ''
+      });
     } catch (err) {
       console.warn("Shop backend save notice:", err);
     }
 
-    // Submit Verification Request to Admin Queue if ID document was provided
-    if (hasVerificationDoc && idDocumentWatermarked) {
-      try {
-        await submitVerification({
-          entityType: 'business',
-          entityId: shopId,
-          userId: ownerName.trim() || shopName.trim(),
-          userName: shopName.trim(),
-          userPhone: phone.trim(),
-          title: `${shopName.trim()} (${ownerName.trim()}) - ${idDocumentType}`,
-          idDocumentWatermarked
-        });
-      } catch (verifErr) {
-        console.warn("Verification submit error:", verifErr);
-      }
+    // Submit Verification Request to Admin Queue
+    try {
+      await submitVerification({
+        entityType: 'business',
+        entityId: shopId,
+        userId: activeUser?.uid || ownerName.trim() || shopName.trim(),
+        userName: shopName.trim(),
+        userEmail: newShop.ownerEmail,
+        userPhone: phone.trim(),
+        title: `${shopName.trim()} (${label}) - ${idDocumentType}`,
+        idDocumentWatermarked: idDocumentWatermarked || photoUrl || ''
+      });
+    } catch (verifErr) {
+      console.warn("Verification submit error:", verifErr);
     }
 
     setIsSubmitting(false);
+    setEditingShopId(null);
 
     // Reset Form
     setShopName('');
@@ -265,7 +252,11 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess }: Regist
     setPhotoUrl(null);
     setIdDocumentWatermarked(null);
 
-    // Switch to registered list tab so user sees their new shop immediately
+    setPendingNotice(
+      language === 'EN'
+        ? '⏳ Your Business Registration has been submitted to the Admin Panel for approval! Once approved by Admin, it will be live in the public directory.'
+        : '⏳ आपका बिज़नेस रजिस्ट्रेशन एडमिन अप्रूवल के लिए भेज दिया गया है! एडमिन द्वारा अप्रूव करते ही यह पब्लिक डायरेक्टरी में लाइव हो जाएगा।'
+    );
     setActiveTab('registered');
 
     if (onSuccess) {
@@ -274,6 +265,7 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess }: Regist
   };
 
   const filteredShops = registeredShopsList.filter(s => {
+    if (!s || (!s.isVerified && s.status !== 'approved')) return false;
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
     return s.name.toLowerCase().includes(q) || 
@@ -334,14 +326,20 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess }: Regist
               <span className="text-base">💡</span>
               <p className="text-[11px] text-amber-950 dark:text-amber-200 font-bold leading-tight">
                 {language === 'EN'
-                  ? 'Want to register your shop for 100% Free? Go to Profile (Top Right) → "Business Reg." tab.'
-                  : 'अपनी दुकान 100% फ्री में लिस्ट करने के लिए ऊपर Profile पर जाएं → "Business Reg." टैब चुनें।'}
+                  ? 'Want to register your shop for 100% Free? Go to Profile (Top Right) → "Business Reg." tab. New registrations go live after Admin approval.'
+                  : 'अपनी दुकान 100% फ्री में लिस्ट करने के लिए ऊपर Profile पर जाएं → "Business Reg." टैब चुनें। एडमिन अप्रूवल के बाद आपकी दुकान यहां दिखेगी।'}
               </p>
             </div>
             <span className="text-[10px] bg-amber-500 text-white font-black px-2 py-0.5 rounded-full uppercase shrink-0">
               100% Free
             </span>
           </div>
+
+          {pendingNotice && (
+            <div className="bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 dark:border-emerald-800 rounded-2xl p-3 mb-3 shrink-0 text-xs font-bold text-emerald-900 dark:text-emerald-200">
+              {pendingNotice}
+            </div>
+          )}
 
           {/* REGISTERED BUSINESSES DIRECTORY */}
           <div className="flex-1 min-h-0 flex flex-col space-y-3 overflow-hidden">
@@ -362,14 +360,8 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess }: Regist
                 {filteredShops.length === 0 ? (
                   <div className="text-center py-8 space-y-2">
                     <p className="text-xs text-slate-500 font-medium">
-                      {language === 'EN' ? 'No registered businesses found.' : 'कोई रजिस्टर्ड बिज़नेस नहीं मिला।'}
+                      {language === 'EN' ? 'No approved businesses listed yet.' : 'अभी तक कोई अप्रूव्ड बिज़नेस लिस्ट नहीं हुआ है।'}
                     </p>
-                    <button
-                      onClick={() => setActiveTab('new')}
-                      className="px-4 py-2 bg-amber-500 text-white rounded-xl text-xs font-bold hover:bg-amber-600 transition-colors"
-                    >
-                      + {language === 'EN' ? 'Register First Shop' : 'अपनी दुकान पहली बार जोड़ें'}
-                    </button>
                   </div>
                 ) : (
                   filteredShops.map((shop) => (
@@ -415,14 +407,27 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess }: Regist
                           👤 Owner: <span className="text-slate-800 dark:text-slate-200">{shop.ownerName || 'Manager'}</span>
                         </div>
 
-                        <button
-                          onClick={() => handleWhatsAppContact(shop)}
-                          className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
-                          title="Contact owner on WhatsApp"
-                        >
-                          <MessageSquare className="w-3.5 h-3.5" />
-                          <span>WhatsApp Contact</span>
-                        </button>
+                        {isEntityOwner(shop, getCurrentUser()) ? (
+                          <button
+                            type="button"
+                            onClick={() => handleStartEditShop(shop)}
+                            className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
+                            title={language === 'EN' ? 'Edit shop details' : 'दुकान की जानकारी एडिट करें'}
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                            <span>{language === 'EN' ? 'Edit Details' : 'जानकारी एडिट करें'}</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleWhatsAppContact(shop)}
+                            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
+                            title="Contact owner on WhatsApp"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5" />
+                            <span>{language === 'EN' ? 'WhatsApp Contact' : 'व्हाट्सएप संपर्क'}</span>
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))
