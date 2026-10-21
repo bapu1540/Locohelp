@@ -10,6 +10,12 @@
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="theme-color" content="#1A73E8" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="LocoHelp" />
     <meta name="google-signin-client_id" content="547738120834-43c97ifmhguemiqcp2b8lgllffqf55p1.apps.googleusercontent.com" />
 
     <!-- Default Light Background to Prevent Any Black Screen or Flash -->
@@ -34,22 +40,25 @@
       }
     </style>
 
-    <!-- Clean up any stale service workers & caches -->
+    <!-- Capture PWA Install Prompt early & register Service Worker (/sw.js) -->
     <script>
+      window.__deferredPwaPrompt = null;
+      window.addEventListener('beforeinstallprompt', function(e) {
+        e.preventDefault();
+        window.__deferredPwaPrompt = e;
+        window.dispatchEvent(new CustomEvent('locohelp-pwa-ready'));
+      });
+      window.addEventListener('appinstalled', function() {
+        window.__deferredPwaPrompt = null;
+        window.dispatchEvent(new CustomEvent('locohelp-pwa-installed'));
+      });
       try {
         if ('serviceWorker' in navigator) {
-          navigator.serviceWorker.getRegistrations().then(function(registrations) {
-            for (var r of registrations) {
-              r.unregister();
-            }
-          }).catch(function() {});
-        }
-        if ('caches' in window) {
-          caches.keys().then(function(names) {
-            for (var name of names) {
-              caches.delete(name);
-            }
-          }).catch(function() {});
+          window.addEventListener('load', function() {
+            navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(function(err) {
+              console.warn('SW registration note:', err);
+            });
+          });
         }
       } catch (e) {}
 

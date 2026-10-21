@@ -290,6 +290,7 @@ const sanitizeStringServer = sanitizeServerText;
 const UPLOAD_DATA_KEYS = new Set([
   "photoUrl",
   "photo_url",
+  "workPhotoUrl",
   "avatar_url",
   "profilePhoto",
   "photoOrLogoUrl",
@@ -298,6 +299,8 @@ const UPLOAD_DATA_KEYS = new Set([
   "id_document_watermarked",
   "idDocUrl",
   "id_doc_url",
+  "resumeUrl",
+  "resume_url",
   "attachmentUrl",
   "attachment_url",
   "imageUrl"
@@ -319,6 +322,11 @@ function sanitizeServerPayload<T>(payload: T): T {
     for (const [k, v] of Object.entries(payload as Record<string, any>)) {
       if (UPLOAD_DATA_KEYS.has(k) && typeof v === "string") {
         out[k] = v.trim();
+      } else if (k === "photos" && Array.isArray(v)) {
+        out[k] = v
+          .filter((item) => typeof item === "string" && item.trim().length > 0)
+          .slice(0, 3)
+          .map((item: string) => item.trim());
       } else if (k === "password" || k === "newPassword" || k === "oldPassword") {
         // Keep raw password characters for PBKDF2 hashing (bounded length)
         out[k] = typeof v === "string" ? v.slice(0, 200) : v;
@@ -1950,12 +1958,13 @@ async function startServer() {
         return res.status(400).json({ error: "Description or title is required" });
       }
 
-      // Enforce 30-second anti-spam cooldown per user / IP
+      // Enforce 30-second anti-spam cooldown per user / IP (skip for Admin panel direct additions)
+      const isAdminCaller = isRequestAdmin(req);
       const caller = (req as any).user || extractRequestUser(req);
       const cooldownKey = String(caller?.uid || caller?.email || newIntent.authorId || getClientIp(req));
       const nowMs = Date.now();
       const lastPostMs = postCooldowns.get(cooldownKey) || 0;
-      if (nowMs - lastPostMs < POST_COOLDOWN_MS) {
+      if (!isAdminCaller && nowMs - lastPostMs < POST_COOLDOWN_MS) {
         const remainingSec = Math.ceil((POST_COOLDOWN_MS - (nowMs - lastPostMs)) / 1000);
         return res.status(429).json({
           error: `Anti-Spam Cooldown: Please wait ${remainingSec} seconds before creating another post.`,
@@ -1977,8 +1986,9 @@ async function startServer() {
 
       const intentRecord = {
         id: sanitizeServerText(newIntent.id || 'intent_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7), 100),
-        authorId: sanitizeServerText(caller?.uid || newIntent.authorId || newIntent.user_id || newIntent.author_id || 'anonymous_user', 150),
-        authorEmail: sanitizeServerText(caller?.email || newIntent.authorEmail || newIntent.email || newIntent.author_email || '', 150),
+        authorId: sanitizeServerText(caller?.uid || newIntent.authorId || newIntent.user_id || newIntent.author_id || (isAdminCaller ? 'admin_published' : 'anonymous_user'), 150),
+        authorEmail: sanitizeServerText(newIntent.authorEmail || newIntent.email || newIntent.author_email || (!isAdminCaller ? caller?.email : '') || '', 150),
+        authorPhone: sanitizeServerText(newIntent.authorPhone || newIntent.phone || '', 30),
         authorName: sanitizeServerText(newIntent.authorName || newIntent.author_name || 'Community Member', 120),
         authorAvatar: newIntent.authorAvatar || newIntent.author_avatar || '',
         title: sanitizeServerText(newIntent.title || newIntent.category || (newIntent.tags && newIntent.tags[0] ? String(newIntent.tags[0]).replace('#', '') : 'General'), 120),
@@ -1998,7 +2008,9 @@ async function startServer() {
       };
 
       // Record post cooldown timestamp
-      postCooldowns.set(cooldownKey, nowMs);
+      if (!isAdminCaller) {
+        postCooldowns.set(cooldownKey, nowMs);
+      }
 
       // 1. PostgreSQL Insert into primary "listings" table (Parameterized Query)
       if (dbPool && isDbConnected) {
@@ -2495,11 +2507,31 @@ async function startServer() {
       const bName = shop.business_name || shop.businessName || shop.name;
       if (!shop || !bName) return res.status(400).json({ error: "Business name required" });
 
-      // Validate uploaded shop photo and ID document if present
+      // Validate uploaded shop photos (up to 3 images, max 2MB each) and ID document if present
+      const validatedPhotos: string[] = [];
+      if (Array.isArray(shop.photos)) {
+        for (const p of shop.photos.slice(0, 3)) {
+          if (typeof p === 'string' && p.trim()) {
+            if (p.trim().startsWith('data:')) {
+              const pCheck = validateServerUploadedDataUrl(p.trim(), { allowPdf: false });
+              if (!pCheck.valid) {
+                return res.status(400).json({ error: pCheck.error });
+              }
+            }
+            validatedPhotos.push(p.trim());
+          }
+        }
+      }
       if (shop.photoUrl || shop.photo_url) {
-        const photoCheck = validateServerUploadedDataUrl(shop.photoUrl || shop.photo_url, { allowPdf: false });
-        if (!photoCheck.valid) {
-          return res.status(400).json({ error: photoCheck.error });
+        const primaryUrl = String(shop.photoUrl || shop.photo_url).trim();
+        if (primaryUrl.startsWith('data:')) {
+          const photoCheck = validateServerUploadedDataUrl(primaryUrl, { allowPdf: false });
+          if (!photoCheck.valid) {
+            return res.status(400).json({ error: photoCheck.error });
+          }
+        }
+        if (primaryUrl && !validatedPhotos.includes(primaryUrl) && validatedPhotos.length < 3) {
+          validatedPhotos.unshift(primaryUrl);
         }
       }
       if (shop.idDocumentWatermarked) {
@@ -2509,14 +2541,15 @@ async function startServer() {
         }
       }
 
+      const isAdminCaller = isRequestAdmin(req);
       const userFromReq = (req as any).user;
-      const ownerEmail = shop.ownerEmail || shop.email || userFromReq?.email || '';
-      const ownerId = shop.userId || shop.owner_id || userFromReq?.uid || shop.ownerName || 'Owner';
+      const ownerEmail = shop.ownerEmail ?? shop.email ?? (!isAdminCaller ? userFromReq?.email : '') ?? '';
+      const ownerId = shop.userId || shop.owner_id || (!isAdminCaller ? userFromReq?.uid : '') || shop.ownerName || 'Owner';
 
       // Verify ownership if updating an existing shop
       const existingShops = readJsonFile<any[]>(SHOPS_FILE, []);
       const existingShop = existingShops.find(s => s.id === shop.id);
-      if (existingShop && !isAuthorizedAdmin(userFromReq)) {
+      if (existingShop && !isAdminCaller && !isAuthorizedAdmin(userFromReq)) {
         const isOwner =
           (existingShop.userId && (existingShop.userId === userFromReq?.uid || existingShop.userId === ownerId)) ||
           (existingShop.owner_id && (existingShop.owner_id === userFromReq?.uid || existingShop.owner_id === ownerId)) ||
@@ -2526,6 +2559,7 @@ async function startServer() {
         }
       }
 
+      const autoApprove = isAdminCaller;
       const newShop = {
         id: shop.id || 'shop_' + Date.now().toString(36),
         name: sanitizeStringServer(bName.trim(), 200),
@@ -2537,20 +2571,22 @@ async function startServer() {
         ownerName: sanitizeStringServer(shop.ownerName || shop.owner_id || 'Owner', 120),
         owner_id: ownerId,
         userId: ownerId,
-        ownerEmail,
+        ownerEmail: sanitizeStringServer(ownerEmail, 150),
         phone: sanitizeStringServer(shop.phone || '', 30),
+        timings: sanitizeStringServer(shop.timings || '', 120),
         area: sanitizeStringServer(shop.area || shop.address || 'Local Area', 200),
         address: sanitizeStringServer(shop.address || shop.area || 'Market Area', 300),
         description: sanitizeStringServer(shop.description || '', 1500),
-        photoUrl: shop.photoUrl || shop.photo_url || null,
+        photoUrl: validatedPhotos[0] || shop.photoUrl || shop.photo_url || null,
+        photos: validatedPhotos,
         rating: typeof shop.rating === 'number' ? shop.rating : 5.0,
         reviewCount: typeof shop.reviewCount === 'number' ? shop.reviewCount : 1,
-        isVerified: false,
-        status: 'pending',
+        isVerified: autoApprove,
+        status: autoApprove ? 'approved' : 'pending',
         createdAt: shop.createdAt || new Date().toISOString()
       };
 
-      // 1. PostgreSQL Insert into primary "businesses" & "shops" tables (is_verified = false)
+      // 1. PostgreSQL Insert into primary "businesses" & "shops" tables
       if (dbPool && isDbConnected) {
         try {
           await dbPool.query(`
@@ -2584,7 +2620,7 @@ async function startServer() {
             newShop.id, newShop.name, newShop.type, newShop.categoryLabel,
             newShop.ownerName, newShop.phone, newShop.area, newShop.address,
             newShop.description, newShop.photoUrl, newShop.rating,
-            newShop.reviewCount, false, newShop.createdAt
+            newShop.reviewCount, autoApprove, newShop.createdAt
           ]);
         } catch (e) {
           console.warn("DB businesses insert error:", e);
@@ -2595,25 +2631,27 @@ async function startServer() {
       const updated = [newShop, ...shops.filter(s => s.id !== newShop.id && !String(s.id).startsWith('sample_shop_'))];
       writeJsonFile(SHOPS_FILE, updated);
 
-      // Ensure pending entry in Admin Verification Queue so Admin can approve it even if no separate ID doc was uploaded
-      const verifications = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
-      const existingVerifIdx = verifications.findIndex(v => v.entityId === newShop.id);
-      if (existingVerifIdx < 0) {
-        const verifEntry = {
-          id: 'verif_biz_' + newShop.id,
-          entityType: 'business',
-          entityId: newShop.id,
-          userId: ownerId,
-          userName: newShop.name,
-          userEmail: ownerEmail,
-          userPhone: newShop.phone,
-          title: `${newShop.name} (${newShop.categoryLabel}) - ${newShop.area}`,
-          idDocumentWatermarked: shop.idDocumentWatermarked || newShop.photoUrl || '',
-          status: 'pending',
-          createdAt: newShop.createdAt
-        };
-        verifications.unshift(verifEntry);
-        writeJsonFile(VERIFICATIONS_FILE, verifications);
+      // Ensure pending entry in Admin Verification Queue for public registrations
+      if (!autoApprove) {
+        const verifications = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
+        const existingVerifIdx = verifications.findIndex(v => v.entityId === newShop.id);
+        if (existingVerifIdx < 0) {
+          const verifEntry = {
+            id: 'verif_biz_' + newShop.id,
+            entityType: 'business',
+            entityId: newShop.id,
+            userId: ownerId,
+            userName: newShop.name,
+            userEmail: ownerEmail,
+            userPhone: newShop.phone,
+            title: `${newShop.name} (${newShop.categoryLabel}) - ${newShop.area}`,
+            idDocumentWatermarked: shop.idDocumentWatermarked || newShop.photoUrl || '',
+            status: 'pending',
+            createdAt: newShop.createdAt
+          };
+          verifications.unshift(verifEntry);
+          writeJsonFile(VERIFICATIONS_FILE, verifications);
+        }
       }
 
       res.status(201).json(newShop);
@@ -2784,6 +2822,16 @@ async function startServer() {
       const helper = req.body;
       if (!helper || !helper.name) return res.status(400).json({ error: "Helper name required" });
 
+      if (helper.photoUrl || helper.photo_url || helper.workPhotoUrl) {
+        const pUrl = String(helper.photoUrl || helper.photo_url || helper.workPhotoUrl);
+        if (pUrl.startsWith('data:')) {
+          const pCheck = validateServerUploadedDataUrl(pUrl, { allowPdf: false });
+          if (!pCheck.valid) {
+            return res.status(400).json({ error: pCheck.error });
+          }
+        }
+      }
+
       if (helper.idDocUrl || helper.id_doc_url) {
         const docCheck = validateServerUploadedDataUrl(helper.idDocUrl || helper.id_doc_url, { allowPdf: true });
         if (!docCheck.valid) {
@@ -2791,14 +2839,15 @@ async function startServer() {
         }
       }
 
+      const isAdminCaller = isRequestAdmin(req);
       const userFromReq = (req as any).user;
-      const userEmail = helper.email || userFromReq?.email || '';
-      const userId = helper.userId || userFromReq?.uid || helper.id || '';
+      const userEmail = helper.email ?? (!isAdminCaller ? userFromReq?.email : '') ?? '';
+      const userId = helper.userId || (!isAdminCaller ? userFromReq?.uid : '') || helper.id || '';
 
       // Ownership check if updating an existing helper profile
       const helpers = readJsonFile<any[]>(HELPERS_FILE, []);
       const existingHelper = helpers.find(h => h.id === helper.id);
-      if (existingHelper && !isAuthorizedAdmin(userFromReq)) {
+      if (existingHelper && !isAdminCaller && !isAuthorizedAdmin(userFromReq)) {
         const isOwner =
           (existingHelper.userId && (existingHelper.userId === userFromReq?.uid || existingHelper.userId === userId)) ||
           (existingHelper.email && userFromReq?.email && existingHelper.email.toLowerCase() === userFromReq.email.toLowerCase());
@@ -2807,10 +2856,11 @@ async function startServer() {
         }
       }
 
+      const autoApprove = isAdminCaller;
       const newHelper = {
         id: helper.id || 'helper_' + Date.now().toString(36),
         userId,
-        email: userEmail,
+        email: sanitizeStringServer(userEmail, 150),
         name: sanitizeStringServer(helper.name.trim(), 150),
         categoryId: sanitizeStringServer(helper.categoryId || helper.category_id || 'general', 60),
         customCategoryName: sanitizeStringServer(helper.customCategoryName || '', 100),
@@ -2822,8 +2872,9 @@ async function startServer() {
         distance: typeof helper.distance === 'number' ? helper.distance : 0.5,
         rating: typeof helper.rating === 'number' ? helper.rating : 5.0,
         completedTasks: typeof helper.completedTasks === 'number' ? helper.completedTasks : 0,
-        isVerified: false,
-        status: 'pending',
+        photoUrl: helper.photoUrl || helper.photo_url || helper.workPhotoUrl || null,
+        isVerified: autoApprove,
+        status: autoApprove ? 'approved' : 'pending',
         govtIdUploaded: !!helper.govtIdUploaded,
         idDocUrl: helper.idDocUrl || helper.id_doc_url || null,
         createdAt: helper.createdAt || new Date().toISOString()
@@ -2845,7 +2896,7 @@ async function startServer() {
           `, [
             newHelper.id, newHelper.name, newHelper.categoryId, newHelper.phone,
             newHelper.skills, newHelper.area, newHelper.experience, newHelper.distance,
-            false, newHelper.govtIdUploaded, newHelper.idDocUrl, newHelper.createdAt
+            autoApprove, newHelper.govtIdUploaded, newHelper.idDocUrl, newHelper.createdAt
           ]);
         } catch (e) {}
       }
@@ -2853,28 +2904,30 @@ async function startServer() {
       const updated = [newHelper, ...helpers.filter(h => h.id !== newHelper.id)];
       writeJsonFile(HELPERS_FILE, updated);
 
-      // Ensure pending entry in Admin Verification Queue so Admin can approve it
-      const verifications = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
-      const existingVerifIdx = verifications.findIndex(v => v.entityId === newHelper.id);
-      if (existingVerifIdx < 0) {
-        const catDisplay = newHelper.categoryId === 'other' && newHelper.customCategoryName
-          ? `Other (${newHelper.customCategoryName})`
-          : newHelper.categoryId;
-        const verifEntry = {
-          id: 'verif_hlp_' + newHelper.id,
-          entityType: 'user_profile',
-          entityId: newHelper.id,
-          userId: userId || newHelper.id,
-          userName: newHelper.name,
-          userEmail: userEmail,
-          userPhone: newHelper.phone,
-          title: `Helper Profile (${catDisplay}) - ${newHelper.area}`,
-          idDocumentWatermarked: newHelper.idDocUrl || '',
-          status: 'pending',
-          createdAt: newHelper.createdAt
-        };
-        verifications.unshift(verifEntry);
-        writeJsonFile(VERIFICATIONS_FILE, verifications);
+      // Ensure pending entry in Admin Verification Queue for public registrations
+      if (!autoApprove) {
+        const verifications = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
+        const existingVerifIdx = verifications.findIndex(v => v.entityId === newHelper.id);
+        if (existingVerifIdx < 0) {
+          const catDisplay = newHelper.categoryId === 'other' && newHelper.customCategoryName
+            ? `Other (${newHelper.customCategoryName})`
+            : newHelper.categoryId;
+          const verifEntry = {
+            id: 'verif_hlp_' + newHelper.id,
+            entityType: 'user_profile',
+            entityId: newHelper.id,
+            userId: userId || newHelper.id,
+            userName: newHelper.name,
+            userEmail: userEmail,
+            userPhone: newHelper.phone,
+            title: `Helper Profile (${catDisplay}) - ${newHelper.area}`,
+            idDocumentWatermarked: newHelper.idDocUrl || newHelper.photoUrl || '',
+            status: 'pending',
+            createdAt: newHelper.createdAt
+          };
+          verifications.unshift(verifEntry);
+          writeJsonFile(VERIFICATIONS_FILE, verifications);
+        }
       }
 
       res.status(201).json(newHelper);
@@ -3106,6 +3159,13 @@ async function startServer() {
         }
       }
 
+      if (payload.resumeUrl && String(payload.resumeUrl).startsWith('data:')) {
+        const resumeCheck = validateServerUploadedDataUrl(payload.resumeUrl, { allowPdf: true });
+        if (!resumeCheck.valid) {
+          return res.status(400).json({ error: resumeCheck.error });
+        }
+      }
+
       if (payload.type === 'job_seeker' && !payload.fullName) {
         return res.status(400).json({ error: "Full Name is required for Job Seeker profile" });
       }
@@ -3114,13 +3174,16 @@ async function startServer() {
         return res.status(400).json({ error: "Company/Shop name and Job Role are required for Employer vacancy" });
       }
 
+      const isAdminCaller = isRequestAdmin(req);
+      const autoApprove = isAdminCaller;
+
       const items = readJsonFile<any[]>(JOB_PORTAL_FILE, []);
       const isSeeker = payload.type === 'job_seeker';
       const idPrefix = isSeeker ? 'job_seeker_' : 'job_emp_';
       const newRecord = {
         id: payload.id || idPrefix + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
         type: payload.type,
-        status: "pending",
+        status: autoApprove ? "approved" : "pending",
         fullName: sanitizeStringServer(payload.fullName?.trim() || '', 150),
         headline: sanitizeStringServer(payload.headline?.trim() || (isSeeker ? `${payload.category || 'Professional'} Specialist` : ''), 200),
         skills: Array.isArray(payload.skills) 
@@ -3145,9 +3208,11 @@ async function startServer() {
         photoOrLogoUrl: payload.photoOrLogoUrl || (isSeeker 
           ? 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80'
           : 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=800&q=80'),
+        resumeUrl: payload.resumeUrl || '',
+        resumeFileName: sanitizeStringServer(payload.resumeFileName || '', 150),
         createdAt: new Date().toISOString(),
-        reviewedAt: null,
-        adminNotes: ''
+        reviewedAt: autoApprove ? new Date().toISOString() : null,
+        adminNotes: autoApprove ? 'Added & Approved by Admin' : ''
       };
 
       const updated = [newRecord, ...items];
@@ -3156,7 +3221,9 @@ async function startServer() {
       return res.status(201).json({
         success: true,
         item: newRecord,
-        message: "Your submission has been received and is pending admin approval. It will appear live once verified."
+        message: autoApprove
+          ? "Entry added by Admin and published live immediately."
+          : "Your submission has been received and is pending admin approval. It will appear live once verified."
       });
     } catch (e) {
       console.error("Failed to save job portal entry:", e);
@@ -4473,6 +4540,31 @@ async function startServer() {
       res.status(500).json({ error: "Failed to generate AI response" });
     }
   });
+
+  // Serve PWA Manifest, Service Worker, and Icons explicitly with proper MIME types and headers
+  const publicDir = path.join(process.cwd(), "public");
+  app.get("/manifest.json", (_req, res) => {
+    res.setHeader("Content-Type", "application/manifest+json; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache");
+    const manifestFile = path.join(publicDir, "manifest.json");
+    if (fs.existsSync(manifestFile)) {
+      return res.sendFile(manifestFile);
+    }
+    return res.status(404).json({ error: "manifest.json not found" });
+  });
+
+  app.get("/sw.js", (_req, res) => {
+    res.setHeader("Content-Type", "application/javascript; charset=utf-8");
+    res.setHeader("Service-Worker-Allowed", "/");
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    const swFile = path.join(publicDir, "sw.js");
+    if (fs.existsSync(swFile)) {
+      return res.sendFile(swFile);
+    }
+    return res.status(404).send("// sw.js not found");
+  });
+
+  app.use(express.static(publicDir));
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production" && process.env.VITE_DEV_SERVER !== 'false') {

@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { Screen } from '../types';
-import { ArrowLeft, Shield, Map, LogOut, ChevronRight, LifeBuoy, User, Sun, Moon } from 'lucide-react';
+import { ArrowLeft, Shield, Map, LogOut, ChevronRight, LifeBuoy, User, Sun, Moon, Smartphone } from 'lucide-react';
 import { useLanguage } from '../i18n';
 import { logoutUser } from '../auth';
+import InstallAppModal from '../components/InstallAppModal';
 
 export default function SettingsMenu({ onNavigate, onBack }: { onNavigate: (s: Screen) => void, onBack: () => void }) {
   const { t } = useLanguage();
   const [isDark, setIsDark] = useState(false);
+  const [isInstallOpen, setIsInstallOpen] = useState(false);
 
   useEffect(() => {
     setIsDark(document.documentElement.classList.contains('dark'));
@@ -91,6 +93,25 @@ export default function SettingsMenu({ onNavigate, onBack }: { onNavigate: (s: S
         {/* Links */}
         <div className="bg-[#FCFAF5] dark:bg-slate-800 border border-[#DFDBCF] dark:border-slate-700 rounded-2xl overflow-hidden flex flex-col shadow-sm">
           <SettingsItem 
+            icon={<Smartphone className="w-5 h-5 text-orange-500" />} 
+            title={t('home.installApp') || 'Install LocoHelp Mobile App'} 
+            onClick={async () => {
+              const promptEvent = (window as any).__deferredPwaPrompt;
+              if (promptEvent && typeof promptEvent.prompt === 'function') {
+                try {
+                  promptEvent.prompt();
+                  const choice = await promptEvent.userChoice;
+                  if (choice && choice.outcome === 'accepted') {
+                    (window as any).__deferredPwaPrompt = null;
+                    return;
+                  }
+                } catch (e) {}
+              }
+              setIsInstallOpen(true);
+            }} 
+          />
+          <div className="h-px bg-[#EAE6DC] dark:bg-slate-700 w-full ml-12"></div>
+          <SettingsItem 
             icon={<Shield className="w-5 h-5 text-emerald-500" />} 
             title={t('set.guide') || 'Community Guidelines'} 
             onClick={() => onNavigate('guidelines')} 
@@ -126,6 +147,11 @@ export default function SettingsMenu({ onNavigate, onBack }: { onNavigate: (s: S
           </button>
         </div>
       </div>
+
+      <InstallAppModal
+        isOpen={isInstallOpen}
+        onClose={() => setIsInstallOpen(false)}
+      />
     </div>
   );
 }

@@ -76,7 +76,7 @@ import {
   updateAdminReportOnServer,
   deleteAdminReportOnServer
 } from '../api';
-import { validateUploadedFile } from '../utils/security';
+import { validateUploadedFile } from '../lib/security';
 
 interface AdminDashboardProps {
   onBack: () => void;
@@ -94,25 +94,7 @@ type AdminModuleId =
   | 'feedback_categories'
   | 'ads';
 
-const DEFAULT_ADS: AdBannerItem[] = [
-  {
-    id: 'ad_sharma_elec',
-    businessName: 'Sharma Electronics & Repair',
-    logo: '⚡',
-    category: 'Appliance & LED Repair',
-    offerBadge: '🔥 30% OFF Today',
-    offerTitle: 'AC, Fridge & LED TV Instant Home Service',
-    description: 'Authorized spares, 90-day warranty on all repairs. Express 30-min arrival in your sector.',
-    photoUrl: 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=600&q=80',
-    distance: 0.6,
-    area: 'Main Market, Sector 14',
-    rating: 4.9,
-    reviewCount: 214,
-    isVerified: true,
-    destinationUrl: 'https://google.com',
-    initialMessage: 'Namaste Sharma Electronics! Mujhe AC/Appliance repair offer ke baare me jaankari chahiye.'
-  }
-];
+const DEFAULT_ADS: AdBannerItem[] = [];
 
 export default function AdminDashboard({ onBack, showToast }: AdminDashboardProps) {
   // Authentication State (Strictly 2-Step: Password -> OTP to baalvarta@gmail.com)
@@ -199,7 +181,47 @@ export default function AdminDashboard({ onBack, showToast }: AdminDashboardProp
   } | null>(null);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
-  // Ad Creation Modal State
+  // Admin Direct Create / Register Modal State (Email & Mobile 100% Optional, No OTP, Auto-Approved)
+  const [creatingItem, setCreatingItem] = useState<{
+    module: 'businesses' | 'helpers' | 'job_seekers' | 'employers' | 'help_posts';
+    nameOrTitle: string;
+    ownerOrRole: string;
+    category: string;
+    phone: string;
+    email: string;
+    areaOrLocation: string;
+    address: string;
+    timingsOrExperience: string;
+    educationOrVacancyType: string;
+    salaryOrUrgency: string;
+    description: string;
+    photoUrl: string;
+    photos: string[];
+    resumeUrl: string;
+    resumeFileName: string;
+  } | null>(null);
+  const [isSavingCreate, setIsSavingCreate] = useState(false);
+
+  const openAdminCreateModal = (mod: 'businesses' | 'helpers' | 'job_seekers' | 'employers' | 'help_posts') => {
+    setCreatingItem({
+      module: mod,
+      nameOrTitle: '',
+      ownerOrRole: '',
+      category: mod === 'helpers' ? 'plumber' : 'Retail & Services',
+      phone: '',
+      email: '',
+      areaOrLocation: '',
+      address: '',
+      timingsOrExperience: mod === 'businesses' ? '9:00 AM - 9:00 PM' : mod === 'helpers' ? '2+ Years' : '',
+      educationOrVacancyType: mod === 'job_seekers' ? '12th Pass / Graduate' : 'Full-Time',
+      salaryOrUrgency: '',
+      description: '',
+      photoUrl: '',
+      photos: [],
+      resumeUrl: '',
+      resumeFileName: ''
+    });
+  };
   const [isCreateAdModalOpen, setIsCreateAdModalOpen] = useState(false);
   const [adBusinessName, setAdBusinessName] = useState('');
   const [adLogo, setAdLogo] = useState('⚡');
@@ -473,10 +495,8 @@ export default function AdminDashboard({ onBack, showToast }: AdminDashboardProp
 
       // Bonus: Sponsored Ads
       const liveAds = await fetchLiveAds();
-      if (Array.isArray(liveAds) && liveAds.length > 0) {
+      if (Array.isArray(liveAds)) {
         setAds(liveAds);
-      } else {
-        setAds(DEFAULT_ADS);
       }
     } catch (err) {
       console.warn('Admin load data warning:', err);
@@ -754,6 +774,155 @@ export default function AdminDashboard({ onBack, showToast }: AdminDashboardProp
         status,
         raw: item
       });
+    }
+  };
+
+  const handleAdminDirectCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!creatingItem) return;
+    if (!creatingItem.nameOrTitle.trim()) {
+      showToast('Please enter Name / Title');
+      return;
+    }
+
+    setIsSavingCreate(true);
+    try {
+      const headers = getAuthHeaders();
+      const mod = creatingItem.module;
+
+      if (mod === 'businesses') {
+        const payload = {
+          name: creatingItem.nameOrTitle.trim(),
+          businessName: creatingItem.nameOrTitle.trim(),
+          category: creatingItem.category.trim() || 'Retail & Services',
+          categoryLabel: creatingItem.category.trim() || 'Local Business',
+          ownerName: creatingItem.ownerOrRole.trim() || 'Shop Owner',
+          phone: creatingItem.phone.trim(), // 100% optional for Admin
+          ownerEmail: creatingItem.email.trim(), // 100% optional for Admin
+          timings: creatingItem.timingsOrExperience.trim() || '9:00 AM - 9:00 PM',
+          area: creatingItem.areaOrLocation.trim() || 'Local Market',
+          address: creatingItem.address.trim() || creatingItem.areaOrLocation.trim() || 'Local Market',
+          description: creatingItem.description.trim() || `${creatingItem.nameOrTitle.trim()} - Verified Local Shop`,
+          photoUrl: creatingItem.photos[0] || creatingItem.photoUrl || '',
+          photos: creatingItem.photos,
+          isVerified: true,
+          status: 'approved'
+        };
+        const res = await fetch('/api/shops', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to add Shop');
+        setBusinesses(prev => [data, ...prev]);
+        showToast('✅ Shop / Business added & published live immediately!');
+      } else if (mod === 'helpers') {
+        const payload = {
+          name: creatingItem.nameOrTitle.trim(),
+          categoryId: creatingItem.category.trim() || 'general',
+          skills: [creatingItem.ownerOrRole.trim() || creatingItem.category.trim() || 'General Helper'],
+          phone: creatingItem.phone.trim(), // 100% optional for Admin
+          email: creatingItem.email.trim(), // 100% optional for Admin
+          experience: creatingItem.timingsOrExperience.trim() || '2+ Years',
+          area: creatingItem.areaOrLocation.trim() || 'Local Area',
+          photoUrl: creatingItem.photoUrl || '',
+          isVerified: true,
+          status: 'approved'
+        };
+        const res = await fetch('/api/helpers', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to add Helper');
+        setHelpers(prev => [data, ...prev]);
+        showToast('✅ Local Helper added & published live immediately!');
+      } else if (mod === 'job_seekers') {
+        const payload = {
+          type: 'job_seeker',
+          fullName: creatingItem.nameOrTitle.trim(),
+          headline: creatingItem.ownerOrRole.trim() || creatingItem.category.trim() || 'Job Seeker',
+          category: creatingItem.category.trim() || 'Office & Admin',
+          education: creatingItem.educationOrVacancyType.trim() || 'Graduate',
+          experience: creatingItem.timingsOrExperience.trim() || 'Fresher / Experienced',
+          expectedSalary: creatingItem.salaryOrUrgency.trim() || 'Negotiable',
+          phone: creatingItem.phone.trim(), // 100% optional for Admin
+          whatsapp: creatingItem.phone.trim(),
+          email: creatingItem.email.trim(), // 100% optional for Admin
+          area: creatingItem.areaOrLocation.trim() || 'Local Area',
+          skills: creatingItem.description.trim() || creatingItem.ownerOrRole.trim() || 'General Work',
+          description: creatingItem.description.trim() || 'Looking for local employment opportunities.',
+          photoOrLogoUrl: creatingItem.photoUrl || '',
+          resumeUrl: creatingItem.resumeUrl || '',
+          resumeFileName: creatingItem.resumeFileName || ''
+        };
+        const res = await fetch('/api/job-portal', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to add Job Seeker');
+        if (data.item) setJobItems(prev => [data.item, ...prev]);
+        showToast('✅ Job Seeker profile added & published live immediately!');
+      } else if (mod === 'employers') {
+        const payload = {
+          type: 'employer_vacancy',
+          companyOrShopName: creatingItem.nameOrTitle.trim(),
+          jobRole: creatingItem.ownerOrRole.trim() || 'Staff Member',
+          category: creatingItem.category.trim() || 'Retail & Shop Helper',
+          vacancyType: creatingItem.educationOrVacancyType.trim() || 'Full-Time',
+          salaryOffered: creatingItem.salaryOrUrgency.trim() || 'Negotiable',
+          openingsCount: 1,
+          urgency: 'Immediate',
+          phone: creatingItem.phone.trim(), // 100% optional for Admin
+          whatsapp: creatingItem.phone.trim(),
+          email: creatingItem.email.trim(), // 100% optional for Admin
+          area: creatingItem.areaOrLocation.trim() || 'Local Market',
+          address: creatingItem.address.trim() || creatingItem.areaOrLocation.trim() || '',
+          description: creatingItem.description.trim() || 'Staff required for our business.',
+          photoOrLogoUrl: creatingItem.photoUrl || ''
+        };
+        const res = await fetch('/api/job-portal', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to add Employer Job');
+        if (data.item) setJobItems(prev => [data.item, ...prev]);
+        showToast('✅ Employer Job Posting added & published live immediately!');
+      } else if (mod === 'help_posts') {
+        const payload = {
+          authorName: creatingItem.ownerOrRole.trim() || 'Community Member',
+          title: creatingItem.nameOrTitle.trim(),
+          description: creatingItem.description.trim() || creatingItem.nameOrTitle.trim(),
+          category: creatingItem.category.trim() || 'General',
+          tags: [`#${(creatingItem.category.trim() || 'General').replace(/\s+/g, '')}`],
+          phone: creatingItem.phone.trim(), // 100% optional for Admin
+          email: creatingItem.email.trim(), // 100% optional for Admin
+          area: creatingItem.areaOrLocation.trim() || 'Local Area',
+          location: creatingItem.areaOrLocation.trim() || 'Local Area',
+          status: 'active'
+        };
+        const res = await fetch('/api/intents', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to add Help Post');
+        setIntents(prev => [data, ...prev]);
+        showToast('✅ Help Post added & published live immediately!');
+      }
+
+      setCreatingItem(null);
+    } catch (err: any) {
+      showToast(err.message || 'Failed to create entry');
+    } finally {
+      setIsSavingCreate(false);
     }
   };
 
@@ -1454,7 +1623,14 @@ export default function AdminDashboard({ onBack, showToast }: AdminDashboardProp
                 </p>
               </div>
 
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  onClick={() => openAdminCreateModal('businesses')}
+                  className="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white text-xs font-black flex items-center gap-1.5 cursor-pointer transition-all shadow-lg shadow-emerald-500/20"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>+ Add Entry (No OTP / Direct Publish)</span>
+                </button>
                 <button
                   onClick={() => setIsChangePasswordOpen(true)}
                   className="px-4 py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-300 text-xs font-black flex items-center gap-2 cursor-pointer transition-all"
@@ -1571,7 +1747,16 @@ export default function AdminDashboard({ onBack, showToast }: AdminDashboardProp
                   <span>← Back to Admin Dashboard</span>
                 </button>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  {(['businesses', 'helpers', 'job_seekers', 'employers', 'help_posts'] as const).includes(activeModule as any) && (
+                    <button
+                      onClick={() => openAdminCreateModal(activeModule as any)}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white text-xs font-black shadow-md shadow-emerald-500/20 cursor-pointer transition-all"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>+ Add & Publish New (Optional Email/Phone)</span>
+                    </button>
+                  )}
                   <span className="px-3 py-1 rounded-xl bg-slate-800 border border-slate-700 text-xs font-black text-slate-200">
                     Total: {currentModuleMeta.totalCount}
                   </span>
@@ -2205,7 +2390,313 @@ export default function AdminDashboard({ onBack, showToast }: AdminDashboardProp
       </AnimatePresence>
 
       {/* ============================================================ */}
-      {/* MODAL 3: CREATE AD BANNER MODAL                              */}
+      {/* MODAL 3: ADMIN DIRECT ADD / REGISTER MODAL (NO OTP REQUIRED) */}
+      {/* ============================================================ */}
+      <AnimatePresence>
+        {creatingItem && (
+          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-xl max-h-[90vh] flex flex-col bg-[#111827] border border-slate-700 rounded-3xl shadow-2xl overflow-hidden"
+            >
+              <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/60">
+                <div>
+                  <h3 className="text-base font-black text-white flex items-center gap-2">
+                    <Plus className="w-4 h-4 text-emerald-400" />
+                    Admin Direct Registration (Instant Auto-Publish)
+                  </h3>
+                  <p className="text-[11px] text-emerald-400 font-bold mt-0.5">
+                    ✓ Email & Mobile Number are 100% Optional • No OTP Required • Auto-Approved Live
+                  </p>
+                </div>
+                <button
+                  onClick={() => setCreatingItem(null)}
+                  className="w-8 h-8 rounded-full bg-slate-800 text-slate-300 hover:text-white flex items-center justify-center cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <form onSubmit={handleAdminDirectCreate} className="p-6 overflow-y-auto space-y-3.5 text-xs">
+                {/* Module Selector */}
+                <div>
+                  <label className="block font-black text-slate-300 mb-1.5">Select Entry Type to Add</label>
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
+                    {[
+                      { id: 'businesses', label: '🏪 Shop/Biz' },
+                      { id: 'helpers', label: '🛠️ Helper' },
+                      { id: 'job_seekers', label: '🎓 Job Seeker' },
+                      { id: 'employers', label: '💼 Employer' },
+                      { id: 'help_posts', label: '📢 Help Post' }
+                    ].map((tab) => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => openAdminCreateModal(tab.id as any)}
+                        className={`py-2 px-2.5 rounded-xl font-black text-[11px] border transition-all cursor-pointer ${
+                          creatingItem.module === tab.id
+                            ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
+                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-300 mb-1">
+                      {creatingItem.module === 'businesses'
+                        ? 'Shop / Business Name *'
+                        : creatingItem.module === 'helpers'
+                        ? 'Worker / Helper Name *'
+                        : creatingItem.module === 'job_seekers'
+                        ? 'Candidate Full Name *'
+                        : creatingItem.module === 'employers'
+                        ? 'Company / Shop Name *'
+                        : 'Help Post Title *'}
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={creatingItem.nameOrTitle}
+                      onChange={(e) => setCreatingItem({ ...creatingItem, nameOrTitle: e.target.value })}
+                      placeholder="Enter name or title..."
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-300 mb-1">
+                      {creatingItem.module === 'businesses'
+                        ? 'Owner Name'
+                        : creatingItem.module === 'helpers'
+                        ? 'Primary Skill (e.g. Plumber, Electrician)'
+                        : creatingItem.module === 'job_seekers'
+                        ? 'Preferred Work Role'
+                        : creatingItem.module === 'employers'
+                        ? 'Hiring Job Role *'
+                        : 'Author Name'}
+                    </label>
+                    <input
+                      type="text"
+                      required={creatingItem.module === 'employers'}
+                      value={creatingItem.ownerOrRole}
+                      onChange={(e) => setCreatingItem({ ...creatingItem, ownerOrRole: e.target.value })}
+                      placeholder="Enter owner / role / skill..."
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-300 mb-1">Category</label>
+                    <input
+                      type="text"
+                      value={creatingItem.category}
+                      onChange={(e) => setCreatingItem({ ...creatingItem, category: e.target.value })}
+                      placeholder="e.g. Grocery, Plumber, Office & Admin"
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-300 mb-1">Area / City / Work Area</label>
+                    <input
+                      type="text"
+                      value={creatingItem.areaOrLocation}
+                      onChange={(e) => setCreatingItem({ ...creatingItem, areaOrLocation: e.target.value })}
+                      placeholder="e.g. Main Market, Jaipur"
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
+                    />
+                  </div>
+                </div>
+
+                {/* Optional Phone & Optional Email */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-2xl bg-emerald-950/20 border border-emerald-500/20">
+                  <div>
+                    <label className="block font-bold text-emerald-300 mb-1">
+                      Mobile / WhatsApp Number <span className="text-[10px] text-slate-400">(Optional)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={creatingItem.phone}
+                      onChange={(e) => setCreatingItem({ ...creatingItem, phone: e.target.value })}
+                      placeholder="Optional mobile / WhatsApp"
+                      className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-emerald-300 mb-1">
+                      Email Address <span className="text-[10px] text-slate-400">(Optional - No OTP)</span>
+                    </label>
+                    <input
+                      type="email"
+                      value={creatingItem.email}
+                      onChange={(e) => setCreatingItem({ ...creatingItem, email: e.target.value })}
+                      placeholder="Optional email address"
+                      className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white"
+                    />
+                  </div>
+                </div>
+
+                {creatingItem.module !== 'help_posts' && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block font-bold text-slate-300 mb-1">
+                        {creatingItem.module === 'businesses'
+                          ? 'Shop Timings'
+                          : creatingItem.module === 'helpers'
+                          ? 'Experience'
+                          : 'Experience / Details'}
+                      </label>
+                      <input
+                        type="text"
+                        value={creatingItem.timingsOrExperience}
+                        onChange={(e) => setCreatingItem({ ...creatingItem, timingsOrExperience: e.target.value })}
+                        placeholder={creatingItem.module === 'businesses' ? '9:00 AM - 9:00 PM' : 'e.g. 3 Years'}
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-slate-300 mb-1">
+                        {creatingItem.module === 'job_seekers'
+                          ? 'Education & Expected Salary'
+                          : creatingItem.module === 'employers'
+                          ? 'Salary Offered'
+                          : 'Full Address'}
+                      </label>
+                      <input
+                        type="text"
+                        value={
+                          creatingItem.module === 'businesses'
+                            ? creatingItem.address
+                            : creatingItem.salaryOrUrgency
+                        }
+                        onChange={(e) =>
+                          creatingItem.module === 'businesses'
+                            ? setCreatingItem({ ...creatingItem, address: e.target.value })
+                            : setCreatingItem({ ...creatingItem, salaryOrUrgency: e.target.value })
+                        }
+                        placeholder={
+                          creatingItem.module === 'businesses'
+                            ? 'Shop address / landmark'
+                            : 'e.g. ₹15,000/month'
+                        }
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block font-bold text-slate-300 mb-1">Description / Bio / Skills</label>
+                  <textarea
+                    rows={2}
+                    value={creatingItem.description}
+                    onChange={(e) => setCreatingItem({ ...creatingItem, description: e.target.value })}
+                    placeholder="Enter description, services, or skills..."
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
+                  />
+                </div>
+
+                {/* File Upload Support (Photos up to 2MB, or PDF Resume up to 5MB) */}
+                {creatingItem.module !== 'help_posts' && (
+                  <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800 space-y-2">
+                    <label className="block font-bold text-slate-300">
+                      {creatingItem.module === 'businesses'
+                        ? 'Upload Shop Photos (Up to 3 Images, Max 2MB each)'
+                        : creatingItem.module === 'job_seekers'
+                        ? 'Upload Candidate Photo (Max 2MB) or Resume PDF (Max 5MB)'
+                        : 'Upload Profile / Work Photo (JPG, PNG, WEBP Max 2MB)'}
+                    </label>
+                    <input
+                      type="file"
+                      accept={creatingItem.module === 'job_seekers' ? '.jpg,.jpeg,.png,.webp,.pdf' : '.jpg,.jpeg,.png,.webp'}
+                      multiple={creatingItem.module === 'businesses'}
+                      onChange={async (e) => {
+                        const files = Array.from(e.target.files || []) as File[];
+                        for (const file of files.slice(0, 3)) {
+                          const allowPdf = creatingItem.module === 'job_seekers';
+                          const check = await validateUploadedFile(file, { allowPdf });
+                          if (!check.valid) {
+                            showToast(check.error || 'Invalid file');
+                            continue;
+                          }
+                          const reader = new FileReader();
+                          reader.onloadend = () => {
+                            const dataUrl = reader.result as string;
+                            if (file.type === 'application/pdf') {
+                              setCreatingItem((prev) =>
+                                prev ? { ...prev, resumeUrl: dataUrl, resumeFileName: file.name } : prev
+                              );
+                            } else {
+                              setCreatingItem((prev) => {
+                                if (!prev) return prev;
+                                const nextPhotos = [...prev.photos, dataUrl].slice(0, 3);
+                                return {
+                                  ...prev,
+                                  photoUrl: nextPhotos[0] || dataUrl,
+                                  photos: nextPhotos
+                                };
+                              });
+                            }
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                      className="text-xs text-slate-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-black file:bg-slate-800 file:text-orange-400 hover:file:bg-slate-700"
+                    />
+                    {creatingItem.photos.length > 0 && (
+                      <div className="flex items-center gap-2 pt-1">
+                        {creatingItem.photos.map((p, idx) => (
+                          <img
+                            key={idx}
+                            src={p}
+                            alt="Upload preview"
+                            className="w-12 h-12 rounded-xl object-cover border border-slate-700"
+                          />
+                        ))}
+                      </div>
+                    )}
+                    {creatingItem.resumeFileName && (
+                      <p className="text-[11px] text-emerald-400 font-bold">
+                        📄 Resume attached: {creatingItem.resumeFileName}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                <div className="pt-2 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCreatingItem(null)}
+                    className="px-4 py-2.5 rounded-xl bg-slate-800 text-slate-300 font-bold cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSavingCreate}
+                    className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-black shadow-lg cursor-pointer disabled:opacity-50"
+                  >
+                    {isSavingCreate ? 'Publishing Live...' : '✓ Save & Publish Live Immediately'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ============================================================ */}
+      {/* MODAL 4: CREATE AD BANNER MODAL                              */}
       {/* ============================================================ */}
       <AnimatePresence>
         {isCreateAdModalOpen && (

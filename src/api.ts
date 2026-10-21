@@ -359,9 +359,31 @@ export async function logAuditRecord(auditPayload: any): Promise<void> {
 }
 
 /**
- * Fetches all active ad banners from server with offline cache fallback
+ * Fetches all active ad banners from server with offline cache fallback (merges safely so added ads are never wiped)
  */
 export async function fetchLiveAds(): Promise<any[]> {
+  let deletedIds: string[] = [];
+  try {
+    const delRaw = localStorage.getItem('locohelp_deleted_ads');
+    if (delRaw) deletedIds = JSON.parse(delRaw);
+  } catch (e) {}
+
+  let localAds: any[] = [];
+  try {
+    const stored = localStorage.getItem('locohelp_ad_banners');
+    if (stored) {
+      localAds = JSON.parse(stored).filter(
+        (a: any) =>
+          a &&
+          a.id &&
+          !deletedIds.includes(a.id) &&
+          !a.id.startsWith('ad_elec_') &&
+          !a.id.startsWith('ad_grocery_') &&
+          !a.id.startsWith('ad_auto_')
+      );
+    }
+  } catch (e) {}
+
   try {
     const res = await fetch(`/api/ads?_t=${Date.now()}`, {
       cache: 'no-store',
@@ -372,27 +394,31 @@ export async function fetchLiveAds(): Promise<any[]> {
       }
     });
     if (res.ok) {
-      const ads = await res.json();
-      if (Array.isArray(ads)) {
+      const serverAds = await res.json();
+      if (Array.isArray(serverAds)) {
+        const mergedMap = new Map<string, any>();
+        serverAds.forEach((a: any) => {
+          if (a && a.id && !deletedIds.includes(a.id)) {
+            mergedMap.set(a.id, a);
+          }
+        });
+        localAds.forEach((a: any) => {
+          if (a && a.id && !deletedIds.includes(a.id) && !mergedMap.has(a.id)) {
+            mergedMap.set(a.id, a);
+          }
+        });
+        const merged = Array.from(mergedMap.values());
         try {
-          localStorage.setItem('locohelp_ad_banners', JSON.stringify(ads));
+          localStorage.setItem('locohelp_ad_banners', JSON.stringify(merged));
         } catch (e) {}
-        return ads;
+        return merged;
       }
     }
   } catch (err) {
     console.warn("Server fetch ads fallback to local storage:", err);
   }
 
-  try {
-    const stored = localStorage.getItem('locohelp_ad_banners');
-    if (stored) {
-      const ads = JSON.parse(stored);
-      return ads.filter((a: any) => !a.id.startsWith('ad_elec_') && !a.id.startsWith('ad_grocery_') && !a.id.startsWith('ad_auto_'));
-    }
-  } catch (e) {}
-
-  return [];
+  return localAds;
 }
 
 /**
@@ -403,9 +429,10 @@ export async function createAdOnServer(ad: any): Promise<any> {
   try {
     const stored = localStorage.getItem('locohelp_ad_banners');
     const existing = stored ? JSON.parse(stored) : [];
-    const updated = [cleanAd, ...existing.filter((a: any) => a.id !== cleanAd.id)];
+    const updated = [cleanAd, ...existing.filter((a: any) => a && a.id !== cleanAd.id)];
     localStorage.setItem('locohelp_ad_banners', JSON.stringify(updated));
     window.dispatchEvent(new Event('storage'));
+    window.dispatchEvent(new Event('locohelp_ads_updated'));
   } catch (e) {}
 
   try {
@@ -419,7 +446,9 @@ export async function createAdOnServer(ad: any): Promise<any> {
       body: JSON.stringify(cleanAd)
     });
     if (res.ok) {
-      return await res.json();
+      const saved = await res.json();
+      window.dispatchEvent(new Event('locohelp_ads_updated'));
+      return saved;
     }
   } catch (err) {
     console.warn("Failed to save ad to server (offline mode):", err);
@@ -431,13 +460,24 @@ export async function createAdOnServer(ad: any): Promise<any> {
  * Deletes an ad banner from server (Admin Protected)
  */
 export async function deleteAdOnServer(id: string): Promise<boolean> {
+  // Never allow deleting the permanent LocoHelp official promo banner
+  if (id === 'locohelp_official_promo_banner') return false;
+
   try {
+    const delRaw = localStorage.getItem('locohelp_deleted_ads');
+    const deletedIds: string[] = delRaw ? JSON.parse(delRaw) : [];
+    if (!deletedIds.includes(id)) {
+      deletedIds.push(id);
+      localStorage.setItem('locohelp_deleted_ads', JSON.stringify(deletedIds));
+    }
+
     const stored = localStorage.getItem('locohelp_ad_banners');
     if (stored) {
       const existing = JSON.parse(stored);
       const filtered = existing.filter((a: any) => a.id !== id);
       localStorage.setItem('locohelp_ad_banners', JSON.stringify(filtered));
       window.dispatchEvent(new Event('storage'));
+      window.dispatchEvent(new Event('locohelp_ads_updated'));
     }
   } catch (e) {}
 

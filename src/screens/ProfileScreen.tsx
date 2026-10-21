@@ -66,6 +66,7 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
   const [helperArea, setHelperArea] = useState('');
   const [helperExp, setHelperExp] = useState('1 Year');
   const [helperSkills, setHelperSkills] = useState('');
+  const [helperWorkPhoto, setHelperWorkPhoto] = useState<string | null>(null);
   const [helperIdFrontDoc, setHelperIdFrontDoc] = useState<string | null>(null);
   const [helperIdFrontName, setHelperIdFrontName] = useState<string | null>(null);
   const [helperIdBackDoc, setHelperIdBackDoc] = useState<string | null>(null);
@@ -83,10 +84,12 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
   const [customShopType, setCustomShopType] = useState('');
   const [ownerName, setOwnerName] = useState('');
   const [shopPhone, setShopPhone] = useState('');
+  const [shopTimings, setShopTimings] = useState('9:00 AM - 9:00 PM');
   const [shopArea, setShopArea] = useState('');
   const [shopAddress, setShopAddress] = useState('');
   const [shopDescription, setShopDescription] = useState('');
   const [shopPhoto, setShopPhoto] = useState<string | null>(null);
+  const [shopPhotos, setShopPhotos] = useState<string[]>([]);
   const [shopIdDoc, setShopIdDoc] = useState<string | null>(null);
   const [shopIdDocName, setShopIdDocName] = useState<string | null>(null);
   const [isWatermarkingShopId, setIsWatermarkingShopId] = useState(false);
@@ -444,7 +447,24 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
     } catch (e) {}
 
     try {
-      await saveUserProfile(profileData);
+      await saveUserProfile({
+        ...profileData,
+        status: verificationStatus === 'approved' ? 'approved' : 'pending',
+        isVerified: verificationStatus === 'approved'
+      });
+      if (verificationStatus !== 'approved') {
+        await submitVerification({
+          entityType: 'user_profile',
+          entityId: userKey,
+          userId: userKey,
+          userName: profileData.full_name,
+          userEmail: profileData.email || undefined,
+          userPhone: profileData.phone,
+          title: `Simple User Profile - ${safeAddress || 'Local Area'}`,
+          idDocumentWatermarked: profilePhoto || ''
+        }).catch(() => {});
+        setVerificationStatus('pending');
+      }
     } catch (err) {}
 
     setHasExistingUserProfile(true);
@@ -481,6 +501,7 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
     }
 
     const finalDoc = helperIdFrontDoc || helperIdBackDoc || myHelperProfile?.idDocUrl;
+    const finalWorkPhoto = helperWorkPhoto || myHelperProfile?.photoUrl;
 
     const newHelper = saveFreeHelperProfile({
       id: myHelperProfile?.id,
@@ -494,11 +515,12 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
       area: sanitizeText(helperArea.trim() || 'Local Area', 150),
       experience: sanitizeText(helperExp.trim() || '1 Year', 60),
       distance: 0.5,
+      photoUrl: finalWorkPhoto || undefined,
       govtIdUploaded: Boolean(finalDoc),
       idDocUrl: finalDoc || undefined,
       isVerified: false, // Requires Admin Approval
       status: 'pending',
-    });
+    } as any);
 
     setMyHelperProfile(newHelper);
     setIsEditingHelperProfile(false);
@@ -516,7 +538,7 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
 
     try {
       const helperId = newHelper.id || `helper_${Date.now()}`;
-      await saveHelper({ ...newHelper, id: helperId, isVerified: false, status: 'pending' });
+      await saveHelper({ ...newHelper, id: helperId, photoUrl: finalWorkPhoto, isVerified: false, status: 'pending' });
     } catch (e) {}
 
     // Always submit to Admin Verification Queue so Admin can approve the Helper Profile
@@ -589,6 +611,8 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
 
     const shopId = myBusinessProfile?.id || ('shop_' + Date.now().toString(36));
 
+    const finalPhotos = shopPhotos.length > 0 ? shopPhotos.slice(0, 3) : (shopPhoto ? [shopPhoto] : []);
+
     const newShop: RegisteredShop = {
       id: shopId,
       userId: uid,
@@ -598,10 +622,12 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
       categoryLabel: label,
       ownerName: ownerName.trim() || userName.trim() || 'Owner',
       phone: shopPhone.trim(),
+      timings: shopTimings.trim() || '9:00 AM - 9:00 PM',
       area: shopArea.trim() || 'Local Area',
       address: shopAddress.trim() || 'Market Area',
       description: shopDescription.trim() || 'Welcome to our business!',
-      photoUrl: shopPhoto || myBusinessProfile?.photoUrl || undefined,
+      photoUrl: finalPhotos[0] || shopPhoto || myBusinessProfile?.photoUrl || undefined,
+      photos: finalPhotos.length > 0 ? finalPhotos : undefined,
       rating: 5.0,
       reviewCount: 1,
       isVerified: false, // Requires Admin Approval before going live
@@ -622,7 +648,9 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
     try {
       await saveShop({
         ...newShop,
-        idDocumentWatermarked: shopIdDoc || shopPhoto || ''
+        photos: finalPhotos,
+        timings: newShop.timings,
+        idDocumentWatermarked: shopIdDoc || finalPhotos[0] || shopPhoto || ''
       });
     } catch (err) {}
 
@@ -1262,6 +1290,47 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
                   />
                 </div>
 
+                {/* Profile / Work Photo Upload for Local Helper */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Profile / Work Photo (प्रोफाइल या काम की फ़ोटो • JPG, PNG, WebP Max 2MB)
+                  </label>
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        setUploadErrorMsg(null);
+                        const check = await validateUploadedFile(file, { allowPdf: false });
+                        if (!check.valid) {
+                          setUploadErrorMsg(check.error || 'Only safe JPG, PNG, or WEBP images up to 2MB are allowed.');
+                          e.target.value = '';
+                          return;
+                        }
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                          setHelperWorkPhoto(reader.result as string);
+                        };
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                    className="w-full text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-emerald-50 file:text-emerald-700 dark:file:bg-emerald-950 dark:file:text-emerald-300 cursor-pointer bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-2 py-1.5"
+                  />
+                  {helperWorkPhoto && (
+                    <div className="mt-2 relative w-20 h-20 rounded-xl overflow-hidden border-2 border-emerald-400">
+                      <img src={helperWorkPhoto} alt="Work Preview" className="w-full h-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => setHelperWorkPhoto(null)}
+                        className="absolute top-1 right-1 bg-black/70 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold cursor-pointer"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  )}
+                </div>
+
                 {/* 7. Verify Government ID Card (JPG, PNG or PDF Supported) Dual Upload */}
                 <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
                   <label className="block text-xs font-extrabold text-slate-800 dark:text-slate-200">
@@ -1417,9 +1486,11 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
                     setShopType(myBusinessProfile.type || 'shop');
                     setOwnerName(myBusinessProfile.ownerName || '');
                     setShopPhone(myBusinessProfile.phone || '');
+                    setShopTimings(myBusinessProfile.timings || '9:00 AM - 9:00 PM');
                     setShopArea(myBusinessProfile.area || '');
                     setShopAddress(myBusinessProfile.address || '');
                     setShopDescription(myBusinessProfile.description || '');
+                    setShopPhotos(myBusinessProfile.photos || (myBusinessProfile.photoUrl ? [myBusinessProfile.photoUrl] : []));
                     setIsEditingBusiness(true);
                   }}
                   className="w-full py-3 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-xs shadow-md flex items-center justify-center gap-2 cursor-pointer"
@@ -1496,18 +1567,34 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
                   )}
                 </div>
 
-                {/* 3. Owner Name */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Owner / Manager Name
-                  </label>
-                  <input 
-                    type="text" 
-                    placeholder="Owner Name"
-                    value={ownerName}
-                    onChange={(e) => setOwnerName(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-900 dark:text-white focus:ring-2 focus:ring-amber-500 focus:outline-none"
-                  />
+                {/* 3. Owner Name & Timings */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Owner / Manager Name *
+                    </label>
+                    <input 
+                      type="text" 
+                      required
+                      placeholder="Owner Name"
+                      value={ownerName}
+                      onChange={(e) => setOwnerName(e.target.value)}
+                      className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-900 dark:text-white focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Shop Timings (दुकान का समय) *
+                    </label>
+                    <input 
+                      type="text" 
+                      required
+                      placeholder="e.g. 9:00 AM - 9:00 PM"
+                      value={shopTimings}
+                      onChange={(e) => setShopTimings(e.target.value)}
+                      className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-900 dark:text-white focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                    />
+                  </div>
                 </div>
 
                 {/* 4. Phone Number */}
@@ -1531,7 +1618,7 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
                 {/* 5. Area / Locality */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Area / Locality *
+                    Address / City / Area *
                   </label>
                   <input 
                     type="text" 
@@ -1560,7 +1647,7 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
                 {/* 7. Description */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Description / Offers / Timings
+                    Description / Offers / Services
                   </label>
                   <textarea 
                     rows={2}
@@ -1571,44 +1658,67 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
                   />
                 </div>
 
-                {/* 8. Shop / Mall / Venue Photo Upload */}
+                {/* 8. Multiple Shop Photos Upload (2-3 images max 2MB each) */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Shop / Mall / Venue Photo (दुकान/मॉल की फ़ोटो • Max 2MB)
+                    Shop / Business Photos (2-3 फ़ोटो अपलोड करें • Max 2MB each)
                   </label>
                   <input 
                     type="file" 
+                    multiple
                     accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
                     onChange={async (e) => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        setUploadErrorMsg(null);
+                      const files = Array.from(e.target.files || []) as File[];
+                      if (files.length === 0) return;
+                      setUploadErrorMsg(null);
+                      const remainingSlots = 3 - shopPhotos.length;
+                      if (remainingSlots <= 0) {
+                        setUploadErrorMsg('Maximum 3 shop photos allowed.');
+                        e.target.value = '';
+                        return;
+                      }
+                      for (const file of files.slice(0, remainingSlots)) {
                         const check = await validateUploadedFile(file, { allowPdf: false });
                         if (!check.valid) {
                           setUploadErrorMsg(check.error || 'Only safe JPEG, PNG, or WebP images up to 2MB are allowed.');
-                          e.target.value = '';
-                          return;
+                          continue;
                         }
                         const reader = new FileReader();
                         reader.onloadend = () => {
-                          setShopPhoto(reader.result as string);
+                          const dataUrl = reader.result as string;
+                          setShopPhotos((prev) => {
+                            const updated = [...prev, dataUrl].slice(0, 3);
+                            setShopPhoto(updated[0] || null);
+                            return updated;
+                          });
                         };
                         reader.readAsDataURL(file);
                       }
+                      e.target.value = '';
                     }}
                     className="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-amber-50 file:text-amber-700 dark:file:bg-amber-950 dark:file:text-amber-300 cursor-pointer bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-2 py-1.5"
                   />
-                  {shopPhoto && (
-                    <div className="mt-2 relative w-28 h-20 rounded-xl overflow-hidden border-2 border-amber-400 shadow-xs">
-                      <img src={shopPhoto} alt="Shop Preview" className="w-full h-full object-cover" />
-                      <button 
-                        type="button" 
-                        onClick={() => setShopPhoto(null)}
-                        className="absolute top-1 right-1 bg-black/70 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold cursor-pointer"
-                        title="Remove photo"
-                      >
-                        ✕
-                      </button>
+                  {shopPhotos.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {shopPhotos.map((photo, idx) => (
+                        <div key={idx} className="relative w-24 h-20 rounded-xl overflow-hidden border-2 border-amber-400 shadow-xs">
+                          <img src={photo} alt={`Shop Preview ${idx + 1}`} className="w-full h-full object-cover" />
+                          <button 
+                            type="button" 
+                            onClick={() => {
+                              setShopPhotos((prev) => {
+                                const next = prev.filter((_, i) => i !== idx);
+                                setShopPhoto(next[0] || null);
+                                return next;
+                              });
+                            }}
+                            className="absolute top-1 right-1 bg-black/70 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold cursor-pointer"
+                            title="Remove photo"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>

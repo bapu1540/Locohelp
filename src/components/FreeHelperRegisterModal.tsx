@@ -32,6 +32,7 @@ export default function FreeHelperRegisterModal({
   const [formArea, setFormArea] = useState('');
   const [formExp, setFormExp] = useState('2 Years');
   const [formSkills, setFormSkills] = useState('');
+  const [formPhotoUrl, setFormPhotoUrl] = useState<string | null>(null);
   const [formIdDoc, setFormIdDoc] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -56,6 +57,7 @@ export default function FreeHelperRegisterModal({
       setFormArea(prof.area || '');
       setFormExp(prof.experience || '2 Years');
       setFormSkills(Array.isArray(prof.skills) ? prof.skills.join(', ') : (prof.skills || ''));
+      setFormPhotoUrl(prof.photoUrl || null);
     };
 
     // 1. Check local storage for existing helper profile linked to this user
@@ -156,11 +158,12 @@ export default function FreeHelperRegisterModal({
       area: formArea.trim() || 'Local Area',
       experience: formExp.trim() || '1 Year',
       distance: 0.5,
+      photoUrl: formPhotoUrl || (existingProfile as any)?.photoUrl || undefined,
       govtIdUploaded: Boolean(formIdDoc || existingProfile?.govtIdUploaded),
       idDocUrl: formIdDoc || existingProfile?.idDocUrl || undefined,
       isVerified: false, // Pending Admin Approval on creation/update
       status: 'pending'
-    });
+    } as any);
 
     setExistingProfile(newHelper);
     setIsEditing(false);
@@ -177,7 +180,7 @@ export default function FreeHelperRegisterModal({
     } catch (e) {}
 
     try {
-      await saveHelper({ ...newHelper, isVerified: false, status: 'pending' });
+      await saveHelper({ ...newHelper, photoUrl: formPhotoUrl || (existingProfile as any)?.photoUrl || undefined, isVerified: false, status: 'pending' });
     } catch (e) {}
 
     try {
@@ -189,7 +192,7 @@ export default function FreeHelperRegisterModal({
         userEmail: userEmail || undefined,
         userPhone: newHelper.phone,
         title: `Helper Profile (${finalCatName}) - ${newHelper.area}`,
-        idDocumentWatermarked: formIdDoc || ''
+        idDocumentWatermarked: formIdDoc || formPhotoUrl || ''
       });
     } catch (verifErr) {
       console.warn("Verification submit error:", verifErr);
@@ -480,6 +483,45 @@ export default function FreeHelperRegisterModal({
                   onChange={(e) => setFormSkills(e.target.value)}
                   className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                 />
+              </div>
+
+              {/* Profile / Work Photo Upload (Max 2MB) */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1 flex items-center justify-between">
+                  <span>{language === 'EN' ? 'Profile / Work Photo (JPG/PNG/WebP max 2MB)' : 'प्रोफाइल / काम की फोटो (अधिकतम 2MB)'}</span>
+                  <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">Recommended 📸</span>
+                </label>
+                <div className="flex items-center gap-3">
+                  {formPhotoUrl && (
+                    <img
+                      src={formPhotoUrl}
+                      alt="Helper Preview"
+                      className="w-12 h-12 rounded-xl object-cover border border-emerald-400 shrink-0"
+                    />
+                  )}
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      setFileError(null);
+                      if (file) {
+                        const check = await validateUploadedFile(file, { allowPdf: false });
+                        if (!check.valid) {
+                          setFileError(language === 'EN' ? (check.error || 'Invalid image (Max 2MB)') : (check.errorHi || check.error || 'अमान्य फोटो (अधिकतम 2MB)'));
+                          e.target.value = '';
+                          return;
+                        }
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                          setFormPhotoUrl(reader.result as string);
+                        };
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                    className="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-emerald-100 file:text-emerald-800 dark:file:bg-emerald-950 dark:file:text-emerald-300 hover:file:bg-emerald-200 cursor-pointer bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-2 py-1.5"
+                  />
+                </div>
               </div>
 
               {/* Verify Identity Document (Optional) */}

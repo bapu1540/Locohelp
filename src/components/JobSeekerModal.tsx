@@ -221,10 +221,13 @@ export default function JobSeekerModal({
       setIsSubmitting(false);
 
       if (res.success) {
-        setSubmitSuccessMessage(res.message || "Your submission has been received and is pending admin approval. It will appear live once verified.");
-        if (res.item) {
-          setSeekersList(prev => [res.item!, ...prev]);
-          if (onSuccess) onSuccess(res.item);
+        setSubmitSuccessMessage(
+          language === 'EN'
+            ? "⏳ Your Job Seeker registration has been sent to Admin for approval! It will appear live once approved by Admin."
+            : "⏳ आपका जॉब रजिस्ट्रेशन एडमिन अप्रूवल के लिए भेज दिया गया है! एडमिन अप्रूवल के बाद यह लाइव दिखेगा।"
+        );
+        if (res.item && onSuccess) {
+          onSuccess(res.item);
         }
       } else {
         setErrorMessage(res.error || 'Failed to submit profile');
@@ -250,8 +253,9 @@ export default function JobSeekerModal({
   };
 
   const filteredSeekers = seekersList.filter((item) => {
-    // STRICT CHECK: Only Job Seekers are allowed (Zero Employer details)
+    // STRICT CHECK: Only Admin-Approved Job Seekers are allowed
     if (item.type !== 'job_seeker') return false;
+    if (item.status && item.status !== 'approved') return false;
     if (categoryFilter !== 'all' && item.category !== categoryFilter) return false;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
@@ -748,17 +752,39 @@ export default function JobSeekerModal({
                   />
                 </div>
 
-                {/* Photo Upload */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {language === 'EN' ? 'Passport Photo (Optional)' : 'पासपोर्ट फोटो (वैकल्पिक)'}
-                  </label>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handlePhotoUpload}
-                    className="w-full text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-blue-100 file:text-blue-700 hover:file:bg-blue-200 cursor-pointer"
-                  />
+                {/* Photo & Resume / Biodata Upload */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 space-y-1.5">
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                      {language === 'EN' ? 'Passport / Profile Photo (Max 2MB)' : 'प्रोफाइल फोटो (अधिकतम 2MB)'}
+                    </label>
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+                      onChange={handlePhotoUpload}
+                      className="w-full text-xs text-slate-500 file:mr-2 file:py-1.5 file:px-2.5 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-blue-100 file:text-blue-700 hover:file:bg-blue-200 cursor-pointer"
+                    />
+                    {photoUrl && (
+                      <p className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">✓ Photo Attached</p>
+                    )}
+                  </div>
+
+                  <div className="p-3 rounded-2xl bg-blue-50/60 dark:bg-slate-800/80 border border-blue-200 dark:border-slate-700 space-y-1.5">
+                    <label className="block text-xs font-extrabold text-blue-900 dark:text-blue-300">
+                      {language === 'EN' ? 'Upload Resume / Biodata (PDF max 5MB or Image)' : 'रिज्यूमे / बायोडाटा अपलोड करें (PDF या फोटो)'}
+                    </label>
+                    <input
+                      type="file"
+                      accept="application/pdf,image/jpeg,image/png,image/webp,.pdf,.jpg,.jpeg,.png,.webp"
+                      onChange={handleResumeUpload}
+                      className="w-full text-xs text-slate-500 file:mr-2 file:py-1.5 file:px-2.5 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-blue-600 file:text-white hover:file:bg-blue-700 cursor-pointer"
+                    />
+                    {resumeUrl && (
+                      <p className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 truncate">
+                        ✓ Attached: {resumeFileName || 'Resume / Biodata'}
+                      </p>
+                    )}
+                  </div>
                 </div>
 
                 {/* Action Buttons */}

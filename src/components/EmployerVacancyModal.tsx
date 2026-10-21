@@ -312,15 +312,14 @@ export default function EmployerVacancyModal({
       if (res.success) {
         setSubmitSuccessMessage(
           language === 'EN'
-            ? `Job Vacancy for "${jobRole.trim()}" linked to "${bizName}" has been submitted for Admin approval!`
-            : `"${bizName}" के लिए "${jobRole.trim()}" वेकेंसी सफलतापूर्वक एडमिन अनुमोदन के लिए सबमिट हो गई है!`
+            ? `⏳ Job Vacancy for "${jobRole.trim()}" linked to "${bizName}" has been submitted to the Admin Panel for approval! Once approved by Admin, it will appear live.`
+            : `⏳ "${bizName}" के लिए "${jobRole.trim()}" वेकेंसी एडमिन अप्रूवल के लिए भेज दी गई है! एडमिन अप्रूवल के बाद यह लाइव दिखेगी।`
         );
         setJobRole('');
         setSalaryOffered('');
         setDescription('');
-        if (res.item) {
-          setVacanciesList(prev => [res.item!, ...prev]);
-          if (onSuccess) onSuccess(res.item);
+        if (res.item && onSuccess) {
+          onSuccess(res.item);
         }
       } else {
         setErrorMessage(res.error || 'Failed to post vacancy');
@@ -357,7 +356,7 @@ export default function EmployerVacancyModal({
 
     try {
       const currentUser = getCurrentUser();
-      // 1. Save / Register the New Employer Business on LocoHelp so next time it appears in Option A
+      // 1. Save / Register the New Employer Business on LocoHelp (strictly pending Admin approval)
       if (!editingVacancyId) {
         const newShopObj = {
           id: 'shop_' + Date.now().toString(36),
@@ -374,6 +373,8 @@ export default function EmployerVacancyModal({
           address: address.trim() || area.trim(),
           description: description.trim() || `Employer hiring for ${jobRole.trim()}`,
           photoUrl: logoOrPhotoUrl || null,
+          isVerified: false,
+          status: 'pending' as const,
           createdAt: new Date().toISOString()
         };
         await saveShop(newShopObj);
@@ -382,7 +383,7 @@ export default function EmployerVacancyModal({
         } catch (e) {}
       }
 
-      // 2. Submit the Job Vacancy Requirement
+      // 2. Submit the Job Vacancy Requirement (strictly pending Admin approval)
       const res = await submitJobPortalItem({
         id: editingVacancyId || undefined,
         type: 'employer_vacancy',
@@ -407,14 +408,12 @@ export default function EmployerVacancyModal({
       if (res.success) {
         setEditingVacancyId(null);
         setSubmitSuccessMessage(
-          res.message ||
-            (language === 'EN'
-              ? 'New Employer registered and Job Vacancy submitted for Admin approval!'
-              : 'नया एम्प्लॉयर रजिस्ट्रेशन और जॉब वेकेंसी एडमिन सत्यापन के लिए सबमिट हो गई है!')
+          language === 'EN'
+            ? '⏳ Your New Employer Registration & Job Vacancy have been sent to Admin for approval! Once approved by Admin, they will be live.'
+            : '⏳ आपका नया एम्प्लॉयर रजिस्ट्रेशन और जॉब वेकेंसी एडमिन अप्रूवल के लिए भेज दी गई है! एडमिन अप्रूवल के बाद यह लाइव दिखेगी।'
         );
-        if (res.item) {
-          setVacanciesList(prev => [res.item!, ...prev]);
-          if (onSuccess) onSuccess(res.item);
+        if (res.item && onSuccess) {
+          onSuccess(res.item);
         }
         loadRegisteredBusinesses();
       } else {
@@ -443,6 +442,7 @@ export default function EmployerVacancyModal({
 
   const filteredVacancies = vacanciesList.filter((item) => {
     if (item.type !== 'employer_vacancy') return false;
+    if (item.status && item.status !== 'approved') return false;
     if (categoryFilter !== 'all' && item.category !== categoryFilter) return false;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();

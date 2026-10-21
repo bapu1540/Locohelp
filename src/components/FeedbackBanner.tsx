@@ -49,11 +49,6 @@ export default function FeedbackBanner() {
             <Mail className="w-4 h-4" />
             {t('feed.contact')}
           </a>
-          
-          <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest pt-2">
-            <Sparkles className="w-3 h-3" />
-            <span>{language === 'EN' ? 'Building for the community' : 'समुदाय के लिए निर्माण'}</span>
-          </div>
         </div>
       </div>
     </div>

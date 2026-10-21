@@ -24,43 +24,96 @@ interface InstallAppModalProps {
 
 export default function InstallAppModal({ isOpen, onClose }: InstallAppModalProps) {
   const { t, language } = useLanguage();
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(() => (typeof window !== 'undefined' ? (window as any).__deferredPwaPrompt : null));
   const [isInstalled, setIsInstalled] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
+  const [installNotice, setInstallNotice] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'direct' | 'apk' | 'ios'>('direct');
 
-  const appUrl = typeof window !== 'undefined' ? window.location.origin : 'https://ais-pre-eagrh6qzdae4siv3w6tzmb-474897494416.asia-east1.run.app';
+  const appUrl = typeof window !== 'undefined' ? window.location.href.split('#')[0] : 'https://www.locohelp.com';
+
+  // Detect in-app browsers (WhatsApp, Instagram, Facebook, Telegram, LinkedIn, etc.)
+  const ua = typeof navigator !== 'undefined' ? navigator.userAgent || '' : '';
+  const isInAppBrowser = /FBAN|FBAV|Instagram|WhatsApp|Line|Telegram|LinkedInApp|MicroMessenger|Snapchat|WV/i.test(ua);
+  const isIOS = /iPhone|iPad|iPod/i.test(ua);
+  const isAndroid = /Android/i.test(ua);
 
   useEffect(() => {
+    if (isIOS) {
+      setActiveTab('ios');
+    }
+  }, [isIOS]);
+
+  useEffect(() => {
+    const syncPrompt = () => {
+      if ((window as any).__deferredPwaPrompt) {
+        setDeferredPrompt((window as any).__deferredPwaPrompt);
+      }
+    };
     const handleBeforeInstall = (e: any) => {
       e.preventDefault();
+      (window as any).__deferredPwaPrompt = e;
       setDeferredPrompt(e);
     };
+    const handleInstalled = () => {
+      setIsInstalled(true);
+      setDeferredPrompt(null);
+      (window as any).__deferredPwaPrompt = null;
+    };
 
+    syncPrompt();
     window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+    window.addEventListener('locohelp-pwa-ready', syncPrompt);
+    window.addEventListener('appinstalled', handleInstalled);
+    window.addEventListener('locohelp-pwa-installed', handleInstalled);
 
-    if (window.matchMedia('(display-mode: standalone)').matches) {
+    if (window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone === true) {
       setIsInstalled(true);
     }
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+      window.removeEventListener('locohelp-pwa-ready', syncPrompt);
+      window.removeEventListener('appinstalled', handleInstalled);
+      window.removeEventListener('locohelp-pwa-installed', handleInstalled);
     };
-  }, []);
+  }, [isOpen]);
+
+  const handleOpenInChrome = () => {
+    const cleanHostAndPath = appUrl.replace(/^https?:\/\//i, '');
+    const chromeIntentUrl = `intent://${cleanHostAndPath}#Intent;scheme=https;package=com.android.chrome;end`;
+    window.location.href = chromeIntentUrl;
+  };
 
   const handleInstallClick = async () => {
-    if (deferredPrompt) {
-      deferredPrompt.prompt();
-      const { outcome } = await deferredPrompt.userChoice;
-      if (outcome === 'accepted') {
-        setIsInstalled(true);
+    setInstallNotice(null);
+    const promptEvent = deferredPrompt || (typeof window !== 'undefined' ? (window as any).__deferredPwaPrompt : null);
+    if (promptEvent) {
+      try {
+        await promptEvent.prompt();
+        const { outcome } = await promptEvent.userChoice;
+        if (outcome === 'accepted') {
+          setIsInstalled(true);
+          (window as any).__deferredPwaPrompt = null;
+          setDeferredPrompt(null);
+        }
+      } catch (err) {
+        setInstallNotice(
+          language === 'HI'
+            ? "Apne browser ke 3-dots (⋮) menu par click karein aur 'Install app' ya 'Add to Home screen' chunein."
+            : "Tap your browser's 3-dot (⋮) menu and select 'Install app' or 'Add to Home screen'."
+        );
       }
-      setDeferredPrompt(null);
+    } else if (isInAppBrowser && isAndroid) {
+      handleOpenInChrome();
+    } else if (isIOS) {
+      setActiveTab('ios');
     } else {
-      // If browser already has it or doesn't support deferred prompt, give guidance
-      alert(language === 'HI' 
-        ? "Apne browser ke 3-dots (menu) par click karein aur 'Install App' ya 'Add to Home screen' chunein."
-        : "Tap your browser's 3-dot menu and select 'Install app' or 'Add to Home screen'.");
+      setInstallNotice(
+        language === 'HI'
+          ? "Apne Chrome browser ke upar right side me 3-dots (⋮) par tap karein aur 'Install app' ya 'Add to Home screen' par click karein."
+          : "Tap the 3-dot menu (⋮) in the top-right corner of Chrome and select 'Install app' or 'Add to Home screen'."
+      );
     }
   };
 
@@ -69,9 +122,6 @@ export default function InstallAppModal({ isOpen, onClose }: InstallAppModalProp
     setIsCopied(true);
     setTimeout(() => setIsCopied(false), 2500);
   };
-
-  // Direct PWABuilder URL to package this web app into an official Android APK
-  const pwaBuilderUrl = `https://www.pwabuilder.com/reportcard?site=${encodeURIComponent(appUrl)}`;
 
   if (!isOpen) return null;
 
@@ -146,6 +196,35 @@ export default function InstallAppModal({ isOpen, onClose }: InstallAppModalProp
 
           {/* Tab Content */}
           <div className="p-5 overflow-y-auto space-y-4 text-xs">
+            {/* In-App Browser Smart Fallback Banner (WhatsApp / Instagram / Facebook) */}
+            {isInAppBrowser && (
+              <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/60 border-2 border-amber-400 dark:border-amber-700 space-y-2.5">
+                <div className="flex items-start gap-2.5">
+                  <span className="text-lg shrink-0">🌐</span>
+                  <div>
+                    <h4 className="font-extrabold text-amber-950 dark:text-amber-200 text-xs">
+                      {language === 'HI' ? 'In-App Browser Detected (WhatsApp / Instagram)' : 'Opened Inside In-App Browser'}
+                    </h4>
+                    <p className="text-[11px] text-amber-900 dark:text-amber-300 mt-0.5 leading-relaxed">
+                      {language === 'HI'
+                        ? 'App ko phone me install karne ke liye ise Google Chrome me kholein:'
+                        : 'To install the LocoHelp app smoothly on your phone, open it in Google Chrome:'}
+                    </p>
+                  </div>
+                </div>
+                {isAndroid && (
+                  <button
+                    type="button"
+                    onClick={handleOpenInChrome}
+                    className="w-full py-2.5 px-3 bg-amber-600 hover:bg-amber-700 text-white font-black rounded-xl text-xs flex items-center justify-center gap-2 shadow-sm active:scale-95 transition-all cursor-pointer"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    <span>{language === 'HI' ? 'Open in Chrome to Install' : 'Open in Chrome to Install'}</span>
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* TAB 1: 1-Tap Direct Install (WebAPK) */}
             {activeTab === 'direct' && (
               <div className="space-y-3.5">
@@ -179,12 +258,34 @@ export default function InstallAppModal({ isOpen, onClose }: InstallAppModalProp
                 </div>
 
                 <button 
+                  type="button"
                   onClick={handleInstallClick}
-                  className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold rounded-2xl text-xs flex items-center justify-center gap-2 shadow-md shadow-indigo-600/25 active:scale-95 transition-all cursor-pointer"
+                  className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold rounded-2xl text-xs flex items-center justify-center gap-2 shadow-md shadow-indigo-600/25 active:scale-95 transition-all cursor-pointer"
                 >
                   <Download className="w-4 h-4" />
-                  {isInstalled ? "App Already Installed ✓" : "Install App On This Phone Now"}
+                  {isInstalled
+                    ? (language === 'HI' ? "App Pehle Se Installed Hai ✓" : "App Already Installed ✓")
+                    : (deferredPrompt
+                        ? (language === 'HI' ? "Install App Now (1-Click)" : "Install App On This Phone Now")
+                        : (language === 'HI' ? "Install App / Add to Home Screen" : "Install App On This Phone Now"))}
                 </button>
+
+                {isAndroid && !deferredPrompt && !isInstalled && (
+                  <button
+                    type="button"
+                    onClick={handleOpenInChrome}
+                    className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl text-xs flex items-center justify-center gap-2 shadow-xs active:scale-95 transition-all cursor-pointer"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    <span>{language === 'HI' ? 'Open in Chrome to Install' : 'Open in Chrome to Install'}</span>
+                  </button>
+                )}
+
+                {installNotice && (
+                  <div className="p-3 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-300 dark:border-indigo-700 rounded-xl text-[11px] font-bold text-indigo-900 dark:text-indigo-200">
+                    📲 {installNotice}
+                  </div>
+                )}
 
                 <div className="p-3 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 text-[11px] text-slate-500">
                   💡 <strong>Chrome Tip:</strong> Agar button se prompt na aaye, toh browser ke right side me <strong>3 dots (⋮)</strong> par click karke <strong>"Install app"</strong> ya <strong>"Add to Home screen"</strong> chunein.

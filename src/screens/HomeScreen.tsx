@@ -24,6 +24,7 @@ import PanIndiaLocationModal from '../components/PanIndiaLocationModal';
 import { getSavedUserLocation, getConnectedTwinDistricts, UserManualLocation } from '../data/panIndiaLocations';
 import { isGuestUser } from '../lib/authUtils';
 import FeedbackBanner from '../components/FeedbackBanner';
+import InstallAppModal from '../components/InstallAppModal';
 
 interface HomeScreenProps {
   onNavigate: (screen: Screen) => void;
@@ -68,6 +69,24 @@ export default function HomeScreen({
   const [postToDelete, setPostToDelete] = useState<string | null>(null);
   const [selectedIntentForResponses, setSelectedIntentForResponses] = useState<Intent | null>(null);
   const [isResponsesModalOpen, setIsResponsesModalOpen] = useState(false);
+  const [isInstallAppModalOpen, setIsInstallAppModalOpen] = useState(false);
+
+  const handleInstallAppClick = async () => {
+    const promptEvent = (window as any).__deferredPwaPrompt;
+    if (promptEvent && typeof promptEvent.prompt === 'function') {
+      try {
+        promptEvent.prompt();
+        const choice = await promptEvent.userChoice;
+        if (choice && choice.outcome === 'accepted') {
+          (window as any).__deferredPwaPrompt = null;
+          return;
+        }
+      } catch (err) {
+        // Fallback to InstallAppModal
+      }
+    }
+    setIsInstallAppModalOpen(true);
+  };
 
   // Active logged-in user state (automatically synced with Supabase Auth and localStorage)
   const [activeUser, setActiveUser] = useState(() => getCurrentUser());
@@ -299,7 +318,7 @@ export default function HomeScreen({
 
   const handleWhatsAppShare = () => {
     const text = encodeURIComponent(
-      "Namaste! 🙏 Humare mohalle aur area me Plumber, Electrician, Mechanic, emergency madad aur dosti ke liye LocoHelp app use karein. 100% Free & zero commission! Check here: " + window.location.origin
+      "Namaste! 🙏 Humare mohalle aur area me Plumber, Electrician, Mechanic, emergency madad aur dosti ke liye LocoHelp app use karein. 100% Free & zero commission! Check here: https://www.locohelp.com"
     );
     window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
     setShowShareToast(true);
@@ -313,7 +332,7 @@ export default function HomeScreen({
       `📢 *LocoHelp Mohalla Alert* 📢\n\n` +
       `📌 *Requirement:* "${intent.description}"\n` +
       `📍 *Distance:* ${km} km away\n\n` +
-      `👉 Response / Help dene ke liye LocoHelp App kholein:\n${window.location.origin}`
+      `👉 Response / Help dene ke liye LocoHelp Website kholein:\nhttps://www.locohelp.com`
     );
     window.open(`https://api.whatsapp.com/send?text=${shareMsg}`, '_blank');
   };
@@ -1126,27 +1145,20 @@ export default function HomeScreen({
             </div>
           </div>
 
-          {/* 4. Colorful Business & Venue Register Banner */}
-          <div className="w-full">
-            <div
-              onClick={handleSafeRegisterShop}
-              className="w-full bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 text-white border-2 border-emerald-400 dark:border-emerald-500 rounded-2xl p-3.5 flex items-center justify-between shadow-md cursor-pointer active:scale-95 transition-all"
-              title="Business & Venue Registration"
-            >
-              <div className="flex items-center gap-2.5">
-                <span className="text-xl shrink-0">🏪</span>
-                <div className="text-left">
-                  <span className="text-sm sm:text-base font-black tracking-wide text-white block">
-                    {language === 'EN' ? 'Business & Shop Register' : 'दुकान व बिजनेस रजिस्टर करें'}
-                  </span>
-                  <span className="text-[10px] text-emerald-100 font-medium">
-                    {language === 'EN' ? 'List Shop, Showroom, Hospital & Venue for 100% Free' : 'अपनी दुकान, शोरूम या सर्विस मुफ्त लिस्ट करें'}
-                  </span>
-                </div>
-              </div>
-              <div className="text-emerald-900 bg-white/95 text-xs font-black px-3.5 py-1.5 rounded-xl shrink-0 shadow-2xs">
-                {language === 'EN' ? 'Register Free →' : 'रजिस्टर करें →'}
-              </div>
+          {/* 4. Colorful Business & Venue Register Banner (Clean & Same Size as Upper Banners) */}
+          <div
+            onClick={handleSafeRegisterShop}
+            className="w-full bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 rounded-2xl p-3.5 text-white shadow-md shadow-emerald-600/20 cursor-pointer active:scale-[0.98] transition-all border-2 border-emerald-400 dark:border-emerald-500 hover:brightness-105 flex items-center justify-between gap-3"
+            title="Business & Shop Registration"
+          >
+            <div className="flex items-center gap-2.5">
+              <span className="text-xl shrink-0">🏪</span>
+              <span className="text-sm sm:text-base font-black tracking-wide text-white">
+                {language === 'EN' ? 'Business & Shop Register' : 'दुकान व बिजनेस रजिस्टर करें'}
+              </span>
+            </div>
+            <div className="text-emerald-900 bg-white/95 text-xs font-black px-3.5 py-1.5 rounded-xl shrink-0 shadow-2xs">
+              {language === 'EN' ? 'Register Free →' : 'रजिस्टर करें →'}
             </div>
           </div>
 
@@ -1437,8 +1449,18 @@ export default function HomeScreen({
               </span>
             </div>
 
-            {/* 3 Compact & Sleek Buttons */}
-            <div className="grid grid-cols-3 gap-1.5">
+            {/* 4 Compact & Sleek Buttons (including Install App PWA) */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+              {/* Install App (PWA) */}
+              <button
+                onClick={handleInstallAppClick}
+                className="bg-gradient-to-r from-orange-500 to-rose-600 hover:from-orange-600 hover:to-rose-700 text-white rounded-xl py-1.5 px-2 flex items-center justify-center gap-1.5 shadow-2xs active:scale-95 transition-all text-center group cursor-pointer"
+                title="Install LocoHelp Mobile App"
+              >
+                <Smartphone className="w-3.5 h-3.5 text-white shrink-0" />
+                <span className="font-bold text-[10px] truncate">{t('home.installApp') || 'Install App'}</span>
+              </button>
+
               {/* WhatsApp Share */}
               <button
                 onClick={handleWhatsAppShare}
@@ -1582,7 +1604,7 @@ export default function HomeScreen({
         isOpen={isRegisterShopModalOpen}
         onClose={() => setIsRegisterShopModalOpen(false)}
         onSuccess={() => {
-          setCreatedToast("⚡ " + (language === 'EN' ? 'Shop / Showroom registered successfully!' : 'दुकान/शोरूम/मॉल सफलतापूर्वक रजिस्टर हुआ!'));
+          setCreatedToast("⏳ " + (language === 'EN' ? 'Business / Shop submitted for Admin approval!' : 'दुकान/बिज़नेस एडमिन अप्रूवल के लिए सबमिट हो गया!'));
           setTimeout(() => setCreatedToast(null), 4000);
         }}
       />
@@ -1592,7 +1614,7 @@ export default function HomeScreen({
         isOpen={isFreeHelperModalOpen}
         onClose={() => setIsFreeHelperModalOpen(false)}
         onSuccess={() => {
-          setCreatedToast("⚡ " + (language === 'EN' ? 'Helper profile registered successfully!' : 'हेल्पर प्रोफाइल सफलतापूर्वक रजिस्टर हुई!'));
+          setCreatedToast("⏳ " + (language === 'EN' ? 'Helper profile submitted for Admin approval!' : 'हेल्पर प्रोफाइल एडमिन अप्रूवल के लिए सबमिट हो गई!'));
           setTimeout(() => setCreatedToast(null), 4000);
         }}
       />
@@ -1737,6 +1759,12 @@ export default function HomeScreen({
           );
           setTimeout(() => setCreatedToast(null), 4000);
         }}
+      />
+
+      {/* PWA Mobile App Installation Modal */}
+      <InstallAppModal
+        isOpen={isInstallAppModalOpen}
+        onClose={() => setIsInstallAppModalOpen(false)}
       />
 
     </div>
