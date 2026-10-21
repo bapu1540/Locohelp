@@ -240,8 +240,7 @@ export default function FreeHelperRegisterModal({
               </div>
               <div>
                 <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-1.5">
-                  <span>{existingProfile && !isEditing ? (language === 'EN' ? 'My Helper Profile' : 'मेरी हेल्पर प्रोफाइल') : t('cat.modalTitle')}</span>
-                  <span className="text-[10px] bg-emerald-600 text-white font-black px-1.5 py-0.5 rounded-full uppercase">100% Free</span>
+                  <span>{existingProfile && !isEditing ? (language === 'EN' ? 'My Service Expert Profile' : 'मेरी सर्विस एक्सपर्ट प्रोफाइल') : t('cat.modalTitle')}</span>
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
                   {existingProfile && !isEditing
@@ -279,8 +278,8 @@ export default function FreeHelperRegisterModal({
                     </div>
                     <p className="text-xs text-emerald-800 dark:text-emerald-300 font-medium mt-1">
                       {language === 'EN'
-                        ? 'Your helper profile is approved by Admin and visible to everyone in Browse Local Helpers!'
-                        : 'आपकी प्रोफाइल एडमिन द्वारा स्वीकृत है और लोकल हेल्पर्स डायरेक्टरी में लाइव दिख रही है!'}
+                        ? 'Your Service Expert profile is approved by Admin and visible to everyone in Browse Service Experts!'
+                        : 'आपकी प्रोफाइल एडमिन द्वारा स्वीकृत है और सर्विस एक्सपर्ट्स डायरेक्टरी में लाइव दिख रही है!'}
                     </p>
                   </div>
                 </div>

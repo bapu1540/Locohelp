@@ -314,8 +314,8 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess }: Regist
                 </h3>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
                   {language === 'EN' 
-                    ? 'Browse verified businesses or register your shop for free' 
-                    : 'रजिस्टर्ड दुकानें देखें या अपनी दुकान फ्री में रजिस्टर करें'}
+                    ? 'Browse verified businesses or register your shop' 
+                    : 'रजिस्टर्ड दुकानें देखें या अपनी दुकान रजिस्टर करें'}
                 </p>
               </div>
             </div>

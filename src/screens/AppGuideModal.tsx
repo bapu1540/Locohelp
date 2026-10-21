@@ -450,66 +450,70 @@ export const MULTI_EXAMPLES: GuideExample[] = [
 
 const GUIDE_I18N: Record<Language, any> = {
   EN: {
-    headerSub: "App Benefits & How to Use",
-    tabBenefits: "Benefits & 0% Fee",
-    tabHow: "How to Use (3 Steps)",
+    headerSub: "Complete Website Guide & How to Use",
+    tabBenefits: "All Features",
+    tabHow: "How to Use (4 Steps)",
     tabExamples: "Examples",
-    benefitsTitle: "LocoHelp: 100% Free & Zero Commission Community Network",
-    benefitsDesc: "Unlike big apps, zero commission is taken from any helper or public. Neighbors and local service providers connect directly.",
-    b1Title: "Zero Commission",
-    b1Desc: "No deduction from helpers or seekers. 100% money remains with the helper.",
-    b2Title: "Hyper-Local 1 to 5 km Radar",
-    b2Desc: "People within your neighborhood and 1-5 km immediately respond for help.",
-    b3Title: "Emergency Fast Response",
-    b3Desc: "Immediate alerts for pipe leaks, punctures, dead batteries, or medicine needs.",
-    b4Title: "Privacy & Auto-Wipe",
-    b4Desc: "Your phone number is never shared without permission. Chat automatically wipes upon completion.",
-    howIntro: "Learn how to use LocoHelp in 3 simple steps:",
-    s1Title: "Step 1: Post your need (Post Intent)",
-    s1Desc: "Tap 'Post Intent', write what you need (e.g. 'Plumber emergency' or '2 players for cricket'), and pick a radius (1km, 2km, 5km).",
-    s2Title: "Step 2: Nearby Helpers & Neighbors Get Alerted",
-    s2Desc: "Plumbers, mechanics, and community members in your 1-5km radius respond with a single tap.",
-    s3Title: "Step 3: Direct Chat & Call, Auto-Wipe upon Completion",
-    s3Desc: "Chat and call directly in the app. Mark 'Task Completed' when done to wipe chat for complete privacy.",
-    helperTitle: "Are you a Plumber, Electrician or Service Provider?",
-    helperDesc: "Create your 100% Free Profile and get direct neighborhood jobs with zero commission.",
+    benefitsTitle: "LocoHelp: Complete Hyper-Local Community & Service Network",
+    benefitsDesc: "Connect directly with verified Service Experts, Local Shops, Job Seekers, Employers, and Neighbors in your city.",
+    b1Title: "Admin-Verified Trust",
+    b1Desc: "Every Service Expert, Shop, Job Seeker, and Employer listing is reviewed by Admin for safety.",
+    b2Title: "Pan-India District & Area",
+    b2Desc: "Select your State, District, and Local Area to see relevant posts, experts, shops, and jobs near you.",
+    b3Title: "1-Hour Live Broadcast",
+    b3Desc: "Urgent help posts stay live for 1 hour so the feed always remains active, fresh, and clutter-free.",
+    b4Title: "Direct Connect & Privacy",
+    b4Desc: "Use secure in-app chat, Voice Search, and WhatsApp connect while keeping your privacy protected.",
+    howIntro: "How to use all modules of LocoHelp:",
+    s1Title: "1. Post Urgent Need (1-Hour Live Radar)",
+    s1Desc: "Tap 'Post / Broadcast' on the home page, pick a 1-click template or speak via Voice Search, and publish. Check replies anytime in 'Responses / Chats'.",
+    s2Title: "2. Browse or Register as a Service Expert",
+    s2Desc: "Tap 'Browse Service Experts' to find verified Plumbers, Electricians, Mechanics, Tutors & more by city, or click '+ Create Profile' to register your skills.",
+    s3Title: "3. Business & Shop Directory",
+    s3Desc: "Tap 'Business & Shop Register' to browse verified local shops with photos, timings & WhatsApp contact, or submit your own shop with up to 3 photos.",
+    s4Title: "4. Local Job Portal (Job Seekers & Employers)",
+    s4Desc: "Job Seekers can register with their Resume/Biodata. Employers can either link their registered LocoHelp Shop in 1 click or register as a new Employer to post vacancies.",
+    helperTitle: "Are you a Skilled Professional, Shop Owner, or Employer?",
+    helperDesc: "Register your Service Expert Profile, Business/Shop, or Job Vacancy directly from the Home Screen. Once approved by Admin, your listing goes live!",
     examplesHeader: "Real Life Examples in",
     examplesCount: "Examples",
     searchPlaceholder: "Search Cricket, Plumber, Car, Medicine...",
-    footerTagline: "LocoHelp — The Power of Neighbors Connecting",
+    footerTagline: "LocoHelp — Hyper-Local Community & Services",
     closeBtn: "Got it (Close)",
-    openAppBtn: "Open App",
+    openAppBtn: "Explore Website",
   },
   HI: {
-    headerSub: "ऐप के फायदे और उपयोग कैसे करें",
-    tabBenefits: "ऐप के फायदे (0% शुल्क)",
-    tabHow: "कैसे इस्तेमाल करें (3 चरण)",
+    headerSub: "वेबसाइट की पूरी जानकारी और उपयोग गाइड",
+    tabBenefits: "मुख्य फीचर्स",
+    tabHow: "कैसे इस्तेमाल करें (4 चरण)",
     tabExamples: "उदाहरण",
-    benefitsTitle: "LocoHelp: 100% मुफ्त और शून्य कमीशन सामुदायिक नेटवर्क",
-    benefitsDesc: "बड़ी ऐप्स के विपरीत, किसी भी कामगार या आम जनता से कोई कमीशन नहीं लिया जाता। पड़ोसी और स्थानीय कामगार सीधे जुड़ते हैं।",
-    b1Title: "शून्य कमीशन",
-    b1Desc: "काम करने वाले या मदद लेने वाले से कोई कटौती नहीं। पूरा पैसा कामगार का।",
-    b2Title: "1 से 5 किमी का हाइपर-लोकल दायरा",
-    b2Desc: "दूर से नहीं, आपके मोहल्ले और 1-5 किमी के अंदर के लोग ही तुरंत मदद के लिए आते हैं।",
-    b3Title: "आपातकालीन त्वरित प्रतिक्रिया",
-    b3Desc: "पाइप लीक, पंचर, बैटरी डिस्चार्ज या दवा की आपात स्थिति में आस-पास के मददगार तुरंत अलर्ट होते हैं।",
-    b4Title: "गोपनीयता और ऑटो-वाइप",
-    b4Desc: "आपकी अनुमति के बिना फ़ोन नंबर साझा नहीं होता। काम पूरा होते ही चैट अपने आप मिट जाती है।",
-    howIntro: "LocoHelp का उपयोग 3 आसान चरणों में सीखें:",
-    s1Title: "चरण 1: अपनी आवश्यकता पोस्ट करें (Post Intent)",
-    s1Desc: "'Post Intent' दबाएँ और अपनी भाषा में लिखें (जैसे: 'प्लंबर इमरजेंसी' या 'क्रिकेट के लिए 2 लोग चाहिए') और दायरा चुनें।",
-    s2Title: "चरण 2: आस-पास के मददगार और पड़ोसी तुरंत अलर्ट होते हैं",
-    s2Desc: "आपके 1 से 5 किमी क्षेत्र के प्लंबर, इलेक्ट्रीशियन या इलाके के लोग एक टैप में जवाब भेजते हैं।",
-    s3Title: "चरण 3: सीधी चैट और कॉल करें, काम पूरा होते ही चैट मिटाएँ",
-    s3Desc: "ऐप के भीतर चैट और कॉल करें। काम पूरा होने पर 'Task Completed' दबाएँ। गोपनीयता पूरी तरह सुरक्षित रहती है।",
-    helperTitle: "क्या आप प्लंबर, इलेक्ट्रीशियन या कोई सेवा प्रदाता हैं?",
-    helperDesc: "अपनी 100% मुफ्त प्रोफाइल बनाएं और बिना किसी कमीशन के सीधे स्थानीय काम प्राप्त करें।",
+    benefitsTitle: "LocoHelp: आपका स्थानीय कम्युनिटी, सर्विस और जॉब नेटवर्क",
+    benefitsDesc: "अपने शहर के वेरिफाइड सर्विस एक्सपर्ट्स, दुकानों, जॉब सीकर्स, एम्प्लॉयर्स और पड़ोसियों से सीधे जुड़ें।",
+    b1Title: "एडमिन द्वारा सत्यापित (Verified)",
+    b1Desc: "सुरक्षा के लिए हर सर्विस एक्सपर्ट, दुकान, जॉब प्रोफाइल और एम्प्लॉयर को एडमिन अप्रूवल के बाद ही लाइव किया जाता है।",
+    b2Title: "पैन-इंडिया लोकेशन व दायरा",
+    b2Desc: "ऊपर दिए गए लोकेशन बटन से अपना राज्य, जिला और एरिया चुनें और अपने आस-पास की जानकारी देखें।",
+    b3Title: "1-घंटे की लाइव ब्रॉडकास्ट",
+    b3Desc: "इमरजेंसी मदद की पोस्ट 1 घंटे तक लाइव रहती है ताकि फीड हमेशा ताज़ा और साफ रहे।",
+    b4Title: "सुरक्षित चैट और सीधा संपर्क",
+    b4Desc: "वेबसाइट के अंदर सुरक्षित चैट, वॉइस सर्च और व्हाट्सएप कॉन्टैक्ट की सुविधा।",
+    howIntro: "LocoHelp वेबसाइट के सभी फीचर्स का उपयोग ऐसे करें:",
+    s1Title: "1. तुरंत जरूरत पोस्ट करें (Post / Broadcast)",
+    s1Desc: "होम पेज पर 'Post / Broadcast' दबाएं, 1-क्लिक टेम्पलेट या वॉइस सर्च से अपनी जरूरत लिखें। अपनी पोस्ट पर आए जवाब 'प्राप्त जवाब देखें (Inbox)' में देखें।",
+    s2Title: "2. सर्विस एक्सपर्ट्स खोजें या प्रोफाइल बनाएं",
+    s2Desc: "'ब्राउज़ सर्विस एक्सपर्ट्स' में जाकर शहर के प्लंबर, इलेक्ट्रीशियन, मैकेनिक, ट्यूटर आदि खोजें या '+ प्रोफाइल बनाएं' से खुद को रजिस्टर करें।",
+    s3Title: "3. दुकान व बिज़नेस रजिस्टर करें",
+    s3Desc: "'दुकान व बिजनेस रजिस्टर करें' बैनर से अपने एरिया की वेरिफाइड दुकानें देखें या अपनी दुकान की 2-3 फोटो, समय और पता जोड़कर रजिस्टर करें।",
+    s4Title: "4. जॉब पोर्टल (नौकरी पाएं या स्टाफ हायर करें)",
+    s4Desc: "काम चाहने वाले अपना रिज्यूमे/बायोडाटा अपलोड करें। नौकरी देने वाले (Employer) अपनी पहले से रजिस्टर्ड दुकान लिंक करके या नया एम्प्लॉयर बनकर जॉब पोस्ट करें।",
+    helperTitle: "क्या आप सर्विस एक्सपर्ट, दुकानदार या एम्प्लॉयर हैं?",
+    helperDesc: "होम पेज से अपनी सर्विस एक्सपर्ट प्रोफाइल, दुकान या जॉब वेकेंसी दर्ज करें। एडमिन अप्रूवल के तुरंत बाद आपकी लिस्टिंग लाइव हो जाएगी!",
     examplesHeader: "में वास्तविक उदाहरण:",
     examplesCount: "उदाहरण",
     searchPlaceholder: "क्रिकेट, प्लंबर, कार, दवा खोजें...",
-    footerTagline: "LocoHelp — पड़ोसियों की आपसी शक्ति",
+    footerTagline: "LocoHelp — आपके शहर का अपना नेटवर्क",
     closeBtn: "समझ गया (बंद करें)",
-    openAppBtn: "ऐप खोलें",
+    openAppBtn: "वेबसाइट देखें",
   },
 };
 
@@ -546,8 +550,7 @@ export default function AppGuideModal({ onClose, onExplore }: AppGuideModalProps
             </div>
             <div>
               <h2 className="text-base font-extrabold text-slate-900 dark:text-white leading-tight flex items-center gap-1.5">
-                <span>LocoHelp Guide</span>
-                <span className="text-[10px] bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 font-black px-2 py-0.5 rounded-full uppercase">100% Free</span>
+                <span>LocoHelp App Guide</span>
               </h2>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 font-semibold">
                 {g.headerSub}
@@ -630,12 +633,12 @@ export default function AppGuideModal({ onClose, onExplore }: AppGuideModalProps
               <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/40 dark:to-indigo-950/40 border border-blue-200/80 dark:border-blue-900 rounded-2xl">
                 <h3 className="text-sm font-extrabold text-blue-950 dark:text-blue-100 flex items-center gap-2">
                   <ShieldCheck className="w-4 h-4 text-blue-600" />
-                  {language === 'EN' ? '5 Key Features • Tap to Explore' : '5 मुख्य फीचर्स • टैप करके देखें'}
+                  {language === 'EN' ? 'Complete Website Modules • Tap Any Card to Explore' : 'वेबसाइट के मुख्य सेक्शन • विस्तार से देखने के लिए टैप करें'}
                 </h3>
                 <p className="text-xs text-blue-800 dark:text-blue-200 mt-1 leading-relaxed">
                   {language === 'EN'
-                    ? 'Click any feature below to see what you can post, how it works, and real benefits:'
-                    : 'किसी भी फीचर पर टैप करें - क्या पोस्ट कर सकते हैं और कैसे काम करता है विस्तार से देखें:'}
+                    ? 'Click any module below to see what you can do and how it works:'
+                    : 'नीचे किसी भी सेक्शन पर टैप करें और देखें कि यह कैसे काम करता है:'}
                 </p>
               </div>
 
@@ -675,7 +678,7 @@ export default function AppGuideModal({ onClose, onExplore }: AppGuideModalProps
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                 <div className="p-3.5 bg-white dark:bg-slate-800 border border-[#EAE4D9] dark:border-slate-700 rounded-2xl">
                   <div className="w-8 h-8 rounded-xl bg-emerald-100 dark:bg-emerald-950 text-emerald-600 flex items-center justify-center font-bold mb-2">
-                    0%
+                    🛡️
                   </div>
                   <h4 className="text-xs font-extrabold text-slate-900 dark:text-white">{g.b1Title}</h4>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-snug">
@@ -746,9 +749,23 @@ export default function AppGuideModal({ onClose, onExplore }: AppGuideModalProps
                     </p>
                   </div>
                 </div>
+
+                <div className="p-4 bg-white dark:bg-slate-800 border border-[#EAE4D9] dark:border-slate-700 rounded-2xl flex items-start gap-3.5 shadow-xs">
+                  <span className="w-7 h-7 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-extrabold text-xs shrink-0 mt-0.5">
+                    4
+                  </span>
+                  <div>
+                    <h4 className="text-xs font-extrabold text-slate-900 dark:text-white">
+                      {g.s4Title}
+                    </h4>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                      {g.s4Desc}
+                    </p>
+                  </div>
+                </div>
               </div>
 
-              {/* Free Helper Registration Note */}
+              {/* Service Expert / Shop / Employer Registration Note */}
               <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-2xl flex items-center justify-between">
                 <div className="pr-2">
                   <h5 className="text-xs font-extrabold text-emerald-950 dark:text-emerald-200">

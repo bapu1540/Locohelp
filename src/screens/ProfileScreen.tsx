@@ -713,7 +713,7 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
             <h2 className="text-base font-black text-slate-900 dark:text-white tracking-tight">
               Profile Hub / प्रोफाइल हब
             </h2>
-            <p className="text-[10px] text-slate-500 font-medium">Manage Account, Helper Listing & Business Registration</p>
+            <p className="text-[10px] text-slate-500 font-medium">Manage Account, Service Expert Listing & Business Registration</p>
           </div>
         </div>
       </div>
@@ -742,7 +742,7 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
             }`}
           >
             <Wrench className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">Helper Profile</span>
+            <span className="truncate">Service Expert</span>
           </button>
 
           <button
@@ -928,7 +928,7 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
                   }`}>
                     <div>
                       <span className="text-[10px] font-black uppercase tracking-wider block text-slate-500">
-                        Linked Helper Profile ({myHelperProfile.customCategoryName || myHelperProfile.categoryId})
+                        Linked Service Expert Profile ({myHelperProfile.customCategoryName || myHelperProfile.categoryId})
                       </span>
                       <span className={`text-xs font-extrabold ${isHelperApproved ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}`}>
                         {isHelperApproved ? '🛡️ Approved & Active in Directory' : '⏳ Under Admin Review'}
@@ -939,7 +939,7 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
                       onClick={() => setActiveTab('helper')}
                       className="px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] font-black text-slate-800 dark:text-white cursor-pointer"
                     >
-                      View Helper Tab
+                      View Expert Tab
                     </button>
                   </div>
                 )}
@@ -1080,16 +1080,16 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
                     </div>
                     <h4 className="text-sm font-black text-slate-900 dark:text-white mt-1.5">
                       {isHelperApproved
-                        ? (language === 'EN' ? 'Your Helper Profile is Active & Live!' : 'आपकी हेल्पर प्रोफाइल एक्टिव और लाइव है!')
+                        ? (language === 'EN' ? 'Your Service Expert Profile is Active & Live!' : 'आपकी सर्विस एक्सपर्ट प्रोफाइल एक्टिव और लाइव है!')
                         : (language === 'EN' ? 'Profile Under Admin Review' : 'प्रोफाइल एडमिन समीक्षा (Under Admin Review) में है')}
                     </h4>
                     <p className="text-xs text-slate-600 dark:text-slate-300 font-medium mt-1 leading-relaxed">
                       {isHelperApproved
                         ? (language === 'EN'
-                            ? "Your profile is approved by Admin and visible in 'Browse Local Helpers' under your category."
-                            : "आपकी प्रोफाइल एडमिन द्वारा अप्रूव कर दी गई है और 'Browse Local Helpers' में आपकी कैटेगरी में लाइव दिख रही है।")
+                            ? "Your profile is approved by Admin and visible in 'Browse Service Experts' under your category."
+                            : "आपकी प्रोफाइल एडमिन द्वारा अप्रूव कर दी गई है और 'Browse Service Experts' में आपकी कैटेगरी में लाइव दिख रही है।")
                         : (language === 'EN'
-                            ? "Your helper profile has already been created and sent to the Admin approval queue. Once approved, it will automatically go live."
+                            ? "Your Service Expert profile has already been created and sent to the Admin approval queue. Once approved, it will automatically go live."
                             : "आपने पहले ही अपनी प्रोफाइल बना ली है और यह एडमिन अप्रूवल के लिए भेजी जा चुकी है। अप्रूव होते ही यह लाइव हो जाएगी।")}
                     </p>
                   </div>
@@ -1162,8 +1162,7 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
                 <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
                   <div>
                     <h3 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-1.5">
-                      <span>{myHelperProfile ? 'Edit / Update Helper Profile' : 'Helper Profile Registration'}</span>
-                      <span className="text-[9px] bg-emerald-600 text-white font-black px-2 py-0.5 rounded-full uppercase">100% Free</span>
+                      <span>{myHelperProfile ? 'Edit / Update Service Expert Profile' : 'Service Expert Profile Registration'}</span>
                     </h3>
                     <p className="text-[11px] text-slate-500">List your skills (Plumber, Electrician, Tutor, Other) in local neighborhood categories</p>
                   </div>
@@ -1425,7 +1424,7 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
                   className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black py-3.5 rounded-xl transition-all shadow-md flex items-center justify-center gap-2 text-xs cursor-pointer disabled:opacity-60"
                 >
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>{myHelperProfile ? 'Update Helper Profile' : 'Save Helper Profile'}</span>
+                  <span>{myHelperProfile ? 'Update Service Expert Profile' : 'Save Service Expert Profile'}</span>
                 </button>
 
               </form>
@@ -1506,7 +1505,6 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
                   <div>
                     <h3 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-1.5">
                       <span>{myBusinessProfile ? 'Update Business / Shop' : 'Business / Shop Registration'}</span>
-                      <span className="text-[9px] bg-amber-500 text-white font-black px-2 py-0.5 rounded-full uppercase">100% Free</span>
                     </h3>
                     <p className="text-[11px] text-slate-500">List your Shop, Showroom, Hospital, Bakery or Venue (Subject to Admin Approval)</p>
                   </div>
@@ -1842,8 +1840,8 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
               </h3>
               <p className="text-xs text-slate-600 dark:text-slate-300 mt-2 leading-relaxed font-medium">
                 {language === 'EN' 
-                  ? 'Your Helper Profile has been recorded successfully. For community trust & verification, your details have been sent to Admin for approval. Once approved, your profile will be live with the Verified Badge (🛡️) on the main page under your category.'
-                  : 'आपकी हेल्प प्रोफाइल सफलतापूर्वक दर्ज हो गई है। सुरक्षा और वेरिफिकेशन के लिए आपकी प्रोफाइल एडमिन के पास अप्रूवल के लिए भेज दी गई है। एडमिन द्वारा अप्रूव करते ही आपकी प्रोफाइल Verified Badge (🛡️) के साथ मेन पेज पर आपकी केटेगरी के अंदर लाइव हो जाएगी।'}
+                  ? 'Your Service Expert Profile has been recorded successfully. For community trust & verification, your details have been sent to Admin for approval. Once approved, your profile will be live with the Verified Badge (🛡️) on the main page under your category.'
+                  : 'आपकी सर्विस एक्सपर्ट प्रोफाइल सफलतापूर्वक दर्ज हो गई है। सुरक्षा और वेरिफिकेशन के लिए आपकी प्रोफाइल एडमिन के पास अप्रूवल के लिए भेज दी गई है। एडमिन द्वारा अप्रूव करते ही आपकी प्रोफाइल Verified Badge (🛡️) के साथ मेन पेज पर आपकी केटेगरी के अंदर लाइव हो जाएगी।'}
               </p>
             </div>
             <button

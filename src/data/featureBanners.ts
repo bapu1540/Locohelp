@@ -16,158 +16,158 @@ export const FEATURE_BANNERS: FeatureBannerDetail[] = [
   {
     id: 'broadcast',
     icon: '⚡',
-    badge: 'Urgent Alert',
-    titleEn: '1. Broadcast Need (Instant Radar Alert)',
-    titleHi: '1. ब्रॉडकास्ट - तुरंत मदद पोस्ट करें',
-    shortDescEn: 'Post urgent local needs: Plumber, Electrician, Mechanics, Emergency...',
-    shortDescHi: 'इमरजेंसी जरूरतें पोस्ट करें: प्लंबर, इलेक्ट्रिशियन, मैकेनिक, गाड़ी पंचर...',
+    badge: '1-Hour Live Feed',
+    titleEn: '1. Post / Broadcast Urgent Need (1-Hour Live)',
+    titleHi: '1. पोस्ट / ब्रॉडकास्ट — तुरंत जरूरत पोस्ट करें',
+    shortDescEn: 'Post urgent local needs: Plumber, Electrician, Mechanic, Emergency, Sports...',
+    shortDescHi: 'इमरजेंसी जरूरतें पोस्ट करें: प्लंबर, इलेक्ट्रीशियन, मैकेनिक, ब्लड डोनर, क्रिकेट...',
     whatYouCanPostEn: [
       '🔧 "Bathroom pipe burst - Plumber needed immediately"',
-      '⚡ "Light circuit tripping - Electrician needed in 10 mins"',
+      '⚡ "Light circuit tripping - Electrician needed urgently"',
       '🚗 "Car/Bike puncture on main road - Mechanic assistance"',
       '🏏 "Need 2 players for evening box cricket match"',
-      '💊 "Emergency medicine delivery or patient assist helper"'
+      '💊 "Emergency medicine delivery or hospital assistance"'
     ],
     whatYouCanPostHi: [
       '🔧 "बाथरूम का पाइप लीक हो रहा है - तुरंत प्लंबर चाहिए"',
       '⚡ "घर की लाइट ट्रिप हो रही है - इलेक्ट्रीशियन चाहिए"',
       '🚗 "मेन रोड पर गाड़ी पंचर हो गई - मैकेनिक मदद चाहिए"',
       '🏏 "शाम को क्रिकेट खेलने के लिए 2 खिलाड़ी चाहिए"',
-      '💊 "इमरजेंसी दवा या अस्पताल सहायता के लिए हेल्पर"'
+      '💊 "इमरजेंसी दवा या अस्पताल सहायता चाहिए"'
     ],
     howItWorksEn: [
-      'Broadcast alert reaches verified helpers within 2.0 km radius on GPS radar.',
-      '1-Click preset templates available so you don\'t even need to type!',
-      'Broadcast auto-expires in 2 hours to prevent old spam posts.'
+      'Use 1-Click Need Templates or Voice Search to post your requirement in seconds.',
+      'Your post goes live immediately in "Active Nearby" for your selected District & Area.',
+      'Post owners can check all replies in "Responses / Chats", share on WhatsApp, and posts auto-delete after 1 hour to keep the feed fresh.'
     ],
     howItWorksHi: [
-      'आपकी पोस्ट 2 km के दायरे में सभी सत्यापित हेल्पर्स को तुरंत अलर्ट भेजती है।',
-      '1-क्लिक रेडीमेड टेम्पलेट्स उपलब्ध हैं - बिना टाइप किए तुरंत पोस्ट करें!',
-      'पुराने मैसेज हटाने के लिए पोस्ट 2 घंटे में ऑटो-एक्स्पायर हो जाती है।'
+      '1-क्लिक रेडीमेड टेम्पलेट्स या वॉइस सर्च का उपयोग करके सेकंडों में अपनी जरूरत पोस्ट करें।',
+      'आपकी पोस्ट आपके चुने हुए जिले और एरिया के "आस-पास की लाइव पोस्ट्स" में तुरंत लाइव हो जाती है।',
+      'पोस्ट करने वाले "प्राप्त जवाब देखें (Inbox)" में सभी चैट देख सकते हैं और पोस्ट 1 घंटे बाद अपने-आप हट जाती है।'
+    ]
+  },
+  {
+    id: 'experts',
+    icon: '🛠️',
+    badge: 'Service Experts',
+    titleEn: '2. Browse Service Experts & Professionals',
+    titleHi: '2. ब्राउज़ सर्विस एक्सपर्ट्स (कुशल प्रोफेशनल्स)',
+    shortDescEn: 'Find verified Plumbers, Electricians, Mechanics, Tutors & register your profile...',
+    shortDescHi: 'वेरिफाइड प्लंबर, इलेक्ट्रीशियन, मैकेनिक, ट्यूटर खोजें या अपनी प्रोफाइल बनाएं...',
+    whatYouCanPostEn: [
+      '🛠️ Browse or register as Plumber, Electrician, Carpenter, Painter, Mason, AC Technician',
+      '🛵 Vehicle Puncture Mechanic, Towing & Auto Care Experts',
+      '🎓 Home Tutor, Coaching Teacher, Fitness & Yoga Trainer',
+      '🧹 Housekeeping, Domestic Help, Delivery & Custom Service Categories'
+    ],
+    whatYouCanPostHi: [
+      '🛠️ प्लंबर, इलेक्ट्रीशियन, कारपेंटर, पेंटर, मिस्त्री, AC तकनीशियन खोजें या रजिस्टर करें',
+      '🛵 गाड़ी पंचर मैकेनिक, टोइंग व ऑटोकेयर एक्सपर्ट्स',
+      '🎓 होम ट्यूटर, कोचिंग शिक्षक, फिटनेस ट्रेनर',
+      '🧹 हाउसकीपिंग, होम केयर, डिलीवरी व अन्य कस्टम सर्विस कैटेगरी'
+    ],
+    howItWorksEn: [
+      'Click "Browse Service Experts" on the home screen and choose any service category.',
+      'Search experts by City, Village, or Area and chat directly on the website.',
+      'Skilled professionals can click "+ Create Profile" to upload their skills, experience, and work photo (published after Admin approval).'
+    ],
+    howItWorksHi: [
+      'होम स्क्रीन पर "ब्राउज़ सर्विस एक्सपर्ट्स" पर टैप करें और अपनी जरूरत की कैटेगरी चुनें।',
+      'शहर, गांव या इलाके के नाम से एक्सपर्ट्स खोजें और सीधे वेबसाइट पर चैट करें।',
+      'कुशल प्रोफेशनल्स "+ प्रोफाइल बनाएं" पर क्लिक करके अपना अनुभव और काम की फोटो जोड़ सकते हैं (एडमिन अप्रूवल के बाद लाइव)।'
     ]
   },
   {
     id: 'directory',
     icon: '🏪',
-    badge: 'Shops & Malls',
-    titleEn: '2. Business, Shops & Venue Directory',
-    titleHi: '2. दुकान, शोरूम व मॉल डायरेक्टरी',
-    shortDescEn: 'List or find verified shops, showrooms, malls & local offers...',
-    shortDescHi: 'सत्यापित दुकानें, शोरूम, मॉल और डिस्काउंट ऑफर्स देखें...',
+    badge: 'Shops & Businesses',
+    titleEn: '3. Business & Shop Register Directory',
+    titleHi: '3. दुकान व बिज़नेस रजिस्टर डायरेक्टरी',
+    shortDescEn: 'Browse or register local shops, showrooms, hospitals, restaurants & venues...',
+    shortDescHi: 'स्थानीय दुकानें, शोरूम, अस्पताल, रेस्टोरेंट देखें या अपना बिज़नेस रजिस्टर करें...',
     whatYouCanPostEn: [
-      '🏪 Register your shop / showroom for 100% Free (Electronics, Fashion, Bakery...)',
-      '🏬 Shopping Malls, Commercial Complexes & SuperMarts listing',
-      '⚙️ Service Centers, Garages & Repair Workshops',
-      '🏷️ Post daily festival discount deals (e.g. "Flat 30% OFF on Mobiles")'
+      '🏪 Retail Shops, Showrooms, Electronics & Mobile Stores',
+      '🏥 Hospitals, Clinics, Pharmacies & Medical Stores',
+      '🍽️ Restaurants, Cafes, Bakeries, Supermarkets & Grocery Marts',
+      '🏢 Shopping Malls, Service Centers, Coaching Academies & Venues'
     ],
     whatYouCanPostHi: [
-      '🏪 100% फ्री में अपनी दुकान या शोरूम दर्ज करें (इलेक्ट्रॉनिक्स, कपड़े, बेकरी...)',
-      '🏬 शॉपिंग मॉल, कॉम्प्लेक्स और सुपरमार्ट की डायरेक्टरी',
-      '⚙️ सर्विस सेंटर, गैरेज और रिपेयर वर्कशॉप्स',
-      '🏷️ अपने रोजाना डिस्काउंट ऑफर्स पोस्ट करें (जैसे: "मोबाइल रिपेयर पर 30% छूट")'
+      '🏪 रिटेल दुकानें, शोरूम, इलेक्ट्रॉनिक्स और मोबाइल स्टोर',
+      '🏥 अस्पताल, क्लिनिक, फार्मेसी और मेडिकल स्टोर',
+      '🍽️ रेस्टोरेंट, कैफे, बेकरी, सुपरमार्केट और ग्रॉसरी मार्ट',
+      '🏢 शॉपिंग मॉल, सर्विस सेंटर, कोचिंग अकादमी और वेन्यू'
     ],
     howItWorksEn: [
-      'Customers can browse shop photos, addresses, and daily discount offers.',
-      'Direct 1-click in-app chat button lets customers inquire with shop owners instantly.',
-      'No third-party commission charged on any business sales.'
+      'Business owners can register with Shop Name, Category, Owner Name, Timings, Address, WhatsApp Number, and up to 3 Shop Photos.',
+      'Every registration goes to Admin for verification before going live in the public directory.',
+      'Customers can browse shop photos, timings, and connect with owners on WhatsApp in 1 click.'
     ],
     howItWorksHi: [
-      'ग्राहक दुकान की फोटो, पता और दैनिक डिस्काउंट ऑफर आसानी से देख सकते हैं।',
-      '1-क्लिक इन-ऐप चैट बटन से ग्राहक सीधे दुकानदार से बात कर सकते हैं।',
-      'किसी भी बिज़नेस या बिक्री पर कोई कमीशन नहीं लिया जाता।'
+      'दुकानदार अपनी दुकान का नाम, कैटेगरी, मालिक का नाम, खुलने का समय, पता, व्हाट्सएप नंबर और 2-3 फोटो अपलोड करके रजिस्टर कर सकते हैं।',
+      'हर रजिस्ट्रेशन पब्लिक डायरेक्टरी में लाइव होने से पहले एडमिन अप्रूवल के लिए जाता है।',
+      'ग्राहक दुकान की फोटो, समय और पता देखकर 1-क्लिक में व्हाट्सएप पर संपर्क कर सकते हैं।'
     ]
   },
   {
-    id: 'helpers',
-    icon: '🛠️',
-    badge: 'Free Worker Profile',
-    titleEn: '3. Free Worker & Service Profile',
-    titleHi: '3. फ्री वर्कर व हेल्पर्स प्रोफाइल',
-    shortDescEn: 'Plumbers, electricians, tutors, mechanics - build free profile...',
-    shortDescHi: 'प्लंबर, इलेक्ट्रिशियन, मैकेनिक - बिना कमीशन फ्री प्रोफाइल बनाएं...',
+    id: 'jobs',
+    icon: '💼',
+    badge: 'Local Job Portal',
+    titleEn: '4. Job Seekers & Employers (Hire Staff)',
+    titleHi: '4. लोकल जॉब पोर्टल — नौकरी पाएं या स्टाफ रखें',
+    shortDescEn: 'Register as a Job Seeker with Resume/Biodata or post vacancies as an Employer...',
+    shortDescHi: 'रिज्यूमे के साथ जॉब के लिए रजिस्टर करें या अपनी दुकान/कंपनी के लिए स्टाफ हायर करें...',
     whatYouCanPostEn: [
-      '🛠️ Register as Plumber, Electrician, Carpenter, Painter, Mason, AC Technician',
-      '🛵 Vehicle Puncture Mechanic, Towing & Auto Care',
-      '🎓 Home Tutor, Music Teacher, Fitness Trainer',
-      '🧹 Housekeeping, Maid, Parcel Delivery Helper'
+      '👨‍💼 Job / Work Registration: Full Name, Preferred Role, Education, Expected Salary & Resume/Biodata Upload (PDF/Image)',
+      '🏪 Employer Option A (Already Registered Shop): Link your existing LocoHelp Shop/Business in 1 click to post a job',
+      '🏢 Employer Option B (New Employer): Register your business/company and post staff vacancies directly',
+      '🔍 Browse verified local candidates and open job vacancies in your city'
     ],
     whatYouCanPostHi: [
-      '🛠️ प्लंबर, इलेक्ट्रिशियन, कारपेंटर, पेंटर, मिस्त्री, AC तकनीशियन प्रोफाइल',
-      '🛵 गाड़ी पंचर मैकेनिक, टोइंग व ऑटोकेयर वर्कशॉप',
-      '🎓 होम ट्यूटर, कोचिंग शिक्षक, जिम ट्रेनर',
-      '🧹 हाउसकीपिंग, मेड, पार्सल डिलीवरी हेल्पर'
+      '👨‍💼 जॉब / काम का रजिस्ट्रेशन: नाम, पसंदीदा काम, शिक्षा, अपेक्षित सैलरी और रिज्यूमे/बायोडाटा (PDF/फोटो) अपलोड करें',
+      '🏪 एम्प्लॉयर विकल्प A (पहले से रजिस्टर्ड दुकान): अपनी रजिस्टर्ड दुकान चुनें और बिना दोबारा फॉर्म भरे सीधे जॉब पोस्ट करें',
+      '🏢 एम्प्लॉयर विकल्प B (नया एम्प्लॉयर): नया एम्प्लॉयर रजिस्ट्रेशन करें और स्टाफ की आवश्यकता पोस्ट करें',
+      '🔍 अपने शहर के वेरिफाइड उम्मीदवारों और खाली नौकरियों की सूची देखें'
     ],
     howItWorksEn: [
-      'Zero registration fee and zero commission on your hard-earned income.',
-      'Get direct task requests from neighbors living near your area.',
-      'Earn Verified Member badge and 5-star customer ratings.'
+      'Two dedicated cards on the Home Page: "Job / Work Registration" (for Job Seekers) and "For Employer / Give a Job" (for Job Givers).',
+      'All candidate profiles and employer job postings are verified by Admin before going live.',
+      'Employers and job seekers can connect directly via WhatsApp or Call once approved.'
     ],
     howItWorksHi: [
-      'आपकी मेहनत की कमाई पर 0% कमीशन और ₹0 रजिस्ट्रेशन फीस।',
-      'अपने पड़ोस और क्षेत्र के ग्राहकों से सीधे काम पाएं।',
-      'सत्यापित मेम्बर बैज और 5-स्टार रेटिंग हासिल करें।'
+      'होम पेज पर दो अलग कार्ड हैं: "जॉब / काम का रजिस्ट्रेशन" (काम चाहने वालों के लिए) और "नौकरी / काम देने वाले (Employer)"।',
+      'सभी उम्मीदवार प्रोफाइल और जॉब वेकेंसी एडमिन सत्यापन के बाद ही पब्लिक पोर्टल पर लाइव होती हैं।',
+      'अप्रूव होने के बाद एम्प्लॉयर और उम्मीदवार सीधे संपर्क कर सकते हैं।'
     ]
   },
   {
-    id: 'chat',
-    icon: '💬',
-    badge: 'Secure Chat',
-    titleEn: '4. In-App Secure Chat & Live GPS Tracking',
-    titleHi: '4. सुरक्षित इन-ऐप चैट व लाइव लोकेशन',
-    shortDescEn: 'Chat privately without sharing phone numbers & track arrival...',
-    shortDescHi: 'बिना मोबाइल नंबर शेयर किए सुरक्षित चैट करें और लोकेशन ट्रैक करें...',
+    id: 'chat_location',
+    icon: '📍',
+    badge: 'Pan-India & Chat',
+    titleEn: '5. Pan-India Location, Ads & Private Chat',
+    titleHi: '5. पैन-इंडिया लोकेशन, विज्ञापन और सुरक्षित चैट',
+    shortDescEn: 'Select any State/District in India, chat privately, orinstall the Mobile App...',
+    shortDescHi: 'भारत का कोई भी राज्य/जिला चुनें, सुरक्षित चैट करें और मोबाइल ऐप इंस्टॉल करें...',
     whatYouCanPostEn: [
-      '💬 Private 1-on-1 text chat inside the website screen',
-      '📷 Attach photos of broken pipes, electrical meters or item receipts',
-      '📍 Share 1-click live GPS location pin',
-      '🗺️ Visual radar map tracker to see helper arrival distance'
+      '📍 Top Location Selector: Choose your State, District & Local Area across All India',
+      '💬 Private In-App Chat: Talk, share photos & drop location pins without exposing your number publicly',
+      '📢 Auto-Scrolling Sponsored Ad Banner: Showcase your business advertisement across the city',
+      '📲 Install Mobile App (PWA): Install LocoHelp directly on your Android/iOS home screen'
     ],
     whatYouCanPostHi: [
-      '💬 वेबसाइट स्क्रीन के अंदर 1-ऑन-1 प्राइवेट मैसेजिंग',
-      '📷 टूटे पाइप, मीटर या रसीद की फोटो अटैच करें',
-      '📍 1-क्लिक में अपनी लाइव लोकेशन पिन शेयर करें',
-      '🗺️ विजुअल रडार मैप पर हेल्पर की दूरी लाइव ट्रैक करें'
+      '📍 लोकेशन सेलेक्टर: पूरे भारत में अपना राज्य, जिला और लोकल एरिया चुनें',
+      '💬 सुरक्षित इन-ऐप चैट: बिना नंबर सार्वजनिक किए चैट करें, फोटो और लोकेशन पिन शेयर करें',
+      '📢 ऑटो-स्क्रॉलिंग विज्ञापन बैनर: अपने शहर में अपने बिज़नेस का विज्ञापन दिखाएं',
+      '📲 मोबाइल ऐप इंस्टॉल (PWA): 1-क्लिक में अपने फोन की होम स्क्रीन पर LocoHelp ऐप इंस्टॉल करें'
     ],
     howItWorksEn: [
-      'Complete privacy: Phone numbers remain protected until you choose to share.',
-      'Task complete rating dialog allows giving 1-5 star reviews.',
-      '1-click instant chat deletion clears messages safely from device.'
+      'Use the Global Search Bar (with Voice Search 🎙️) at the top to search Posts, Service Experts, Shops, or Categories instantly.',
+      'All public registrations require Email OTP verification and Admin approval to keep the community 100% genuine and spam-free.',
+      'Tap "Install App" at the bottom of the Home Screen to install the fast mobile app.'
     ],
     howItWorksHi: [
-      'पूरी प्राइवेसी: आपका मोबाइल नंबर तब तक सुरक्षित रहता है जब तक आप शेयर न करें।',
-      'काम खत्म होने पर 1-5 स्टार रेटिंग देने की सुविधा।',
-      '1-क्लिक में चैट डिलीट करके डिवाइस से मैसेज हटाएं।'
-    ]
-  },
-  {
-    id: 'karma',
-    icon: '🏆',
-    badge: 'Trust Score',
-    titleEn: '5. Karma Points & Verified Trust Score',
-    titleHi: '5. कर्म पॉइंट्स व सत्यापन स्कोर',
-    shortDescEn: 'Earn +10 Karma points on every completed help & build trust...',
-    shortDescHi: 'मदद करने पर +10 कर्म पॉइंट्स कमाएं व ट्रस्ट स्कोर बनाएं...',
-    whatYouCanPostEn: [
-      '🌟 Earn +10 Karma points for every successfully completed help',
-      '🛡️ Verified Community Member badge',
-      '🔥 Community leaderboard badge for top local helpers',
-      '🔒 Backend audit preservation for police and safety compliance'
-    ],
-    whatYouCanPostHi: [
-      '🌟 हर सफल मदद पूरी करने पर +10 कर्म पॉइंट्स हासिल करें',
-      '🛡️ सत्यापित कम्युनिटी मेंबर का ट्रस्ट बैज',
-      '🔥 एरिया के टॉप हेल्पर्स लीडरबोर्ड में नाम',
-      '🔒 सुरक्षा और पुलिस वेरिफिकेशन के लिए बैकएंड ऑडिट प्रिजर्वेशन'
-    ],
-    howItWorksEn: [
-      'Higher karma points make your profile rank on top in local search.',
-      'Encourages genuine neighborly helping without spam or fake accounts.',
-      'Safety and legal audit log keeps community 100% safe.'
-    ],
-    howItWorksHi: [
-      'ज्यादा कर्म पॉइंट्स से आपकी प्रोफाइल सर्च में सबसे ऊपर दिखेगी।',
-      'बिना किसी स्पैम के असली पड़ोसियों को जोड़ने में मदद करता है।',
-      'सुरक्षा ऑडिट लॉग से पूरा प्लेटफार्म 100% सेफ रहता है।'
+      'सबसे ऊपर दिए गए ग्लोबल सर्च बार (वॉइस सर्च 🎙️ सहित) से पोस्ट, सर्विस एक्सपर्ट, दुकान या कैटेगरी तुरंत खोजें।',
+      'फेक अकाउंट रोकने के लिए पब्लिक रजिस्ट्रेशन में ईमेल OTP और एडमिन अप्रूवल अनिवार्य है।',
+      'होम स्क्रीन के नीचे "Install App" बटन दबाकर मोबाइल ऐप सीधे अपने फोन में इंस्टॉल करें।'
     ]
   }
 ];

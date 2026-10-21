@@ -238,8 +238,8 @@ export default function HomeScreen({
         hi: 'चैट करने के लिए लॉगिन करें'
       });
       setLoginPromptDesc({
-        en: 'Connect directly with local helpers and neighbors. Sign in with Email OTP or Password!',
-        hi: 'पड़ोसियों और हेल्पर्स से चैट करने के लिए ईमेल OTP या पासवर्ड से लॉगिन करें।'
+        en: 'Connect directly with local service experts and neighbors. Sign in with Email OTP or Password!',
+        hi: 'पड़ोसियों और सर्विस एक्सपर्ट्स से चैट करने के लिए ईमेल OTP या पासवर्ड से लॉगिन करें।'
       });
       setLoginSuccessAction(() => () => onOpenChat(intent));
       setIsLoginPromptOpen(true);
@@ -255,7 +255,7 @@ export default function HomeScreen({
         hi: 'ब्रॉडकास्ट पोस्ट करने के लिए लॉगिन करें'
       });
       setLoginPromptDesc({
-        en: 'Broadcast your requirement to nearby helpers. Sign in with Email OTP or Password!',
+        en: 'Broadcast your requirement to nearby service experts. Sign in with Email OTP or Password!',
         hi: 'अपने एरिया में आवश्यकता पोस्ट करने के लिए ईमेल OTP या पासवर्ड से लॉगिन करें।'
       });
       setLoginSuccessAction(() => () => setIsPostSheetOpen(true));
@@ -302,12 +302,12 @@ export default function HomeScreen({
   const handleSafeCreateProfile = () => {
     if (isGuestUser()) {
       setLoginPromptTitle({
-        en: 'Sign In Required for Helper Profile',
+        en: 'Sign In Required for Service Expert Profile',
         hi: 'प्रोफाइल बनाने के लिए साइन-इन करें'
       });
       setLoginPromptDesc({
-        en: 'Create your verified local helper profile with skills, ratings & phone number in 1-click.',
-        hi: 'अपनी रेटिंग, स्किल्स और मोबाइल नंबर के साथ हेल्पर्स लिस्टिंग में प्रोफाइल बनाने के लिए साइन-इन करें।'
+        en: 'Create your verified local service expert profile with skills, ratings & phone number in 1-click.',
+        hi: 'अपनी रेटिंग, स्किल्स और मोबाइल नंबर के साथ सर्विस एक्सपर्ट्स लिस्टिंग में प्रोफाइल बनाने के लिए साइन-इन करें।'
       });
       setLoginSuccessAction(() => () => setIsFreeHelperModalOpen(true));
       setIsLoginPromptOpen(true);
@@ -318,7 +318,7 @@ export default function HomeScreen({
 
   const handleWhatsAppShare = () => {
     const text = encodeURIComponent(
-      "Namaste! 🙏 Humare mohalle aur area me Plumber, Electrician, Mechanic, emergency madad aur dosti ke liye LocoHelp app use karein. 100% Free & zero commission! Check here: https://www.locohelp.com"
+      "Namaste! 🙏 Humare mohalle aur area me Plumber, Electrician, Mechanic, Shops, Jobs aur emergency madad ke liye LocoHelp app use karein! Check here: https://www.locohelp.com"
     );
     window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
     setShowShareToast(true);
@@ -1022,11 +1022,11 @@ export default function HomeScreen({
                     </div>
                   )}
 
-                  {/* Service Helpers Matches */}
+                  {/* Service Experts Matches */}
                   {globalSearchResults.helpers.length > 0 && (
                     <div className="space-y-1.5">
                       <span className="text-[10px] font-extrabold uppercase text-emerald-600 dark:text-emerald-400 block">
-                        🛠️ Local Helpers & Mechanics ({globalSearchResults.helpers.length})
+                        🛠️ Service Experts & Professionals ({globalSearchResults.helpers.length})
                       </span>
                       <div className="space-y-1">
                         {globalSearchResults.helpers.slice(0, 3).map(helper => (
@@ -1129,7 +1129,7 @@ export default function HomeScreen({
             </div>
           </div>
 
-          {/* 3. Orange Banner ("Browse local helpers") */}
+          {/* 3. Orange Banner ("Browse Service Experts") */}
           <div 
             onClick={() => onNavigate('categories')}
             className="w-full bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 rounded-2xl p-3.5 text-white shadow-md shadow-orange-500/20 cursor-pointer active:scale-[0.98] transition-all border-2 border-amber-300 hover:brightness-105 flex items-center justify-between gap-3"
@@ -1137,7 +1137,7 @@ export default function HomeScreen({
             <div className="flex items-center gap-2.5">
               <span className="text-xl">🔍</span>
               <span className="text-sm sm:text-base font-black tracking-wide text-white">
-                {language === 'EN' ? 'Browse local helpers' : 'ब्राउज़ लोकल हेल्पर्स'}
+                {language === 'EN' ? 'Browse Service Experts' : 'ब्राउज़ सर्विस एक्सपर्ट्स'}
               </span>
             </div>
             <div className="text-amber-950 bg-white/90 text-xs font-black px-3.5 py-1.5 rounded-xl shrink-0 shadow-2xs">
@@ -1158,7 +1158,7 @@ export default function HomeScreen({
               </span>
             </div>
             <div className="text-emerald-900 bg-white/95 text-xs font-black px-3.5 py-1.5 rounded-xl shrink-0 shadow-2xs">
-              {language === 'EN' ? 'Register Free →' : 'रजिस्टर करें →'}
+              {language === 'EN' ? 'Register →' : 'रजिस्टर करें →'}
             </div>
           </div>
 
@@ -1609,12 +1609,12 @@ export default function HomeScreen({
         }}
       />
 
-      {/* Free Helper Registration Profile Modal */}
+      {/* Service Expert Registration Profile Modal */}
       <FreeHelperRegisterModal 
         isOpen={isFreeHelperModalOpen}
         onClose={() => setIsFreeHelperModalOpen(false)}
         onSuccess={() => {
-          setCreatedToast("⏳ " + (language === 'EN' ? 'Helper profile submitted for Admin approval!' : 'हेल्पर प्रोफाइल एडमिन अप्रूवल के लिए सबमिट हो गई!'));
+          setCreatedToast("⏳ " + (language === 'EN' ? 'Service Expert profile submitted for Admin approval!' : 'सर्विस एक्सपर्ट प्रोफाइल एडमिन अप्रूवल के लिए सबमिट हो गई!'));
           setTimeout(() => setCreatedToast(null), 4000);
         }}
       />
