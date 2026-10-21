@@ -80,7 +80,7 @@ import { validateUploadedFile } from '../lib/security';
 
 interface AdminDashboardProps {
   onBack: () => void;
-  showToast: (msg: string) => void;
+  showToast?: (msg: string) => void;
 }
 
 type AdminModuleId =
@@ -94,9 +94,12 @@ type AdminModuleId =
   | 'feedback_categories'
   | 'ads';
 
-const DEFAULT_ADS: AdBannerItem[] = [];
+const DEFAULT_ADS: any[] = [];
 
-export default function AdminDashboard({ onBack, showToast }: AdminDashboardProps) {
+export default function AdminDashboard({ onBack, showToast: externalShowToast }: AdminDashboardProps) {
+  const showToast = (msg: string) => {
+    if (externalShowToast) externalShowToast(msg);
+  };
   // Authentication State (Strictly 2-Step: Password -> OTP to baalvarta@gmail.com)
   const OFFICIAL_ADMIN_EMAIL = 'baalvarta@gmail.com';
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() => {
@@ -865,7 +868,7 @@ export default function AdminDashboard({ onBack, showToast }: AdminDashboardProp
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Failed to add Job Seeker');
-        if (data.item) setJobItems(prev => [data.item, ...prev]);
+        if (data.item) setJobPortalItems(prev => [data.item, ...prev]);
         showToast('✅ Job Seeker profile added & published live immediately!');
       } else if (mod === 'employers') {
         const payload = {
@@ -892,7 +895,7 @@ export default function AdminDashboard({ onBack, showToast }: AdminDashboardProp
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Failed to add Employer Job');
-        if (data.item) setJobItems(prev => [data.item, ...prev]);
+        if (data.item) setJobPortalItems(prev => [data.item, ...prev]);
         showToast('✅ Employer Job Posting added & published live immediately!');
       } else if (mod === 'help_posts') {
         const payload = {
@@ -1035,7 +1038,7 @@ export default function AdminDashboard({ onBack, showToast }: AdminDashboardProp
           showToast(res.error || 'Failed to update Job Seeker');
         }
       } else if (mod === 'employers') {
-        const updates: Partial<JobPortalSubmission> = {
+        const updates: Record<string, any> = {
           companyOrShopName: nameOrTitle,
           jobRole: categoryOrRole,
           phone,
@@ -1883,8 +1886,8 @@ export default function AdminDashboard({ onBack, showToast }: AdminDashboardProp
                       key={c.id}
                       className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-[11px] text-slate-300 font-semibold"
                     >
-                      <span>{c.icon}</span>
-                      <span>{c.name}</span>
+                      <span>{(c as any).icon || (c as any).emoji || '🛠️'}</span>
+                      <span>{c.nameEn}</span>
                     </span>
                   ))}
                   {customCategories.map(c => (

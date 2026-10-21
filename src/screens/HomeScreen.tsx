@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Screen, Intent, Language } from '../types';
-import { Settings, Bell, Zap, Search, Globe, Clock, MapPin, Rocket, User, Trophy, Wrench, Filter, Star, UserCheck, MessageSquare, Plus, Check, X, Share2, MessageCircle, HelpCircle, Smartphone, RefreshCw, ChevronDown, Sparkles, Trash2, ShieldAlert } from 'lucide-react';
+import { Settings, Bell, Zap, Search, Globe, Clock, MapPin, Rocket, User, Trophy, Wrench, Filter, Star, UserCheck, MessageSquare, Plus, Check, X, Share2, MessageCircle, HelpCircle, Smartphone, RefreshCw, ChevronDown, Sparkles, Trash2, Shield, ShieldAlert } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import PostIntentSheet from './PostIntentSheet';
 import { useLanguage, SUPPORTED_LANGUAGES } from '../i18n';
@@ -898,7 +898,7 @@ export default function HomeScreen({
       </header>
 
       {/* Full Page Scroll Container - Uninhibited smooth scrolling for all posts */}
-      <div ref={scrollContainerRef} className="flex-1 min-h-0 overflow-y-auto scrollbar-hide pb-24">
+      <div ref={scrollContainerRef} className="flex-1 min-h-0 overflow-y-auto scrollbar-hide">
 
         {/* GPS Location Notification Alert */}
         {gpsNotificationToast && (
@@ -1495,6 +1495,31 @@ export default function HomeScreen({
           {/* New Feedback Banner at the bottom of the feed */}
           <FeedbackBanner />
         </div>
+
+        {/* Footer at the bottom of the scrollable page */}
+        <footer className="bg-slate-900 border-t border-slate-800/80 py-4 px-4 mt-6 text-center text-xs text-slate-400">
+          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2.5">
+            <span className="font-semibold text-slate-300">
+              🇮🇳 {t('footer.copyright').replace('{year}', new Date().getFullYear().toString())}
+            </span>
+            <div className="flex items-center gap-3 text-[11px] font-bold">
+              <button
+                onClick={() => onNavigate('guidelines')}
+                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700/80 transition-colors cursor-pointer flex items-center gap-1.5"
+              >
+                <Shield className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span>{t('footer.guidelines')}</span>
+              </button>
+              <button
+                onClick={() => onNavigate('support')}
+                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700/80 transition-colors cursor-pointer flex items-center gap-1.5"
+              >
+                <HelpCircle className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                <span>{t('footer.support')}</span>
+              </button>
+            </div>
+          </div>
+        </footer>
       </div>
     </div>
 

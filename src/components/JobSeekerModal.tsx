@@ -99,6 +99,8 @@ export default function JobSeekerModal({
   const [area, setArea] = useState('');
   const [description, setDescription] = useState('');
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [resumeUrl, setResumeUrl] = useState<string | null>(null);
+  const [resumeFileName, setResumeFileName] = useState<string>('');
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitSuccessMessage, setSubmitSuccessMessage] = useState<string | null>(null);
@@ -118,6 +120,8 @@ export default function JobSeekerModal({
     setArea(seeker.area || '');
     setDescription(seeker.description || '');
     setPhotoUrl(seeker.photoOrLogoUrl || null);
+    setResumeUrl((seeker as any).resumeUrl || null);
+    setResumeFileName((seeker as any).resumeFileName || '');
     setActiveTab('new');
   };
 
@@ -182,6 +186,25 @@ export default function JobSeekerModal({
     }
   };
 
+  const handleResumeUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const check = await validateUploadedFile(file, { allowPdf: true });
+      if (!check.valid) {
+        setErrorMessage(language === 'EN' ? (check.error || 'Invalid file') : (check.errorHi || check.error || 'अमान्य फ़ाइल'));
+        e.target.value = '';
+        return;
+      }
+      setErrorMessage(null);
+      setResumeFileName(file.name);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setResumeUrl(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
@@ -215,8 +238,10 @@ export default function JobSeekerModal({
         whatsapp: whatsapp.trim() || phone.trim(),
         area: area.trim() || 'Nearby Area',
         description: description.trim() || 'Hardworking candidate looking for immediate job opportunities.',
-        photoOrLogoUrl: photoUrl || undefined
-      });
+        photoOrLogoUrl: photoUrl || undefined,
+        resumeUrl: resumeUrl || undefined,
+        resumeFileName: resumeFileName || undefined
+      } as any);
 
       setIsSubmitting(false);
 

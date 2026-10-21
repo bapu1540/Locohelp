@@ -24,28 +24,76 @@ export default function SupportScreen({ onBack }: { onBack: () => void }) {
 
   const faqs = [
     {
-      q: language === 'EN' ? "What is LocoHelp and how does it work?" : "LocoHelp क्या है और यह कैसे काम करता है?",
+      q: language === 'EN' ? "1. What is LocoHelp and what all services are available here?" : "1. LocoHelp क्या है और यहाँ कौन-कौन सी सुविधाएँ मिलती हैं?",
       a: language === 'EN' 
-        ? "LocoHelp is a 100% free community network connecting neighbors with verified local helpers, plumbers, electricians, mechanics, and job opportunities without middleman commissions."
-        : "LocoHelp एक 100% मुफ्त पड़ोस नेटवर्क है जो आपको बिना किसी कमीशन या बिचौलियों के सीधे लोकल हेल्पर्स (प्लंबर, इलेक्ट्रीशियन, मैकेनिक आदि) और पड़ोसियों से जोड़ता है।"
+        ? "LocoHelp is India's local community & business network with 5 main modules: (1) Live Community Broadcast (+ Post) for urgent local needs, (2) Verified Service Experts (Plumber, Electrician, Mechanic, Carpenter, AC Repair, Tutor, etc.), (3) Local Business & Shop Directory (Shops, Showrooms, Hospitals, Venues, Service Centers), (4) Local Advertisement Banner for offers & business promotion, and (5) Local Job Portal connecting Job Seekers and Employers directly."
+        : "LocoHelp भारत का लोकल कम्युनिटी और बिज़नेस नेटवर्क है जहाँ आपको 5 मुख्य सुविधाएँ मिलती हैं: (1) लाइव कम्युनिटी ब्रॉडकास्ट (+ Post) से तुरंत लोकल मदद व जानकारी, (2) वेरिफाइड सर्विस एक्सपर्ट्स (प्लंबर, इलेक्ट्रीशियन, मैकेनिक, कारपेंटर, एसी रिपेयर, ट्यूटर आदि), (3) लोकल दुकान व बिज़नेस डायरेक्टरी (दुकान, शोरूम, अस्पताल, मैरिज हॉल, सर्विस सेंटर), (4) लोकल विज्ञापन बैनर (ऑफर, सेल और व्यापार प्रचार), और (5) लोकल जॉब पोर्टल (नौकरी ढूँढने और स्टाफ रखने के लिए)।"
     },
     {
-      q: language === 'EN' ? "How do I post a Broadcast requirement?" : "ब्रॉडकास्ट रिक्वायरमेंट कैसे पोस्ट करें?",
+      q: language === 'EN' ? "2. How do I post a Live Broadcast need (+ Post)?" : "2. अपनी किसी तुरंत जरूरत के लिए लाइव ब्रॉडकास्ट (+ Post) कैसे करें?",
       a: language === 'EN'
-        ? "Tap the '+' Broadcast button on the home screen, speak or type your requirement, select tags, and tap Broadcast. All nearby helpers and neighbors receive it live."
-        : "होम स्क्रीन पर नीचे '+' ब्रॉडकास्ट बटन दबाएं, बोलकर या लिखकर अपनी जरूरत बताएं, और ब्रॉडकास्ट कर दें। आपके एरिया के सभी हेल्पर्स को तुरंत अलर्ट मिल जाएगा।"
+        ? "After logging in, tap the '+ Post' button on the home screen, choose a category or ready-made template, and type or use the Mic (Voice input) to speak your requirement. Once posted, registered members and verified Service Experts in your selected city can reply on your post ('I Can Help') and connect with you inside LocoHelp."
+        : "लॉगिन करने के बाद होम स्क्रीन पर '+ Post' बटन दबाएं, कैटेगरी या रेडीमेड टेम्पलेट चुनें, और अपनी जरूरत लिखकर या माइक (Voice) से बोलकर सबमिट कर दें। आपके चुने गए शहर के रजिस्टर्ड लोग और वेरिफाइड सर्विस एक्सपर्ट्स आपकी पोस्ट पर ('मैं मदद कर सकता हूँ') रिप्लाई करके LocoHelp के माध्यम से आपसे जुड़ सकेंगे।"
     },
     {
-      q: language === 'EN' ? "Are there any hidden charges or commission?" : "क्या कोई शुल्क या कमीशन लिया जाता है?",
+      q: language === 'EN' ? "3. How can I find or register as a 'Service Expert'?" : "3. 'सर्विस एक्सपर्ट' (Service Expert) कैसे ढूँढें या खुद को कैसे रजिस्टर करें?",
       a: language === 'EN'
-        ? "No! LocoHelp is completely zero-commission. Direct peer-to-peer chats and calls happen freely between users and providers."
-        : "बिल्कुल नहीं! LocoHelp शून्य कमीशन और पूर्णतः फ्री प्लेटफॉर्म है। आप सीधे हेल्पर या कस्टमर से बिना किसी शुल्क के बात कर सकते हैं।"
+        ? "To find an expert, use the Search bar or category filters on the home screen to view verified Plumbers, Electricians, Mechanics, Painters, Technicians, etc. in your city. If you provide a skill/service yourself, tap 'Register as Service Expert', fill in your skill category, experience, work area, and photo, and submit for Admin approval so local customers can find you."
+        : "किसी भी काम के लिए एक्सपर्ट ढूँढने के लिए होम स्क्रीन पर सर्च बार या कैटेगरी फिल्टर का उपयोग करें और अपने शहर के वेरिफाइड प्लंबर, इलेक्ट्रीशियन, मैकेनिक, पेंटर आदि की प्रोफाइल देखें। यदि आप स्वयं कोई सर्विस देते हैं, तो 'Register as Service Expert' कार्ड पर क्लिक करके अपना नाम, काम की कैटेगरी, अनुभव, एरिया और फोटो भरकर एडमिन अप्रूवल के लिए सबमिट करें।"
     },
     {
-      q: language === 'EN' ? "Is my personal data safe?" : "क्या मेरी व्यक्तिगत जानकारी सुरक्षित है?",
+      q: language === 'EN' ? "4. How do I register my Shop, Showroom, Hospital, or Business?" : "4. अपनी दुकान, शोरूम, अस्पताल या बिज़नेस को कैसे रजिस्टर करें?",
       a: language === 'EN'
-        ? "Yes. We use Google Cloud Firestore security with strict role permissions. Your exact location is never publicly exposed."
-        : "हाँ, आपका डेटा गूगल फायरस्टोर एन्क्रिप्शन से सुरक्षित है। आपकी लाइव लोकेशन कभी भी किसी को बिना अनुमति नहीं दिखाई जाती।"
+        ? "Click on the 'Business & Shop Directory' banner on the home screen. Fill in your Shop/Business Name, Category, Owner Name, Address/City, Opening/Closing Timings, WhatsApp/Contact Number, and upload 2–3 clear photos of your shop. After Admin verification, your business will appear in your city's directory with a 'Verified' badge."
+        : "होम स्क्रीन पर 'Business & Shop Directory' बैनर पर क्लिक करें। अपनी दुकान या बिज़नेस का नाम, कैटेगरी, मालिक का नाम, पता/शहर, खुलने-बंद होने का समय, व्हाट्सएप नंबर और दुकान की 2–3 साफ फोटो अपलोड करें। एडमिन द्वारा जांच और अप्रूवल के बाद आपकी दुकान 'Verified' बैज के साथ आपके शहर के लोगों को दिखने लगेगी।"
+    },
+    {
+      q: language === 'EN' ? "5. How does the Local Advertisement Banner ('Post Ad') work?" : "5. लोकल विज्ञापन बैनर ('Post Ad') में अपना प्रचार कैसे करें?",
+      a: language === 'EN'
+        ? "In the scrolling 'Local Advertisement Banner' on the home screen, tap the '+ Post Ad' button. Enter your Business/Offer title, description, contact/WhatsApp number, location, and upload your promotional banner image. Once approved by the Admin, your ad will automatically scroll on the main banner for users in your area."
+        : "होम स्क्रीन पर चल रहे 'Local Advertisement Banner' में '+ Post Ad' बटन पर क्लिक करें। अपने ऑफर, सेल, कोचिंग या दुकान के प्रचार का टाइटल, विवरण, संपर्क नंबर और बैनर फोटो अपलोड करके सबमिट करें। एडमिन से अप्रूव होते ही आपका विज्ञापन मुख्य बैनर पर अपने-आप स्क्रॉल होकर सभी को दिखेगा।"
+    },
+    {
+      q: language === 'EN' ? "6. How does the Local Job Portal work for Job Seekers and Employers?" : "6. लोकल जॉब पोर्टल पर नौकरी कैसे ढूँढें या स्टाफ के लिए वैकेंसी कैसे डालें?",
+      a: language === 'EN'
+        ? "In the 'Local Job Portal' section: (A) If you need a job ('I Need a Job'), fill in your Name, Preferred Role, Education, Expected Salary, and upload your Resume/Biodata (PDF or Photo). (B) If you need staff ('I Need Staff / Employer'), you can either link your already registered Shop/Business on LocoHelp or fill out the Employer Vacancy form. You can also tap 'Browse Jobs & Candidates' to view approved vacancies and resumes."
+        : "होम स्क्रीन के 'Local Job Portal' सेक्शन में दो विकल्प हैं: (A) 'मुझे काम चाहिए (Job Seeker)' — यहाँ अपना नाम, काम का प्रकार, शिक्षा, अपेक्षित सैलरी और अपना रिज्यूमे/बायोडाटा (PDF या फोटो) अपलोड करें। (B) 'मुझे स्टाफ चाहिए (Employer)' — यहाँ आप अपनी पहले से रजिस्टर्ड दुकान को लिंक करके या नया फॉर्म भरकर स्टाफ की वैकेंसी डाल सकते हैं। साथ ही 'Browse Jobs & Candidates' में जाकर सभी अप्रूव्ड नौकरियाँ और उम्मीदवार देखे जा सकते हैं।"
+    },
+    {
+      q: language === 'EN' ? "7. Why isn't my registration showing immediately? How does Admin Approval work?" : "7. मेरा रजिस्ट्रेशन तुरंत क्यों नहीं दिख रहा है? एडमिन अप्रूवल कैसे काम करता है?",
+      a: language === 'EN'
+        ? "To keep LocoHelp 100% genuine, safe, and spam-free, every registration (Service Expert, Shop/Business, Advertisement Banner, Job Seeker Profile, and Employer Vacancy) goes to the Admin team for verification first. As soon as the Admin verifies and approves your details, it goes live on the website automatically."
+        : "LocoHelp को 100% भरोसेमंद, सुरक्षित और फर्जी अकाउंट्स से मुक्त रखने के लिए हर रजिस्ट्रेशन (सर्विस एक्सपर्ट, दुकान/बिज़नेस, विज्ञापन बैनर, जॉब प्रोफाइल और वैकेंसी) पहले एडमिन के पास वेरिफिकेशन के लिए जाता है। एडमिन द्वारा विवरण की जांच और अप्रूव करते ही यह वेबसाइट पर लाइव दिखने लगता है।"
+    },
+    {
+      q: language === 'EN' ? "8. How do I change my City / Location to see listings from my area?" : "8. अपने शहर या एरिया की जानकारी देखने के लिए लोकेशन कैसे बदलें?",
+      a: language === 'EN'
+        ? "Tap the City / Location selector at the top of the home screen. You can select your State, District/City, or enter your Pin Code across India, or use GPS location. The feed, shops, service experts, ads, and jobs will automatically filter for your chosen city and nearby connected areas."
+        : "होम स्क्रीन पर सबसे ऊपर दिए गए लोकेशन/शहर बटन पर क्लिक करें। आप पूरे भारत में अपना राज्य, जिला/शहर या पिन कोड चुन सकते हैं या GPS लोकेशन चालू कर सकते हैं। इसके बाद आपको अपने चुने हुए शहर और आसपास के जुड़े हुए क्षेत्रों के ही पोस्ट, दुकानें, सर्विस एक्सपर्ट और जॉब्स दिखाई देंगे।"
+    },
+    {
+      q: language === 'EN' ? "9. How do Account Login and OTP Verification work?" : "9. अकाउंट लॉगिन और ईमेल OTP वेरिफिकेशन कैसे काम करता है?",
+      a: language === 'EN'
+        ? "You can sign in quickly using Google Login or your Email & Password. When registering on the public website, Email OTP verification is mandatory to prevent fake or dummy profiles and ensure every member of the community is genuine."
+        : "आप Google लॉगिन या अपने ईमेल और पासवर्ड की मदद से आसानी से लॉगिन कर सकते हैं। पब्लिक वेबसाइट से नया रजिस्ट्रेशन करते समय फर्जी या डमी प्रोफाइल को रोकने के लिए ईमेल OTP वेरिफिकेशन अनिवार्य रखा गया है ताकि कम्युनिटी में केवल असली लोग ही जुड़ें।"
+    },
+    {
+      q: language === 'EN' ? "10. How can I edit or delete my Broadcast post, Shop, Profile, or Job listing?" : "10. अपनी डाली हुई पोस्ट, दुकान, प्रोफाइल या जॉब को डिलीट या मैनेज कैसे करें?",
+      a: language === 'EN'
+        ? "When you are logged in with the same account you used to create a Broadcast post, Shop, Service Expert profile, Ad, or Job listing, you will see a Delete (Trash icon) option on your item or inside your Profile/Settings section, allowing you to remove it anytime."
+        : "जब आप उसी अकाउंट से लॉगिन रहते हैं जिससे आपने ब्रॉडकास्ट पोस्ट, दुकान, सर्विस एक्सपर्ट प्रोफाइल, विज्ञापन या जॉब डाली थी, तो आपको अपने कार्ड या प्रोफाइल सेक्शन में डिलीट (Trash आइकन) का विकल्प मिलता है, जिससे आप जब चाहें उसे हटा सकते हैं।"
+    },
+    {
+      q: language === 'EN' ? "11. How do I report a wrong post, fake listing, or suspicious user to the Admin?" : "11. किसी गलत पोस्ट, फर्जी लिस्टिंग या संदिग्ध यूजर की शिकायत (Report) एडमिन से कैसे करें?",
+      a: language === 'EN'
+        ? "Click on 'Safety Rules & Report' in the bottom black bar (or inside Settings), then tap 'Report Issue to Admin'. Select the reason (Fake Profile/Shop, Spam/Fraud, Inappropriate Content, etc.) and write the details. Your report goes directly to the Admin team for immediate action and blocking."
+        : "वेबसाइट के सबसे नीचे काली पट्टी में दिए गए 'सुरक्षा नियम व रिपोर्ट (Safety Rules & Report)' बटन पर क्लिक करें और वहाँ 'एडमिन को रिपोर्ट भेजें' दबाएं। शिकायत का कारण चुनें और विवरण लिखकर सबमिट करें। आपकी रिपोर्ट सीधे एडमिन के पास जाती है और गलत पोस्ट या यूजर को तुरंत हटाया/ब्लॉक किया जाता है।"
+    },
+    {
+      q: language === 'EN' ? "12. How can I install the LocoHelp App on my mobile phone?" : "12. अपने मोबाइल फोन में LocoHelp ऐप (App) कैसे इंस्टॉल करें?",
+      a: language === 'EN'
+        ? "Open www.locohelp.com in Google Chrome on your phone and tap the 'Install App' button in the top bar (or inside Settings). If you opened the link inside WhatsApp or Instagram, tap 'Open in Chrome' first so the official mobile app installs smoothly on your home screen."
+        : "अपने फोन के Google Chrome ब्राउज़र में www.locohelp.com खोलें और ऊपर दिए गए 'Install App' बटन (या सेटिंग्स के अंदर इंस्टॉल विकल्प) पर क्लिक करें। यदि आपने व्हाट्सएप या इंस्टाग्राम के अंदर लिंक खोला है, तो पहले उसे 'Open in Chrome' करें, जिससे ऐप सीधे आपके फोन की होम स्क्रीन पर इंस्टॉल हो जाएगा।"
     }
   ];
 

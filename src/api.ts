@@ -767,12 +767,20 @@ export interface VerificationRequestItem {
   userEmail?: string;
   userPhone?: string;
   title: string;
+  area?: string;
+  category?: string;
+  idDocumentType?: string;
   idDocumentWatermarked?: string; // Only present in Admin API
   status: 'pending' | 'approved' | 'rejected';
   createdAt: string;
+  submittedAt?: string;
   reviewedAt?: string;
   adminNotes?: string;
 }
+
+export type AdminVerificationItem = VerificationRequestItem;
+export type JobPortalSubmission = JobPortalItem;
+export type AdBannerItem = any;
 
 /**
  * Submits an identity document with auto-watermark for verification

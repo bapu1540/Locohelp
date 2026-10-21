@@ -232,9 +232,9 @@ function AppContent() {
   };
 
   return (
-    <div className="min-h-screen h-dvh w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-sans antialiased flex flex-col overflow-x-hidden">
+    <div className="h-dvh w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-sans antialiased flex flex-col overflow-hidden">
 
-      {/* Main Page Content Area - Now Full Page */}
+      {/* Main Page Content Area - Full Page */}
       <main className="flex-1 w-full h-full min-h-0 relative flex flex-col overflow-hidden">
         {currentScreen === 'home' && (
           <HomeScreen 
@@ -257,10 +257,15 @@ function AppContent() {
         {currentScreen === 'notifications' && <NotificationsScreen onBack={() => navigate('home')} />}
         {currentScreen === 'pro' && <ProScreen onBack={() => navigate('home')} />}
         {currentScreen === 'settings' && <SettingsMenu onNavigate={navigate} onBack={() => navigate('home')} />}
-        {currentScreen === 'guidelines' && <GuidelinesScreen onBack={() => navigate('settings')} />}
+        {currentScreen === 'guidelines' && (
+          <GuidelinesScreen
+            onBack={() => navigate(prevScreen === 'settings' ? 'settings' : 'home')}
+            onReport={() => setIsReportModalOpen(true)}
+          />
+        )}
         {currentScreen === 'roadmap' && <RoadmapScreen onBack={() => navigate(prevScreen === 'settings' ? 'settings' : 'home')} />}
         {currentScreen === 'profile' && <ProfileScreen onBack={() => navigate('home')} onNavigate={navigate} />}
-        {currentScreen === 'support' && <SupportScreen onBack={() => navigate('settings')} />}
+        {currentScreen === 'support' && <SupportScreen onBack={() => navigate(prevScreen === 'settings' ? 'settings' : 'home')} />}
         {currentScreen === 'mesh' && <MeshScreen onBack={() => navigate('settings')} />}
         {currentScreen === 'leaderboard' && <LeaderboardScreen onBack={() => navigate('home')} />}
         {currentScreen === 'professionals' && <ProfessionalsScreen onBack={() => navigate('home')} onHire={() => navigate('chat')} />}
@@ -275,18 +280,6 @@ function AppContent() {
           />
         )}
       </main>
-
-      {/* Footer (Admin Panel link removed from public view for security) */}
-      <footer className="bg-slate-900 border-t border-slate-800/80 py-4 px-4 text-center text-xs text-slate-500 shrink-0">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
-          <span>{t('footer.copyright').replace('{year}', new Date().getFullYear().toString())}</span>
-          <div className="flex items-center gap-4 text-[11px]">
-            <button onClick={() => navigate('guidelines')} className="hover:text-slate-300 cursor-pointer">{t('footer.guidelines')}</button>
-            <button onClick={() => navigate('roadmap')} className="hover:text-slate-300 cursor-pointer">{t('footer.roadmap')}</button>
-            <button onClick={() => navigate('support')} className="hover:text-slate-300 cursor-pointer">{t('footer.support')}</button>
-          </div>
-        </div>
-      </footer>
 
       {/* Modals */}
       {isReportModalOpen && <ReportModal onClose={() => setIsReportModalOpen(false)} />}
