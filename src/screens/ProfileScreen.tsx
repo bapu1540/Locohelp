@@ -1359,18 +1359,34 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
                               return;
                             }
                             setHelperIdFrontName(file.name);
-                            const reader = new FileReader();
-                            reader.onloadend = () => {
-                              setHelperIdFrontDoc(reader.result as string);
-                            };
-                            reader.readAsDataURL(file);
+                            if (file.type === 'application/pdf') {
+                              const reader = new FileReader();
+                              reader.onloadend = () => {
+                                setHelperIdFrontDoc(reader.result as string);
+                              };
+                              reader.readAsDataURL(file);
+                            } else {
+                              try {
+                                const watermarked = await applyIdWatermark(file, {
+                                  userName: helperName.trim() || userName || 'Helper',
+                                  entityLabel: 'HELPER ID FRONT'
+                                });
+                                setHelperIdFrontDoc(watermarked);
+                              } catch {
+                                const reader = new FileReader();
+                                reader.onloadend = () => {
+                                  setHelperIdFrontDoc(reader.result as string);
+                                };
+                                reader.readAsDataURL(file);
+                              }
+                            }
                           }
                         }}
                         className="w-full text-[11px] text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded-lg file:border-0 file:text-[10px] file:font-bold file:bg-emerald-50 file:text-emerald-700 dark:file:bg-emerald-950 dark:file:text-emerald-300 cursor-pointer"
                       />
                       {helperIdFrontName && (
                         <p className="text-[10px] text-emerald-600 font-bold mt-1 flex items-center gap-1 truncate">
-                          <CheckCircle2 className="w-3 h-3 shrink-0" /> Front: {helperIdFrontName}
+                          <CheckCircle2 className="w-3 h-3 shrink-0" /> Front (Watermarked): {helperIdFrontName}
                         </p>
                       )}
                     </div>
@@ -1394,18 +1410,34 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
                               return;
                             }
                             setHelperIdBackName(file.name);
-                            const reader = new FileReader();
-                            reader.onloadend = () => {
-                              setHelperIdBackDoc(reader.result as string);
-                            };
-                            reader.readAsDataURL(file);
+                            if (file.type === 'application/pdf') {
+                              const reader = new FileReader();
+                              reader.onloadend = () => {
+                                setHelperIdBackDoc(reader.result as string);
+                              };
+                              reader.readAsDataURL(file);
+                            } else {
+                              try {
+                                const watermarked = await applyIdWatermark(file, {
+                                  userName: helperName.trim() || userName || 'Helper',
+                                  entityLabel: 'HELPER ID BACK'
+                                });
+                                setHelperIdBackDoc(watermarked);
+                              } catch {
+                                const reader = new FileReader();
+                                reader.onloadend = () => {
+                                  setHelperIdBackDoc(reader.result as string);
+                                };
+                                reader.readAsDataURL(file);
+                              }
+                            }
                           }
                         }}
                         className="w-full text-[11px] text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded-lg file:border-0 file:text-[10px] file:font-bold file:bg-emerald-50 file:text-emerald-700 dark:file:bg-emerald-950 dark:file:text-emerald-300 cursor-pointer"
                       />
                       {helperIdBackName && (
                         <p className="text-[10px] text-emerald-600 font-bold mt-1 flex items-center gap-1 truncate">
-                          <CheckCircle2 className="w-3 h-3 shrink-0" /> Back: {helperIdBackName}
+                          <CheckCircle2 className="w-3 h-3 shrink-0" /> Back (Watermarked): {helperIdBackName}
                         </p>
                       )}
                     </div>
@@ -1902,6 +1934,11 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
                         await deleteUserProfile(userKey);
                       } catch (err) {}
                     }
+
+                    try {
+                      localStorage.removeItem('locohelp_my_helper_profile');
+                      localStorage.removeItem('locohelp_my_business_profile');
+                    } catch (e) {}
 
                     await logoutUser();
                     window.location.href = window.location.origin;

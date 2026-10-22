@@ -1,6 +1,5 @@
-const CACHE_NAME = 'locohelp-pwa-v3';
+const CACHE_NAME = 'locohelp-pwa-v6';
 const STATIC_ASSETS = [
-  '/',
   '/manifest.json',
   '/pwa-192x192.png',
   '/pwa-512x512.png',
@@ -12,11 +11,13 @@ const STATIC_ASSETS = [
 self.addEventListener('install', (event) => {
   self.skipWaiting();
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(STATIC_ASSETS).catch(() => {
-        // Ignore individual asset cache failures during install
-      });
-    })
+    caches.keys().then((keys) =>
+      Promise.all(keys.map((key) => caches.delete(key)))
+    ).then(() =>
+      caches.open(CACHE_NAME).then((cache) => {
+        return cache.addAll(STATIC_ASSETS).catch(() => {});
+      })
+    )
   );
 });
 
@@ -38,31 +39,24 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
 
-  // Never cache API calls or admin routes
-  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/bapu-admin')) {
+  // Never intercept API calls, Admin routes, Vite source/deps, or JS/TS/CSS module requests
+  if (
+    url.pathname.startsWith('/api/') ||
+    url.pathname.startsWith('/bapu-admin') ||
+    url.pathname.startsWith('/src/') ||
+    url.pathname.startsWith('/node_modules/') ||
+    url.pathname.startsWith('/@') ||
+    url.search.includes('v=') ||
+    url.search.includes('t=') ||
+    /\.(tsx?|jsx?|mjs|css|map)$/i.test(url.pathname)
+  ) {
     return;
   }
 
-  // Network-first strategy with cache fallback for smooth offline & instant updates
-  event.respondWith(
-    fetch(request)
-      .then((response) => {
-        if (response && response.status === 200 && response.type === 'basic') {
-          const responseClone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(request, responseClone);
-          });
-        }
-        return response;
-      })
-      .catch(() => {
-        return caches.match(request).then((cached) => {
-          if (cached) return cached;
-          if (request.mode === 'navigate') {
-            return caches.match('/');
-          }
-          return new Response('Offline', { status: 503, statusText: 'Offline' });
-        });
-      })
-  );
+  // Only handle static PWA icons & manifest with network-first fallback
+  if (STATIC_ASSETS.includes(url.pathname)) {
+    event.respondWith(
+      fetch(request).catch(() => caches.match(request))
+    );
+  }
 });

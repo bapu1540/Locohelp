@@ -20,6 +20,7 @@ if (typeof window !== 'undefined' && window.opener && (window.name === 'google-s
 const rootElement = document.getElementById('root');
 if (rootElement) {
   try {
+    rootElement.removeAttribute('data-booting');
     const root = createRoot(rootElement);
     root.render(
       <StrictMode>

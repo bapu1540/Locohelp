@@ -55,6 +55,7 @@ const PROFILES_FILE = path.join(DATA_DIR, "profiles.json");
 const SHOPS_FILE = path.join(DATA_DIR, "shops.json");
 const HELPERS_FILE = path.join(DATA_DIR, "helpers.json");
 const VERIFICATIONS_FILE = path.join(DATA_DIR, "verifications.json");
+const CATEGORY_IMAGES_FILE = path.join(DATA_DIR, "category_images.json");
 
 function readJsonFile<T>(filePath: string, fallback: T): T {
   try {
@@ -84,8 +85,70 @@ if (!fs.existsSync(PROFILES_FILE)) writeJsonFile(PROFILES_FILE, {});
 if (!fs.existsSync(SHOPS_FILE)) writeJsonFile(SHOPS_FILE, []);
 if (!fs.existsSync(HELPERS_FILE)) writeJsonFile(HELPERS_FILE, []);
 if (!fs.existsSync(VERIFICATIONS_FILE)) writeJsonFile(VERIFICATIONS_FILE, []);
+if (!fs.existsSync(CATEGORY_IMAGES_FILE)) writeJsonFile(CATEGORY_IMAGES_FILE, {});
 const AUTH_USERS_FILE = path.join(DATA_DIR, "auth_users.json");
 if (!fs.existsSync(AUTH_USERS_FILE)) writeJsonFile(AUTH_USERS_FILE, {});
+const SECURITY_VAULT_FILE = path.join(DATA_DIR, "security_vault.enc");
+if (!fs.existsSync(SECURITY_VAULT_FILE)) writeJsonFile(SECURITY_VAULT_FILE, {});
+
+// ==========================================
+// AES-256-GCM ENCRYPTED APPEND-ONLY SECURITY VAULT
+// Even if a user deletes their account/profile/post, or if someone inspects disk files,
+// all records (Name, Phone, Email, Address, Photo, Watermarked Govt ID, History) remain
+// permanently encrypted with AES-256-GCM and strictly NON-DELETABLE (even by Admin).
+// ==========================================
+function getSecurityVaultKey(): Buffer {
+  const rawSecret =
+    process.env.VAULT_ENCRYPTION_KEY ||
+    process.env.JWT_SECRET ||
+    "locohelp-aes256-gcm-master-security-vault-key-2026";
+  return crypto.createHash("sha256").update(rawSecret).digest();
+}
+
+function encryptVaultPayload(data: any): string {
+  const key = getSecurityVaultKey();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  const jsonStr = JSON.stringify(data);
+  const encrypted = Buffer.concat([cipher.update(jsonStr, "utf8"), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  return `${iv.toString("hex")}:${authTag.toString("hex")}:${encrypted.toString("hex")}`;
+}
+
+function decryptVaultPayload(cipherStr: string): any | null {
+  try {
+    if (!cipherStr || typeof cipherStr !== "string") return null;
+    const parts = cipherStr.split(":");
+    if (parts.length !== 3) return null;
+    const [ivHex, tagHex, encHex] = parts;
+    const key = getSecurityVaultKey();
+    const decipher = crypto.createDecipheriv("aes-256-gcm", key, Buffer.from(ivHex, "hex"));
+    decipher.setAuthTag(Buffer.from(tagHex, "hex"));
+    const decrypted = Buffer.concat([
+      decipher.update(Buffer.from(encHex, "hex")),
+      decipher.final()
+    ]);
+    return JSON.parse(decrypted.toString("utf8"));
+  } catch (err) {
+    return null;
+  }
+}
+
+export type SecurityVaultEntityType =
+  | "helper"
+  | "user_profile"
+  | "business"
+  | "job_seeker"
+  | "employer"
+  | "help_post"
+  | "verification";
+
+export type SecurityVaultActionStatus =
+  | "ACTIVE_REGISTERED"
+  | "UPDATED"
+  | "DELETED_BY_USER"
+  | "ADMIN_REMOVED_PUBLIC";
+
 
 // Session Security & JWT Token Generator (30 Days Persistence)
 function createSessionToken(payload: Record<string, any>): string {
@@ -799,12 +862,279 @@ async function initPostgresTables(pool: pg.Pool) {
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       );
       CREATE INDEX IF NOT EXISTS idx_otp_codes_identifier ON otp_codes(identifier);
+
+      CREATE TABLE IF NOT EXISTS category_images (
+        category_id TEXT PRIMARY KEY,
+        image_url TEXT NOT NULL,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS job_portal_items (
+        id TEXT PRIMARY KEY,
+        type TEXT NOT NULL,
+        status TEXT DEFAULT 'pending',
+        data JSONB NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS ad_banners (
+        id TEXT PRIMARY KEY,
+        data JSONB NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS security_vault (
+        id TEXT PRIMARY KEY,
+        entity_type TEXT NOT NULL,
+        action_status TEXT NOT NULL,
+        encrypted_payload TEXT NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
     `);
-    console.log("[Railway PostgreSQL] All tables (user, businesses, chats, listings, otp_codes, verification_requests) verified and ready.");
+    console.log("[Railway PostgreSQL] All tables (user, businesses, chats, listings, otp_codes, verification_requests, category_images, job_portal_items, ad_banners, security_vault) verified and ready.");
   } catch (err: any) {
     console.warn("[Railway PostgreSQL] Table init note:", err.message);
   }
 }
+
+async function archiveToSecurityVault(
+  entityType: SecurityVaultEntityType,
+  recordId: string,
+  payload: Record<string, any>,
+  actionStatus: SecurityVaultActionStatus = "ACTIVE_REGISTERED"
+): Promise<void> {
+  try {
+    const cleanId = String(recordId || payload?.id || payload?.uid || "").trim();
+    if (!cleanId || cleanId.startsWith("seed_") || cleanId.startsWith("sample_")) return;
+
+    const vaultKey = `${entityType}__${cleanId}`;
+    const vaultMap = readJsonFile<Record<string, string>>(SECURITY_VAULT_FILE, {});
+    const existingCipher = vaultMap[vaultKey];
+    const existingDecrypted = existingCipher ? decryptVaultPayload(existingCipher) : null;
+
+    const nowIso = new Date().toISOString();
+    const nameVal =
+      payload.name ||
+      payload.full_name ||
+      payload.displayName ||
+      payload.fullName ||
+      payload.companyOrShopName ||
+      payload.businessName ||
+      payload.userName ||
+      payload.authorName ||
+      existingDecrypted?.name ||
+      "Unknown User";
+
+    const phoneVal =
+      payload.phone ||
+      payload.whatsapp ||
+      payload.userPhone ||
+      payload.authorPhone ||
+      existingDecrypted?.phone ||
+      "";
+
+    const emailVal =
+      payload.email ||
+      payload.ownerEmail ||
+      payload.userEmail ||
+      payload.authorEmail ||
+      existingDecrypted?.email ||
+      "";
+
+    const areaVal =
+      payload.area ||
+      payload.address ||
+      payload.location ||
+      existingDecrypted?.area ||
+      "";
+
+    const categoryVal =
+      payload.categoryId ||
+      payload.categoryLabel ||
+      payload.category ||
+      payload.jobRole ||
+      payload.title ||
+      existingDecrypted?.category ||
+      entityType;
+
+    const govIdDoc =
+      payload.idDocumentWatermarked ||
+      payload.idDocUrl ||
+      payload.id_doc_url ||
+      existingDecrypted?.idDocumentWatermarked ||
+      "";
+
+    const photoVal =
+      payload.photoUrl ||
+      payload.photo_url ||
+      payload.avatar_url ||
+      payload.photoURL ||
+      payload.photoOrLogoUrl ||
+      (Array.isArray(payload.photos) && payload.photos[0]) ||
+      existingDecrypted?.photoUrl ||
+      "";
+
+    const prevHistory = Array.isArray(existingDecrypted?.history) ? existingDecrypted.history : [];
+    const historySnapshot = {
+      action: actionStatus,
+      timestamp: nowIso,
+      name: nameVal,
+      phone: phoneVal,
+      email: emailVal,
+      area: areaVal
+    };
+
+    const mergedVaultRecord = {
+      vaultId: vaultKey,
+      recordId: cleanId,
+      entityType,
+      actionStatus,
+      isDeletedFromPublic:
+        actionStatus === "DELETED_BY_USER" ||
+        actionStatus === "ADMIN_REMOVED_PUBLIC" ||
+        Boolean(existingDecrypted?.isDeletedFromPublic && actionStatus !== "ACTIVE_REGISTERED"),
+      name: nameVal,
+      phone: phoneVal,
+      email: emailVal,
+      area: areaVal,
+      address: payload.address || existingDecrypted?.address || areaVal,
+      category: categoryVal,
+      skillsOrDescription:
+        (Array.isArray(payload.skills) ? payload.skills.join(", ") : payload.skills) ||
+        payload.description ||
+        existingDecrypted?.skillsOrDescription ||
+        "",
+      experience: payload.experience || existingDecrypted?.experience || "",
+      photoUrl: photoVal,
+      idDocumentWatermarked: govIdDoc,
+      hasGovtId: Boolean(govIdDoc),
+      firstRegisteredAt: existingDecrypted?.firstRegisteredAt || payload.createdAt || payload.created_at || nowIso,
+      lastUpdatedAt: nowIso,
+      deletedAt:
+        actionStatus === "DELETED_BY_USER" || actionStatus === "ADMIN_REMOVED_PUBLIC"
+          ? nowIso
+          : existingDecrypted?.deletedAt || null,
+      originalRegistrationSnapshot: existingDecrypted?.originalRegistrationSnapshot || {
+        name: nameVal,
+        phone: phoneVal,
+        email: emailVal,
+        area: areaVal,
+        category: categoryVal
+      },
+      history: [...prevHistory.slice(-19), historySnapshot]
+    };
+
+    const encryptedHex = encryptVaultPayload(mergedVaultRecord);
+    vaultMap[vaultKey] = encryptedHex;
+    writeJsonFile(SECURITY_VAULT_FILE, vaultMap);
+
+    if (dbPool && isDbConnected) {
+      try {
+        await dbPool.query(
+          `INSERT INTO security_vault (id, entity_type, action_status, encrypted_payload, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, NOW(), NOW())
+           ON CONFLICT (id) DO UPDATE SET
+             action_status = EXCLUDED.action_status,
+             encrypted_payload = EXCLUDED.encrypted_payload,
+             updated_at = NOW()`,
+          [vaultKey, entityType, actionStatus, encryptedHex]
+        );
+      } catch (_dbErr) {}
+    }
+  } catch (err) {
+    console.warn("[Security Vault Archive Note]:", err);
+  }
+}
+
+async function syncExistingRecordsToSecurityVault(): Promise<void> {
+  try {
+    const verifs = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
+    const verifByEntity = new Map<string, any>();
+    verifs.forEach(v => {
+      if (v && v.entityId) verifByEntity.set(String(v.entityId), v);
+      if (v && v.userId) verifByEntity.set(String(v.userId), v);
+    });
+
+    const helpers = readJsonFile<any[]>(HELPERS_FILE, []);
+    for (const h of helpers) {
+      if (h && h.id) {
+        const matchedV = verifByEntity.get(String(h.id)) || verifByEntity.get(String(h.userId || ""));
+        await archiveToSecurityVault(
+          "helper",
+          h.id,
+          { ...h, idDocumentWatermarked: h.idDocUrl || matchedV?.idDocumentWatermarked || "" },
+          "ACTIVE_REGISTERED"
+        );
+      }
+    }
+
+    const profiles = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
+    for (const [uid, p] of Object.entries(profiles)) {
+      if (p) {
+        const matchedV = verifByEntity.get(String(uid));
+        await archiveToSecurityVault(
+          "user_profile",
+          uid,
+          { ...p, idDocumentWatermarked: matchedV?.idDocumentWatermarked || "" },
+          "ACTIVE_REGISTERED"
+        );
+      }
+    }
+
+    const authUsers = readJsonFile<Record<string, any>>(AUTH_USERS_FILE, {});
+    for (const [emailKey, u] of Object.entries(authUsers)) {
+      if (u) {
+        const uid = u.uid || emailKey;
+        const matchedV = verifByEntity.get(String(uid)) || verifByEntity.get(emailKey);
+        await archiveToSecurityVault(
+          "user_profile",
+          uid,
+          { ...u, idDocumentWatermarked: matchedV?.idDocumentWatermarked || "" },
+          "ACTIVE_REGISTERED"
+        );
+      }
+    }
+
+    const shops = readJsonFile<any[]>(SHOPS_FILE, []);
+    for (const s of shops) {
+      if (s && s.id && !String(s.id).startsWith("sample_shop_")) {
+        const matchedV = verifByEntity.get(String(s.id));
+        await archiveToSecurityVault(
+          "business",
+          s.id,
+          { ...s, idDocumentWatermarked: s.idDocumentWatermarked || matchedV?.idDocumentWatermarked || "" },
+          "ACTIVE_REGISTERED"
+        );
+      }
+    }
+
+    const jobs = readJsonFile<any[]>(JOB_PORTAL_FILE, []);
+    for (const j of jobs) {
+      if (j && j.id) {
+        await archiveToSecurityVault(
+          j.type === "employer_vacancy" ? "employer" : "job_seeker",
+          j.id,
+          j,
+          "ACTIVE_REGISTERED"
+        );
+      }
+    }
+
+    const intents = readJsonFile<any[]>(INTENTS_FILE, []);
+    for (const i of intents) {
+      if (i && i.id && !String(i.id).startsWith("seed_") && !String(i.id).startsWith("sample_")) {
+        await archiveToSecurityVault("help_post", i.id, i, "ACTIVE_REGISTERED");
+      }
+    }
+  } catch (e) {
+    console.warn("[Security Vault Initial Sync Note]:", e);
+  }
+}
+setTimeout(() => {
+  syncExistingRecordsToSecurityVault().catch(() => {});
+}, 1500);
+
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (DATABASE_URL) {
@@ -1346,6 +1676,10 @@ async function startServer() {
         updated_at: new Date().toISOString()
       };
       writeJsonFile(PROFILES_FILE, profiles);
+      await archiveToSecurityVault("user_profile", uid, profiles[uid], "ACTIVE_REGISTERED");
+      if (myHelper && myHelper.id) {
+        await archiveToSecurityVault("helper", myHelper.id, { ...myHelper, userId: uid, email: email || myHelper.email }, "ACTIVE_REGISTERED");
+      }
 
       res.status(200).json({ success: true, profile: profiles[uid], user: profiles[uid] });
     } catch (e: any) {
@@ -1404,6 +1738,7 @@ async function startServer() {
 
       const token = createSessionToken({ uid: targetId, email: userEmail, name: userName });
       res.setHeader('Set-Cookie', `locohelp_token=${token}; Path=/; Max-Age=${30 * 24 * 3600}; SameSite=Lax`);
+      await archiveToSecurityVault("user_profile", targetId, userData, "ACTIVE_REGISTERED");
 
       res.status(201).json({ success: true, token, user: userData });
     } catch (e: any) {
@@ -1416,6 +1751,7 @@ async function startServer() {
   app.post("/api/users", authLoginLimiter, signupHandler);
 
   // Delete profile protected with strict authentication & ownership verification
+  // SOFT DELETE FOR SAFETY: Removes from public view & user account, but permanently retains encrypted record in Security Vault!
   app.delete("/api/profiles/:uid", requireAuth, async (req, res) => {
     try {
       const { uid } = req.params;
@@ -1426,6 +1762,59 @@ async function startServer() {
         return res.status(403).json({
           error: "Forbidden: You can only delete your own profile."
         });
+      }
+
+      const authUsers = readJsonFile<Record<string, any>>(AUTH_USERS_FILE, {});
+      const userEmail = (targetProfile?.email || "").toLowerCase();
+      const authRecord = userEmail ? authUsers[userEmail] : Object.values(authUsers).find((u: any) => u?.uid === uid);
+
+      // 1. Archive User Profile to Encrypted Non-Deletable Security Vault as DELETED_BY_USER
+      await archiveToSecurityVault(
+        "user_profile",
+        uid,
+        { ...(authRecord || {}), ...(targetProfile || {}), uid, id: uid },
+        "DELETED_BY_USER"
+      );
+
+      // 2. Also archive & remove any linked Helper Profile of this user from public listings
+      const helpers = readJsonFile<any[]>(HELPERS_FILE, []);
+      const userHelpers = helpers.filter(
+        h => h && (h.userId === uid || (userEmail && (h.email || "").toLowerCase() === userEmail))
+      );
+      for (const uh of userHelpers) {
+        await archiveToSecurityVault("helper", uh.id, uh, "DELETED_BY_USER");
+        if (dbPool && isDbConnected) {
+          try {
+            await dbPool.query("DELETE FROM helpers WHERE id = $1", [uh.id]);
+          } catch (_e) {}
+        }
+      }
+      if (userHelpers.length > 0) {
+        const remainingHelpers = helpers.filter(
+          h => !(h && (h.userId === uid || (userEmail && (h.email || "").toLowerCase() === userEmail)))
+        );
+        writeJsonFile(HELPERS_FILE, remainingHelpers);
+      }
+
+      // 3. Also archive & remove any linked Business/Shop of this user from public listings
+      const shops = readJsonFile<any[]>(SHOPS_FILE, []);
+      const userShops = shops.filter(
+        s => s && (s.userId === uid || s.owner_id === uid || (userEmail && (s.ownerEmail || "").toLowerCase() === userEmail))
+      );
+      for (const us of userShops) {
+        await archiveToSecurityVault("business", us.id, us, "DELETED_BY_USER");
+        if (dbPool && isDbConnected) {
+          try {
+            await dbPool.query("DELETE FROM businesses WHERE id = $1", [us.id]);
+            await dbPool.query("DELETE FROM shops WHERE id = $1", [us.id]);
+          } catch (_e) {}
+        }
+      }
+      if (userShops.length > 0) {
+        const remainingShops = shops.filter(
+          s => !(s && (s.userId === uid || s.owner_id === uid || (userEmail && (s.ownerEmail || "").toLowerCase() === userEmail)))
+        );
+        writeJsonFile(SHOPS_FILE, remainingShops);
       }
 
       if (dbPool && isDbConnected) {
@@ -1848,17 +2237,22 @@ async function startServer() {
       const isAdmin = isRequestAdmin(req);
 
       const deletedIds = readJsonFile<string[]>(DELETED_INTENTS_FILE, []);
+      const includeExpired = req.query.all === 'true';
+      const ONE_HOUR_MS = 60 * 60 * 1000;
+      const nowMs = Date.now();
 
       const localIntents = readJsonFile<any[]>(INTENTS_FILE, []);
-      const localMap = new Map<string, any>();
+      const mergedMap = new Map<string, any>();
+
       localIntents.forEach(i => {
-        if (!deletedIds.includes(i.id)) localMap.set(i.id, i);
+        if (i && i.id && !deletedIds.includes(i.id)) {
+          mergedMap.set(i.id, i);
+        }
       });
 
-      // If PostgreSQL is connected, fetch from database
+      // If PostgreSQL is connected, merge records from database with local metadata
       if (dbPool && isDbConnected) {
         try {
-          // 1. Query primary listings table (Columns: id, user_id, title, description, location, created_at)
           const listRes = await dbPool.query(`
             SELECT * FROM listings 
             ORDER BY created_at DESC 
@@ -1866,75 +2260,81 @@ async function startServer() {
           `);
 
           if (listRes.rows.length > 0) {
-            const dbListings = listRes.rows
-              .filter(r => !deletedIds.includes(r.id))
-              .map(r => {
-                const localMeta = localMap.get(r.id) || {};
-                const rawLoc = typeof r.location === 'string' ? r.location : '';
-                const parts = rawLoc.includes(',') ? rawLoc.split(',').map((s: string) => s.trim()) : [];
-                return redactBulkItemForPrivacy({
-                  id: r.id,
-                  authorId: r.user_id,
-                  authorName: localMeta.authorName || 'Community Member',
-                  authorEmail: localMeta.authorEmail || '',
-                  description: r.description,
-                  category: r.title || localMeta.category || 'General',
-                  tags: localMeta.tags || [r.title ? `#${r.title}` : '#General'],
-                  status: 'active',
-                  city: localMeta.city || (parts.length > 1 ? parts[parts.length - 1] : ''),
-                  area: localMeta.area || (parts.length > 1 ? parts.slice(0, -1).join(', ') : ''),
-                  location: localMeta.location || rawLoc || 'Kudasan, Gandhinagar',
-                  distance: localMeta.distance || (rawLoc && !isNaN(Number(rawLoc)) ? Number(rawLoc) : 0.5),
-                  hasLocationPin: true,
-                  isVerifiedUser: true,
-                  createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
-                  expiresAt: localMeta.expiresAt
-                }, isAuth, isAdmin);
+            listRes.rows.forEach(r => {
+              if (!r || !r.id || deletedIds.includes(r.id)) return;
+              const localMeta = mergedMap.get(r.id) || {};
+              const rawLoc = typeof r.location === 'string' ? r.location : '';
+              const parts = rawLoc.includes(',') ? rawLoc.split(',').map((s: string) => s.trim()) : [];
+              mergedMap.set(r.id, {
+                ...localMeta,
+                id: r.id,
+                authorId: r.user_id || localMeta.authorId || 'Community Member',
+                authorName: localMeta.authorName || 'Community Member',
+                authorEmail: localMeta.authorEmail || '',
+                description: r.description || localMeta.description || '',
+                category: r.title || localMeta.category || 'General',
+                tags: localMeta.tags || [r.title ? `#${r.title}` : '#General'],
+                status: localMeta.status || 'active',
+                city: localMeta.city || (parts.length > 1 ? parts[parts.length - 1] : ''),
+                area: localMeta.area || (parts.length > 1 ? parts.slice(0, -1).join(', ') : ''),
+                location: localMeta.location || rawLoc || 'Kudasan, Gandhinagar',
+                distance: localMeta.distance || (rawLoc && !isNaN(Number(rawLoc)) ? Number(rawLoc) : 0.5),
+                hasLocationPin: true,
+                isVerifiedUser: true,
+                createdAt: localMeta.createdAt || (r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString()),
+                expiresAt: localMeta.expiresAt,
+                lastInteractionAt: localMeta.lastInteractionAt
               });
-            return res.json(dbListings);
+            });
           }
 
-          // 2. Fallback to broadcast_posts table
           const result = await dbPool.query(`
             SELECT * FROM broadcast_posts 
-            WHERE expires_at > NOW() OR expires_at IS NULL
             ORDER BY created_at DESC 
             LIMIT 100
           `);
 
           if (result.rows.length > 0) {
-            const dbIntents = result.rows
-              .filter(r => !deletedIds.includes(r.id))
-              .map(r => {
-                const localMeta = localMap.get(r.id) || {};
-                return redactBulkItemForPrivacy({
-                  id: r.id,
-                  authorId: r.author_id,
-                  authorName: r.author_name || localMeta.authorName || 'Community Member',
-                  authorAvatar: r.author_avatar,
-                  description: r.description,
-                  category: r.category,
-                  tags: r.tags || [],
-                  status: r.status || 'active',
-                  city: localMeta.city || '',
-                  area: localMeta.area || '',
-                  location: localMeta.location || '',
-                  distance: r.distance ? Number(r.distance) : 0.5,
-                  hasLocationPin: r.has_location_pin !== false,
-                  isVerifiedUser: r.is_verified_user !== false,
-                  createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
-                  expiresAt: r.expires_at ? new Date(r.expires_at).toISOString() : undefined
-                }, isAuth, isAdmin);
+            result.rows.forEach(r => {
+              if (!r || !r.id || deletedIds.includes(r.id)) return;
+              const localMeta = mergedMap.get(r.id) || {};
+              mergedMap.set(r.id, {
+                ...localMeta,
+                id: r.id,
+                authorId: r.author_id || localMeta.authorId,
+                authorName: r.author_name || localMeta.authorName || 'Community Member',
+                authorAvatar: r.author_avatar || localMeta.authorAvatar,
+                description: r.description || localMeta.description,
+                category: r.category || localMeta.category,
+                tags: r.tags || localMeta.tags || [],
+                status: r.status || localMeta.status || 'active',
+                city: localMeta.city || '',
+                area: localMeta.area || '',
+                location: localMeta.location || '',
+                distance: r.distance ? Number(r.distance) : (localMeta.distance || 0.5),
+                hasLocationPin: r.has_location_pin !== false,
+                isVerifiedUser: r.is_verified_user !== false,
+                createdAt: localMeta.createdAt || (r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString()),
+                expiresAt: r.expires_at ? new Date(r.expires_at).toISOString() : localMeta.expiresAt
               });
-            return res.json(dbIntents);
+            });
           }
         } catch (dbErr) {
           console.warn("DB listings query fallback:", dbErr);
         }
       }
 
-      // Fallback to local intents file
-      const combined = Array.from(localMap.values()).map(i => redactBulkItemForPrivacy(i, isAuth, isAdmin));
+      const combined = Array.from(mergedMap.values())
+        .filter(item => {
+          if (includeExpired || isAdmin) return true;
+          if (item.status === 'rejected') return false;
+          const createdMs = new Date(item.createdAt || item.created_at || nowMs).getTime();
+          const interactMs = item.lastInteractionAt ? new Date(item.lastInteractionAt).getTime() : 0;
+          const effectiveMs = Math.max(createdMs, interactMs);
+          return (nowMs - effectiveMs) <= ONE_HOUR_MS;
+        })
+        .map(i => redactBulkItemForPrivacy(i, isAuth, isAdmin));
+
       combined.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
       res.json(combined);
     } catch (e) {
@@ -2063,6 +2463,7 @@ async function startServer() {
       const intents = readJsonFile<any[]>(INTENTS_FILE, []);
       const updated = [intentRecord, ...intents.filter(i => i.id !== intentRecord.id && i.description !== intentRecord.description)];
       writeJsonFile(INTENTS_FILE, updated);
+      await archiveToSecurityVault("help_post", intentRecord.id, intentRecord, "ACTIVE_REGISTERED");
 
       console.log(`[Listing Created] ${intentRecord.id}: "${intentRecord.description.substring(0, 40)}..."`);
       res.status(201).json(intentRecord);
@@ -2094,6 +2495,16 @@ async function startServer() {
         return res.status(403).json({
           error: "Forbidden: You can only edit or delete your own posts."
         });
+      }
+
+      if (existingPost) {
+        const isAdminDel = isRequestAdmin(req);
+        await archiveToSecurityVault(
+          "help_post",
+          existingPost.id,
+          existingPost,
+          isAdminDel ? "ADMIN_REMOVED_PUBLIC" : "DELETED_BY_USER"
+        );
       }
 
       // 1. PostgreSQL Delete from listings, broadcast_posts, chats, messages (Parameterized Queries)
@@ -2654,6 +3065,13 @@ async function startServer() {
         }
       }
 
+      await archiveToSecurityVault(
+        "business",
+        newShop.id,
+        { ...newShop, idDocumentWatermarked: shop.idDocumentWatermarked || newShop.photoUrl || "" },
+        "ACTIVE_REGISTERED"
+      );
+
       res.status(201).json(newShop);
     } catch (e: any) {
       res.status(500).json({ error: e.message || "Failed to save business" });
@@ -2667,7 +3085,7 @@ async function startServer() {
     try {
       const { id } = req.params;
       const caller = (req as any).user || extractUserFromRequest(req);
-      const isAdminCaller = isAuthorizedAdmin(caller);
+      const isAdminCaller = isAuthorizedAdmin(caller) || isRequestAdmin(req);
 
       const shops = readJsonFile<any[]>(SHOPS_FILE, []);
       const targetShop = shops.find(s => s.id === id);
@@ -2679,6 +3097,15 @@ async function startServer() {
         if (!isOwner) {
           return res.status(403).json({ error: "Unauthorized: You can only delete your own business." });
         }
+      }
+
+      if (targetShop) {
+        await archiveToSecurityVault(
+          "business",
+          targetShop.id,
+          targetShop,
+          isAdminCaller ? "ADMIN_REMOVED_PUBLIC" : "DELETED_BY_USER"
+        );
       }
 
       if (dbPool && isDbConnected) {
@@ -2930,9 +3357,56 @@ async function startServer() {
         }
       }
 
+      await archiveToSecurityVault(
+        "helper",
+        newHelper.id,
+        { ...newHelper, idDocumentWatermarked: newHelper.idDocUrl || "" },
+        "ACTIVE_REGISTERED"
+      );
+
       res.status(201).json(newHelper);
     } catch (e: any) {
       res.status(500).json({ error: e.message || "Failed to save helper" });
+    }
+  });
+
+  // User Self-Delete for Helper Profile (Removes from public listings, permanently retains in Encrypted Security Vault)
+  app.delete("/api/helpers/:id", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const caller = (req as any).user || extractUserFromRequest(req);
+      const isAdminCaller = isAuthorizedAdmin(caller) || isRequestAdmin(req);
+
+      const helpers = readJsonFile<any[]>(HELPERS_FILE, []);
+      const targetHelper = helpers.find(h => h.id === id);
+
+      if (targetHelper && !isAdminCaller) {
+        const isOwner =
+          (caller?.uid && targetHelper.userId === caller.uid) ||
+          (caller?.email && targetHelper.email && targetHelper.email.toLowerCase() === caller.email.toLowerCase());
+        if (!isOwner) {
+          return res.status(403).json({ error: "Forbidden: You can only delete your own helper profile." });
+        }
+      }
+
+      if (targetHelper) {
+        await archiveToSecurityVault(
+          "helper",
+          targetHelper.id,
+          { ...targetHelper, idDocumentWatermarked: targetHelper.idDocUrl || "" },
+          isAdminCaller ? "ADMIN_REMOVED_PUBLIC" : "DELETED_BY_USER"
+        );
+      }
+
+      writeJsonFile(HELPERS_FILE, helpers.filter(h => h.id !== id));
+      if (dbPool && isDbConnected) {
+        try {
+          await dbPool.query("DELETE FROM helpers WHERE id = $1", [id]);
+        } catch (_e) {}
+      }
+      res.json({ success: true, id });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Failed to delete helper profile" });
     }
   });
 
@@ -3015,19 +3489,33 @@ async function startServer() {
   // AD BANNER MANAGEMENT API ROUTES
   // ==========================================
 
-  app.get("/api/ads", (req, res) => {
+  app.get("/api/ads", async (req, res) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
       res.setHeader("Pragma", "no-cache");
       res.setHeader("Expires", "0");
-      const ads = readJsonFile<any[]>(ADS_FILE, []);
-      res.json(ads);
+      const adsMap = new Map<string, any>();
+      const fileAds = readJsonFile<any[]>(ADS_FILE, []);
+      fileAds.forEach(a => {
+        if (a && a.id) adsMap.set(a.id, a);
+      });
+      if (dbPool && isDbConnected) {
+        try {
+          const dbRes = await dbPool.query("SELECT id, data FROM ad_banners ORDER BY created_at DESC");
+          dbRes.rows.forEach(r => {
+            if (r.id && r.data && !adsMap.has(r.id)) {
+              adsMap.set(r.id, r.data);
+            }
+          });
+        } catch {}
+      }
+      res.json(Array.from(adsMap.values()));
     } catch (e) {
       res.status(500).json({ error: "Failed to fetch ad banners" });
     }
   });
 
-  app.post("/api/ads", (req, res) => {
+  app.post("/api/ads", async (req, res) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
       const ad = req.body;
@@ -3072,6 +3560,17 @@ async function startServer() {
       }
 
       writeJsonFile(ADS_FILE, updatedAds);
+
+      if (dbPool && isDbConnected) {
+        try {
+          await dbPool.query(
+            `INSERT INTO ad_banners (id, data, created_at) VALUES ($1, $2, NOW())
+             ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data`,
+            [newAd.id, JSON.stringify(newAd)]
+          );
+        } catch {}
+      }
+
       console.log(`[Ad Banner Saved] ${newAd.id}: ${newAd.businessName}`);
       res.status(201).json(newAd);
     } catch (e) {
@@ -3080,13 +3579,18 @@ async function startServer() {
     }
   });
 
-  app.delete("/api/ads/:id", requireAdmin, (req, res) => {
+  app.delete("/api/ads/:id", requireAdmin, async (req, res) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
       const { id } = req.params;
       const ads = readJsonFile<any[]>(ADS_FILE, []);
       const filtered = ads.filter(a => a.id !== id);
       writeJsonFile(ADS_FILE, filtered);
+      if (dbPool && isDbConnected) {
+        try {
+          await dbPool.query("DELETE FROM ad_banners WHERE id = $1", [id]);
+        } catch {}
+      }
       console.log(`[Ad Banner Deleted] ${id}`);
       res.json({ success: true, id });
     } catch (e) {
@@ -3098,16 +3602,34 @@ async function startServer() {
   // JOB PORTAL (JOB SEEKER & EMPLOYER VACANCIES) API
   // ==========================================
 
-  app.get("/api/job-portal", (req, res) => {
+  app.get("/api/job-portal", async (req, res) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
       res.setHeader("Pragma", "no-cache");
       res.setHeader("Expires", "0");
 
       const { status = 'approved', type, search } = req.query;
-      const items = readJsonFile<any[]>(JOB_PORTAL_FILE, []);
+      const itemsMap = new Map<string, any>();
 
-      let filtered = items;
+      if (dbPool && isDbConnected) {
+        try {
+          const dbRes = await dbPool.query("SELECT id, data FROM job_portal_items ORDER BY created_at DESC");
+          dbRes.rows.forEach(r => {
+            if (r.id && r.data) {
+              itemsMap.set(r.id, r.data);
+            }
+          });
+        } catch {}
+      }
+
+      const fileItems = readJsonFile<any[]>(JOB_PORTAL_FILE, []);
+      fileItems.forEach(item => {
+        if (item && item.id) {
+          itemsMap.set(item.id, item);
+        }
+      });
+
+      let filtered = Array.from(itemsMap.values());
 
       if (status !== 'all') {
         filtered = filtered.filter(i => (i.status || 'pending') === status);
@@ -3134,8 +3656,9 @@ async function startServer() {
 
       // Data Privacy: Redact private emails/phones for unauthenticated bulk requests
       const caller = extractUserFromRequest(req);
+      const isAdmin = isRequestAdmin(req);
       const isAuthenticated = Boolean(caller && caller.uid && !String(caller.uid).startsWith('guest'));
-      const sanitized = filtered.map(item => redactBulkItemForPrivacy(item, isAuthenticated));
+      const sanitized = filtered.map(item => redactBulkItemForPrivacy(item, isAuthenticated, isAdmin));
 
       res.json(sanitized);
     } catch (e) {
@@ -3144,7 +3667,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/job-portal", (req, res) => {
+  app.post("/api/job-portal", async (req, res) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
       const payload = req.body;
@@ -3215,8 +3738,26 @@ async function startServer() {
         adminNotes: autoApprove ? 'Added & Approved by Admin' : ''
       };
 
-      const updated = [newRecord, ...items];
+      const updated = [newRecord, ...items.filter(i => i.id !== newRecord.id)];
       writeJsonFile(JOB_PORTAL_FILE, updated);
+
+      if (dbPool && isDbConnected) {
+        try {
+          await dbPool.query(
+            `INSERT INTO job_portal_items (id, type, status, data, created_at)
+             VALUES ($1, $2, $3, $4, NOW())
+             ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, data = EXCLUDED.data`,
+            [newRecord.id, newRecord.type, newRecord.status, JSON.stringify(newRecord)]
+          );
+        } catch {}
+      }
+
+      await archiveToSecurityVault(
+        newRecord.type === "employer_vacancy" ? "employer" : "job_seeker",
+        newRecord.id,
+        newRecord,
+        "ACTIVE_REGISTERED"
+      );
 
       return res.status(201).json({
         success: true,
@@ -3231,7 +3772,7 @@ async function startServer() {
     }
   });
 
-  app.patch("/api/job-portal/:id/status", requireAdmin, (req, res) => {
+  app.patch("/api/job-portal/:id/status", requireAdmin, async (req, res) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
       const { id } = req.params;
@@ -3255,6 +3796,16 @@ async function startServer() {
       }
 
       writeJsonFile(JOB_PORTAL_FILE, items);
+
+      if (dbPool && isDbConnected) {
+        try {
+          await dbPool.query(
+            `UPDATE job_portal_items SET status = $1, data = $2 WHERE id = $3`,
+            [status, JSON.stringify(items[targetIndex]), id]
+          );
+        } catch {}
+      }
+
       res.json({
         success: true,
         item: items[targetIndex],
@@ -3265,13 +3816,27 @@ async function startServer() {
     }
   });
 
-  app.delete("/api/job-portal/:id", requireAdmin, (req, res) => {
+  app.delete("/api/job-portal/:id", requireAdmin, async (req, res) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
       const { id } = req.params;
       const items = readJsonFile<any[]>(JOB_PORTAL_FILE, []);
+      const targetJob = items.find(i => i.id === id);
+      if (targetJob) {
+        await archiveToSecurityVault(
+          targetJob.type === "employer_vacancy" ? "employer" : "job_seeker",
+          targetJob.id,
+          targetJob,
+          "ADMIN_REMOVED_PUBLIC"
+        );
+      }
       const filtered = items.filter(i => i.id !== id);
       writeJsonFile(JOB_PORTAL_FILE, filtered);
+      if (dbPool && isDbConnected) {
+        try {
+          await dbPool.query("DELETE FROM job_portal_items WHERE id = $1", [id]);
+        } catch {}
+      }
       res.json({ success: true, id });
     } catch (e) {
       res.status(500).json({ error: "Failed to delete entry" });
@@ -3295,11 +3860,13 @@ async function startServer() {
 
       const item = intents[idx];
       if (typeof updates.description === 'string') item.description = sanitizeStringServer(updates.description, 1000);
-      if (typeof updates.authorName === 'string') item.authorName = sanitizeStringServer(updates.authorName, 120);
+      if (typeof (updates.authorName || updates.userName) === 'string') item.authorName = sanitizeStringServer(updates.authorName || updates.userName, 120);
       if (typeof updates.category === 'string') item.category = sanitizeStringServer(updates.category, 100);
       if (typeof updates.area === 'string') item.area = sanitizeStringServer(updates.area, 150);
       if (typeof updates.city === 'string') item.city = sanitizeStringServer(updates.city, 100);
+      if (typeof updates.phone === 'string') item.authorPhone = sanitizeStringServer(updates.phone, 30);
       if (typeof updates.status === 'string') item.status = sanitizeStringServer(updates.status, 40);
+      if (typeof updates.isApproved === 'boolean') item.isApproved = updates.isApproved;
       if (typeof updates.isVerifiedUser === 'boolean') item.isVerifiedUser = updates.isVerifiedUser;
       item.lastInteractionAt = new Date().toISOString();
 
@@ -3350,10 +3917,15 @@ async function startServer() {
       const helper = helpers[idx];
       if (typeof updates.name === 'string') helper.name = sanitizeStringServer(updates.name, 150);
       if (typeof updates.phone === 'string') helper.phone = sanitizeStringServer(updates.phone, 30);
-      if (typeof updates.categoryId === 'string') helper.categoryId = sanitizeStringServer(updates.categoryId, 60);
+      if (typeof updates.email === 'string') helper.email = sanitizeStringServer(updates.email, 150);
+      if (typeof (updates.categoryId || updates.category) === 'string') {
+        helper.categoryId = sanitizeStringServer(updates.categoryId || updates.category, 60);
+      }
       if (typeof updates.customCategoryName === 'string') helper.customCategoryName = sanitizeStringServer(updates.customCategoryName, 100);
       if (typeof updates.area === 'string') helper.area = sanitizeStringServer(updates.area, 200);
-      if (typeof updates.experience === 'string') helper.experience = sanitizeStringServer(updates.experience, 80);
+      if (typeof (updates.experience || updates.bio) === 'string') {
+        helper.experience = sanitizeStringServer(updates.experience || updates.bio, 80);
+      }
       if (Array.isArray(updates.skills)) helper.skills = updates.skills.map((s: any) => sanitizeStringServer(String(s), 80));
       if (typeof updates.skills === 'string') helper.skills = updates.skills.split(',').map((s: string) => sanitizeStringServer(s.trim(), 80)).filter(Boolean);
       if (typeof updates.status === 'string') {
@@ -3408,6 +3980,15 @@ async function startServer() {
     try {
       const { id } = req.params;
       const helpers = readJsonFile<any[]>(HELPERS_FILE, []);
+      const targetHelper = helpers.find(h => h.id === id);
+      if (targetHelper) {
+        await archiveToSecurityVault(
+          "helper",
+          targetHelper.id,
+          { ...targetHelper, idDocumentWatermarked: targetHelper.idDocUrl || "" },
+          "ADMIN_REMOVED_PUBLIC"
+        );
+      }
       writeJsonFile(HELPERS_FILE, helpers.filter(h => h.id !== id));
 
       const profiles = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
@@ -3545,8 +4126,8 @@ async function startServer() {
       }
       if (typeof updates.email === 'string') current.email = sanitizeStringServer(updates.email, 150).toLowerCase();
       if (typeof updates.phone === 'string') current.phone = sanitizeStringServer(updates.phone, 30);
-      if (typeof updates.address === 'string') current.address = sanitizeStringServer(updates.address, 300);
-      if (typeof updates.skills === 'string') current.skills = sanitizeStringServer(updates.skills, 500);
+      if (typeof (updates.address || updates.area) === 'string') current.address = sanitizeStringServer(updates.address || updates.area, 300);
+      if (typeof (updates.skills || updates.bio) === 'string') current.skills = sanitizeStringServer(updates.skills || updates.bio, 500);
       if (typeof updates.experience === 'string') current.experience = sanitizeStringServer(updates.experience, 120);
       if (typeof updates.status === 'string') {
         current.status = updates.status;
@@ -3597,7 +4178,11 @@ async function startServer() {
     try {
       const { uid } = req.params;
       const profiles = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
-      const targetEmail = profiles[uid]?.email?.toLowerCase();
+      const targetProf = profiles[uid];
+      const targetEmail = targetProf?.email?.toLowerCase();
+      if (targetProf) {
+        await archiveToSecurityVault("user_profile", uid, targetProf, "ADMIN_REMOVED_PUBLIC");
+      }
       delete profiles[uid];
       writeJsonFile(PROFILES_FILE, profiles);
 
@@ -3644,8 +4229,10 @@ async function startServer() {
       }
       if (typeof updates.ownerName === 'string') shop.ownerName = sanitizeStringServer(updates.ownerName, 120);
       if (typeof updates.phone === 'string') shop.phone = sanitizeStringServer(updates.phone, 30);
-      if (typeof updates.categoryLabel === 'string') {
-        shop.categoryLabel = sanitizeStringServer(updates.categoryLabel, 120);
+      if (typeof (updates.email || updates.ownerEmail) === 'string') shop.ownerEmail = sanitizeStringServer(updates.email || updates.ownerEmail, 150);
+      if (typeof updates.timings === 'string') shop.timings = sanitizeStringServer(updates.timings, 120);
+      if (typeof (updates.categoryLabel || updates.category) === 'string') {
+        shop.categoryLabel = sanitizeStringServer(updates.categoryLabel || updates.category, 120);
         shop.category = shop.categoryLabel;
       }
       if (typeof updates.area === 'string') shop.area = sanitizeStringServer(updates.area, 200);
@@ -3697,7 +4284,7 @@ async function startServer() {
   app.delete("/api/admin/shops/:id", requireAdmin, deleteBusinessHandler);
 
   // 5 & 6. Admin Job Seekers & Employer Vacancies: Edit any field
-  app.patch("/api/admin/job-portal/:id", requireAdmin, (req, res) => {
+  app.patch("/api/admin/job-portal/:id", requireAdmin, async (req, res) => {
     try {
       const { id } = req.params;
       const updates = req.body || {};
@@ -3715,14 +4302,15 @@ async function startServer() {
       if (typeof updates.category === 'string') item.category = sanitizeStringServer(updates.category, 100);
       if (typeof updates.phone === 'string') item.phone = sanitizeStringServer(updates.phone, 30);
       if (typeof updates.whatsapp === 'string') item.whatsapp = sanitizeStringServer(updates.whatsapp, 30);
-      if (typeof updates.area === 'string') item.area = sanitizeStringServer(updates.area, 150);
+      if (typeof updates.email === 'string') item.email = sanitizeStringServer(updates.email, 150);
+      if (typeof (updates.area || updates.jobLocation) === 'string') item.area = sanitizeStringServer(updates.area || updates.jobLocation, 150);
       if (typeof updates.address === 'string') item.address = sanitizeStringServer(updates.address, 300);
       if (typeof updates.experience === 'string') item.experience = sanitizeStringServer(updates.experience, 80);
       if (typeof updates.expectedSalary === 'string') item.expectedSalary = sanitizeStringServer(updates.expectedSalary, 80);
-      if (typeof updates.salaryOffered === 'string') item.salaryOffered = sanitizeStringServer(updates.salaryOffered, 80);
+      if (typeof (updates.salaryOffered || updates.salaryOffer) === 'string') item.salaryOffered = sanitizeStringServer(updates.salaryOffered || updates.salaryOffer, 80);
       if (typeof updates.vacancyType === 'string') item.vacancyType = sanitizeStringServer(updates.vacancyType, 60);
       if (updates.openingsCount !== undefined) item.openingsCount = Number(updates.openingsCount) || 1;
-      if (typeof updates.description === 'string') item.description = sanitizeStringServer(updates.description, 2000);
+      if (typeof (updates.description || updates.jobDescription) === 'string') item.description = sanitizeStringServer(updates.description || updates.jobDescription, 2000);
       if (Array.isArray(updates.skills)) item.skills = updates.skills.map((s: any) => sanitizeStringServer(String(s), 80));
       if (typeof updates.skills === 'string') item.skills = updates.skills.split(',').map((s: string) => sanitizeStringServer(s.trim(), 80)).filter(Boolean);
       if (typeof updates.status === 'string' && ['approved', 'rejected', 'pending'].includes(updates.status)) {
@@ -3732,6 +4320,16 @@ async function startServer() {
 
       items[idx] = item;
       writeJsonFile(JOB_PORTAL_FILE, items);
+
+      if (dbPool && isDbConnected) {
+        try {
+          await dbPool.query(
+            `UPDATE job_portal_items SET status = $1, data = $2 WHERE id = $3`,
+            [item.status, JSON.stringify(item), id]
+          );
+        } catch {}
+      }
+
       res.json({ success: true, item });
     } catch (e: any) {
       res.status(500).json({ error: e.message || "Failed to update job portal item" });
@@ -3939,6 +4537,23 @@ async function startServer() {
       }
       writeJsonFile(VERIFICATIONS_FILE, verifications);
 
+      // Archive verification & watermarked ID document permanently into Encrypted Security Vault
+      await archiveToSecurityVault(
+        entityType === "business" ? "business" : "user_profile",
+        targetEntityId,
+        {
+          id: targetEntityId,
+          uid: targetUserId,
+          name: userName,
+          email: userEmail,
+          phone: userPhone,
+          title: docTitle,
+          idDocumentWatermarked: safeDoc,
+          createdAt: newEntry.createdAt
+        },
+        "ACTIVE_REGISTERED"
+      );
+
       res.status(201).json({
         success: true,
         message: "Identity document submitted with indelible LocoHelp security watermark. It has been queued for Admin approval.",
@@ -3948,6 +4563,64 @@ async function startServer() {
     } catch (e: any) {
       res.status(500).json({ error: e.message || "Failed to submit verification request" });
     }
+  });
+
+  // ==========================================
+  // ADMIN READ-ONLY ENCRYPTED SECURITY VAULT API
+  // Strictly Read-Only: Decrypts AES-256-GCM records in memory ONLY for authenticated Admin.
+  // NO DELETE ALLOWED (even by Admin).
+  // ==========================================
+  app.get("/api/admin/security-vault", requireAdmin, async (_req, res) => {
+    try {
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      await syncExistingRecordsToSecurityVault();
+
+      const vaultMap = readJsonFile<Record<string, string>>(SECURITY_VAULT_FILE, {});
+      const combinedCiphers = new Map<string, string>();
+      Object.entries(vaultMap).forEach(([k, v]) => {
+        if (k && v) combinedCiphers.set(k, v);
+      });
+
+      if (dbPool && isDbConnected) {
+        try {
+          const dbRes = await dbPool.query("SELECT id, encrypted_payload FROM security_vault ORDER BY updated_at DESC");
+          for (const row of dbRes.rows) {
+            if (row.id && row.encrypted_payload && !combinedCiphers.has(row.id)) {
+              combinedCiphers.set(row.id, row.encrypted_payload);
+            }
+          }
+        } catch (_dbErr) {}
+      }
+
+      const decryptedRecords: any[] = [];
+      for (const [, cipherStr] of combinedCiphers.entries()) {
+        const rec = decryptVaultPayload(cipherStr);
+        if (rec && rec.recordId) {
+          decryptedRecords.push(rec);
+        }
+      }
+
+      decryptedRecords.sort(
+        (a, b) =>
+          new Date(b.deletedAt || b.lastUpdatedAt || b.firstRegisteredAt || 0).getTime() -
+          new Date(a.deletedAt || a.lastUpdatedAt || a.firstRegisteredAt || 0).getTime()
+      );
+
+      return res.json({
+        success: true,
+        encryptionAlgorithm: "AES-256-GCM",
+        readOnly: true,
+        records: decryptedRecords
+      });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message || "Failed to read Security Vault" });
+    }
+  });
+
+  app.delete("/api/admin/security-vault*", (_req, res) => {
+    return res.status(403).json({
+      error: "STRICT SECURITY LOCK: Security Vault records are immutable and cannot be deleted by anyone, including Admin."
+    });
   });
 
   // 2. Public Status Check - STRICT PRIVACY: NEVER returns the ID document
@@ -4541,27 +5214,131 @@ async function startServer() {
     }
   });
 
-  // Serve PWA Manifest, Service Worker, and Icons explicitly with proper MIME types and headers
+  // ==========================================
+  // CATEGORY 16:9 IMAGES API (Public GET, Admin Add/Edit/Delete)
+  // ==========================================
+  app.get("/api/category-images", async (_req, res) => {
+    try {
+      const fileImages = readJsonFile<Record<string, string>>(CATEGORY_IMAGES_FILE, {});
+      const merged: Record<string, string> = { ...fileImages };
+
+      if (dbPool && isDbConnected) {
+        try {
+          const dbRes = await dbPool.query("SELECT category_id, image_url FROM category_images");
+          for (const row of dbRes.rows) {
+            if (row.category_id && row.image_url) {
+              merged[row.category_id] = row.image_url;
+            }
+          }
+        } catch (_dbErr) {}
+      }
+
+      return res.json({ success: true, images: merged });
+    } catch (e) {
+      return res.json({ success: true, images: {} });
+    }
+  });
+
+  app.post("/api/category-images", async (req, res) => {
+    try {
+      const { categoryId, imageUrl } = req.body || {};
+      const cleanId = String(categoryId || "").trim();
+      const cleanUrl = String(imageUrl || "").trim();
+
+      if (!cleanId || !cleanUrl) {
+        return res.status(400).json({ error: "categoryId and imageUrl are required" });
+      }
+
+      const fileImages = readJsonFile<Record<string, string>>(CATEGORY_IMAGES_FILE, {});
+      fileImages[cleanId] = cleanUrl;
+      writeJsonFile(CATEGORY_IMAGES_FILE, fileImages);
+
+      if (dbPool && isDbConnected) {
+        try {
+          await dbPool.query(
+            `INSERT INTO category_images (category_id, image_url, updated_at)
+             VALUES ($1, $2, NOW())
+             ON CONFLICT (category_id) DO UPDATE SET image_url = EXCLUDED.image_url, updated_at = NOW()`,
+            [cleanId, cleanUrl]
+          );
+        } catch (dbErr: any) {
+          console.warn("[PostgreSQL] category_images upsert notice:", dbErr.message);
+        }
+      }
+
+      return res.json({ success: true, categoryId: cleanId, imageUrl: cleanUrl, images: fileImages });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message || "Failed to save category image" });
+    }
+  });
+
+  app.delete("/api/category-images/:categoryId", async (req, res) => {
+    try {
+      const cleanId = String(req.params.categoryId || "").trim();
+      if (!cleanId) {
+        return res.status(400).json({ error: "categoryId is required" });
+      }
+
+      const fileImages = readJsonFile<Record<string, string>>(CATEGORY_IMAGES_FILE, {});
+      delete fileImages[cleanId];
+      writeJsonFile(CATEGORY_IMAGES_FILE, fileImages);
+
+      if (dbPool && isDbConnected) {
+        try {
+          await dbPool.query("DELETE FROM category_images WHERE category_id = $1", [cleanId]);
+        } catch (dbErr: any) {
+          console.warn("[PostgreSQL] category_images delete notice:", dbErr.message);
+        }
+      }
+
+      return res.json({ success: true, categoryId: cleanId, images: fileImages });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message || "Failed to delete category image" });
+    }
+  });
+
+  // Serve PWA Manifest, Service Worker, and Icons explicitly with proper MIME types and guaranteed 200 OK fallback
   const publicDir = path.join(process.cwd(), "public");
   app.get("/manifest.json", (_req, res) => {
     res.setHeader("Content-Type", "application/manifest+json; charset=utf-8");
     res.setHeader("Cache-Control", "no-cache");
-    const manifestFile = path.join(publicDir, "manifest.json");
-    if (fs.existsSync(manifestFile)) {
-      return res.sendFile(manifestFile);
-    }
-    return res.status(404).json({ error: "manifest.json not found" });
+    try {
+      const manifestFile = path.join(publicDir, "manifest.json");
+      if (fs.existsSync(manifestFile)) {
+        const content = fs.readFileSync(manifestFile, "utf-8");
+        return res.status(200).send(content);
+      }
+    } catch (_e) {}
+    return res.status(200).json({
+      id: "/",
+      name: "LocoHelp - Local Urgent Help & Jobs Network",
+      short_name: "LocoHelp",
+      start_url: "/",
+      scope: "/",
+      display: "standalone",
+      background_color: "#f8fafc",
+      theme_color: "#1A73E8",
+      icons: [
+        { src: "/pwa-192x192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+        { src: "/pwa-512x512.png", sizes: "512x512", type: "image/png", purpose: "any" }
+      ]
+    });
   });
 
   app.get("/sw.js", (_req, res) => {
     res.setHeader("Content-Type", "application/javascript; charset=utf-8");
     res.setHeader("Service-Worker-Allowed", "/");
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
-    const swFile = path.join(publicDir, "sw.js");
-    if (fs.existsSync(swFile)) {
-      return res.sendFile(swFile);
-    }
-    return res.status(404).send("// sw.js not found");
+    try {
+      const swFile = path.join(publicDir, "sw.js");
+      if (fs.existsSync(swFile)) {
+        const content = fs.readFileSync(swFile, "utf-8");
+        return res.status(200).send(content);
+      }
+    } catch (_e) {}
+    return res.status(200).send(
+      "self.addEventListener('install', () => self.skipWaiting()); self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));"
+    );
   });
 
   app.use(express.static(publicDir));

@@ -1070,3 +1070,125 @@ export const deleteAdminUserOnServer = deleteAdminUserProfileOnServer;
 export const updateAdminBusinessOnServer = updateAdminShopOnServer;
 export const deleteAdminBusinessOnServer = deleteAdminShopOnServer;
 export const updateAdminJobPortalOnServer = updateAdminJobPortalItemOnServer;
+
+// ==========================================
+// CATEGORY 16:9 CUSTOM IMAGES (Admin Add / Edit / Delete)
+// ==========================================
+export function getCachedCategoryImages(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem('locohelp_category_images');
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+export async function fetchCategoryImages(): Promise<Record<string, string>> {
+  try {
+    const res = await fetch(`/api/category-images?_t=${Date.now()}`, {
+      cache: 'no-store'
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.images && typeof data.images === 'object') {
+        try {
+          localStorage.setItem('locohelp_category_images', JSON.stringify(data.images));
+        } catch {}
+        return data.images;
+      }
+    }
+  } catch (e) {}
+  return getCachedCategoryImages();
+}
+
+export async function saveCategoryImageOnServer(
+  categoryId: string,
+  imageUrl: string
+): Promise<{ success: boolean; images?: Record<string, string>; error?: string }> {
+  try {
+    const res = await fetch('/api/category-images', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      body: JSON.stringify({ categoryId, imageUrl })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      return { success: false, error: data.error || 'Failed to save category image' };
+    }
+    if (data.images) {
+      try {
+        localStorage.setItem('locohelp_category_images', JSON.stringify(data.images));
+      } catch {}
+    }
+    return { success: true, images: data.images };
+  } catch (e: any) {
+    return { success: false, error: e.message || 'Network error while saving category image' };
+  }
+}
+
+export async function deleteCategoryImageOnServer(
+  categoryId: string
+): Promise<{ success: boolean; images?: Record<string, string>; error?: string }> {
+  try {
+    const res = await fetch(`/api/category-images/${encodeURIComponent(categoryId)}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      return { success: false, error: data.error || 'Failed to delete category image' };
+    }
+    if (data.images) {
+      try {
+        localStorage.setItem('locohelp_category_images', JSON.stringify(data.images));
+      } catch {}
+    }
+    return { success: true, images: data.images };
+  } catch (e: any) {
+    return { success: false, error: e.message || 'Network error while deleting category image' };
+  }
+}
+
+export interface SecurityVaultRecord {
+  vaultKey: string;
+  entityType: string;
+  recordId: string;
+  actionStatus: string;
+  firstRegisteredAt: string;
+  lastUpdatedAt: string;
+  deletedAt: string | null;
+  isDeletedFromPublic: boolean;
+  name: string;
+  phone: string;
+  email: string;
+  area: string;
+  category: string;
+  idDocumentWatermarked: string;
+  photoUrl: string;
+  latestSnapshot: Record<string, any>;
+  originalRegistrationSnapshot: Record<string, any>;
+  history: Array<{
+    timestamp: string;
+    action: string;
+    snapshotSummary?: {
+      name?: string;
+      phone?: string;
+      email?: string;
+      area?: string;
+    };
+  }>;
+}
+
+export async function fetchAdminSecurityVault(): Promise<SecurityVaultRecord[]> {
+  try {
+    const res = await fetch('/api/admin/security-vault', {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data.records) ? data.records : [];
+  } catch (e) {
+    return [];
+  }
+}
+

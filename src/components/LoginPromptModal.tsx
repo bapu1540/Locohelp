@@ -41,6 +41,7 @@ export default function LoginPromptModal({
   
   const [isLoadingOtp, setIsLoadingOtp] = useState(false);
   const [isLoadingPassword, setIsLoadingPassword] = useState(false);
+  const [passwordOtpSent, setPasswordOtpSent] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
 
@@ -122,8 +123,6 @@ export default function LoginPromptModal({
       setErrorMessage(res.error || (language === 'EN' ? 'Invalid 6-digit OTP code' : 'गलत OTP कोड'));
     }
   };
-
-  const [passwordOtpSent, setPasswordOtpSent] = useState(false);
 
   const handleSendPasswordOtp = async () => {
     if (!emailInput || !isValidEmail(emailInput)) {

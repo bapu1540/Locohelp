@@ -74,7 +74,13 @@ import {
   deleteAdminBusinessOnServer,
   updateAdminJobPortalOnServer,
   updateAdminReportOnServer,
-  deleteAdminReportOnServer
+  deleteAdminReportOnServer,
+  getCachedCategoryImages,
+  fetchCategoryImages,
+  saveCategoryImageOnServer,
+  deleteCategoryImageOnServer,
+  fetchAdminSecurityVault,
+  SecurityVaultRecord
 } from '../api';
 import { validateUploadedFile } from '../lib/security';
 
@@ -92,13 +98,20 @@ type AdminModuleId =
   | 'job_seekers'
   | 'employers'
   | 'feedback_categories'
-  | 'ads';
+  | 'ads'
+  | 'category_images'
+  | 'security_vault';
 
 const DEFAULT_ADS: any[] = [];
 
 export default function AdminDashboard({ onBack, showToast: externalShowToast }: AdminDashboardProps) {
+  const [internalToast, setInternalToast] = useState<string | null>(null);
   const showToast = (msg: string) => {
     if (externalShowToast) externalShowToast(msg);
+    setInternalToast(msg);
+    setTimeout(() => {
+      setInternalToast(prev => (prev === msg ? null : prev));
+    }, 3200);
   };
   // Authentication State (Strictly 2-Step: Password -> OTP to baalvarta@gmail.com)
   const OFFICIAL_ADMIN_EMAIL = 'baalvarta@gmail.com';
@@ -161,6 +174,139 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
   const [newCatName, setNewCatName] = useState('');
   const [newCatNameHi, setNewCatNameHi] = useState('');
   const [newCatIcon, setNewCatIcon] = useState('🛠️');
+
+  // Category 16:9 Images State (Add / Edit / Delete)
+  const [categoryImages, setCategoryImages] = useState<Record<string, string>>(() => getCachedCategoryImages());
+  const [catImageBusyId, setCatImageBusyId] = useState<string | null>(null);
+  const [catSearchFilter, setCatSearchFilter] = useState('');
+  const [editingCatImageUrl, setEditingCatImageUrl] = useState<{
+    categoryId: string;
+    nameEn: string;
+    nameHi: string;
+    url: string;
+  } | null>(null);
+
+  // Encrypted Read-Only Security Vault State (Strictly Non-Deletable)
+  const [securityVaultRecords, setSecurityVaultRecords] = useState<SecurityVaultRecord[]>([]);
+  const [vaultFilter, setVaultFilter] = useState<'all' | 'deleted' | 'helper' | 'user_profile' | 'business' | 'job' | 'help_post' | 'with_id'>('all');
+  const [vaultSearch, setVaultSearch] = useState('');
+
+  // Helper: resize & center-crop any uploaded image file to 16:9 (800x450) JPEG data URL
+  const processCategoryImageFileTo16x9 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const dataUrl = String(ev.target?.result || '');
+        if (!dataUrl) return reject(new Error('Failed to read image file'));
+        const img = new window.Image();
+        img.onload = () => {
+          try {
+            const targetW = 800;
+            const targetH = 450; // Strict 16:9 aspect ratio
+            const canvas = document.createElement('canvas');
+            canvas.width = targetW;
+            canvas.height = targetH;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return resolve(dataUrl);
+
+            // Object-cover math to fill 16:9 cleanly
+            const srcRatio = img.width / img.height;
+            const dstRatio = targetW / targetH;
+            let drawW = targetW;
+            let drawH = targetH;
+            let offsetX = 0;
+            let offsetY = 0;
+
+            if (srcRatio > dstRatio) {
+              drawH = targetH;
+              drawW = img.width * (targetH / img.height);
+              offsetX = (targetW - drawW) / 2;
+            } else {
+              drawW = targetW;
+              drawH = img.height * (targetW / img.width);
+              offsetY = (targetH - drawH) / 2;
+            }
+
+            ctx.fillStyle = '#f8fafc';
+            ctx.fillRect(0, 0, targetW, targetH);
+            ctx.drawImage(img, offsetX, offsetY, drawW, drawH);
+            resolve(canvas.toDataURL('image/jpeg', 0.86));
+          } catch {
+            resolve(dataUrl);
+          }
+        };
+        img.onerror = () => resolve(dataUrl);
+        img.src = dataUrl;
+      };
+      reader.onerror = () => reject(new Error('Error reading file'));
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleUploadCategoryImageFile = async (categoryId: string, catName: string, file?: File | null) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      showToast('⚠️ कृपया केवल इमेज फ़ाइल (JPG, PNG, WebP) चुनें।');
+      return;
+    }
+    setCatImageBusyId(categoryId);
+    try {
+      const optimized16x9DataUrl = await processCategoryImageFileTo16x9(file);
+      const res = await saveCategoryImageOnServer(categoryId, optimized16x9DataUrl);
+      if (res.success) {
+        setCategoryImages(prev => ({ ...prev, [categoryId]: optimized16x9DataUrl }));
+        showToast(`✅ "${catName}" की 16:9 इमेज सेव हो गई!`);
+      } else {
+        showToast(res.error || 'Failed to upload category image');
+      }
+    } catch (e: any) {
+      showToast(e.message || 'Image upload failed');
+    } finally {
+      setCatImageBusyId(null);
+    }
+  };
+
+  const handleSaveCategoryImageUrl = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCatImageUrl) return;
+    const { categoryId, nameEn, url } = editingCatImageUrl;
+    if (!url.trim()) {
+      showToast('कृपया इमेज URL दर्ज करें');
+      return;
+    }
+    setCatImageBusyId(categoryId);
+    try {
+      const res = await saveCategoryImageOnServer(categoryId, url.trim());
+      if (res.success) {
+        setCategoryImages(prev => ({ ...prev, [categoryId]: url.trim() }));
+        showToast(`✅ "${nameEn}" की 16:9 इमेज अपडेट हो गई!`);
+        setEditingCatImageUrl(null);
+      } else {
+        showToast(res.error || 'Failed to save category image URL');
+      }
+    } finally {
+      setCatImageBusyId(null);
+    }
+  };
+
+  const handleDeleteCategoryImage = async (categoryId: string, catName: string) => {
+    setCatImageBusyId(categoryId);
+    try {
+      const res = await deleteCategoryImageOnServer(categoryId);
+      if (res.success) {
+        setCategoryImages(prev => {
+          const next = { ...prev };
+          delete next[categoryId];
+          return next;
+        });
+        showToast(`🗑️ "${catName}" की इमेज हटा दी गई!`);
+      } else {
+        showToast(res.error || 'Failed to delete category image');
+      }
+    } finally {
+      setCatImageBusyId(null);
+    }
+  };
 
   // Action Loading States
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
@@ -496,10 +642,20 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         }
       } catch {}
 
-      // Bonus: Sponsored Ads
-      const liveAds = await fetchLiveAds();
+      // Bonus: Sponsored Ads, Category 16:9 Images & Encrypted Security Vault
+      const [liveAds, liveCatImages, liveVault] = await Promise.all([
+        fetchLiveAds(),
+        fetchCategoryImages(),
+        fetchAdminSecurityVault()
+      ]);
       if (Array.isArray(liveAds)) {
         setAds(liveAds);
+      }
+      if (liveCatImages && typeof liveCatImages === 'object') {
+        setCategoryImages(liveCatImages);
+      }
+      if (Array.isArray(liveVault)) {
+        setSecurityVaultRecords(liveVault);
       }
     } catch (err) {
       console.warn('Admin load data warning:', err);
@@ -628,11 +784,6 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
 
   const handleDeleteAction = async (mod: AdminModuleId, item: any) => {
     const id = item.id;
-    const label = item.name || item.fullName || item.companyOrShopName || item.description || item.reason || id;
-    if (!window.confirm(`Are you sure you want to permanently DELETE this entry?\n\n"${String(label).slice(0, 60)}"`)) {
-      return;
-    }
-
     setActionLoadingId(id);
     try {
       if (mod === 'help_posts') {
@@ -1448,6 +1599,11 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
 
   return (
     <div className="min-h-screen w-full bg-[#090D16] text-slate-100 flex flex-col">
+      {internalToast && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] px-5 py-3 rounded-2xl bg-slate-900/95 border border-orange-500/50 text-white text-xs sm:text-sm font-black shadow-2xl flex items-center gap-2.5 animate-bounce">
+          <span>{internalToast}</span>
+        </div>
+      )}
       {/* ========================================== */}
       {/* 1. TOP ADMIN BAR                           */}
       {/* ========================================== */}
@@ -1730,6 +1886,79 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                   <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                 </div>
               </motion.button>
+
+              {/* Card: Category 16:9 Images Manager (Add, Edit, Delete) */}
+              <motion.button
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.35 }}
+                onClick={() => openModule('category_images')}
+                className="text-left group relative overflow-hidden rounded-2xl bg-[#111827] hover:bg-[#162033] border border-amber-500/40 hover:border-amber-400 p-4 sm:p-5 transition-all duration-200 shadow-lg hover:shadow-xl cursor-pointer flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-md shrink-0 group-hover:scale-105 transition-transform">
+                      <ImageIcon className="w-5 h-5 text-white" />
+                    </div>
+                    <span className="px-2.5 py-1 rounded-xl bg-amber-500/15 border border-amber-500/30 text-[11px] font-black text-amber-300">
+                      {Object.keys(categoryImages).length} / {CATEGORIES.length} Uploaded
+                    </span>
+                  </div>
+                  <h3 className="text-base font-black text-white group-hover:text-amber-300 transition-colors leading-snug">
+                    Category 16:9 Images Manager
+                  </h3>
+                  <p className="text-xs font-bold text-slate-400 mt-0.5">
+                    कैटेगरी की 16:9 फोटो जोड़ें, बदलें या हटाएं (Add / Edit / Delete)
+                  </p>
+                  <p className="text-[11px] text-slate-400/90 mt-2 line-clamp-2 leading-relaxed">
+                    Directly upload, edit, or delete 16:9 banner images for all {CATEGORIES.length} service categories.
+                  </p>
+                </div>
+                <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs font-black text-amber-400 group-hover:text-amber-300">
+                  <span>Manage Category 16:9 Images</span>
+                  <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                </div>
+              </motion.button>
+
+              {/* 10th Card: Encrypted Security Vault (Read-Only / Non-Deletable) */}
+              <motion.button
+                type="button"
+                whileHover={{ y: -3 }}
+                whileTap={{ scale: 0.985 }}
+                onClick={() => openModule('security_vault')}
+                className="text-left rounded-3xl bg-gradient-to-br from-emerald-950/60 via-[#111827] to-[#111827] hover:from-emerald-900/50 border border-emerald-500/40 hover:border-emerald-400 p-5 transition-all shadow-lg flex flex-col justify-between group cursor-pointer"
+              >
+                <div>
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-md shrink-0 group-hover:scale-105 transition-transform">
+                      <Lock className="w-5 h-5 text-white" />
+                    </div>
+                    <div className="flex flex-col items-end gap-1">
+                      <span className="px-2.5 py-0.5 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-[11px] font-black text-emerald-300">
+                        {securityVaultRecords.length} Encrypted Records
+                      </span>
+                      {securityVaultRecords.filter(r => r.isDeletedFromPublic || r.actionStatus?.includes('DELETED')).length > 0 && (
+                        <span className="px-2 py-0.5 rounded-lg bg-rose-500/25 border border-rose-500/40 text-[10px] font-black text-rose-300">
+                          🚨 {securityVaultRecords.filter(r => r.isDeletedFromPublic || r.actionStatus?.includes('DELETED')).length} Deleted by User (Saved)
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <h3 className="text-base font-black text-white group-hover:text-emerald-300 transition-colors leading-snug">
+                    🛡️ Encrypted Security Vault (Read-Only)
+                  </h3>
+                  <p className="text-xs font-bold text-emerald-400 mt-0.5">
+                    AES-256-GCM लॉकर • एडमिन भी डिलीट नहीं कर सकता (सिर्फ़ देख सकते हैं)
+                  </p>
+                  <p className="text-[11px] text-slate-400/90 mt-2 line-clamp-2 leading-relaxed">
+                    Permanent police/fraud investigation archive. Even if a user or helper deletes their account, their Name, Phone, Address &amp; Watermarked Govt ID remain safely encrypted here forever.
+                  </p>
+                </div>
+                <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs font-black text-emerald-400 group-hover:text-emerald-300">
+                  <span>Open Read-Only Security Vault</span>
+                  <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                </div>
+              </motion.button>
             </div>
           </div>
         )}
@@ -1737,7 +1966,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         {/* ============================================================ */}
         {/* VIEW 2: DEDICATED MANAGEMENT SUB-PAGE FOR SELECTED MODULE    */}
         {/* ============================================================ */}
-        {activeModule !== 'home' && activeModule !== 'ads' && currentModuleMeta && (
+        {activeModule !== 'home' && activeModule !== 'ads' && activeModule !== 'category_images' && activeModule !== 'security_vault' && currentModuleMeta && (
           <div className="space-y-5">
             {/* Top Back Button + Module Header */}
             <div className="rounded-3xl bg-[#111827] border border-slate-800 p-5 sm:p-6">
@@ -1824,9 +2053,17 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                       Platform Categories ({CATEGORIES.length + customCategories.length} Active)
                     </h3>
                     <p className="text-xs text-slate-400">
-                      View core LocoHelp categories or add a new custom service category.
+                      View core LocoHelp categories, manage 16:9 category images, or add a custom category.
                     </p>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => openModule('category_images')}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white text-xs font-black shadow-md cursor-pointer"
+                  >
+                    <ImageIcon className="w-4 h-4" />
+                    <span>Manage 16:9 Category Images ({Object.keys(categoryImages).length}/{CATEGORIES.length}) →</span>
+                  </button>
                 </div>
 
                 {/* Add Category Form */}
@@ -2146,7 +2383,6 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                     <span className="text-xs text-slate-400">{ad.area}</span>
                     <button
                       onClick={async () => {
-                        if (!window.confirm(`Delete ad for "${ad.businessName}"?`)) return;
                         await deleteAdOnServer(ad.id);
                         setAds(prev => prev.filter(a => a.id !== ad.id));
                         showToast('🗑️ Ad Banner deleted');
@@ -2161,7 +2397,517 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
             </div>
           </div>
         )}
+
+        {/* ============================================================ */}
+        {/* VIEW 3: CATEGORY 16:9 IMAGES MANAGER (ADD / EDIT / DELETE)   */}
+        {/* ============================================================ */}
+        {activeModule === 'category_images' && (
+          <div className="space-y-5">
+            <div className="rounded-3xl bg-[#111827] border border-slate-800 p-5 sm:p-6">
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                <button
+                  onClick={() => openModule('home')}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs sm:text-sm font-black border border-slate-700 cursor-pointer"
+                >
+                  <ArrowLeft className="w-4 h-4 text-amber-400" />
+                  <span>← Back to Admin Dashboard</span>
+                </button>
+                <span className="px-3 py-1.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-xs font-black text-amber-300">
+                  Uploaded Images: {Object.keys(categoryImages).length} / {CATEGORIES.length} Categories
+                </span>
+              </div>
+
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-lg shrink-0">
+                    <ImageIcon className="w-6 h-6 text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl sm:text-2xl font-black text-white">
+                      Category 16:9 Images Manager
+                    </h2>
+                    <p className="text-xs sm:text-sm text-slate-400 font-medium">
+                      हर केटेगरी के लिए 16:9 फोटो सीधे अपलोड करें (Add), बदलें (Edit) या हटाएं (Delete)
+                    </p>
+                  </div>
+                </div>
+
+                <div className="relative w-full sm:w-72">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={catSearchFilter}
+                    onChange={(e) => setCatSearchFilter(e.target.value)}
+                    placeholder="Search category (e.g. Plumber, Cab)..."
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {CATEGORIES.filter(cat => {
+                if (!catSearchFilter.trim()) return true;
+                const q = catSearchFilter.toLowerCase();
+                return (
+                  cat.nameEn.toLowerCase().includes(q) ||
+                  cat.nameHi.toLowerCase().includes(q) ||
+                  cat.id.toLowerCase().includes(q)
+                );
+              }).map(cat => {
+                const currentImg = categoryImages[cat.id];
+                const isBusy = catImageBusyId === cat.id;
+
+                return (
+                  <div
+                    key={cat.id}
+                    className="rounded-2xl bg-[#111827] border border-slate-800 hover:border-amber-500/50 overflow-hidden flex flex-col justify-between shadow-md transition-all"
+                  >
+                    {/* 16:9 Image Preview Container */}
+                    <div className="aspect-video w-full bg-slate-950 relative overflow-hidden border-b border-slate-800 flex items-center justify-center">
+                      {currentImg ? (
+                        <img
+                          src={currentImg}
+                          alt={cat.nameEn}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="text-center p-4 space-y-1.5">
+                          <ImageIcon className="w-8 h-8 text-slate-600 mx-auto" />
+                          <p className="text-[11px] font-bold text-slate-500">
+                            No 16:9 Image Uploaded
+                          </p>
+                          <p className="text-[10px] text-slate-600">
+                            Default icon is currently shown on Category Card
+                          </p>
+                        </div>
+                      )}
+
+                      <span
+                        className={`absolute top-2.5 right-2.5 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border ${
+                          currentImg
+                            ? 'bg-emerald-500/90 text-white border-emerald-400 shadow-sm'
+                            : 'bg-slate-900/80 text-slate-400 border-slate-700'
+                        }`}
+                      >
+                        {currentImg ? '✓ 16:9 Active' : 'Default'}
+                      </span>
+                    </div>
+
+                    {/* Category Title & Add / Edit / Delete Controls */}
+                    <div className="p-4 space-y-3">
+                      <div>
+                        <h3 className="text-sm sm:text-base font-black text-white leading-tight">
+                          {cat.nameEn}
+                        </h3>
+                        <p className="text-xs font-bold text-amber-400/90 mt-0.5">
+                          {cat.nameHi}
+                        </p>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-800/80">
+                        {/* Direct Device File Upload Button (Add or Edit/Replace) */}
+                        <label
+                          className={`flex-1 min-w-[120px] px-3 py-2 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
+                            currentImg
+                              ? 'bg-blue-600 hover:bg-blue-500 text-white'
+                              : 'bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white shadow-sm'
+                          } ${isBusy ? 'opacity-50 pointer-events-none' : ''}`}
+                        >
+                          <Upload className="w-3.5 h-3.5" />
+                          <span>
+                            {isBusy
+                              ? 'Saving...'
+                              : currentImg
+                              ? 'Edit / Change Photo'
+                              : '+ Upload 16:9 Photo'}
+                          </span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            disabled={isBusy}
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                handleUploadCategoryImageFile(cat.id, cat.nameEn, file);
+                              }
+                              e.target.value = '';
+                            }}
+                          />
+                        </label>
+
+                        {/* Edit / Paste Image URL Button */}
+                        <button
+                          type="button"
+                          disabled={isBusy}
+                          onClick={() =>
+                            setEditingCatImageUrl({
+                              categoryId: cat.id,
+                              nameEn: cat.nameEn,
+                              nameHi: cat.nameHi,
+                              url: currentImg || ''
+                            })
+                          }
+                          className="px-2.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-bold flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                          title="Add or Edit Image via URL"
+                        >
+                          <Edit3 className="w-3.5 h-3.5 text-amber-400" />
+                          <span>URL</span>
+                        </button>
+
+                        {/* Delete Button (Only when custom image exists) */}
+                        {currentImg && (
+                          <button
+                            type="button"
+                            disabled={isBusy}
+                            onClick={() => handleDeleteCategoryImage(cat.id, cat.nameEn)}
+                            className="px-2.5 py-2 rounded-xl bg-red-600/20 hover:bg-red-600/35 text-red-300 border border-red-500/30 text-xs font-black flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                            title="Delete Category Image"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Delete</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ============================================================ */}
+        {/* VIEW 5: ENCRYPTED READ-ONLY SECURITY VAULT (NON-DELETABLE)   */}
+        {/* ============================================================ */}
+        {activeModule === 'security_vault' && (
+          <div className="space-y-5">
+            {/* Top Header */}
+            <div className="rounded-3xl bg-[#111827] border border-emerald-500/40 p-5 sm:p-6">
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                <button
+                  onClick={() => openModule('home')}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs sm:text-sm font-black border border-slate-700 transition-all cursor-pointer"
+                >
+                  <ArrowLeft className="w-4 h-4 text-emerald-400" />
+                  <span>← Back to Admin Dashboard</span>
+                </button>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="px-3 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-xs font-black text-emerald-300 flex items-center gap-1.5">
+                    <Lock className="w-3.5 h-3.5" />
+                    AES-256-GCM Encrypted Vault
+                  </span>
+                  <span className="px-3 py-1.5 rounded-xl bg-rose-500/15 border border-rose-500/30 text-xs font-black text-rose-300 flex items-center gap-1.5">
+                    <Shield className="w-3.5 h-3.5" />
+                    STRICTLY READ-ONLY (No Delete Allowed)
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-3.5">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-lg shrink-0">
+                  <Lock className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h2 className="text-lg sm:text-xl font-black text-white">
+                    🛡️ Encrypted Security Vault (Read-Only / Non-Deletable)
+                  </h2>
+                  <p className="text-xs sm:text-sm font-bold text-emerald-400">
+                    अगर कोई यूज़र या हेल्पर धोखाधड़ी/चोरी करके अपना अकाउंट डिलीट भी कर दे, तब भी उसका पूरा रिकॉर्ड और वॉटरमार्क वाला सरकारी ID कार्ड यहाँ हमेशा के लिए सुरक्षित (Encrypted) रहेगा।
+                  </p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    <strong>Zero-Delete Lock:</strong> Neither the user nor Admin can delete any record from this vault. Files on disk (<code className="text-emerald-300">security_vault.enc</code>) are encrypted with AES-256-GCM so hackers cannot read raw files, and all uploaded ID cards carry an indelible watermark (<code className="text-amber-300">FOR LOCOHELP VERIFICATION ONLY • DO NOT SHARE OR REUSE</code>) so they can never be misused or made viral.
+                  </p>
+                </div>
+              </div>
+
+              {/* Search & Filter Controls */}
+              <div className="mt-5 space-y-3">
+                <div className="relative">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={vaultSearch}
+                    onChange={(e) => setVaultSearch(e.target.value)}
+                    placeholder="Search vault by Name, Mobile Number, Email, Area, Category or Record ID..."
+                    className="w-full pl-10 pr-4 py-2.5 rounded-2xl bg-slate-900 border border-slate-700 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { id: 'all', label: `All Vault Records (${securityVaultRecords.length})` },
+                    { id: 'deleted', label: `🚨 Deleted by User (${securityVaultRecords.filter(r => r.isDeletedFromPublic || r.actionStatus?.includes('DELETED')).length})` },
+                    { id: 'with_id', label: `🪪 With Watermarked Govt ID (${securityVaultRecords.filter(r => Boolean(r.idDocumentWatermarked)).length})` },
+                    { id: 'helper', label: `Service Experts (${securityVaultRecords.filter(r => r.entityType === 'helper').length})` },
+                    { id: 'user_profile', label: `User Accounts (${securityVaultRecords.filter(r => r.entityType === 'user_profile' || r.entityType === 'auth_user' || r.entityType === 'verification').length})` },
+                    { id: 'business', label: `Businesses (${securityVaultRecords.filter(r => r.entityType === 'business').length})` },
+                    { id: 'job', label: `Job Portal (${securityVaultRecords.filter(r => r.entityType === 'job_seeker' || r.entityType === 'employer').length})` },
+                    { id: 'help_post', label: `Help Posts (${securityVaultRecords.filter(r => r.entityType === 'help_post').length})` }
+                  ].map((tab) => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setVaultFilter(tab.id as any)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer border ${
+                        vaultFilter === tab.id
+                          ? 'bg-emerald-600 text-white border-emerald-400 shadow-md'
+                          : 'bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Records List */}
+            {(() => {
+              const q = vaultSearch.trim().toLowerCase();
+              const filteredVault = securityVaultRecords.filter((rec) => {
+                if (vaultFilter === 'deleted' && !rec.isDeletedFromPublic && !rec.actionStatus?.includes('DELETED')) return false;
+                if (vaultFilter === 'with_id' && !rec.idDocumentWatermarked) return false;
+                if (vaultFilter === 'helper' && rec.entityType !== 'helper') return false;
+                if (vaultFilter === 'user_profile' && rec.entityType !== 'user_profile' && rec.entityType !== 'auth_user' && rec.entityType !== 'verification') return false;
+                if (vaultFilter === 'business' && rec.entityType !== 'business') return false;
+                if (vaultFilter === 'job' && rec.entityType !== 'job_seeker' && rec.entityType !== 'employer') return false;
+                if (vaultFilter === 'help_post' && rec.entityType !== 'help_post') return false;
+
+                if (!q) return true;
+                const haystack = `${rec.name} ${rec.phone} ${rec.email} ${rec.area} ${rec.category} ${rec.entityType} ${rec.recordId} ${rec.actionStatus}`.toLowerCase();
+                return haystack.includes(q);
+              });
+
+              if (filteredVault.length === 0) {
+                return (
+                  <div className="rounded-3xl bg-[#111827] border border-slate-800 p-10 text-center">
+                    <Lock className="w-10 h-10 text-emerald-500/60 mx-auto mb-3" />
+                    <p className="text-sm font-black text-white">No matching records in Security Vault</p>
+                    <p className="text-xs text-slate-400 mt-1">All registered users, helpers, businesses, and deleted accounts are automatically encrypted and preserved here.</p>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {filteredVault.map((rec) => {
+                    const isDeleted = rec.isDeletedFromPublic || rec.actionStatus?.includes('DELETED');
+                    return (
+                      <div
+                        key={rec.vaultKey}
+                        className={`rounded-2xl bg-[#111827] border p-4 sm:p-5 flex flex-col justify-between gap-4 shadow-md ${
+                          isDeleted
+                            ? 'border-rose-500/50 bg-gradient-to-br from-rose-950/25 via-[#111827] to-[#111827]'
+                            : 'border-slate-800 hover:border-emerald-500/40'
+                        }`}
+                      >
+                        <div className="space-y-3">
+                          {/* Top Badges */}
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className="px-2.5 py-0.5 rounded-lg bg-slate-800 border border-slate-700 text-[10px] font-black uppercase text-cyan-300">
+                                {rec.entityType.replace('_', ' ')}
+                              </span>
+                              {isDeleted ? (
+                                <span className="px-2.5 py-0.5 rounded-lg bg-rose-500/20 border border-rose-500/40 text-[10px] font-black text-rose-300">
+                                  🚨 {rec.actionStatus} (Removed from Public, Saved in Vault)
+                                </span>
+                              ) : (
+                                <span className="px-2.5 py-0.5 rounded-lg bg-emerald-500/20 border border-emerald-500/30 text-[10px] font-black text-emerald-300">
+                                  ✓ Active &amp; Backed Up ({rec.actionStatus})
+                                </span>
+                              )}
+                            </div>
+
+                            <span className="px-2 py-0.5 rounded-lg bg-slate-900 border border-slate-700 text-[10px] font-bold text-slate-400 flex items-center gap-1">
+                              <Lock className="w-3 h-3 text-emerald-400" />
+                              Read-Only
+                            </span>
+                          </div>
+
+                          {/* User / Helper Identity */}
+                          <div className="flex items-start gap-3">
+                            {rec.photoUrl ? (
+                              <img
+                                src={rec.photoUrl}
+                                alt={rec.name}
+                                className="w-12 h-12 rounded-xl object-cover border border-slate-700 shrink-0"
+                              />
+                            ) : (
+                              <div className="w-12 h-12 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center text-sm font-black text-emerald-400 shrink-0">
+                                {(rec.name || 'U').slice(0, 1).toUpperCase()}
+                              </div>
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <h3 className="text-sm sm:text-base font-black text-white truncate">
+                                {rec.name || 'Unnamed Record'}
+                              </h3>
+                              {rec.category && (
+                                <p className="text-xs font-bold text-amber-400 truncate">
+                                  Category / Role: {rec.category}
+                                </p>
+                              )}
+                              <p className="text-[11px] text-slate-400 font-mono truncate">
+                                Vault ID: {rec.recordId}
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Contact & Location Details */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-3 rounded-xl bg-slate-900/90 border border-slate-800 text-xs">
+                            <div className="flex items-center gap-1.5 text-slate-200 font-bold">
+                              <Phone className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                              <span>{rec.phone || 'No Phone'}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 text-slate-200 font-bold truncate">
+                              <Mail className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                              <span className="truncate">{rec.email || 'No Email'}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 text-slate-300 font-bold sm:col-span-2">
+                              <MapPin className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                              <span>{rec.area || 'Area not specified'}</span>
+                            </div>
+                          </div>
+
+                          {/* Timestamps */}
+                          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
+                            <span>
+                              First Saved: <strong className="text-slate-200">{rec.firstRegisteredAt ? new Date(rec.firstRegisteredAt).toLocaleString('en-IN') : 'N/A'}</strong>
+                            </span>
+                            {rec.deletedAt && (
+                              <span className="text-rose-300 font-bold">
+                                Deleted At: {new Date(rec.deletedAt).toLocaleString('en-IN')}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Watermarked Govt ID Preview Thumbnail if available */}
+                          {rec.idDocumentWatermarked && (
+                            <div className="p-2.5 rounded-xl bg-slate-950 border border-emerald-500/30 flex items-center justify-between gap-3">
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                                <div className="truncate">
+                                  <p className="text-[11px] font-black text-emerald-300 truncate">
+                                    🪪 Govt ID Stored (Watermarked &amp; Encrypted)
+                                  </p>
+                                  <p className="text-[10px] text-slate-400 truncate">
+                                    Protected with &ldquo;FOR LOCOHELP VERIFICATION ONLY&rdquo;
+                                  </p>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setViewingItem({ module: 'security_vault', data: rec })}
+                                className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-black shrink-0 cursor-pointer"
+                              >
+                                View ID
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Bottom Bar: Strictly View Only — Zero Delete Buttons */}
+                        <div className="pt-3 border-t border-slate-800/90 flex items-center justify-between gap-2">
+                          <span className="text-[10px] font-black text-slate-400 flex items-center gap-1">
+                            <Lock className="w-3 h-3 text-emerald-400" />
+                            Permanent Vault Record (Deletion Disabled)
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setViewingItem({ module: 'security_vault', data: rec })}
+                            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 text-xs font-black cursor-pointer"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>Inspect Full Record</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </div>
+        )}
       </main>
+
+      {/* ============================================================ */}
+      {/* MODAL: ADD / EDIT CATEGORY 16:9 IMAGE VIA URL                */}
+      {/* ============================================================ */}
+      <AnimatePresence>
+        {editingCatImageUrl && (
+          <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-md bg-[#111827] border border-slate-700 rounded-3xl shadow-2xl overflow-hidden"
+            >
+              <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+                <div>
+                  <h3 className="text-base font-black text-white">
+                    {editingCatImageUrl.nameEn} — 16:9 Image URL
+                  </h3>
+                  <p className="text-xs text-amber-400 font-bold">{editingCatImageUrl.nameHi}</p>
+                </div>
+                <button
+                  onClick={() => setEditingCatImageUrl(null)}
+                  className="w-8 h-8 rounded-full bg-slate-800 text-slate-300 hover:text-white flex items-center justify-center cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveCategoryImageUrl} className="p-6 space-y-4 text-xs">
+                <div>
+                  <label className="block font-bold text-slate-300 mb-1.5">
+                    Image URL or Data URI (16:9)
+                  </label>
+                  <input
+                    type="text"
+                    value={editingCatImageUrl.url}
+                    onChange={(e) =>
+                      setEditingCatImageUrl({ ...editingCatImageUrl, url: e.target.value })
+                    }
+                    placeholder="https://example.com/image.jpg"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
+                  />
+                </div>
+
+                {editingCatImageUrl.url.trim() && (
+                  <div className="aspect-video w-full rounded-xl overflow-hidden bg-slate-950 border border-slate-800">
+                    <img
+                      src={editingCatImageUrl.url.trim()}
+                      alt="Preview"
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                )}
+
+                <div className="flex items-center justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingCatImageUrl(null)}
+                    className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-bold cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={catImageBusyId === editingCatImageUrl.categoryId}
+                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 text-white font-black cursor-pointer disabled:opacity-50"
+                  >
+                    Save 16:9 Image
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* ============================================================ */}
       {/* MODAL 1: VIEW ALL DETAILS & WATERMARKED ID DOCUMENT          */}
@@ -2191,14 +2937,70 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
               <div className="p-6 overflow-y-auto space-y-4 text-xs sm:text-sm">
                 {viewingItem.data.idDocumentWatermarked && (
                   <div className="p-3 rounded-2xl bg-slate-950 border border-cyan-500/30">
-                    <p className="text-xs font-black text-cyan-400 mb-2">
-                      🪪 Uploaded Verification Document (Auto-Watermarked):
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                      <p className="text-xs font-black text-cyan-400">
+                        🪪 Uploaded Verification Document (Auto-Watermarked):
+                      </p>
+                      <span className="px-2 py-0.5 rounded-md bg-amber-500/20 border border-amber-500/40 text-[10px] font-black text-amber-300">
+                        FOR LOCOHELP VERIFICATION ONLY • DO NOT SHARE
+                      </span>
+                    </div>
+                    <div className="relative select-none overflow-hidden rounded-xl border border-slate-800 bg-slate-900">
+                      <img
+                        src={viewingItem.data.idDocumentWatermarked}
+                        alt="Verification ID"
+                        onContextMenu={(e) => e.preventDefault()}
+                        draggable={false}
+                        className="max-h-80 w-auto mx-auto object-contain pointer-events-none"
+                      />
+                      {/* Extra protective visual watermark overlay in Admin Viewer */}
+                      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                        <span className="rotate-[-18deg] bg-black/55 text-white/85 border border-white/25 px-3 py-1 rounded-lg text-[10px] sm:text-xs font-black tracking-wider uppercase shadow-lg">
+                          LOCOHELP SECURITY VAULT • DO NOT REUSE OR VIRAL
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {viewingItem.data.originalRegistrationSnapshot && (
+                  <div className="p-3.5 rounded-2xl bg-emerald-950/30 border border-emerald-500/30 space-y-2">
+                    <p className="text-xs font-black text-emerald-300 flex items-center gap-1.5">
+                      <Lock className="w-3.5 h-3.5" />
+                      Original First Registration Snapshot (Tamper-Proof):
                     </p>
-                    <img
-                      src={viewingItem.data.idDocumentWatermarked}
-                      alt="Verification ID"
-                      className="max-h-72 w-auto mx-auto rounded-xl border border-slate-800 object-contain"
-                    />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                      {Object.entries(viewingItem.data.originalRegistrationSnapshot).map(([k, v]) => {
+                        if (v === undefined || v === null || v === '' || k === 'idDocumentWatermarked' || k === 'idDocUrl' || k === 'photoUrl' || typeof v === 'object') return null;
+                        return (
+                          <div key={k} className="p-2 rounded-lg bg-slate-900/90 border border-slate-800">
+                            <span className="text-[10px] font-black uppercase text-slate-400 block">{k}</span>
+                            <span className="text-xs font-bold text-white break-words">{String(v)}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {Array.isArray(viewingItem.data.history) && viewingItem.data.history.length > 0 && (
+                  <div className="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-2">
+                    <p className="text-xs font-black text-amber-300">
+                      📜 Security Audit Trail (Creation / Updates / Deletion):
+                    </p>
+                    <div className="space-y-1.5">
+                      {viewingItem.data.history.map((h: any, idx: number) => (
+                        <div key={idx} className="flex flex-wrap items-center justify-between gap-2 text-[11px] bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800">
+                          <span className="font-black text-cyan-300">{h.action}</span>
+                          <span className="text-slate-300 font-bold">
+                            {h.snapshotSummary?.name || ''} {h.snapshotSummary?.phone ? `(${h.snapshotSummary.phone})` : ''}
+                          </span>
+                          <span className="text-slate-400 font-mono">
+                            {h.timestamp ? new Date(h.timestamp).toLocaleString('en-IN') : ''}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
 
@@ -2230,17 +3032,19 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
               </div>
 
               <div className="px-6 py-3.5 border-t border-slate-800 bg-slate-900/60 flex items-center justify-end gap-2">
-                <button
-                  onClick={() => {
-                    const mod = viewingItem.module;
-                    const item = viewingItem.data;
-                    setViewingItem(null);
-                    openEditModal(mod, item);
-                  }}
-                  className="px-4 py-2 rounded-xl bg-blue-600 text-white text-xs font-black cursor-pointer"
-                >
-                  Edit Entry
-                </button>
+                {viewingItem.module !== 'security_vault' && (
+                  <button
+                    onClick={() => {
+                      const mod = viewingItem.module;
+                      const item = viewingItem.data;
+                      setViewingItem(null);
+                      openEditModal(mod, item);
+                    }}
+                    className="px-4 py-2 rounded-xl bg-blue-600 text-white text-xs font-black cursor-pointer"
+                  >
+                    Edit Entry
+                  </button>
+                )}
                 <button
                   onClick={() => setViewingItem(null)}
                   className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold cursor-pointer"

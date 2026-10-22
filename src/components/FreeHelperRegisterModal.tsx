@@ -6,6 +6,7 @@ import { useLanguage } from '../i18n';
 import { saveHelper, getCurrentUser, getHelpers, saveUserProfile } from '../auth';
 import { submitVerification, getVerificationStatus } from '../api';
 import { validateUploadedFile, sanitizeText } from '../lib/security';
+import { applyIdWatermark } from '../lib/watermark';
 
 interface FreeHelperRegisterModalProps {
   isOpen: boolean;
@@ -543,11 +544,27 @@ export default function FreeHelperRegisterModal({
                         e.target.value = '';
                         return;
                       }
-                      const reader = new FileReader();
-                      reader.onloadend = () => {
-                        setFormIdDoc(reader.result as string);
-                      };
-                      reader.readAsDataURL(file);
+                      if (file.type === 'application/pdf') {
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                          setFormIdDoc(reader.result as string);
+                        };
+                        reader.readAsDataURL(file);
+                      } else {
+                        try {
+                          const watermarkedDataUrl = await applyIdWatermark(file, {
+                            userName: formName.trim() || 'Helper',
+                            entityLabel: 'HELPER VERIFICATION'
+                          });
+                          setFormIdDoc(watermarkedDataUrl);
+                        } catch {
+                          const reader = new FileReader();
+                          reader.onloadend = () => {
+                            setFormIdDoc(reader.result as string);
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }
                     }
                   }}
                   className="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-emerald-50 file:text-emerald-700 dark:file:bg-emerald-950 dark:file:text-emerald-300 hover:file:bg-emerald-100 cursor-pointer bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-2 py-1.5"
@@ -559,7 +576,7 @@ export default function FreeHelperRegisterModal({
                 )}
                 {formIdDoc && !fileError && (
                   <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold mt-1 flex items-center gap-1">
-                    <CheckCircle2 className="w-3 h-3" /> ID Document Verified & Attached! Your profile will appear after Admin approval.
+                    <CheckCircle2 className="w-3 h-3" /> Security Watermark Applied (&ldquo;FOR LOCOHELP VERIFICATION ONLY&rdquo;) &amp; Encrypted!
                   </p>
                 )}
               </div>

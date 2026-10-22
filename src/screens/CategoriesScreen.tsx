@@ -43,6 +43,7 @@ import FreeHelperRegisterModal from '../components/FreeHelperRegisterModal';
 import { isGuestUser } from '../lib/authUtils';
 import { getHelpers, getCurrentUser } from '../auth';
 import { isEntityOwner } from '../lib/ownership';
+import { getCachedCategoryImages, fetchCategoryImages } from '../api';
 
 interface CategoriesScreenProps {
   onBack: () => void;
@@ -69,6 +70,7 @@ export default function CategoriesScreen({
   const [activeCategory, setActiveCategory] = useState<string>(() => normalizeCat(initialCategory));
   
   const [helpers, setHelpers] = useState<FreeHelperProfile[]>(() => getFreeHelperProfiles(false));
+  const [categoryImages, setCategoryImages] = useState<Record<string, string>>(() => getCachedCategoryImages());
   const [isRegisterOpen, setIsRegisterOpen] = useState(false);
   const [showSuccessToast, setShowSuccessToast] = useState(false);
   const [citySearchQuery, setCitySearchQuery] = useState('');
@@ -82,7 +84,7 @@ export default function CategoriesScreen({
     }
   }, [initialCategory]);
 
-  // Sync approved helpers from server & localStorage
+  // Sync approved helpers and Admin-uploaded 16:9 category images from server & localStorage
   const loadApprovedHelpers = async () => {
     try {
       await getHelpers(false);
@@ -92,6 +94,11 @@ export default function CategoriesScreen({
 
   useEffect(() => {
     loadApprovedHelpers();
+    fetchCategoryImages().then(imgs => {
+      if (imgs && typeof imgs === 'object') {
+        setCategoryImages(imgs);
+      }
+    }).catch(() => {});
   }, [activeCategory, isRegisterOpen]);
 
   // Push history state when drilling down into a category or opening registration modal
@@ -275,6 +282,7 @@ export default function CategoriesScreen({
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {CATEGORIES.map(cat => {
                 const count = helpers.filter(h => isHelperMatchingCategory(h, cat.id)).length;
+                const customImg = categoryImages[cat.id];
                 return (
                   <div
                     key={cat.id}
@@ -282,25 +290,33 @@ export default function CategoriesScreen({
                       setActiveCategory(cat.id);
                       onSelectCategory(cat.id);
                     }}
-                    className="bg-[#FCFAF5] dark:bg-slate-800 border border-[#DFDBCF] dark:border-slate-700 rounded-2xl p-3.5 shadow-xs hover:border-amber-500 dark:hover:border-amber-500 transition-all cursor-pointer flex flex-col justify-between active:scale-[0.97]"
+                    className="bg-[#FCFAF5] dark:bg-slate-800 border border-[#DFDBCF] dark:border-slate-700 rounded-xl overflow-hidden shadow-xs hover:border-amber-500 dark:hover:border-amber-500 transition-all cursor-pointer flex flex-col justify-between active:scale-[0.97]"
                   >
-                    <div>
-                      <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 text-white flex items-center justify-center mb-2.5 shadow-xs">
-                        {getCategoryIcon(cat.iconName, "w-5 h-5")}
-                      </div>
-                      <h4 className="font-black text-sm text-slate-900 dark:text-white leading-tight">
-                        {getCategoryName(cat, language)}
-                      </h4>
-                      <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium mt-1 line-clamp-2">
-                        {cat.description}
-                      </p>
+                    <div className="aspect-video w-full overflow-hidden rounded-t-xl bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100/80 dark:from-slate-800 dark:to-slate-700 flex items-center justify-center relative">
+                      {customImg ? (
+                        <img
+                          src={customImg}
+                          alt={getCategoryName(cat, language)}
+                          loading="lazy"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-500 text-white flex items-center justify-center shadow-sm">
+                          {getCategoryIcon(cat.iconName, "w-6 h-6")}
+                        </div>
+                      )}
                     </div>
 
-                    <div className="flex items-center justify-between mt-3 pt-2 border-t border-[#EAE6DC] dark:border-slate-700/80">
-                      <span className="text-[10px] font-extrabold bg-amber-100 dark:bg-amber-950/80 text-amber-900 dark:text-amber-300 px-2 py-0.5 rounded-full">
-                        {count} Registered
-                      </span>
-                      <ChevronRight className="w-4 h-4 text-amber-600" />
+                    <div className="flex items-center justify-between gap-2 p-2.5 sm:p-3 border-t border-[#EAE6DC] dark:border-slate-700/80">
+                      <h4 className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white leading-tight truncate">
+                        {getCategoryName(cat, language)}
+                      </h4>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <span className="text-[10px] font-extrabold bg-amber-100 dark:bg-amber-950/80 text-amber-900 dark:text-amber-300 px-2 py-0.5 rounded-full whitespace-nowrap">
+                          {count} Registered
+                        </span>
+                        <ChevronRight className="w-4 h-4 text-amber-600 shrink-0" />
+                      </div>
                     </div>
                   </div>
                 );

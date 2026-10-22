@@ -52,25 +52,42 @@
         window.dispatchEvent(new CustomEvent('locohelp-pwa-installed'));
       });
       try {
+        if ('caches' in window) {
+          caches.keys().then(function(keys) {
+            keys.forEach(function(k) {
+              if (k !== 'locohelp-pwa-v6') {
+                caches.delete(k);
+              }
+            });
+          }).catch(function() {});
+        }
         if ('serviceWorker' in navigator) {
           window.addEventListener('load', function() {
-            navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(function(err) {
-              console.warn('SW registration note:', err);
-            });
+            fetch('/sw.js', { cache: 'no-store' })
+              .then(function(res) {
+                var ct = (res && res.headers && res.headers.get('content-type')) || '';
+                if (res && res.ok && ct.indexOf('javascript') !== -1) {
+                  return navigator.serviceWorker.register('/sw.js', { scope: '/' });
+                }
+              })
+              .catch(function() {
+                // Silently ignore transient network / proxy errors during SW check
+              });
           });
         }
       } catch (e) {}
 
-      // Fail-safe Global Exception Handler: Automatically renders Recovery UI
+      // Fail-safe Global Exception Handler: Automatically renders Recovery UI only if root failed to mount
       function renderFailSafeRecovery() {
         var root = document.getElementById('root');
-        if (root && (!root.children || root.children.length === 0)) {
+        if (root && (!root.children || root.children.length === 0 || root.getAttribute('data-booting') === 'true')) {
+          root.removeAttribute('data-booting');
           root.innerHTML = '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f8fafc;color:#0f172a;text-align:center;padding:20px;">' +
             '<div style="max-width:380px;background:#ffffff;padding:28px;border-radius:24px;border:1px solid #e2e8f0;box-shadow:0 20px 25px -5px rgba(0,0,0,0.1);">' +
               '<div style="font-size:36px;margin-bottom:12px;">⚡</div>' +
               '<h3 style="font-size:20px;font-weight:900;color:#0f172a;margin:0 0 8px 0;letter-spacing:-0.5px;">LOCOHELP</h3>' +
               '<p style="font-size:13px;color:#64748b;margin:0 0 20px 0;line-height:1.5;">Neighborhood network ready. Tap below to refresh session.</p>' +
-              '<button onclick="try{localStorage.clear();}catch(e){} location.reload();" style="width:100%;padding:14px;background:#2563eb;color:#fff;border:none;border-radius:14px;font-weight:800;cursor:pointer;font-size:14px;box-shadow:0 10px 15px -3px rgba(37,99,235,0.3);">' +
+              '<button onclick="try{if(window.caches){caches.keys().then(function(ks){ks.forEach(function(k){caches.delete(k);});});}}catch(e){} location.reload();" style="width:100%;padding:14px;background:#2563eb;color:#fff;border:none;border-radius:14px;font-weight:800;cursor:pointer;font-size:14px;box-shadow:0 10px 15px -3px rgba(37,99,235,0.3);">' +
                 '🔄 Refresh & Reload App' +
               '</button>' +
             '</div>' +
@@ -79,12 +96,20 @@
       }
 
       window.addEventListener('error', function(e) {
-        console.warn("Global JS Notice:", e.error || e.message);
-        renderFailSafeRecovery();
-      });
+        var msg = String((e && (e.message || (e.error && e.error.message))) || '');
+        if (msg.indexOf('ServiceWorker') !== -1 || msg.indexOf('sw.js') !== -1) {
+          e.preventDefault();
+          return;
+        }
+        setTimeout(renderFailSafeRecovery, 200);
+      }, true);
 
       window.addEventListener('unhandledrejection', function(e) {
-        console.warn("Global Promise Rejection Captured:", e.reason);
+        var reasonStr = String((e && e.reason && (e.reason.message || e.reason)) || '');
+        if (reasonStr.indexOf('ServiceWorker') !== -1 || reasonStr.indexOf('sw.js') !== -1) {
+          e.preventDefault();
+          return;
+        }
       });
     </script>
 
@@ -92,7 +117,7 @@
     <script src="https://accounts.google.com/gsi/client" async defer></script>
   </head>
   <body class="bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100">
-    <div id="root"></div>
+    <div id="root" data-booting="true"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

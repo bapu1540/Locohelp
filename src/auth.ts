@@ -509,7 +509,7 @@ export function getAuthHeaders(): Record<string, string> {
       }
     }
     if (isAdminLoggedIn) {
-      headers['x-admin-email'] = 'chauhansanjay932@gmail.com';
+      headers['x-admin-email'] = 'baalvarta@gmail.com';
     }
   } catch (e) {}
   return headers;

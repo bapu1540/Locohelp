@@ -348,6 +348,7 @@ export default function HomeScreen({
     plumber: ['plumb', 'pipe', 'tap', 'water', 'leak', 'flush', 'basin', 'tank'],
     electrician: ['electr', 'wire', 'wiring', 'switch', 'light', 'fan', 'inverter', 'current', 'fuse', 'short'],
     mechanic: ['mechanic', 'car', 'bike', 'puncture', 'tyre', 'tire', 'battery', 'jumpstart', 'towing', 'breakdown'],
+    cab_auto_driver: ['cab', 'auto', 'rickshaw', 'taxi', 'driver', 'drop', 'pickup', 'ride', 'outstation', 'car rent'],
     carpenter: ['carpent', 'wood', 'door', 'lock', 'furniture', 'bed', 'sofa', 'table'],
     painter: ['paint', 'wall', 'putty', 'color', 'polish'],
     ac_repair: ['ac', 'air condition', 'fridge', 'refrigerator', 'cooling', 'washing machine', 'appliance'],
@@ -691,8 +692,15 @@ export default function HomeScreen({
     if (isManual) setIsSyncing(true);
     try {
       const serverIntents = await fetchLiveIntents();
-      if (serverIntents && Array.isArray(serverIntents) && serverIntents.length > 0) {
-        mergeAndDeduplicateIntents(serverIntents);
+      if (serverIntents && Array.isArray(serverIntents)) {
+        if (serverIntents.length > 0) {
+          mergeAndDeduplicateIntents(serverIntents);
+        } else {
+          setIntents([]);
+          try {
+            localStorage.setItem('locohelp_cached_intents', JSON.stringify([]));
+          } catch {}
+        }
       }
     } catch (err) {
       console.warn("Live broadcast sync notice:", err);
