@@ -18,6 +18,23 @@
     <meta name="apple-mobile-web-app-title" content="LocoHelp" />
     <meta name="google-signin-client_id" content="547738120834-43c97ifmhguemiqcp2b8lgllffqf55p1.apps.googleusercontent.com" />
 
+    <!-- Google Analytics 4 (GA4) - Single Load & Privacy Safe -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-ZN184GR1M9"></script>
+    <script>
+      if (!window.__LOCOHELP_GA_INITIALIZED__) {
+        window.__LOCOHELP_GA_INITIALIZED__ = true;
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){window.dataLayer.push(arguments);}
+        window.gtag = gtag;
+        gtag('js', new Date());
+        gtag('config', 'G-ZN184GR1M9', {
+          send_page_view: false,
+          allow_google_signals: false,
+          allow_ad_personalization_signals: false
+        });
+      }
+    </script>
+
     <!-- Default Light Background to Prevent Any Black Screen or Flash -->
     <style>
       html, body {

@@ -502,16 +502,47 @@ export function getAuthHeaders(): Record<string, string> {
       headers['Authorization'] = `Bearer ${token}`;
       headers['x-auth-token'] = token;
     }
+
+    const savedUserRaw = localStorage.getItem('locohelp_user');
+    if (savedUserRaw) {
+      try {
+        const parsedUser = JSON.parse(savedUserRaw);
+        if (parsedUser && parsedUser.uid && parsedUser.uid !== 'guest_user') {
+          headers['x-user-id'] = String(parsedUser.uid);
+        }
+        if (parsedUser && parsedUser.email) {
+          headers['x-user-email'] = String(parsedUser.email).toLowerCase();
+        }
+      } catch {}
+    }
+    if (!headers['x-user-email']) {
+      const lastEmail = localStorage.getItem('locohelp_last_logged_in_email');
+      if (lastEmail) {
+        headers['x-user-email'] = lastEmail.toLowerCase();
+        if (!headers['x-user-id']) {
+          headers['x-user-id'] = lastEmail.toLowerCase();
+        }
+      }
+    }
+
     const adminToken = sessionStorage.getItem('locohelp_admin_token') || localStorage.getItem('locohelp_admin_token');
-    const isAdminLoggedIn = sessionStorage.getItem('locohelp_admin_logged_in') === 'true';
+    const isAdminLoggedIn =
+      sessionStorage.getItem('locohelp_admin_logged_in') === 'true' ||
+      localStorage.getItem('locohelp_admin_logged_in') === 'true';
     if (adminToken) {
       headers['x-admin-token'] = adminToken;
       if (!headers['Authorization']) {
         headers['Authorization'] = `Bearer ${adminToken}`;
       }
     }
-    if (isAdminLoggedIn) {
+    if (isAdminLoggedIn || adminToken) {
       headers['x-admin-email'] = 'baalvarta@gmail.com';
+      if (!headers['x-user-id']) {
+        headers['x-user-id'] = 'master_admin';
+      }
+      if (!headers['x-user-email']) {
+        headers['x-user-email'] = 'baalvarta@gmail.com';
+      }
     }
   } catch (e) {}
   return headers;

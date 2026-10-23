@@ -577,12 +577,153 @@ const STORAGE_KEY = 'locohelp_free_helper_profiles';
 // Zero dummy helpers - only real user-created and admin-approved helper profiles are shown
 export const INITIAL_HELPERS: FreeHelperProfile[] = [];
 
+/**
+ * Normalizes any category ID, English/Hindi/Gujarati name, tag, or skill keyword
+ * into a valid CATEGORIES slug ('plumber', 'electrician', ..., 'other') and preserves customCategoryName.
+ */
+export function normalizeCategorySlug(
+  rawCategory?: string,
+  skills?: string[] | string,
+  customCategoryName?: string
+): { categoryId: string; customCategoryName: string } {
+  const candidates: string[] = [];
+  if (rawCategory && typeof rawCategory === 'string') candidates.push(rawCategory.trim());
+  if (customCategoryName && typeof customCategoryName === 'string') candidates.push(customCategoryName.trim());
+  if (Array.isArray(skills)) {
+    skills.forEach(s => {
+      if (s && typeof s === 'string') candidates.push(s.trim());
+    });
+  } else if (typeof skills === 'string' && skills.trim()) {
+    skills.split(',').forEach(s => {
+      if (s.trim()) candidates.push(s.trim());
+    });
+  }
+
+  for (const raw of candidates) {
+    const clean = raw.toLowerCase().replace(/^#/, '').trim();
+    if (!clean) continue;
+
+    // 1. Direct match on category id, nameEn, nameHi, nameGu, or tag
+    const exactMatch = CATEGORIES.find(
+      c =>
+        c.id.toLowerCase() === clean ||
+        c.nameEn.toLowerCase() === clean ||
+        c.nameHi.toLowerCase() === clean ||
+        (c.nameGu && c.nameGu.toLowerCase() === clean) ||
+        c.tag.toLowerCase().replace(/^#/, '') === clean
+    );
+    if (exactMatch) {
+      return {
+        categoryId: exactMatch.id,
+        customCategoryName:
+          exactMatch.id === 'other'
+            ? (customCategoryName?.trim() || (rawCategory?.toLowerCase() !== 'other' ? rawCategory?.trim() || '' : ''))
+            : (customCategoryName?.trim() || '')
+      };
+    }
+
+    // 2. Keyword / substring match against CATEGORIES
+    if (clean.includes('plumb') || clean.includes('नल') || clean.includes('पाइप') || clean.includes('પ્લમ્બર')) {
+      return { categoryId: 'plumber', customCategoryName: '' };
+    }
+    if (clean.includes('electric') || clean.includes('बिजली') || clean.includes('इलेक्ट्रीशियन') || clean.includes('ઇલેક્ટ્રિશિયન')) {
+      return { categoryId: 'electrician', customCategoryName: '' };
+    }
+    if (clean.includes('ac ') || clean === 'ac' || clean.includes('appliance') || clean.includes('fridge') || clean.includes('washing machine') || clean.includes('एसी') || clean.includes('फ्रिज')) {
+      return { categoryId: 'ac_appliance', customCategoryName: '' };
+    }
+    if (clean.includes('mechanic') || clean.includes('puncture') || clean.includes('towing') || clean.includes('garage') || clean.includes('मैकेनिक') || clean.includes('पंक्चर')) {
+      return { categoryId: 'mechanic_towing', customCategoryName: '' };
+    }
+    if (clean.includes('carpent') || clean.includes('furniture') || clean.includes('बढ़ई') || clean.includes('फर्नीचर') || clean.includes('સુથાર')) {
+      return { categoryId: 'carpenter', customCategoryName: '' };
+    }
+    if (clean.includes('paint') || clean.includes('पेंटर') || clean.includes('पुताई') || clean.includes('પેઇન્ટર')) {
+      return { categoryId: 'painter', customCategoryName: '' };
+    }
+    if (clean.includes('blood') || clean.includes('medical') || clean.includes('hospital') || clean.includes('clinic') || clean.includes('pharmacy') || clean.includes('doctor') || clean.includes('ambulance') || clean.includes('मेडिकल') || clean.includes('अस्पताल')) {
+      return { categoryId: 'blood_medical', customCategoryName: customCategoryName?.trim() || raw.trim() };
+    }
+    if (clean.includes('animal') || clean.includes('snake') || clean.includes('pet') || clean.includes('vet') || clean.includes('रेस्क्यू')) {
+      return { categoryId: 'animal_rescue', customCategoryName: '' };
+    }
+    if (clean.includes('farm') || clean.includes('kisan') || clean.includes('tractor') || clean.includes('agri') || clean.includes('किसान') || clean.includes('खेती') || clean.includes('खेत')) {
+      return { categoryId: 'farm_kisan', customCategoryName: '' };
+    }
+    if (clean.includes('cab') || clean.includes('auto') || clean.includes('driver') || clean.includes('taxi') || clean.includes('travel') || clean.includes('कैब') || clean.includes('ऑटो') || clean.includes('ड्राइवर')) {
+      return { categoryId: 'cab_driver', customCategoryName: '' };
+    }
+    if (clean.includes('cricket') || clean.includes('football') || clean.includes('turf') || clean.includes('क्रिकेट')) {
+      return { categoryId: 'cricket_football', customCategoryName: '' };
+    }
+    if (clean.includes('badminton') || clean.includes('tennis') || clean.includes('बैडमिंटन')) {
+      return { categoryId: 'badminton_tennis', customCategoryName: '' };
+    }
+    if (clean.includes('gym') || clean.includes('running') || clean.includes('yoga') || clean.includes('fitness') || clean.includes('जिम')) {
+      return { categoryId: 'gym_running', customCategoryName: '' };
+    }
+    if (clean.includes('gaming') || clean.includes('bgmi') || clean.includes('esport') || clean.includes('गेमिंग')) {
+      return { categoryId: 'esports_gaming', customCategoryName: '' };
+    }
+    if (clean.includes('chai') || clean.includes('coffee') || clean.includes('cafe') || clean.includes('tea') || clean.includes('restaurant') || clean.includes('food') || clean.includes('bakery') || clean.includes('hotel') || clean.includes('चाय') || clean.includes('होटल')) {
+      return { categoryId: 'chai_hangout', customCategoryName: customCategoryName?.trim() || raw.trim() };
+    }
+    if (clean.includes('flatmate') || clean.includes('pg') || clean.includes('hostel') || clean.includes('room') || clean.includes('rent') || clean.includes('रूम') || clean.includes('पीजी')) {
+      return { categoryId: 'flatmate_pg', customCategoryName: '' };
+    }
+    if (clean.includes('ride') || clean.includes('carpool') || clean.includes('pool') || clean.includes('राइड')) {
+      return { categoryId: 'ride_share', customCategoryName: '' };
+    }
+    if (clean.includes('movie') || clean.includes('event') || clean.includes('catering') || clean.includes('dj') || clean.includes('मूवी') || clean.includes('इवेंट')) {
+      return { categoryId: 'movie_events', customCategoryName: '' };
+    }
+    if (clean.includes('senior') || clean.includes('elder') || clean.includes('बुजुर्ग')) {
+      return { categoryId: 'senior_citizen', customCategoryName: '' };
+    }
+    if (clean.includes('study') || clean.includes('project') || clean.includes('stationery') || clean.includes('xerox') || clean.includes('cyber') || clean.includes('प्रोजेक्ट')) {
+      return { categoryId: 'study_project', customCategoryName: '' };
+    }
+    if (clean.includes('clean') || clean.includes('maid') || clean.includes('housekeep') || clean.includes('सफाई') || clean.includes('मेड')) {
+      return { categoryId: 'cleaning', customCategoryName: '' };
+    }
+    if (clean.includes('deliver') || clean.includes('errand') || clean.includes('grocery') || clean.includes('kirana') || clean.includes('transport') || clean.includes('packers') || clean.includes('डिलीवरी') || clean.includes('किराना')) {
+      return { categoryId: 'delivery', customCategoryName: customCategoryName?.trim() || raw.trim() };
+    }
+    if (clean.includes('tutor') || clean.includes('teacher') || clean.includes('coaching') || clean.includes('school') || clean.includes('class') || clean.includes('ट्यूशन') || clean.includes('शिक्षक')) {
+      return { categoryId: 'tutor', customCategoryName: '' };
+    }
+  }
+
+  const fallbackLabel =
+    customCategoryName?.trim() ||
+    (rawCategory && rawCategory.trim().toLowerCase() !== 'other' && rawCategory.trim().toLowerCase() !== 'general'
+      ? rawCategory.trim()
+      : '');
+  return {
+    categoryId: 'other',
+    customCategoryName: fallbackLabel
+  };
+}
+
 export function getFreeHelperProfiles(includePending = false): FreeHelperProfile[] {
   try {
     const data = localStorage.getItem(STORAGE_KEY);
     const custom: FreeHelperProfile[] = data ? JSON.parse(data) : [];
     // Filter out any legacy dummy helpers (h1..h14)
-    const realOnly = custom.filter(h => h && h.id && !/^h\d+/.test(String(h.id)));
+    const realOnly = custom
+      .filter(h => h && h.id && !/^h\d+/.test(String(h.id)))
+      .map(h => {
+        const norm = normalizeCategorySlug(
+          h.categoryId || (h as any).category,
+          h.skills,
+          h.customCategoryName
+        );
+        return {
+          ...h,
+          categoryId: norm.categoryId,
+          customCategoryName: h.customCategoryName || norm.customCategoryName
+        };
+      });
     if (includePending) {
       return realOnly;
     }
@@ -600,18 +741,23 @@ export function saveFreeHelperProfile(
     govtIdUploaded?: boolean;
     idDocUrl?: string;
     isVerified?: boolean;
+    status?: 'pending' | 'approved' | 'rejected';
   }
 ): FreeHelperProfile {
-  const matched = CATEGORIES.find(c => c.id === profile.categoryId);
+  const norm = normalizeCategorySlug(profile.categoryId, profile.skills, profile.customCategoryName);
+  const matched = CATEGORIES.find(c => c.id === norm.categoryId);
   const hasDoc = Boolean(profile.govtIdUploaded || profile.idDocUrl || profile.isVerified);
+  const isApproved = Boolean(profile.isVerified === true || profile.status === 'approved');
   const newProfile: FreeHelperProfile = {
     ...profile,
+    categoryId: norm.categoryId,
+    customCategoryName: profile.customCategoryName || norm.customCategoryName,
     masterCategory: profile.masterCategory || (matched ? matched.masterCategory : 'utility_emergency'),
     id: profile.id || 'hp_' + Date.now(),
     rating: 5.0,
     completedTasks: 0,
-    isVerified: false, // Strict requirement: Pending Admin approval before Verified badge and public directory visibility
-    status: 'pending',
+    isVerified: isApproved,
+    status: isApproved ? 'approved' : 'pending',
     govtIdUploaded: hasDoc,
     createdAt: new Date().toISOString(),
   };

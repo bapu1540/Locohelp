@@ -44,6 +44,7 @@ import {
 } from 'lucide-react';
 import { MASTER_CATEGORIES, getFreeHelperProfiles } from './data/categories';
 import ErrorBoundary from './components/ErrorBoundary';
+import { trackSpaPageView } from './lib/analytics';
 
 export default function App() {
   return (
@@ -77,6 +78,11 @@ function AppContent() {
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [prevScreen, setPrevScreen] = useState<Screen>('home');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+
+  // Track SPA virtual page views in Google Analytics 4 (privacy-safe, deduplicated)
+  useEffect(() => {
+    trackSpaPageView(currentScreen, selectedCategory);
+  }, [currentScreen, selectedCategory]);
 
   // Listen to URL changes for '/bapu-admin' route
   useEffect(() => {

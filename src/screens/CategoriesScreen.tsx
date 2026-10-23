@@ -34,6 +34,7 @@ import {
   getCategoryName, 
   getFreeHelperProfiles, 
   saveFreeHelperProfile, 
+  normalizeCategorySlug,
   FreeHelperProfile
 } from '../data/categories';
 import { useLanguage } from '../i18n';
@@ -41,7 +42,7 @@ import UserProfileModal from './UserProfileModal';
 import LoginPromptModal from '../components/LoginPromptModal';
 import FreeHelperRegisterModal from '../components/FreeHelperRegisterModal';
 import { isGuestUser } from '../lib/authUtils';
-import { getHelpers, getCurrentUser } from '../auth';
+import { getHelpers, getShops, getCurrentUser } from '../auth';
 import { isEntityOwner } from '../lib/ownership';
 import { getCachedCategoryImages, fetchCategoryImages } from '../api';
 
@@ -84,12 +85,73 @@ export default function CategoriesScreen({
     }
   }, [initialCategory]);
 
-  // Sync approved helpers and Admin-uploaded 16:9 category images from server & localStorage
+  // Sync approved helpers, approved businesses/shops, and Admin-uploaded 16:9 category images from server & localStorage
   const loadApprovedHelpers = async () => {
+    let serverHelpers: any[] = [];
+    let serverShops: any[] = [];
     try {
-      await getHelpers(false);
+      const [hList, sList] = await Promise.all([
+        getHelpers(false).catch(() => []),
+        getShops(false).catch(() => [])
+      ]);
+      if (Array.isArray(hList)) serverHelpers = hList;
+      if (Array.isArray(sList)) serverShops = sList;
     } catch (e) {}
-    setHelpers(getFreeHelperProfiles(false));
+
+    const localHelpers = getFreeHelperProfiles(false);
+    const mergedMap = new Map<string, FreeHelperProfile>();
+
+    const addEntry = (item: any) => {
+      if (!item || !item.id || /^h\d+/.test(String(item.id)) || String(item.id).startsWith('sample_shop_')) return;
+      const isApproved = Boolean(item.isVerified === true || item.is_verified === true || item.status === 'approved');
+      if (!isApproved) return;
+
+      const rawSkills = Array.isArray(item.skills)
+        ? item.skills
+        : typeof item.skills === 'string' && item.skills.trim()
+        ? item.skills.split(',').map((s: string) => s.trim()).filter(Boolean)
+        : [item.categoryLabel || item.category || item.categoryId || 'Service'];
+
+      const norm = normalizeCategorySlug(
+        item.categoryId || item.category || item.categoryLabel,
+        rawSkills,
+        item.customCategoryName
+      );
+      const matchedCat = CATEGORIES.find(c => c.id === norm.categoryId);
+
+      mergedMap.set(String(item.id), {
+        id: String(item.id),
+        userId: item.userId || item.owner_id || String(item.id),
+        email: item.email || item.ownerEmail || '',
+        name: item.name || item.businessName || 'Community Helper',
+        categoryId: norm.categoryId,
+        customCategoryName: item.customCategoryName || norm.customCategoryName || item.categoryLabel || '',
+        masterCategory: item.masterCategory || (matchedCat ? matchedCat.masterCategory : 'utility_emergency'),
+        phone: item.phone || '',
+        skills: rawSkills,
+        area: item.area || item.address || 'Local Area',
+        city: item.city || '',
+        experience: item.experience || item.timings || 'Verified',
+        distance: typeof item.distance === 'number' ? item.distance : 0.6,
+        rating: typeof item.rating === 'number' ? item.rating : 5.0,
+        completedTasks: typeof item.completedTasks === 'number' ? item.completedTasks : Number(item.reviewCount || 1),
+        createdAt: item.createdAt || new Date().toISOString(),
+        isVerified: true,
+        status: 'approved'
+      });
+    };
+
+    localHelpers.forEach(addEntry);
+    serverHelpers.forEach(addEntry);
+    serverShops.forEach(addEntry);
+
+    try {
+      const localShopsRaw = localStorage.getItem('locohelp_registered_shops');
+      const localShops: any[] = localShopsRaw ? JSON.parse(localShopsRaw) : [];
+      localShops.forEach(addEntry);
+    } catch {}
+
+    setHelpers(Array.from(mergedMap.values()));
   };
 
   useEffect(() => {
@@ -99,6 +161,16 @@ export default function CategoriesScreen({
         setCategoryImages(imgs);
       }
     }).catch(() => {});
+
+    const onProfileOrStorageUpdate = () => {
+      loadApprovedHelpers();
+    };
+    window.addEventListener('locohelp_profile_updated', onProfileOrStorageUpdate);
+    window.addEventListener('storage', onProfileOrStorageUpdate);
+    return () => {
+      window.removeEventListener('locohelp_profile_updated', onProfileOrStorageUpdate);
+      window.removeEventListener('storage', onProfileOrStorageUpdate);
+    };
   }, [activeCategory, isRegisterOpen]);
 
   // Push history state when drilling down into a category or opening registration modal
@@ -159,16 +231,17 @@ export default function CategoriesScreen({
     }
   };
 
-  // Match helper to category (including 'other' / custom categories)
+  // Match helper to category (including 'other' / custom categories and normalized slugs)
   const isHelperMatchingCategory = (h: FreeHelperProfile, targetCat: string): boolean => {
     if (targetCat === 'all') return true;
-    const hCat = (h.categoryId || '').trim().toLowerCase();
+    const norm = normalizeCategorySlug(h.categoryId, h.skills, h.customCategoryName);
+    const hCat = norm.categoryId.toLowerCase();
     if (targetCat === 'other' || targetCat === 'other_categories') {
       const isStandardNonOther = CATEGORIES.some(c => c.id !== 'other' && c.id.toLowerCase() === hCat);
       return (
         hCat === 'other' ||
         hCat === 'other_categories' ||
-        Boolean(h.customCategoryName && h.customCategoryName.trim()) ||
+        Boolean(h.customCategoryName && h.customCategoryName.trim() && !isStandardNonOther) ||
         !isStandardNonOther
       );
     }

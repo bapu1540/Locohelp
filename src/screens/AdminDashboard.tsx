@@ -43,7 +43,7 @@ import {
   ChevronRight,
   Filter
 } from 'lucide-react';
-import { getFreeHelperProfiles, CATEGORIES } from '../data/categories';
+import { getFreeHelperProfiles, saveFreeHelperProfile, normalizeCategorySlug, CATEGORIES } from '../data/categories';
 import { getHelpers, getShops } from '../auth';
 import { 
   fetchLiveIntents, 
@@ -332,10 +332,11 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
 
   // Admin Direct Create / Register Modal State (Email & Mobile 100% Optional, No OTP, Auto-Approved)
   const [creatingItem, setCreatingItem] = useState<{
-    module: 'businesses' | 'helpers' | 'job_seekers' | 'employers' | 'help_posts';
+    module: 'businesses' | 'helpers' | 'simple_users' | 'job_seekers' | 'employers' | 'help_posts';
     nameOrTitle: string;
     ownerOrRole: string;
     category: string;
+    customCategoryName: string;
     phone: string;
     email: string;
     areaOrLocation: string;
@@ -351,17 +352,18 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
   } | null>(null);
   const [isSavingCreate, setIsSavingCreate] = useState(false);
 
-  const openAdminCreateModal = (mod: 'businesses' | 'helpers' | 'job_seekers' | 'employers' | 'help_posts') => {
+  const openAdminCreateModal = (mod: 'businesses' | 'helpers' | 'simple_users' | 'job_seekers' | 'employers' | 'help_posts') => {
     setCreatingItem({
       module: mod,
       nameOrTitle: '',
       ownerOrRole: '',
-      category: mod === 'helpers' ? 'plumber' : 'Retail & Services',
+      category: mod === 'helpers' || mod === 'simple_users' ? 'plumber' : mod === 'businesses' ? 'other' : 'Retail & Services',
+      customCategoryName: mod === 'businesses' ? 'Retail & Services' : '',
       phone: '',
       email: '',
       areaOrLocation: '',
       address: '',
-      timingsOrExperience: mod === 'businesses' ? '9:00 AM - 9:00 PM' : mod === 'helpers' ? '2+ Years' : '',
+      timingsOrExperience: mod === 'businesses' ? '9:00 AM - 9:00 PM' : mod === 'helpers' || mod === 'simple_users' ? '2+ Years' : '',
       educationOrVacancyType: mod === 'job_seekers' ? '12th Pass / Graduate' : 'Full-Time',
       salaryOrUrgency: '',
       description: '',
@@ -739,7 +741,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
 
     try {
       if (mod === 'help_posts') {
-        const res = await updateAdminIntentOnServer(id, { status: newStatus, isApproved });
+        const res = await updateAdminIntentOnServer(id, { ...item, status: newStatus, isApproved });
         if (res.success) {
           setIntents(prev => prev.map(i => (i.id === id ? { ...i, status: newStatus, isApproved } : i)));
           showToast(isApproved ? '✅ Help Post Approved!' : '❌ Help Post Rejected.');
@@ -747,18 +749,33 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
           showToast(res.error || 'Failed to update Help Post');
         }
       } else if (mod === 'helpers') {
-        const res = await updateAdminHelperOnServer(id, { status: newStatus, isVerified: isApproved });
+        const norm = normalizeCategorySlug(
+          item.categoryId || item.category || item.service,
+          item.skills,
+          item.customCategoryName
+        );
+        const fullUpdates = {
+          ...item,
+          categoryId: norm.categoryId,
+          customCategoryName: item.customCategoryName || norm.customCategoryName,
+          status: newStatus,
+          isVerified: isApproved
+        };
+        const res = await updateAdminHelperOnServer(id, fullUpdates);
         if (res.success) {
-          setHelpers(prev => prev.map(h => (h.id === id ? { ...h, status: newStatus, isVerified: isApproved } : h)));
-          // Sync local storage
+          const updatedHelper = { ...item, ...(res.item || {}), ...fullUpdates };
+          setHelpers(prev => prev.map(h => (h.id === id ? updatedHelper : h)));
+          // Sync local storage so CategoriesScreen immediately displays the approved helper
           try {
             const raw = localStorage.getItem('locohelp_free_helper_profiles');
-            if (raw) {
-              const arr = JSON.parse(raw).map((h: any) => (h.id === id ? { ...h, status: newStatus, isVerified: isApproved } : h));
-              localStorage.setItem('locohelp_free_helper_profiles', JSON.stringify(arr));
-            }
+            const list: any[] = raw ? JSON.parse(raw) : [];
+            const exists = list.some(h => h && h.id === id);
+            const nextList = exists
+              ? list.map((h: any) => (h.id === id ? { ...h, ...updatedHelper } : h))
+              : [updatedHelper, ...list];
+            localStorage.setItem('locohelp_free_helper_profiles', JSON.stringify(nextList));
           } catch {}
-          showToast(isApproved ? '✅ Helper Profile Approved & Verified!' : '❌ Helper Profile Rejected.');
+          showToast(isApproved ? '✅ Helper Profile Approved & Live in Categories!' : '❌ Helper Profile Rejected.');
         } else {
           showToast(res.error || 'Failed to update Helper Profile');
         }
@@ -766,7 +783,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         if (item.verificationId) {
           await updateAdminVerificationStatus(item.verificationId, newStatus);
         }
-        const res = await updateAdminUserOnServer(id, { status: newStatus, isVerified: isApproved });
+        const res = await updateAdminUserOnServer(id, { ...item, status: newStatus, isVerified: isApproved });
         if (res.success || item.verificationId) {
           setSimpleUsers(prev => prev.map(u => (u.id === id ? { ...u, status: newStatus, isVerified: isApproved } : u)));
           showToast(isApproved ? '✅ Simple User Profile Approved!' : '❌ Simple User Profile Rejected.');
@@ -774,15 +791,18 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
           showToast(res.error || 'Failed to update User Profile');
         }
       } else if (mod === 'businesses') {
-        const res = await updateAdminBusinessOnServer(id, { status: newStatus, isVerified: isApproved });
+        const res = await updateAdminBusinessOnServer(id, { ...item, status: newStatus, isVerified: isApproved });
         if (res.success) {
-          setBusinesses(prev => prev.map(b => (b.id === id ? { ...b, status: newStatus, isVerified: isApproved } : b)));
+          const updatedBiz = { ...item, ...(res.item || {}), status: newStatus, isVerified: isApproved };
+          setBusinesses(prev => prev.map(b => (b.id === id ? updatedBiz : b)));
           try {
             const raw = localStorage.getItem('locohelp_registered_shops');
-            if (raw) {
-              const arr = JSON.parse(raw).map((s: any) => (s.id === id ? { ...s, status: newStatus, isVerified: isApproved } : s));
-              localStorage.setItem('locohelp_registered_shops', JSON.stringify(arr));
-            }
+            const list: any[] = raw ? JSON.parse(raw) : [];
+            const exists = list.some(s => s && s.id === id);
+            const nextList = exists
+              ? list.map((s: any) => (s.id === id ? { ...s, ...updatedBiz } : s))
+              : [updatedBiz, ...list];
+            localStorage.setItem('locohelp_registered_shops', JSON.stringify(nextList));
           } catch {}
           showToast(isApproved ? '✅ Business / Shop Approved & Live!' : '❌ Business / Shop Rejected.');
         } else {
@@ -797,7 +817,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
           showToast(res.error || 'Failed to update Job Portal status');
         }
       } else if (mod === 'feedback_categories') {
-        const res = await updateAdminReportOnServer(id, { status: newStatus });
+        const res = await updateAdminReportOnServer(id, { ...item, status: newStatus });
         if (res.success) {
           setReports(prev => prev.map(r => (r.id === id ? { ...r, status: newStatus } : r)));
           showToast(isApproved ? '✅ Feedback / Report Marked Approved & Resolved!' : '❌ Feedback / Report Rejected.');
@@ -975,15 +995,31 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
 
     setIsSavingCreate(true);
     try {
-      const headers = getAuthHeaders();
+      const headers = {
+        ...getAuthHeaders(),
+        'Content-Type': 'application/json'
+      };
       const mod = creatingItem.module;
 
       if (mod === 'businesses') {
+        const norm = normalizeCategorySlug(
+          creatingItem.category,
+          creatingItem.ownerOrRole,
+          creatingItem.customCategoryName
+        );
+        const catObj = CATEGORIES.find(c => c.id === norm.categoryId);
+        const catLabel =
+          norm.categoryId === 'other'
+            ? creatingItem.customCategoryName.trim() || creatingItem.category.trim() || 'Retail & Services'
+            : catObj?.nameEn || creatingItem.category.trim() || 'Retail & Services';
+
         const payload = {
           name: creatingItem.nameOrTitle.trim(),
           businessName: creatingItem.nameOrTitle.trim(),
-          category: creatingItem.category.trim() || 'Retail & Services',
-          categoryLabel: creatingItem.category.trim() || 'Local Business',
+          business_name: creatingItem.nameOrTitle.trim(),
+          categoryId: norm.categoryId,
+          category: catLabel,
+          categoryLabel: catLabel,
           ownerName: creatingItem.ownerOrRole.trim() || 'Shop Owner',
           phone: creatingItem.phone.trim(), // 100% optional for Admin
           ownerEmail: creatingItem.email.trim(), // 100% optional for Admin
@@ -1003,13 +1039,34 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Failed to add Shop');
-        setBusinesses(prev => [data, ...prev]);
+        setBusinesses(prev => [data, ...prev.filter(b => b.id !== data.id)]);
+        try {
+          const raw = localStorage.getItem('locohelp_registered_shops');
+          const list: any[] = raw ? JSON.parse(raw) : [];
+          localStorage.setItem(
+            'locohelp_registered_shops',
+            JSON.stringify([{ ...data, isVerified: true, status: 'approved' }, ...list.filter(s => s && s.id !== data.id)])
+          );
+        } catch {}
         showToast('✅ Shop / Business added & published live immediately!');
-      } else if (mod === 'helpers') {
+      } else if (mod === 'helpers' || mod === 'simple_users') {
+        const norm = normalizeCategorySlug(
+          creatingItem.category,
+          [creatingItem.ownerOrRole, creatingItem.description].filter(Boolean),
+          creatingItem.customCategoryName
+        );
+        const catObj = CATEGORIES.find(c => c.id === norm.categoryId);
+        const primarySkill =
+          creatingItem.ownerOrRole.trim() ||
+          creatingItem.customCategoryName.trim() ||
+          catObj?.nameEn ||
+          'Community Helper';
+
         const payload = {
           name: creatingItem.nameOrTitle.trim(),
-          categoryId: creatingItem.category.trim() || 'general',
-          skills: [creatingItem.ownerOrRole.trim() || creatingItem.category.trim() || 'General Helper'],
+          categoryId: norm.categoryId,
+          customCategoryName: norm.customCategoryName,
+          skills: [primarySkill, ...(creatingItem.description.trim() ? [creatingItem.description.trim()] : [])],
           phone: creatingItem.phone.trim(), // 100% optional for Admin
           email: creatingItem.email.trim(), // 100% optional for Admin
           experience: creatingItem.timingsOrExperience.trim() || '2+ Years',
@@ -1024,9 +1081,44 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
           body: JSON.stringify(payload)
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Failed to add Helper');
-        setHelpers(prev => [data, ...prev]);
-        showToast('✅ Local Helper added & published live immediately!');
+        if (!res.ok) throw new Error(data.error || 'Failed to add Profile');
+        setHelpers(prev => [data, ...prev.filter(h => h.id !== data.id)]);
+        saveFreeHelperProfile({
+          ...data,
+          categoryId: norm.categoryId,
+          customCategoryName: norm.customCategoryName,
+          isVerified: true,
+          status: 'approved'
+        });
+
+        if (mod === 'simple_users') {
+          const uid = data.id || 'user_' + Date.now();
+          const userPayload = {
+            uid,
+            id: uid,
+            name: creatingItem.nameOrTitle.trim(),
+            full_name: creatingItem.nameOrTitle.trim(),
+            displayName: creatingItem.nameOrTitle.trim(),
+            email: creatingItem.email.trim(),
+            phone: creatingItem.phone.trim(),
+            address: creatingItem.areaOrLocation.trim() || 'Local Area',
+            skills: primarySkill,
+            experience: creatingItem.timingsOrExperience.trim() || '2+ Years',
+            category: norm.categoryId,
+            status: 'approved',
+            isVerified: true,
+            myHelperProfile: data
+          };
+          await fetch('/api/profiles', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(userPayload)
+          }).catch(() => {});
+          setSimpleUsers(prev => [userPayload, ...prev.filter(u => u.id !== uid)]);
+          showToast('✅ User Profile added & published live in Categories!');
+        } else {
+          showToast('✅ Local Helper Profile added & published live in Categories!');
+        }
       } else if (mod === 'job_seekers') {
         const payload = {
           type: 'job_seeker',
@@ -1106,6 +1198,11 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         showToast('✅ Help Post added & published live immediately!');
       }
 
+      try {
+        window.dispatchEvent(new Event('locohelp_profile_updated'));
+        window.dispatchEvent(new Event('storage'));
+      } catch {}
+
       setCreatingItem(null);
     } catch (err: any) {
       showToast(err.message || 'Failed to create entry');
@@ -1119,12 +1216,13 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
     if (!editingItem) return;
     setIsSavingEdit(true);
 
-    const { module: mod, id, nameOrTitle, categoryOrRole, phone, email, areaOrLocation, descriptionOrBio, salaryOrPrice, status } = editingItem;
+    const { module: mod, id, nameOrTitle, categoryOrRole, phone, email, areaOrLocation, descriptionOrBio, salaryOrPrice, status, raw } = editingItem;
     const isApproved = status === 'approved';
 
     try {
       if (mod === 'help_posts') {
         const updates = {
+          ...(raw || {}),
           userName: nameOrTitle,
           category: categoryOrRole,
           phone,
@@ -1143,13 +1241,18 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
           showToast(res.error || 'Failed to update Help Post');
         }
       } else if (mod === 'helpers') {
+        const norm = normalizeCategorySlug(categoryOrRole, descriptionOrBio, raw?.customCategoryName);
         const updates = {
+          ...(raw || {}),
           name: nameOrTitle,
-          category: categoryOrRole,
+          categoryId: norm.categoryId,
+          category: norm.categoryId,
+          customCategoryName: norm.customCategoryName,
           phone,
           email,
           area: areaOrLocation,
           bio: descriptionOrBio,
+          experience: descriptionOrBio,
           priceRange: salaryOrPrice,
           status,
           isVerified: isApproved
@@ -1157,6 +1260,15 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         const res = await updateAdminHelperOnServer(id, updates);
         if (res.success) {
           setHelpers(prev => prev.map(h => (h.id === id ? { ...h, ...updates } : h)));
+          try {
+            const existingRaw = localStorage.getItem('locohelp_free_helper_profiles');
+            const list: any[] = existingRaw ? JSON.parse(existingRaw) : [];
+            const exists = list.some(h => h && h.id === id);
+            const nextList = exists
+              ? list.map((h: any) => (h.id === id ? { ...h, ...updates } : h))
+              : [updates, ...list];
+            localStorage.setItem('locohelp_free_helper_profiles', JSON.stringify(nextList));
+          } catch {}
           showToast('✅ Helper Profile updated successfully!');
           setEditingItem(null);
         } else {
@@ -1164,12 +1276,14 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         }
       } else if (mod === 'simple_users') {
         const updates = {
+          ...(raw || {}),
           name: nameOrTitle,
           category: categoryOrRole,
           phone,
           email,
           area: areaOrLocation,
           bio: descriptionOrBio,
+          skills: descriptionOrBio,
           status,
           isVerified: isApproved
         };
@@ -1183,10 +1297,14 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         }
       } else if (mod === 'businesses') {
         const updates = {
+          ...(raw || {}),
           name: nameOrTitle,
+          businessName: nameOrTitle,
           category: categoryOrRole,
+          categoryLabel: categoryOrRole,
           phone,
           email,
+          ownerEmail: email,
           area: areaOrLocation,
           address: areaOrLocation,
           description: descriptionOrBio,
@@ -1197,6 +1315,15 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         const res = await updateAdminBusinessOnServer(id, updates);
         if (res.success) {
           setBusinesses(prev => prev.map(b => (b.id === id ? { ...b, ...updates } : b)));
+          try {
+            const existingRaw = localStorage.getItem('locohelp_registered_shops');
+            const list: any[] = existingRaw ? JSON.parse(existingRaw) : [];
+            const exists = list.some(s => s && s.id === id);
+            const nextList = exists
+              ? list.map((s: any) => (s.id === id ? { ...s, ...updates } : s))
+              : [updates, ...list];
+            localStorage.setItem('locohelp_registered_shops', JSON.stringify(nextList));
+          } catch {}
           showToast('✅ Business / Shop updated successfully!');
           setEditingItem(null);
         } else {
@@ -1204,6 +1331,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         }
       } else if (mod === 'job_seekers') {
         const updates: Partial<JobPortalSubmission> = {
+          ...(raw || {}),
           fullName: nameOrTitle,
           category: categoryOrRole,
           headline: categoryOrRole,
@@ -1224,6 +1352,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         }
       } else if (mod === 'employers') {
         const updates: Record<string, any> = {
+          ...(raw || {}),
           companyOrShopName: nameOrTitle,
           jobRole: categoryOrRole,
           phone,
@@ -2015,7 +2144,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                 </button>
 
                 <div className="flex flex-wrap items-center gap-2">
-                  {(['businesses', 'helpers', 'job_seekers', 'employers', 'help_posts'] as const).includes(activeModule as any) && (
+                  {(['businesses', 'helpers', 'simple_users', 'job_seekers', 'employers', 'help_posts'] as const).includes(activeModule as any) && (
                     <button
                       onClick={() => openAdminCreateModal(activeModule as any)}
                       className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white text-xs font-black shadow-md shadow-emerald-500/20 cursor-pointer transition-all"
@@ -3237,12 +3366,26 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                   </div>
                   <div>
                     <label className="block font-bold text-slate-300 mb-1">Category / Job Role</label>
-                    <input
-                      type="text"
-                      value={editingItem.categoryOrRole}
-                      onChange={(e) => setEditingItem({ ...editingItem, categoryOrRole: e.target.value })}
-                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
-                    />
+                    {editingItem.module === 'helpers' ? (
+                      <select
+                        value={normalizeCategorySlug(editingItem.categoryOrRole).categoryId}
+                        onChange={(e) => setEditingItem({ ...editingItem, categoryOrRole: e.target.value })}
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
+                      >
+                        {CATEGORIES.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.nameEn} ({c.nameHi})
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        value={editingItem.categoryOrRole}
+                        onChange={(e) => setEditingItem({ ...editingItem, categoryOrRole: e.target.value })}
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
+                      />
+                    )}
                   </div>
                 </div>
 
@@ -3372,10 +3515,11 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                 {/* Module Selector */}
                 <div>
                   <label className="block font-black text-slate-300 mb-1.5">Select Entry Type to Add</label>
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
+                  <div className="grid grid-cols-2 sm:grid-cols-6 gap-1.5">
                     {[
                       { id: 'businesses', label: '🏪 Shop/Biz' },
                       { id: 'helpers', label: '🛠️ Helper' },
+                      { id: 'simple_users', label: '👤 User Profile' },
                       { id: 'job_seekers', label: '🎓 Job Seeker' },
                       { id: 'employers', label: '💼 Employer' },
                       { id: 'help_posts', label: '📢 Help Post' }
@@ -3384,7 +3528,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                         key={tab.id}
                         type="button"
                         onClick={() => openAdminCreateModal(tab.id as any)}
-                        className={`py-2 px-2.5 rounded-xl font-black text-[11px] border transition-all cursor-pointer ${
+                        className={`py-2 px-2 rounded-xl font-black text-[11px] border transition-all cursor-pointer ${
                           creatingItem.module === tab.id
                             ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
                             : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
@@ -3403,6 +3547,8 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                         ? 'Shop / Business Name *'
                         : creatingItem.module === 'helpers'
                         ? 'Worker / Helper Name *'
+                        : creatingItem.module === 'simple_users'
+                        ? 'User Full Name *'
                         : creatingItem.module === 'job_seekers'
                         ? 'Candidate Full Name *'
                         : creatingItem.module === 'employers'
@@ -3423,7 +3569,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                     <label className="block font-bold text-slate-300 mb-1">
                       {creatingItem.module === 'businesses'
                         ? 'Owner Name'
-                        : creatingItem.module === 'helpers'
+                        : creatingItem.module === 'helpers' || creatingItem.module === 'simple_users'
                         ? 'Primary Skill (e.g. Plumber, Electrician)'
                         : creatingItem.module === 'job_seekers'
                         ? 'Preferred Work Role'
@@ -3445,13 +3591,38 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block font-bold text-slate-300 mb-1">Category</label>
-                    <input
-                      type="text"
-                      value={creatingItem.category}
-                      onChange={(e) => setCreatingItem({ ...creatingItem, category: e.target.value })}
-                      placeholder="e.g. Grocery, Plumber, Office & Admin"
-                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
-                    />
+                    {creatingItem.module === 'helpers' || creatingItem.module === 'businesses' || creatingItem.module === 'simple_users' ? (
+                      <div className="space-y-1.5">
+                        <select
+                          value={creatingItem.category}
+                          onChange={(e) => setCreatingItem({ ...creatingItem, category: e.target.value })}
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
+                        >
+                          {CATEGORIES.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.nameEn} ({c.nameHi})
+                            </option>
+                          ))}
+                        </select>
+                        {creatingItem.category === 'other' && (
+                          <input
+                            type="text"
+                            value={creatingItem.customCategoryName}
+                            onChange={(e) => setCreatingItem({ ...creatingItem, customCategoryName: e.target.value })}
+                            placeholder="Custom Category (e.g. Grocery, Hospital, Bakery)"
+                            className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-amber-500/50 text-white"
+                          />
+                        )}
+                      </div>
+                    ) : (
+                      <input
+                        type="text"
+                        value={creatingItem.category}
+                        onChange={(e) => setCreatingItem({ ...creatingItem, category: e.target.value })}
+                        placeholder="e.g. Grocery, Plumber, Office & Admin"
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
+                      />
+                    )}
                   </div>
 
                   <div>

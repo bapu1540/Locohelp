@@ -47,9 +47,9 @@ export const PERMANENT_LOCOHELP_PROMO_AD: AdBannerItem = {
   logo: '📢',
   category: 'LocoHelp Official • विज्ञापन स्पेस',
   offerBadge: '✨ ADVERTISE HERE • विज्ञापन दें',
-  offerTitle: 'आप यहाँ पर अपना विज्ञापन (Advertisement) कर सकते हैं! • You Can Post Your Advertisement Here!',
-  description: 'अपनी दुकान, शोरूम, बिज़नेस या खास ऑफर्स का विज्ञापन यहाँ दिखाएं। Promote your Shop, Business, Showroom or Special Offers to everyone nearby on LocoHelp!',
-  photoUrl: '',
+  offerTitle: 'आप यहाँ पर अपना विज्ञापन (Advertisement) कर सकते हैं!',
+  description: 'Promote your Shop, Business, Showroom or Special Offers on LocoHelp!',
+  photoUrl: '/assets/aistudio/advertisement_30c9824f.png',
   distance: 0.1,
   area: 'All Local Areas • www.locohelp.com',
   rating: 5.0,
@@ -343,70 +343,23 @@ export default function AdBannerSection({ onOpenChat, onOpenPostAd }: AdBannerSe
         className="flex items-stretch gap-3 overflow-x-auto snap-x snap-mandatory scroll-smooth scrollbar-hide pb-1"
       >
         {allScrollableBanners.map((adItem) => {
-          // 1. PERMANENT LOCKED LOCOHELP OFFICIAL ADVERTISEMENT BANNER (Bilingual EN + HI with LocoHelp Logo)
+          // 1. PERMANENT LOCKED LOCOHELP OFFICIAL ADVERTISEMENT BANNER (Strict 16:9 Aspect Ratio)
           if (adItem.isPermanentOfficialBanner) {
+            const bannerImg = adItem.photoUrl || '/assets/aistudio/advertisement_30c9824f.png';
             return (
               <div
                 key={adItem.id}
                 data-ad-slide="true"
-                className="w-full shrink-0 snap-center relative bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white border-2 border-amber-400/80 rounded-3xl shadow-lg overflow-hidden p-4 sm:p-5 flex flex-col justify-between gap-3"
+                onClick={onOpenPostAd}
+                className="w-full shrink-0 snap-center relative aspect-video bg-slate-900 border-2 border-amber-400/80 rounded-3xl shadow-lg overflow-hidden cursor-pointer group flex items-center justify-center"
+                title="Click to post your advertisement here"
               >
-                {/* Top Accent Ribbon */}
-                <div className="absolute top-0 inset-x-0 h-1.5 bg-gradient-to-r from-blue-500 via-amber-400 to-orange-500" />
-
-                <div className="flex items-start justify-between gap-3 pt-1">
-                  {/* Official LocoHelp Logo + Brand Name */}
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-2xl bg-white shadow-md shrink-0 flex items-center justify-center">
-                      <LocoHelpLogo size={38} showText={false} />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-base sm:text-lg font-black tracking-tight">
-                          <span className="text-[#3898FF]">Loco</span>
-                          <span className="text-[#FF9900]">Help</span>
-                        </span>
-                        <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-500 text-slate-950 flex items-center gap-1">
-                          <Megaphone className="w-2.5 h-2.5" /> Official Ad Space
-                        </span>
-                      </div>
-                      <p className="text-[10px] text-amber-300 font-bold mt-0.5">
-                        www.locohelp.com • 100% Local Reach
-                      </p>
-                    </div>
-                  </div>
-
-                  {allScrollableBanners.length > 1 && (
-                    <span className="text-[10px] font-black px-2.5 py-1 rounded-full bg-white/10 text-amber-300 border border-amber-400/30 shrink-0">
-                      Auto-Scroll 1/{allScrollableBanners.length} →
-                    </span>
-                  )}
-                </div>
-
-                {/* Bilingual English & Hindi Advertisement Message (Fixed / Non-Editable) */}
-                <div className="rounded-2xl bg-white/10 backdrop-blur-xs border border-white/15 p-3.5 space-y-1.5">
-                  <p className="text-xs sm:text-sm font-black text-amber-300 leading-snug">
-                    📢 आप यहाँ पर अपनी दुकान, शोरूम, बिज़नेस या ऑफर्स का विज्ञापन (Advertisement) कर सकते हैं!
-                  </p>
-                  <p className="text-xs sm:text-sm font-black text-white leading-snug">
-                    📢 You can post your Advertisement here! Promote your Shop, Business, Showroom or Special Offers on LocoHelp.
-                  </p>
-                </div>
-
-                <div className="flex items-center justify-between gap-2 text-[10px] text-slate-300 font-bold pt-0.5">
-                  <span className="inline-flex items-center gap-1 text-emerald-300">
-                    <ShieldCheck className="w-3.5 h-3.5" /> Official LocoHelp Advertisement Banner
-                  </span>
-                  {allScrollableBanners.length > 1 ? (
-                    <span className="text-amber-300 font-black">
-                      Swipe or wait for next ad &rarr;
-                    </span>
-                  ) : (
-                    <span className="text-slate-400">
-                      New ads scroll automatically &rarr;
-                    </span>
-                  )}
-                </div>
+                <img
+                  src={bannerImg}
+                  alt="LocoHelp Official Advertisement Banner"
+                  className="w-full h-full object-cover rounded-3xl transition-transform duration-300 group-hover:scale-[1.01]"
+                  loading="eager"
+                />
               </div>
             );
           }
@@ -471,16 +424,16 @@ export default function AdBannerSection({ onOpenChat, onOpenPostAd }: AdBannerSe
 
                   {/* Rating & Review Counter */}
                   <div className="shrink-0 flex flex-col items-end gap-1">
-                    <div className="flex items-center gap-1 bg-amber-50 dark:bg-amber-950/70 border border-amber-200 dark:border-amber-800 px-2 py-0.5 rounded-lg shadow-2xs">
+                    <div className="flex items-center gap-1 bg-amber-50 dark:bg-amber-950/70 border border-amber-200 dark:border-emerald-800 px-2 py-0.5 rounded-lg shadow-2xs">
                       <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
                       <span className="text-xs font-black text-amber-900 dark:text-amber-200">{adItem.rating || 5.0}</span>
                     </div>
                   </div>
                 </div>
 
-                {/* Product / Shop Photo with Overlay Tag */}
+                {/* Product / Shop Photo with Overlay Tag (16:9 Aspect Ratio) */}
                 {adItem.photoUrl && (
-                  <div className="relative rounded-2xl overflow-hidden aspect-[21/9] sm:aspect-[24/9] bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-700 shadow-inner group">
+                  <div className="relative rounded-2xl overflow-hidden aspect-video bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-700 shadow-inner group">
                     <img
                       src={adItem.photoUrl}
                       alt={adItem.businessName}
