@@ -916,7 +916,7 @@ export default function HomeScreen({
           className="shrink-0 select-none cursor-pointer"
           title="Home"
         >
-          <LocoHelpLogo size={32} showText={true} textSize="sm" className="shrink-0" />
+          <LocoHelpLogo size={42} showText={true} textSize="md" className="shrink-0" />
         </div>
 
         <div className="flex items-center gap-1 sm:gap-2 shrink-0">

@@ -673,6 +673,34 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
     return () => clearInterval(interval);
   }, [isAdminAuthenticated]);
 
+  // Prevent browser back button from accidentally exiting Admin Panel into main website
+  useEffect(() => {
+    if (!isAdminAuthenticated) return;
+
+    const pushAdminState = () => {
+      try {
+        window.history.pushState({ locohelpAdmin: true }, '');
+      } catch (e) {}
+    };
+
+    pushAdminState();
+
+    const handlePopState = (e: PopStateEvent) => {
+      if (activeModule !== 'home') {
+        setActiveModule('home');
+        pushAdminState();
+      } else {
+        pushAdminState();
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [isAdminAuthenticated, activeModule]);
+
+
   // Helper to get normalize status ('pending' | 'approved' | 'rejected')
   const getNormalizedStatus = (item: any, mod: AdminModuleId): 'pending' | 'approved' | 'rejected' => {
     if (!item) return 'pending';
@@ -777,6 +805,12 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
           showToast(res.error || 'Failed to update Feedback');
         }
       }
+
+      // Dispatch global profile updated & storage events to immediately sync main website display & counters
+      try {
+        window.dispatchEvent(new Event('locohelp_profile_updated'));
+        window.dispatchEvent(new Event('storage'));
+      } catch (e) {}
     } finally {
       setActionLoadingId(null);
     }
@@ -1613,10 +1647,11 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
           <div className="flex items-center gap-3">
             <button
               onClick={onBack}
-              className="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer"
-              title="Back to Main Website"
+              className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs font-black flex items-center gap-1.5 shadow-md shadow-indigo-500/20 transition-all cursor-pointer shrink-0"
+              title="Safely Exit Admin Panel and Return to Main Website"
             >
-              <ArrowLeft className="w-5 h-5" />
+              <ExternalLink className="w-4 h-4" />
+              <span>Main Website ↗</span>
             </button>
             <div
               onClick={() => openModule('home')}
@@ -2160,6 +2195,113 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                 <p className="text-xs text-slate-500 mt-1">
                   Try clearing your search filter or switching the status tab above.
                 </p>
+              </div>
+            ) : statusFilter === 'approved' ? (
+              /* Category-Wise Approved Profiles Directory */
+              <div className="space-y-5">
+                <div className="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-bold flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span>Approved Profiles — Organized Category-Wise ({filteredModuleItems.length} Total Approved)</span>
+                  </div>
+                  <span className="text-[10px] bg-emerald-500 text-slate-950 font-black px-2 py-0.5 rounded-full uppercase shrink-0">
+                    Live on Website
+                  </span>
+                </div>
+
+                {Object.entries(
+                  filteredModuleItems.reduce((acc: Record<string, any[]>, item: any) => {
+                    const catKey =
+                      item.customCategoryName ||
+                      item.categoryLabel ||
+                      item.category ||
+                      item.categoryId ||
+                      item.service ||
+                      'General Category';
+                    if (!acc[catKey]) acc[catKey] = [];
+                    acc[catKey].push(item);
+                    return acc;
+                  }, {} as Record<string, any[]>)
+                ).map(([catName, catItems]) => {
+                  const itemsList = catItems as any[];
+                  return (
+                    <div key={catName} className="rounded-2xl bg-[#111827] border border-slate-800 p-4.5 space-y-3">
+                      <div className="flex items-center justify-between pb-2.5 border-b border-slate-800">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-black text-amber-400">🏷️ Category: {catName}</span>
+                          <span className="text-[10px] bg-slate-800 text-slate-300 font-extrabold px-2 py-0.5 rounded-full">
+                            {itemsList.length} Approved Profiles
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {itemsList.map((item: any) => {
+                        const idDoc = getItemIdDoc(item);
+                        const isBusy = actionLoadingId === item.id;
+                        const title = item.name || item.fullName || item.companyOrShopName || item.userName || 'Entry #' + String(item.id).slice(-5);
+                        const phone = item.phone || item.whatsapp || item.userPhone || item.contactPhone || '';
+                        const area = item.area || item.jobLocation || item.address || item.locationName || '';
+                        const desc = item.description || item.jobDescription || item.skills || item.bio || item.experience || '';
+
+                        return (
+                          <div
+                            key={item.id}
+                            className="p-3.5 rounded-xl bg-slate-950/90 border border-slate-800/90 hover:border-emerald-500/40 transition-all flex items-start justify-between gap-2"
+                          >
+                            <div className="min-w-0 flex-1 space-y-1">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-xs font-black text-white">{title}</span>
+                                <span className="text-[9px] bg-emerald-500/20 text-emerald-400 font-extrabold px-1.5 py-0.2 rounded-full border border-emerald-500/30">
+                                  ✓ Verified
+                                </span>
+                              </div>
+                              {phone && (
+                                <p className="text-[11px] font-bold text-slate-300 flex items-center gap-1">
+                                  <Phone className="w-3 h-3 text-emerald-400 shrink-0" /> +91 {phone}
+                                </p>
+                              )}
+                              {area && (
+                                <p className="text-[10px] text-slate-400 flex items-center gap-1">
+                                  <MapPin className="w-3 h-3 text-orange-400 shrink-0" /> {area}
+                                </p>
+                              )}
+                              {desc && (
+                                <p className="text-[11px] text-slate-400 line-clamp-2">{desc}</p>
+                              )}
+                            </div>
+
+                            <div className="flex flex-col gap-1 shrink-0">
+                              <button
+                                onClick={() => setViewingItem({ module: activeModule, data: { ...item, idDocumentWatermarked: idDoc } })}
+                                className="p-1.5 rounded-lg bg-slate-800 text-cyan-400 text-xs font-bold hover:bg-slate-700 cursor-pointer"
+                                title="View Details"
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => openEditModal(activeModule, item)}
+                                className="p-1.5 rounded-lg bg-slate-800 text-amber-400 text-xs font-bold hover:bg-slate-700 cursor-pointer"
+                                title="Edit Profile"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => handleStatusAction(activeModule, item, 'rejected')}
+                                disabled={isBusy}
+                                className="p-1.5 rounded-lg bg-red-500/15 text-red-400 text-xs font-bold hover:bg-red-500/25 cursor-pointer disabled:opacity-50"
+                                title="Revoke Approval (Revert to Rejected)"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
               </div>
             ) : (
               <div className="space-y-3.5">

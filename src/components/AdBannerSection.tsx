@@ -101,6 +101,20 @@ const LOCALIZED_TEXTS: Record<Language, {
     verifiedMerchant: 'सत्यापित दुकानदार',
     away: 'दूर',
     openLink: 'लिंक खोलें'
+  },
+  GU: {
+    sponsored: 'પ્રાયોજિત (Ad)',
+    ad: 'જાહેરાત',
+    chatWithSeller: 'વિક્રેતા સાથે ચેટ કરો',
+    inquireNow: 'પૂછપરછ કરો',
+    viewDetails: 'વિગત જુઓ',
+    visitStore: 'સ્ટોર / લિંક જુઓ',
+    sectionTitle: 'પ્રાયોજિત સ્થાનિક ઓફર્સ અને જાહેરાતો',
+    sectionSub: 'તમારા વિસ્તારની ઓટો-સ્ક્રોલ જાહેરાતો',
+    postAdBtn: '+ તમારી જાહેરાત આપો',
+    verifiedMerchant: 'વેરિફાઈડ વેપારી',
+    away: 'દૂર',
+    openLink: 'લિંક ખોલો'
   }
 };
 

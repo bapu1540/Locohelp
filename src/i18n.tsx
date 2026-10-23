@@ -806,17 +806,21 @@ const translations: Record<Language, Record<string, string>> = {
     'prof.deleting': 'દૂર કરી રહ્યા છીએ...',
     'prof.deleteCancel': 'રદ કરો',
     'prof.savedSuccess': 'સફળતાપૂર્વક સેવ થયું!',
-    'prof.bizReg': 'બિઝનેસ અને વેન્યુ રજિસ્ટ્રેશન',
-    'prof.bizRegDesc': 'દુકાન, શોરૂમ, મોલ, સર્વિસ સેન્ટર અને વેન્યુ નોંધાવો',
-    'footer.copyright': 'LocoHelp © {year} • લોકલ કોમ્યુનિટી નેટવર્ક',
-    'footer.guidelines': 'સુરક્ષા નિયમો અને રિપોર્ટ',
-    'footer.roadmap': 'ફ્યુચર રોડમેપ',
-    'footer.support': 'મદદ અને સંપર્ક',
-    'footer.admin': 'એડમિન પેનલ',
-    'feed.greeting': "નમસ્તે! LocoHelp હજુ નવું છે. જો તમને ઉપયોગ કરવામાં કોઈ મુશ્કેલી પડે અથવા તમારી પાસે કોઈ સૂચન હોય, તો કૃપા કરીને અમને જણાવો.",
-    'feed.suggestion': "તમારું સૂચન અમારા માટે મહત્વનું છે! તમારા વિસ્તાર માટે LocoHelp ને વધુ સારું બનાવવામાં અમારી મદદ કરો.",
-    'feed.thanks': "તમારો આભાર!",
-    'feed.contact': "સંપર્ક: support@locohelp.com"
+    'prof.closureBtn': 'Request Account Closure / Deactivate',
+    'prof.closureTitle': 'Request Account Closure / Deactivation',
+    'prof.closureDesc': 'Submitting this request sends your account details to the Admin Panel for verification before safe deactivation and data purging.',
+    'prof.closureSubmit': 'Submit Closure Request',
+    'prof.closureSuccess': 'Account closure request submitted to Admin! Status: Pending Verification.',
+    'prof.reApprovalNotice': 'Profile details updated! Re-approval pending from Admin before going live.',
+    'footer.copyright': 'LocoHelp © {year} • Local Community Network',
+    'footer.guidelines': 'Safety Rules & Report',
+    'footer.roadmap': 'Feature Roadmap',
+    'footer.support': 'Help & Support',
+    'footer.admin': 'Admin Panel',
+    'feed.greeting': "Namaste! LocoHelp is new. If you face any issues or have any suggestions, please let us know.",
+    'feed.suggestion': "Your suggestion is important to us! Help us make LocoHelp better for your area.",
+    'feed.thanks': "Thank you!",
+    'feed.contact': "Contact: support@locohelp.com"
   }
 };
 
@@ -871,3 +875,4 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
 }
 
 export const useLanguage = () => useContext(LanguageContext);
+

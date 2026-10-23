@@ -268,7 +268,9 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess }: Regist
     setIdDocumentWatermarked(null);
 
     setPendingNotice(
-      language === 'EN'
+      language === 'GU'
+        ? '⏳ તમારું બિઝનેસ રજિસ્ટ્રેશન એડમિન મંજૂરી માટે મોકલાઈ ગયું છે! એડમિન દ્વારા મંજૂર થતાં જ તે પબ્લિક ડિરેક્ટરીમાં લાઈવ થઈ જશે.'
+        : language === 'EN'
         ? '⏳ Your Business Registration has been submitted to the Admin Panel for approval! Once approved by Admin, it will be live in the public directory.'
         : '⏳ आपका बिज़नेस रजिस्ट्रेशन एडमिन अप्रूवल के लिए भेज दिया गया है! एडमिन द्वारा अप्रूव करते ही यह पब्लिक डायरेक्टरी में लाइव हो जाएगा।'
     );

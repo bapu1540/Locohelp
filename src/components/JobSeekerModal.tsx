@@ -253,7 +253,9 @@ export default function JobSeekerModal({
 
       if (res.success) {
         setSubmitSuccessMessage(
-          language === 'EN'
+          language === 'GU'
+            ? "⏳ તમારું જોબ રજિસ્ટ્રેશન એડમિન મંજૂરી માટે મોકલાઈ ગયું છે! એડમિન મંજૂરી પછી તે લાઈવ દેખાશે."
+            : language === 'EN'
             ? "⏳ Your Job Seeker registration has been sent to Admin for approval! It will appear live once approved by Admin."
             : "⏳ आपका जॉब रजिस्ट्रेशन एडमिन अप्रूवल के लिए भेज दिया गया है! एडमिन अप्रूवल के बाद यह लाइव दिखेगा।"
         );

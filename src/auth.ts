@@ -9,6 +9,8 @@ import {
   getOtpCooldownRemainingSeconds,
   recordOtpSentTimestamp
 } from './lib/security';
+export { signInWithGoogle } from './lib/firebase';
+
 
 export interface AppUser {
   uid: string;

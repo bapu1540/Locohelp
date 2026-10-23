@@ -54,6 +54,8 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
   const [verificationStatus, setVerificationStatus] = useState<'none' | 'pending' | 'approved' | 'rejected'>('none');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [closureReason, setClosureReason] = useState('');
+  const [closureSubmitted, setClosureSubmitted] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // -------------------------------------------------------------
@@ -414,6 +416,11 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
     const safeAddress = sanitizeText(userAddress, 300);
     const safeExp = sanitizeText(userExp, 120);
 
+    // Requirement 3: If an already approved user edits profile details, revert status to 'pending' so it requires Admin re-approval
+    const isEditOfExisting = hasExistingUserProfile;
+    const newStatus = isEditOfExisting ? 'pending' : (verificationStatus === 'approved' ? 'approved' : 'pending');
+    const newIsVerified = isEditOfExisting ? false : (verificationStatus === 'approved');
+
     const profileData = {
       uid: userKey,
       full_name: safeName || (cleanPhone ? `User ${cleanPhone.slice(-4)}` : 'Community User'),
@@ -424,8 +431,14 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
       experience: safeExp,
       avatar_url: profilePhoto,
       myHelperProfile,
+      status: newStatus,
+      isVerified: newIsVerified,
       updated_at: new Date().toISOString()
     };
+
+    if (isEditOfExisting) {
+      setVerificationStatus('pending');
+    }
 
     try {
       localStorage.setItem(`locohelp_user_profile_${userKey}`, JSON.stringify(profileData));
@@ -447,24 +460,18 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
     } catch (e) {}
 
     try {
-      await saveUserProfile({
-        ...profileData,
-        status: verificationStatus === 'approved' ? 'approved' : 'pending',
-        isVerified: verificationStatus === 'approved'
-      });
-      if (verificationStatus !== 'approved') {
-        await submitVerification({
-          entityType: 'user_profile',
-          entityId: userKey,
-          userId: userKey,
-          userName: profileData.full_name,
-          userEmail: profileData.email || undefined,
-          userPhone: profileData.phone,
-          title: `Simple User Profile - ${safeAddress || 'Local Area'}`,
-          idDocumentWatermarked: profilePhoto || ''
-        }).catch(() => {});
-        setVerificationStatus('pending');
-      }
+      await saveUserProfile(profileData);
+      await submitVerification({
+        entityType: 'user_profile',
+        entityId: userKey,
+        userId: userKey,
+        userName: profileData.full_name,
+        userEmail: profileData.email || undefined,
+        userPhone: profileData.phone,
+        title: `Simple User Profile - ${safeAddress || 'Local Area'} (Re-approval Request)`,
+        idDocumentWatermarked: profilePhoto || ''
+      }).catch(() => {});
+      setVerificationStatus('pending');
     } catch (err) {}
 
     setHasExistingUserProfile(true);
@@ -503,6 +510,7 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
     const finalDoc = helperIdFrontDoc || helperIdBackDoc || myHelperProfile?.idDocUrl;
     const finalWorkPhoto = helperWorkPhoto || myHelperProfile?.photoUrl;
 
+    // Requirement 3: On profile edit, automatically revert status to 'pending' & isVerified to false
     const newHelper = saveFreeHelperProfile({
       id: myHelperProfile?.id,
       userId: uid || myHelperProfile?.userId,
@@ -518,7 +526,7 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
       photoUrl: finalWorkPhoto || undefined,
       govtIdUploaded: Boolean(finalDoc),
       idDocUrl: finalDoc || undefined,
-      isVerified: false, // Requires Admin Approval
+      isVerified: false, // Re-approval required from Admin on edit
       status: 'pending',
     } as any);
 
@@ -534,6 +542,8 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
         userScoped.myHelperProfile = newHelper;
         localStorage.setItem(`locohelp_user_profile_${uid}`, JSON.stringify(userScoped));
       }
+      window.dispatchEvent(new Event('locohelp_profile_updated'));
+      window.dispatchEvent(new Event('storage'));
     } catch (e) {}
 
     try {
@@ -541,7 +551,7 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
       await saveHelper({ ...newHelper, id: helperId, photoUrl: finalWorkPhoto, isVerified: false, status: 'pending' });
     } catch (e) {}
 
-    // Always submit to Admin Verification Queue so Admin can approve the Helper Profile
+    // Submit to Admin Verification Queue for re-approval
     try {
       await submitVerification({
         entityType: 'user_profile',
@@ -550,7 +560,7 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
         userName: newHelper.name,
         userEmail: cleanEmail || undefined,
         userPhone: newHelper.phone,
-        title: `Helper Profile (${finalCatName}) - ${finalDoc ? 'Government ID Card' : 'Profile Verification'}`,
+        title: `Helper Profile (${finalCatName}) - ${finalDoc ? 'Government ID Card' : 'Profile Verification'} (Re-approval Request)`,
         idDocumentWatermarked: finalDoc || ''
       });
       setVerificationStatus('pending');
@@ -1037,13 +1047,15 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
               </form>
             )}
 
-            {/* Danger Zone: Delete Account */}
+            {/* Account Closure / Deactivation Request */}
             <div className="pt-2 text-center">
               <button
+                type="button"
                 onClick={() => setShowDeleteConfirm(true)}
-                className="text-xs text-rose-500 font-bold hover:underline cursor-pointer"
+                className="text-xs text-rose-600 dark:text-rose-400 font-extrabold hover:underline cursor-pointer flex items-center justify-center gap-1.5 mx-auto"
               >
-                Delete Account & Purge Data
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>{t('prof.closureBtn') || 'Request Account Closure / Deactivate'}</span>
               </button>
             </div>
 
@@ -1369,7 +1381,7 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
                               try {
                                 const watermarked = await applyIdWatermark(file, {
                                   userName: helperName.trim() || userName || 'Helper',
-                                  entityLabel: 'HELPER ID FRONT'
+                                  customText: 'FOR LOCOHELP VERIFICATION ONLY • HELPER ID FRONT'
                                 });
                                 setHelperIdFrontDoc(watermarked);
                               } catch {
@@ -1420,7 +1432,7 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
                               try {
                                 const watermarked = await applyIdWatermark(file, {
                                   userName: helperName.trim() || userName || 'Helper',
-                                  entityLabel: 'HELPER ID BACK'
+                                  customText: 'FOR LOCOHELP VERIFICATION ONLY • HELPER ID BACK'
                                 });
                                 setHelperIdBackDoc(watermarked);
                               } catch {
@@ -1868,10 +1880,16 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
             </div>
             <div>
               <h3 className="text-base font-black text-slate-900 dark:text-white">
-                {language === 'EN' ? 'Profile Submitted for Admin Approval!' : 'प्रोफाइल एडमिन अप्रूवल के लिए सबमिट हो गई!'}
+                {language === 'GU'
+                  ? 'પ્રોફાઈલ એડમિન મંજૂરી માટે મોકલાઈ ગઈ!'
+                  : language === 'EN'
+                  ? 'Profile Submitted for Admin Approval!'
+                  : 'प्रोफाइल एडमिन अप्रूवल के लिए सबमिट हो गई!'}
               </h3>
               <p className="text-xs text-slate-600 dark:text-slate-300 mt-2 leading-relaxed font-medium">
-                {language === 'EN' 
+                {language === 'GU'
+                  ? 'તમારી સર્વિસ એક્સપર્ટ પ્રોફાઈલ સફળતાપૂર્વક નોંધાઈ ગઈ છે. સુરક્ષા અને ચકાસણી માટે તમારી વિગતો એડમિન પાસે મોકલવામાં આવી છે. એડમિન દ્વારા મંજૂર થતાં જ તમારી પ્રોફાઈલ વેરિફાઈડ બેજ (🛡️) સાથે મુખ્ય પેજ પર તમારી કેટેગરીમાં લાઈવ થઈ જશે.'
+                  : language === 'EN'
                   ? 'Your Service Expert Profile has been recorded successfully. For community trust & verification, your details have been sent to Admin for approval. Once approved, your profile will be live with the Verified Badge (🛡️) on the main page under your category.'
                   : 'आपकी सर्विस एक्सपर्ट प्रोफाइल सफलतापूर्वक दर्ज हो गई है। सुरक्षा और वेरिफिकेशन के लिए आपकी प्रोफाइल एडमिन के पास अप्रूवल के लिए भेज दी गई है। एडमिन द्वारा अप्रूव करते ही आपकी प्रोफाइल Verified Badge (🛡️) के साथ मेन पेज पर आपकी केटेगरी के अंदर लाइव हो जाएगी।'}
               </p>
@@ -1881,7 +1899,7 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
               onClick={() => setShowApprovalNoticeModal(false)}
               className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs shadow-md shadow-emerald-600/20 active:scale-95 transition-all cursor-pointer"
             >
-              {language === 'EN' ? 'Okay, Understood' : 'ठीक है, समझ गया'}
+              {language === 'GU' ? 'બરાબર, સમજી ગયો' : language === 'EN' ? 'Okay, Understood' : 'ठीक है, समझ गया'}
             </button>
           </div>
         </div>
@@ -1899,57 +1917,101 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
         }}
       />
 
-      {/* Delete Profile Confirmation Modal */}
+      {/* Request Account Closure / Deactivation Modal */}
       {showDeleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/65 backdrop-blur-xs">
           <div className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-3xl p-5 shadow-2xl border border-rose-200 dark:border-rose-900/60 text-center space-y-4">
             <div className="w-12 h-12 rounded-2xl bg-rose-100 dark:bg-rose-950/60 text-rose-600 mx-auto flex items-center justify-center text-2xl shadow-inner">
-              {isDeleting ? '⏳' : '🗑️'}
+              {isDeleting ? '⏳' : '🛡️'}
             </div>
             <div>
-              <h3 className="text-base font-black text-slate-900 dark:text-white">Delete Account & Purge Profile</h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">This will permanently delete your saved profile and logout your session.</p>
+              <h3 className="text-base font-black text-slate-900 dark:text-white">
+                {t('prof.closureTitle') || 'Request Account Closure / Deactivation'}
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                {t('prof.closureDesc') || 'Submitting this request sends your account details to the Admin Panel for verification before safe deactivation and data purging.'}
+              </p>
             </div>
+
+            {closureSubmitted ? (
+              <div className="p-3 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 rounded-xl text-emerald-800 dark:text-emerald-200 text-xs font-bold">
+                ✓ {t('prof.closureSuccess') || 'Account closure request submitted to Admin! Status: Pending Verification.'}
+              </div>
+            ) : (
+              <div className="space-y-2 text-left">
+                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                  Reason for Account Closure (Optional):
+                </label>
+                <textarea
+                  rows={2}
+                  value={closureReason}
+                  onChange={(e) => setClosureReason(e.target.value)}
+                  placeholder="e.g. No longer using app / Moving to another city..."
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-rose-500 resize-none font-medium"
+                />
+              </div>
+            )}
+
             <div className="flex gap-2 pt-1">
               <button
                 type="button"
                 disabled={isDeleting}
-                onClick={() => setShowDeleteConfirm(false)}
-                className="flex-1 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs hover:bg-slate-100 cursor-pointer disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={isDeleting}
-                onClick={async () => {
-                  try {
-                    setIsDeleting(true);
-                    const activeUser = getCurrentUser();
-                    const cleanPhone = (userPhone || '').replace(/\D/g, '') || activeUser?.phone || '';
-                    const userKey = activeUser?.uid || (cleanPhone ? `phone_${cleanPhone}` : 'guest');
-
-                    if (userKey && userKey !== 'guest_user') {
-                      try {
-                        await deleteUserProfile(userKey);
-                      } catch (err) {}
-                    }
-
-                    try {
-                      localStorage.removeItem('locohelp_my_helper_profile');
-                      localStorage.removeItem('locohelp_my_business_profile');
-                    } catch (e) {}
-
-                    await logoutUser();
-                    window.location.href = window.location.origin;
-                  } catch (err) {
-                    window.location.reload();
-                  }
+                onClick={() => {
+                  setShowDeleteConfirm(false);
+                  setClosureSubmitted(false);
+                  setClosureReason('');
                 }}
-                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs shadow-md shadow-rose-600/25 cursor-pointer disabled:opacity-70"
+                className="flex-1 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-50"
               >
-                {isDeleting ? 'Deleting...' : 'Delete Account'}
+                {closureSubmitted ? 'Close' : 'Cancel'}
               </button>
+              {!closureSubmitted && (
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={async () => {
+                    try {
+                      setIsDeleting(true);
+                      const activeUser = getCurrentUser();
+                      const cleanPhone = (userPhone || '').replace(/\D/g, '') || activeUser?.phone || '';
+                      const userKey = activeUser?.uid || (cleanPhone ? `phone_${cleanPhone}` : 'guest');
+
+                      // Submit closure ticket to Admin reports
+                      await fetch('/api/reports', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          reason: 'ACCOUNT_CLOSURE_REQUEST',
+                          description: `ACCOUNT CLOSURE REQUEST for user "${userName || activeUser?.displayName || 'User'}" (Phone: ${cleanPhone}, Email: ${userEmail || activeUser?.email || 'N/A'}). User Reason: ${closureReason.trim() || 'User requested account closure/deactivation'}`,
+                          targetId: userKey,
+                          reporterId: userKey,
+                          userName: userName || activeUser?.displayName || 'User',
+                          userEmail: userEmail || activeUser?.email || '',
+                          userPhone: cleanPhone,
+                          status: 'pending',
+                          createdAt: new Date().toISOString()
+                        })
+                      }).catch(() => {});
+
+                      // Update user status locally to 'closure_requested'
+                      setVerificationStatus('pending');
+                      setClosureSubmitted(true);
+                      setIsDeleting(false);
+                      setTimeout(() => {
+                        setShowDeleteConfirm(false);
+                        setClosureSubmitted(false);
+                        setClosureReason('');
+                      }, 2500);
+                    } catch (err) {
+                      setIsDeleting(false);
+                      setShowDeleteConfirm(false);
+                    }
+                  }}
+                  className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs shadow-md shadow-rose-600/25 cursor-pointer disabled:opacity-70"
+                >
+                  {isDeleting ? 'Submitting...' : (t('prof.closureSubmit') || 'Submit Closure Request')}
+                </button>
+              )}
             </div>
           </div>
         </div>

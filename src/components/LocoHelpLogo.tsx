@@ -8,13 +8,13 @@ interface LocoHelpLogoProps {
 }
 
 export default function LocoHelpLogo({ 
-  size = 36, 
+  size = 44, 
   className = '',
   showText = false,
   textSize = 'md'
 }: LocoHelpLogoProps) {
   return (
-    <div className={`flex items-center justify-center gap-1 sm:gap-2 shrink-0 ${className}`}>
+    <div className={`flex items-center justify-center gap-1.5 sm:gap-2.5 shrink-0 ${className}`}>
       <svg 
         width={size} 
         height={size} 
@@ -42,9 +42,9 @@ export default function LocoHelpLogo({
 
       {showText && (
         <div className={`font-black tracking-tight shrink-0 flex items-center justify-center gap-0.5 text-center ${
-          textSize === 'sm' ? 'text-lg sm:text-xl' :
-          textSize === 'lg' ? 'text-3xl sm:text-5xl' :
-          textSize === 'xl' ? 'text-4xl sm:text-6xl' :
+          textSize === 'sm' ? 'text-xl sm:text-2xl' :
+          textSize === 'lg' ? 'text-4xl sm:text-6xl' :
+          textSize === 'xl' ? 'text-5xl sm:text-7xl' :
           'text-2xl sm:text-3xl md:text-4xl'
         }`}>
           <span className="text-[#0066FF] dark:text-[#3388FF] drop-shadow-xs">Loco</span>

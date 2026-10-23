@@ -24,74 +24,146 @@ export default function SupportScreen({ onBack }: { onBack: () => void }) {
 
   const faqs = [
     {
-      q: language === 'EN' ? "1. What is LocoHelp and what all services are available here?" : "1. LocoHelp क्या है और यहाँ कौन-कौन सी सुविधाएँ मिलती हैं?",
-      a: language === 'EN' 
+      q: language === 'GU'
+        ? "1. LocoHelp શું છે અને અહીં કઈ કઈ સુવિધાઓ મળે છે?"
+        : language === 'EN'
+        ? "1. What is LocoHelp and what all services are available here?"
+        : "1. LocoHelp क्या है और यहाँ कौन-कौन सी सुविधाएँ मिलती हैं?",
+      a: language === 'GU'
+        ? "LocoHelp એ ભારતનું લોકલ કમ્યુનિટી અને બિઝનેસ નેટવર્ક છે જ્યાં તમને 5 મુખ્ય સુવિધાઓ મળે છે: (1) લાઈવ કમ્યુનિટી બ્રોડકાસ્ટ (+ Post) થી તરત લોકલ મદદ અને માહિતી, (2) વેરિફાઈડ સર્વિસ એક્સપર્ટ્સ (પ્લમ્બર, ઈલેક્ટ્રિશિયન, મિકેનિક, કાર્પેન્ટર, એસી રિપેર, ટ્યુટર વગેરે), (3) લોકલ દુકાન અને બિઝનેસ ડિરેક્ટરી (દુકાનો, શોરૂમ, હોસ્પિટલ, મેરેજ હોલ, સર્વિસ સેન્ટર), (4) લોકલ જાહેરાત બેનર (ઓફર અને વ્યાપાર પ્રચાર), અને (5) લોકલ જોબ પોર્ટલ (નોકરી શોધવા અને સ્ટાફ રાખવા માટે)."
+        : language === 'EN' 
         ? "LocoHelp is India's local community & business network with 5 main modules: (1) Live Community Broadcast (+ Post) for urgent local needs, (2) Verified Service Experts (Plumber, Electrician, Mechanic, Carpenter, AC Repair, Tutor, etc.), (3) Local Business & Shop Directory (Shops, Showrooms, Hospitals, Venues, Service Centers), (4) Local Advertisement Banner for offers & business promotion, and (5) Local Job Portal connecting Job Seekers and Employers directly."
         : "LocoHelp भारत का लोकल कम्युनिटी और बिज़नेस नेटवर्क है जहाँ आपको 5 मुख्य सुविधाएँ मिलती हैं: (1) लाइव कम्युनिटी ब्रॉडकास्ट (+ Post) से तुरंत लोकल मदद व जानकारी, (2) वेरिफाइड सर्विस एक्सपर्ट्स (प्लंबर, इलेक्ट्रीशियन, मैकेनिक, कारपेंटर, एसी रिपेयर, ट्यूटर आदि), (3) लोकल दुकान व बिज़नेस डायरेक्टरी (दुकान, शोरूम, अस्पताल, मैरिज हॉल, सर्विस सेंटर), (4) लोकल विज्ञापन बैनर (ऑफर, सेल और व्यापार प्रचार), और (5) लोकल जॉब पोर्टल (नौकरी ढूँढने और स्टाफ रखने के लिए)।"
     },
     {
-      q: language === 'EN' ? "2. How do I post a Live Broadcast need (+ Post)?" : "2. अपनी किसी तुरंत जरूरत के लिए लाइव ब्रॉडकास्ट (+ Post) कैसे करें?",
-      a: language === 'EN'
+      q: language === 'GU'
+        ? "2. મારી તાત્કાલિક જરૂરિયાત માટે લાઈવ બ્રોડકાસ્ટ (+ Post) કેવી રીતે કરવું?"
+        : language === 'EN'
+        ? "2. How do I post a Live Broadcast need (+ Post)?"
+        : "2. अपनी किसी तुरंत जरूरत के लिए लाइव ब्रॉडकास्ट (+ Post) कैसे करें?",
+      a: language === 'GU'
+        ? "લોગિન કર્યા પછી હોમ સ્ક્રીન પર '+ Post' બટન દબાવો, કેટેગરી અથવા રેડીમેડ ટેમ્પ્લેટ પસંદ કરો, અને તમારી જરૂરિયાત લખીને અથવા માઈક (Voice) થી બોલીને સબમિટ કરો. તમારા પસંદ કરેલા શહેરના નોંધાયેલા સભ્યો અને વેરિફાઈડ સર્વિસ એક્સપર્ટ્સ તમારી પોસ્ટ પર રિપ્લાય કરીને LocoHelp દ્વારા તમારી સાથે જોડાઈ શકશે."
+        : language === 'EN'
         ? "After logging in, tap the '+ Post' button on the home screen, choose a category or ready-made template, and type or use the Mic (Voice input) to speak your requirement. Once posted, registered members and verified Service Experts in your selected city can reply on your post ('I Can Help') and connect with you inside LocoHelp."
         : "लॉगिन करने के बाद होम स्क्रीन पर '+ Post' बटन दबाएं, कैटेगरी या रेडीमेड टेम्पलेट चुनें, और अपनी जरूरत लिखकर या माइक (Voice) से बोलकर सबमिट कर दें। आपके चुने गए शहर के रजिस्टर्ड लोग और वेरिफाइड सर्विस एक्सपर्ट्स आपकी पोस्ट पर ('मैं मदद कर सकता हूँ') रिप्लाई करके LocoHelp के माध्यम से आपसे जुड़ सकेंगे।"
     },
     {
-      q: language === 'EN' ? "3. How can I find or register as a 'Service Expert'?" : "3. 'सर्विस एक्सपर्ट' (Service Expert) कैसे ढूँढें या खुद को कैसे रजिस्टर करें?",
-      a: language === 'EN'
+      q: language === 'GU'
+        ? "3. 'સર્વિસ એક્સપર્ટ' (Service Expert) કેવી રીતે શોધવા અથવા પોતાને કેવી રીતે રજિસ્ટર કરવા?"
+        : language === 'EN'
+        ? "3. How can I find or register as a 'Service Expert'?"
+        : "3. 'सर्विस एक्सपर्ट' (Service Expert) कैसे ढूँढें या खुद को कैसे रजिस्टर करें?",
+      a: language === 'GU'
+        ? "કોઈપણ કામ માટે એક્સપર્ટ શોધવા માટે હોમ સ્ક્રીન પર સર્ચ બાર અથવા કેટેગરી ફિલ્ટરનો ઉપયોગ કરો અને તમારા શહેરના વેરિફાઈડ પ્લમ્બર, ઈલેક્ટ્રિશિયન, મિકેનિક, પેઇન્ટર વગેરેની પ્રોફાઈલ જુઓ. જો તમે પોતે કોઈ સેવા આપો છો, તો 'Register as Service Expert' પર ક્લિક કરીને તમારી વિગતો ભરીને એડમિન મંજૂરી માટે સબમિટ કરો."
+        : language === 'EN'
         ? "To find an expert, use the Search bar or category filters on the home screen to view verified Plumbers, Electricians, Mechanics, Painters, Technicians, etc. in your city. If you provide a skill/service yourself, tap 'Register as Service Expert', fill in your skill category, experience, work area, and photo, and submit for Admin approval so local customers can find you."
         : "किसी भी काम के लिए एक्सपर्ट ढूँढने के लिए होम स्क्रीन पर सर्च बार या कैटेगरी फिल्टर का उपयोग करें और अपने शहर के वेरिफाइड प्लंबर, इलेक्ट्रीशियन, मैकेनिक, पेंटर आदि की प्रोफाइल देखें। यदि आप स्वयं कोई सर्विस देते हैं, तो 'Register as Service Expert' कार्ड पर क्लिक करके अपना नाम, काम की कैटेगरी, अनुभव, एरिया और फोटो भरकर एडमिन अप्रूवल के लिए सबमिट करें।"
     },
     {
-      q: language === 'EN' ? "4. How do I register my Shop, Showroom, Hospital, or Business?" : "4. अपनी दुकान, शोरूम, अस्पताल या बिज़नेस को कैसे रजिस्टर करें?",
-      a: language === 'EN'
+      q: language === 'GU'
+        ? "4. મારી દુકાન, શોરૂમ, હોસ્પિટલ કે બિઝનેસ કેવી રીતે રજિસ્ટર કરવો?"
+        : language === 'EN'
+        ? "4. How do I register my Shop, Showroom, Hospital, or Business?"
+        : "4. अपनी दुकान, शोरूम, अस्पताल या बिज़नेस को कैसे रजिस्टर करें?",
+      a: language === 'GU'
+        ? "હોમ સ્ક્રીન પર 'Business & Shop Directory' બેનર પર ક્લિક કરો. તમારી દુકાન કે બિઝનેસનું નામ, કેટેગરી, સરનામું/શહેર, સમય, વોટ્સએપ નંબર અને દુકાનના 2-3 ફોટા અપલોડ કરો. એડમિન ચકાસણી પછી તમારી દુકાન 'Verified' બેજ સાથે તમારા શહેરના લોકોને દેખાવા લાગશે."
+        : language === 'EN'
         ? "Click on the 'Business & Shop Directory' banner on the home screen. Fill in your Shop/Business Name, Category, Owner Name, Address/City, Opening/Closing Timings, WhatsApp/Contact Number, and upload 2–3 clear photos of your shop. After Admin verification, your business will appear in your city's directory with a 'Verified' badge."
         : "होम स्क्रीन पर 'Business & Shop Directory' बैनर पर क्लिक करें। अपनी दुकान या बिज़नेस का नाम, कैटेगरी, मालिक का नाम, पता/शहर, खुलने-बंद होने का समय, व्हाट्सएप नंबर और दुकान की 2–3 साफ फोटो अपलोड करें। एडमिन द्वारा जांच और अप्रूवल के बाद आपकी दुकान 'Verified' बैज के साथ आपके शहर के लोगों को दिखने लगेगी।"
     },
     {
-      q: language === 'EN' ? "5. How does the Local Advertisement Banner ('Post Ad') work?" : "5. लोकल विज्ञापन बैनर ('Post Ad') में अपना प्रचार कैसे करें?",
-      a: language === 'EN'
+      q: language === 'GU'
+        ? "5. લોકલ જાહેરાત બેનર ('Post Ad') માં પ્રચાર કેવી રીતે કરવો?"
+        : language === 'EN'
+        ? "5. How does the Local Advertisement Banner ('Post Ad') work?"
+        : "5. लोकल विज्ञापन बैनर ('Post Ad') में अपना प्रचार कैसे करें?",
+      a: language === 'GU'
+        ? "હોમ સ્ક્રીન પર ચાલતા 'Local Advertisement Banner' માં '+ Post Ad' બટન પર ક્લિક કરો. તમારી ઓફર, સેલ કે દુકાનના પ્રચારનું ટાઈટલ, વિગત, સંપર્ક નંબર અને બેનર ફોટો અપલોડ કરો. એડમિન દ્વારા મંજૂર થતાં જ તમારી જાહેરાત મુખ્ય બેનર પર આપોઆપ સ્ક્રોલ થઈને બધાને દેખાશે."
+        : language === 'EN'
         ? "In the scrolling 'Local Advertisement Banner' on the home screen, tap the '+ Post Ad' button. Enter your Business/Offer title, description, contact/WhatsApp number, location, and upload your promotional banner image. Once approved by the Admin, your ad will automatically scroll on the main banner for users in your area."
         : "होम स्क्रीन पर चल रहे 'Local Advertisement Banner' में '+ Post Ad' बटन पर क्लिक करें। अपने ऑफर, सेल, कोचिंग या दुकान के प्रचार का टाइटल, विवरण, संपर्क नंबर और बैनर फोटो अपलोड करके सबमिट करें। एडमिन से अप्रूव होते ही आपका विज्ञापन मुख्य बैनर पर अपने-आप स्क्रॉल होकर सभी को दिखेगा।"
     },
     {
-      q: language === 'EN' ? "6. How does the Local Job Portal work for Job Seekers and Employers?" : "6. लोकल जॉब पोर्टल पर नौकरी कैसे ढूँढें या स्टाफ के लिए वैकेंसी कैसे डालें?",
-      a: language === 'EN'
+      q: language === 'GU'
+        ? "6. લોકલ જોબ પોર્ટલ પર નોકરી કેવી રીતે શોધવી અથવા સ્ટાફ માટે વેકેન્સી કેવી રીતે મુકવી?"
+        : language === 'EN'
+        ? "6. How does the Local Job Portal work for Job Seekers and Employers?"
+        : "6. लोकल जॉब पोर्टल पर नौकरी कैसे ढूँढें या स्टाफ के लिए वैकेंसी कैसे डालें?",
+      a: language === 'GU'
+        ? "હોમ સ્ક્રીનના 'Local Job Portal' સેક્શનમાં બે વિકલ્પો છે: (A) 'મને કામ જોઈએ છે (Job Seeker)' — અહીં તમારું નામ, શિક્ષણ, અપેક્ષિત પગાર અને તમારો બાયોડેટા/રિઝ્યુમે અપલોડ કરો. (B) 'મને સ્ટાફ જોઈએ છે (Employer)' — અહીં તમારી નોંધાયેલી દુકાન લિંક કરીને અથવા નવું ફોર્મ ભરીને સ્ટાફની વેકેન્સી મૂકી શકો છો. 'Browse Jobs & Candidates' માં બધી મંજૂર થયેલી નોકરીઓ અને ઉમેદવારો જોઈ શકાય છે."
+        : language === 'EN'
         ? "In the 'Local Job Portal' section: (A) If you need a job ('I Need a Job'), fill in your Name, Preferred Role, Education, Expected Salary, and upload your Resume/Biodata (PDF or Photo). (B) If you need staff ('I Need Staff / Employer'), you can either link your already registered Shop/Business on LocoHelp or fill out the Employer Vacancy form. You can also tap 'Browse Jobs & Candidates' to view approved vacancies and resumes."
         : "होम स्क्रीन के 'Local Job Portal' सेक्शन में दो विकल्प हैं: (A) 'मुझे काम चाहिए (Job Seeker)' — यहाँ अपना नाम, काम का प्रकार, शिक्षा, अपेक्षित सैलरी और अपना रिज्यूमे/बायोडाटा (PDF या फोटो) अपलोड करें। (B) 'मुझे स्टाफ चाहिए (Employer)' — यहाँ आप अपनी पहले से रजिस्टर्ड दुकान को लिंक करके या नया फॉर्म भरकर स्टाफ की वैकेंसी डाल सकते हैं। साथ ही 'Browse Jobs & Candidates' में जाकर सभी अप्रूव्ड नौकरियाँ और उम्मीदवार देखे जा सकते हैं।"
     },
     {
-      q: language === 'EN' ? "7. Why isn't my registration showing immediately? How does Admin Approval work?" : "7. मेरा रजिस्ट्रेशन तुरंत क्यों नहीं दिख रहा है? एडमिन अप्रूवल कैसे काम करता है?",
-      a: language === 'EN'
+      q: language === 'GU'
+        ? "7. મારું રજિસ્ટ્રેશન તરત કેમ નથી દેખાતું? એડમિન મંજૂરી કેવી રીતે કામ કરે છે?"
+        : language === 'EN'
+        ? "7. Why isn't my registration showing immediately? How does Admin Approval work?"
+        : "7. मेरा रजिस्ट्रेशन तुरंत क्यों नहीं दिख रहा है? एडमिन अप्रूवल कैसे काम करता है?",
+      a: language === 'GU'
+        ? "LocoHelp ને 100% વિશ્વસનીય અને બોગસ એકાઉન્ટ્સથી મુક્ત રાખવા માટે દરેક રજિસ્ટ્રેશન પહેલા એડમિન ટીમ પાસે ચકાસણી માટે જાય છે. એડમિન દ્વારા વિગતોની ચકાસણી થઈને મંજૂર થતાં જ તે વેબસાઈટ પર આપોઆપ લાઈવ થઈ જાય છે."
+        : language === 'EN'
         ? "To keep LocoHelp 100% genuine, safe, and spam-free, every registration (Service Expert, Shop/Business, Advertisement Banner, Job Seeker Profile, and Employer Vacancy) goes to the Admin team for verification first. As soon as the Admin verifies and approves your details, it goes live on the website automatically."
         : "LocoHelp को 100% भरोसेमंद, सुरक्षित और फर्जी अकाउंट्स से मुक्त रखने के लिए हर रजिस्ट्रेशन (सर्विस एक्सपर्ट, दुकान/बिज़नेस, विज्ञापन बैनर, जॉब प्रोफाइल और वैकेंसी) पहले एडमिन के पास वेरिफिकेशन के लिए जाता है। एडमिन द्वारा विवरण की जांच और अप्रूव करते ही यह वेबसाइट पर लाइव दिखने लगता है।"
     },
     {
-      q: language === 'EN' ? "8. How do I change my City / Location to see listings from my area?" : "8. अपने शहर या एरिया की जानकारी देखने के लिए लोकेशन कैसे बदलें?",
-      a: language === 'EN'
+      q: language === 'GU'
+        ? "8. પોતાના શહેર કે વિસ્તારની વિગતો જોવા માટે લોકેશન કેવી રીતે બદલવું?"
+        : language === 'EN'
+        ? "8. How do I change my City / Location to see listings from my area?"
+        : "8. अपने शहर या एरिया की जानकारी देखने के लिए लोकेशन कैसे बदलें?",
+      a: language === 'GU'
+        ? "હોમ સ્ક્રીન પર સૌથી ઉપર આપેલા લોકેશન/શહેર બટન પર ક્લિક કરો. તમે આખા ભારતમાં તમારું રાજ્ય, જિલ્લો/શહેર કે પિન કોડ પસંદ કરી શકો છો અથવા GPS લોકેશન ચાલુ કરી શકો છો. તે પછી તમને તમારા પસંદ કરેલા શહેરની વિગતો જ દેખાશે."
+        : language === 'EN'
         ? "Tap the City / Location selector at the top of the home screen. You can select your State, District/City, or enter your Pin Code across India, or use GPS location. The feed, shops, service experts, ads, and jobs will automatically filter for your chosen city and nearby connected areas."
         : "होम स्क्रीन पर सबसे ऊपर दिए गए लोकेशन/शहर बटन पर क्लिक करें। आप पूरे भारत में अपना राज्य, जिला/शहर या पिन कोड चुन सकते हैं या GPS लोकेशन चालू कर सकते हैं। इसके बाद आपको अपने चुने हुए शहर और आसपास के जुड़े हुए क्षेत्रों के ही पोस्ट, दुकानें, सर्विस एक्सपर्ट और जॉब्स दिखाई देंगे।"
     },
     {
-      q: language === 'EN' ? "9. How do Account Login and OTP Verification work?" : "9. अकाउंट लॉगिन और ईमेल OTP वेरिफिकेशन कैसे काम करता है?",
-      a: language === 'EN'
+      q: language === 'GU'
+        ? "9. એકાઉન્ટ લોગિન અને ઈમેલ OTP વેરિફિકેશન કેવી રીતે કામ કરે છે?"
+        : language === 'EN'
+        ? "9. How do Account Login and OTP Verification work?"
+        : "9. अकाउंट लॉगिन और ईमेल OTP वेरिफिकेशन कैसे काम करता है?",
+      a: language === 'GU'
+        ? "તમે ગૂગલ લોગિન અથવા તમારા ઈમેલ અને પાસવર્ડ વડે સરળતાથી લોગિન કરી શકો છો. નવું રજિસ્ટ્રેશન કરતી વખતે બોગસ પ્રોફાઈલ રોકવા માટે ઈમેલ OTP વેરિફિકેશન ફરજિયાત રાખવામાં આવ્યું છે જેથી માત્ર સાચા લોકો જ જોડાય."
+        : language === 'EN'
         ? "You can sign in quickly using Google Login or your Email & Password. When registering on the public website, Email OTP verification is mandatory to prevent fake or dummy profiles and ensure every member of the community is genuine."
         : "आप Google लॉगिन या अपने ईमेल और पासवर्ड की मदद से आसानी से लॉगिन कर सकते हैं। पब्लिक वेबसाइट से नया रजिस्ट्रेशन करते समय फर्जी या डमी प्रोफाइल को रोकने के लिए ईमेल OTP वेरिफिकेशन अनिवार्य रखा गया है ताकि कम्युनिटी में केवल असली लोग ही जुड़ें।"
     },
     {
-      q: language === 'EN' ? "10. How can I edit or delete my Broadcast post, Shop, Profile, or Job listing?" : "10. अपनी डाली हुई पोस्ट, दुकान, प्रोफाइल या जॉब को डिलीट या मैनेज कैसे करें?",
-      a: language === 'EN'
+      q: language === 'GU'
+        ? "10. મારી મૂકેલી પોસ્ટ, દુકાન, પ્રોફાઈલ કે જોબ ડિલીટ અથવા મેનેજ કેવી રીતે કરવી?"
+        : language === 'EN'
+        ? "10. How can I edit or delete my Broadcast post, Shop, Profile, or Job listing?"
+        : "10. अपनी डाली हुई पोस्ट, दुकान, प्रोफाइल या जॉब को डिलीट या मैनेज कैसे करें?",
+      a: language === 'GU'
+        ? "જ્યારે તમે તે જ એકાઉન્ટથી લોગિન રહો છો જેનાથી તમે વિગત મૂકી હતી, ત્યારે તમને તમારા કાર્ડ અથવા પ્રોફાઈલ સેક્શનમાં ડિલીટ (Trash આયકન) નો વિકલ્પ મળે છે, જેનાથી તમે જ્યારે ઈચ્છો ત્યારે તેને હટાવી શકો છો."
+        : language === 'EN'
         ? "When you are logged in with the same account you used to create a Broadcast post, Shop, Service Expert profile, Ad, or Job listing, you will see a Delete (Trash icon) option on your item or inside your Profile/Settings section, allowing you to remove it anytime."
         : "जब आप उसी अकाउंट से लॉगिन रहते हैं जिससे आपने ब्रॉडकास्ट पोस्ट, दुकान, सर्विस एक्सपर्ट प्रोफाइल, विज्ञापन या जॉब डाली थी, तो आपको अपने कार्ड या प्रोफाइल सेक्शन में डिलीट (Trash आइकन) का विकल्प मिलता है, जिससे आप जब चाहें उसे हटा सकते हैं।"
     },
     {
-      q: language === 'EN' ? "11. How do I report a wrong post, fake listing, or suspicious user to the Admin?" : "11. किसी गलत पोस्ट, फर्जी लिस्टिंग या संदिग्ध यूजर की शिकायत (Report) एडमिन से कैसे करें?",
-      a: language === 'EN'
+      q: language === 'GU'
+        ? "11. કોઈ ખોટી પોસ્ટ, બોગસ લિસ્ટિંગ કે શંકાસ્પદ યુઝરની ફરિયાદ (Report) એડમિનને કેવી રીતે કરવી?"
+        : language === 'EN'
+        ? "11. How do I report a wrong post, fake listing, or suspicious user to the Admin?"
+        : "11. किसी गलत पोस्ट, फर्जी लिस्टिंग या संदिग्ध यूजर की शिकायत (Report) एडमिन से कैसे करें?",
+      a: language === 'GU'
+        ? "વેબસાઈટ પર 'Safety Rules & Report' બટન પર ક્લિક કરો અને ત્યાં 'એડમિનને રિપોર્ટ મોકલો' દબાવો. ફરિયાદનું કારણ પસંદ કરીને વિગત લખો. તમારી રિપોર્ટ સીધી એડમિન પાસે જશે અને ખોટી પોસ્ટ કે યુઝરને તરત જ હટાવવામાં આવશે."
+        : language === 'EN'
         ? "Click on 'Safety Rules & Report' in the bottom black bar (or inside Settings), then tap 'Report Issue to Admin'. Select the reason (Fake Profile/Shop, Spam/Fraud, Inappropriate Content, etc.) and write the details. Your report goes directly to the Admin team for immediate action and blocking."
         : "वेबसाइट के सबसे नीचे काली पट्टी में दिए गए 'सुरक्षा नियम व रिपोर्ट (Safety Rules & Report)' बटन पर क्लिक करें और वहाँ 'एडमिन को रिपोर्ट भेजें' दबाएं। शिकायत का कारण चुनें और विवरण लिखकर सबमिट करें। आपकी रिपोर्ट सीधे एडमिन के पास जाती है और गलत पोस्ट या यूजर को तुरंत हटाया/ब्लॉक किया जाता है।"
     },
     {
-      q: language === 'EN' ? "12. How can I install the LocoHelp App on my mobile phone?" : "12. अपने मोबाइल फोन में LocoHelp ऐप (App) कैसे इंस्टॉल करें?",
-      a: language === 'EN'
+      q: language === 'GU'
+        ? "12. તમારા મોબાઈલ ફોનમાં LocoHelp એપ (App) કેવી રીતે ઈન્સ્ટોલ કરવી?"
+        : language === 'EN'
+        ? "12. How can I install the LocoHelp App on my mobile phone?"
+        : "12. अपने मोबाइल फोन में LocoHelp ऐप (App) कैसे इंस्टॉल करें?",
+      a: language === 'GU'
+        ? "તમારા ફોનના Google Chrome બ્રાઉઝરમાં www.locohelp.com ખોલો અને ઉપર આપેલા 'Install App' બટન પર ક્લિક કરો. જો તમે વોટ્સએપ કે ઈન્સ્ટાગ્રામમાં લિંક ખોલી હોય, તો પહેલા તેને 'Open in Chrome' કરો, જેથી એપ સીધી તમારા ફોનની હોમ સ્ક્રીન પર ઈન્સ્ટોલ થઈ જશે."
+        : language === 'EN'
         ? "Open www.locohelp.com in Google Chrome on your phone and tap the 'Install App' button in the top bar (or inside Settings). If you opened the link inside WhatsApp or Instagram, tap 'Open in Chrome' first so the official mobile app installs smoothly on your home screen."
         : "अपने फोन के Google Chrome ब्राउज़र में www.locohelp.com खोलें और ऊपर दिए गए 'Install App' बटन (या सेटिंग्स के अंदर इंस्टॉल विकल्प) पर क्लिक करें। यदि आपने व्हाट्सएप या इंस्टाग्राम के अंदर लिंक खोला है, तो पहले उसे 'Open in Chrome' करें, जिससे ऐप सीधे आपके फोन की होम स्क्रीन पर इंस्टॉल हो जाएगा।"
     }

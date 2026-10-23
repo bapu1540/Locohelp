@@ -317,7 +317,9 @@ export default function EmployerVacancyModal({
       setIsSubmitting(false);
       if (res.success) {
         setSubmitSuccessMessage(
-          language === 'EN'
+          language === 'GU'
+            ? `⏳ "${bizName}" માટે "${jobRole.trim()}" ની વેકેન્સી એડમિન મંજૂરી માટે મોકલાઈ ગઈ છે! એડમિન મંજૂરી પછી તે લાઈવ દેખાશે.`
+            : language === 'EN'
             ? `⏳ Job Vacancy for "${jobRole.trim()}" linked to "${bizName}" has been submitted to the Admin Panel for approval! Once approved by Admin, it will appear live.`
             : `⏳ "${bizName}" के लिए "${jobRole.trim()}" वेकेंसी एडमिन अप्रूवल के लिए भेज दी गई है! एडमिन अप्रूवल के बाद यह लाइव दिखेगी।`
         );
@@ -420,7 +422,9 @@ export default function EmployerVacancyModal({
       if (res.success) {
         setEditingVacancyId(null);
         setSubmitSuccessMessage(
-          language === 'EN'
+          language === 'GU'
+            ? '⏳ તમારું નવું એમ્પ્લોયર રજિસ્ટ્રેશન અને જોબ વેકેન્સી એડમિન મંજૂરી માટે મોકલાઈ ગયા છે! એડમિન મંજૂરી પછી તે લાઈવ દેખાશે.'
+            : language === 'EN'
             ? '⏳ Your New Employer Registration & Job Vacancy have been sent to Admin for approval! Once approved by Admin, they will be live.'
             : '⏳ आपका नया एम्प्लॉयर रजिस्ट्रेशन और जॉब वेकेंसी एडमिन अप्रूवल के लिए भेज दी गई है! एडमिन अप्रूवल के बाद यह लाइव दिखेगी।'
         );

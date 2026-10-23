@@ -278,14 +278,16 @@ export default function FreeHelperRegisterModal({
                   <div>
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <h4 className="text-sm font-black text-emerald-950 dark:text-emerald-200">
-                        {language === 'EN' ? 'Approved & Live Profile' : 'स्वीकृत और लाइव प्रोफाइल'}
+                        {language === 'GU' ? 'મંજૂર અને લાઈવ પ્રોફાઈલ' : language === 'EN' ? 'Approved & Live Profile' : 'स्वीकृत और लाइव प्रोफाइल'}
                       </h4>
                       <span className="text-[10px] bg-emerald-600 text-white font-extrabold px-2 py-0.5 rounded-full">
                         ✓ Verified
                       </span>
                     </div>
                     <p className="text-xs text-emerald-800 dark:text-emerald-300 font-medium mt-1">
-                      {language === 'EN'
+                      {language === 'GU'
+                        ? 'તમારી સર્વિસ એક્સપર્ટ પ્રોફાઈલ એડમિન દ્વારા મંજૂર કરવામાં આવી છે અને સર્વિસ એક્સપર્ટ્સ ડિરેક્ટરીમાં લાઈવ દેખાઈ રહી છે!'
+                        : language === 'EN'
                         ? 'Your Service Expert profile is approved by Admin and visible to everyone in Browse Service Experts!'
                         : 'आपकी प्रोफाइल एडमिन द्वारा स्वीकृत है और सर्विस एक्सपर्ट्स डायरेक्टरी में लाइव दिख रही है!'}
                     </p>
@@ -299,14 +301,16 @@ export default function FreeHelperRegisterModal({
                   <div>
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <h4 className="text-sm font-black text-amber-950 dark:text-amber-200">
-                        {language === 'EN' ? 'Under Admin Review' : 'एडमिन समीक्षा के अधीन (Under Admin Review)'}
+                        {language === 'GU' ? 'એડમિન સમીક્ષા હેઠળ (Under Admin Review)' : language === 'EN' ? 'Under Admin Review' : 'एडमिन समीक्षा के अधीन (Under Admin Review)'}
                       </h4>
                       <span className="text-[10px] bg-amber-500 text-white font-extrabold px-2 py-0.5 rounded-full">
                         ⏳ Pending Approval
                       </span>
                     </div>
                     <p className="text-xs text-amber-800 dark:text-amber-300 font-medium mt-1">
-                      {language === 'EN'
+                      {language === 'GU'
+                        ? 'તમે પ્રોફાઈલ બનાવી લીધી છે અને તે હાલમાં એડમિન મંજૂરી માટે પેન્ડિંગ છે. મંજૂર થતાં જ તે પબ્લિક યાદીમાં દેખાશે.'
+                        : language === 'EN'
                         ? 'Your profile has already been created and is currently Under Admin Review. Once approved by Admin, it will be visible in the public directory.'
                         : 'आपने पहले से प्रोफाइल बना ली है और यह अभी एडमिन अप्रूवल के लिए पेंडिंग है। अप्रूव होते ही यह पब्लिक लिस्ट में दिखेगी।'}
                     </p>
@@ -561,7 +565,7 @@ export default function FreeHelperRegisterModal({
                         try {
                           const watermarkedDataUrl = await applyIdWatermark(file, {
                             userName: formName.trim() || 'Helper',
-                            entityLabel: 'HELPER VERIFICATION'
+                            customText: 'FOR LOCOHELP VERIFICATION ONLY • DO NOT REUSE'
                           });
                           setFormIdDoc(watermarkedDataUrl);
                         } catch {
