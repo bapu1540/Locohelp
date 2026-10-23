@@ -25,6 +25,7 @@ import { getSavedUserLocation, getConnectedTwinDistricts, UserManualLocation } f
 import { isGuestUser } from '../lib/authUtils';
 import FeedbackBanner from '../components/FeedbackBanner';
 import InstallAppModal from '../components/InstallAppModal';
+import RedWarningTicker from '../components/RedWarningTicker';
 
 interface HomeScreenProps {
   onNavigate: (screen: Screen) => void;
@@ -555,12 +556,14 @@ export default function HomeScreen({
     if (!SpeechRecognition) {
       alert(language === 'EN' 
         ? 'Voice search is not supported in this browser. Please type to search.' 
+        : language === 'GU'
+        ? 'તમારા બ્રાઉઝરમાં વોઈસ સર્ચ સપોર્ટ નથી. કૃપા કરીને ટાઈપ કરીને શોધો.'
         : 'आपके ब्राउज़र में वॉइस सर्च सपोर्ट नहीं है। कृपया टाइप करके खोजें।');
       return;
     }
     try {
       const recognition = new SpeechRecognition();
-      recognition.lang = language === 'EN' ? 'en-US' : 'hi-IN';
+      recognition.lang = language === 'EN' ? 'en-US' : language === 'GU' ? 'gu-IN' : 'hi-IN';
       recognition.interimResults = false;
       recognition.maxAlternatives = 1;
 
@@ -629,6 +632,7 @@ export default function HomeScreen({
     const categories = CATEGORIES.filter(c =>
       (c.nameEn || '').toLowerCase().includes(q) ||
       (c.nameHi || '').toLowerCase().includes(q) ||
+      (c.nameGu || '').toLowerCase().includes(q) ||
       (c.id || '').toLowerCase().includes(q)
     );
 
@@ -848,14 +852,61 @@ export default function HomeScreen({
       
       {/* Fixed Top Sticky Header Bar (LocoHelp Logo, Language, Sign In, Notifications, Profile, Settings) */}
       <header className="sticky top-0 z-30 shrink-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-100 dark:border-slate-800 shadow-sm px-2 sm:px-5 py-2 sm:py-3 flex items-center justify-between gap-1 w-full max-w-full">
-        <button 
-          onClick={() => setIsLangModalOpen(true)} 
-          className="flex items-center gap-1 px-2 sm:px-3 py-1 sm:py-1.5 bg-white dark:bg-slate-800 rounded-full hover:bg-violet-100 dark:hover:bg-slate-700 transition-colors border border-slate-200 dark:border-slate-700 shadow-2xs shrink-0 active:scale-95 cursor-pointer"
-          title="Change Language"
-        >
-          <Globe className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-indigo-600 dark:text-indigo-400" />
-          <span className="text-[11px] sm:text-xs font-black text-stone-800 dark:text-slate-200">{currentLangObj.nativeName}</span>
-        </button>
+        <div className="relative shrink-0">
+          <button
+            type="button"
+            onClick={() => setIsLangModalOpen((prev) => !prev)}
+            className="flex items-center gap-1 px-2 sm:px-2.5 py-1 sm:py-1.5 bg-white dark:bg-slate-800 rounded-full hover:bg-violet-50 dark:hover:bg-slate-700 transition-colors border border-slate-200 dark:border-slate-700 shadow-2xs shrink-0 active:scale-95 cursor-pointer"
+            title="Select Language"
+          >
+            <Globe className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+            <span className="text-[11px] sm:text-xs font-black text-stone-800 dark:text-slate-200">
+              {currentLangObj.nativeName}
+            </span>
+            <ChevronDown className={`w-3.5 h-3.5 text-slate-500 dark:text-slate-400 transition-transform duration-200 shrink-0 ${isLangModalOpen ? 'rotate-180' : ''}`} />
+          </button>
+
+          {/* Compact Dropdown Menu right below the button */}
+          <AnimatePresence>
+            {isLangModalOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setIsLangModalOpen(false)}
+                />
+                <motion.div
+                  initial={{ opacity: 0, y: -6, scale: 0.96 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -6, scale: 0.96 }}
+                  transition={{ duration: 0.15 }}
+                  className="absolute left-0 top-full mt-1.5 w-40 bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 p-1.5 z-50 space-y-1"
+                >
+                  {SUPPORTED_LANGUAGES.map((langItem) => {
+                    const isSelected = language === langItem.code;
+                    return (
+                      <button
+                        key={langItem.code}
+                        type="button"
+                        onClick={() => {
+                          setLanguage(langItem.code);
+                          setIsLangModalOpen(false);
+                        }}
+                        className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-extrabold transition-colors cursor-pointer ${
+                          isSelected
+                            ? 'bg-indigo-600 text-white shadow-2xs'
+                            : 'text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+                        }`}
+                      >
+                        <span>{langItem.nativeName}</span>
+                        {isSelected && <Check className="w-3.5 h-3.5 shrink-0" />}
+                      </button>
+                    );
+                  })}
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>
+        </div>
         
         <div
           onClick={() => {
@@ -876,7 +927,7 @@ export default function HomeScreen({
               title="Sign in with Email OTP or Password"
             >
               <span className="text-[11px] sm:text-xs font-black">
-                {language === 'EN' ? 'Sign In' : 'लॉगिन करें'}
+                {language === 'EN' ? 'Sign In' : language === 'GU' ? 'લોગિન કરો' : 'लॉगिन करें'}
               </span>
             </button>
           ) : null}
@@ -889,7 +940,7 @@ export default function HomeScreen({
           >
             <span className="text-xs shrink-0">📍</span>
             <span className="text-[10px] sm:text-xs font-black truncate">
-              {userLocation.district || (language === 'EN' ? 'Location' : 'लोकेशन')}
+              {userLocation.district || (language === 'EN' ? 'Location' : language === 'GU' ? 'લોકેશન' : 'लोकेशन')}
             </span>
           </button>
           <button onClick={handleSafeProfileClick} className="p-1.5 sm:p-2 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-violet-100 dark:hover:bg-slate-700 transition-colors shadow-2xs cursor-pointer shrink-0" title="Profile">
@@ -958,7 +1009,13 @@ export default function HomeScreen({
                 value={homeSearchQuery}
                 onChange={(e) => setHomeSearchQuery(e.target.value)}
                 onFocus={() => setIsSearchFocused(true)}
-                placeholder={language === 'EN' ? 'Search anything: Plumber, Mechanic, Job, Shop...' : 'पूरी वेबसाइट में खोजें: प्लंबर, मैकेनिक, दुकान, जॉब...'}
+                placeholder={
+                  language === 'EN'
+                    ? 'Search anything: Plumber, Mechanic, Job, Shop...'
+                    : language === 'GU'
+                    ? 'આખી વેબસાઈટમાં શોધો: પ્લમ્બર, મિકેનિક, દુકાન, નોકરી...'
+                    : 'पूरी वेबसाइट में खोजें: प्लंबर, मैकेनिक, दुकान, जॉब...'
+                }
                 className="w-full bg-transparent text-xs font-bold text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-400 focus:outline-none"
               />
 
@@ -987,7 +1044,7 @@ export default function HomeScreen({
                 title="Voice Search (Speak to Search)"
               >
                 <span className="text-xs">{isVoiceListening ? '🎙️' : '🎙️'}</span>
-                <span>{isVoiceListening ? (language === 'EN' ? 'Listening...' : 'सुन रहे हैं...') : 'Voice Search'}</span>
+                <span>{isVoiceListening ? (language === 'EN' ? 'Listening...' : language === 'GU' ? 'સાંભળી રહ્યા છીએ...' : 'सुन रहे हैं...') : (language === 'GU' ? 'વોઈસ સર્ચ' : 'Voice Search')}</span>
               </button>
             </div>
 
@@ -1098,7 +1155,7 @@ export default function HomeScreen({
                             }}
                             className="text-xs font-extrabold px-2.5 py-1 rounded-xl bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-800 hover:bg-blue-200 transition-colors cursor-pointer"
                           >
-                            {cat.icon} {language === 'EN' ? cat.nameEn : cat.nameHi}
+                            {cat.icon} {getCategoryName(cat, language)}
                           </button>
                         ))}
                       </div>
@@ -1129,11 +1186,11 @@ export default function HomeScreen({
             <div className="flex items-center gap-2.5">
               <span className="text-xl">⚡</span>
               <span className="text-sm sm:text-base font-black tracking-wide">
-                {language === 'EN' ? 'Post' : 'पोस्ट'}
+                {language === 'EN' ? 'Post Requirement' : language === 'GU' ? 'જરૂરિયાત પોસ્ટ કરો (મદદ માંગો)' : 'पोस्ट करें (मदद मांगें)'}
               </span>
             </div>
             <div className="bg-white text-indigo-700 text-xs font-black px-3.5 py-1.5 rounded-xl shrink-0 shadow-xs flex items-center gap-1">
-              <span>{language === 'EN' ? 'Broadcast' : 'ब्रॉडकास्ट'}</span> &rarr;
+              <span>{language === 'EN' ? 'Broadcast' : language === 'GU' ? 'પોસ્ટ કરો' : 'ब्रॉडकास्ट'}</span> &rarr;
             </div>
           </div>
 
@@ -1145,7 +1202,7 @@ export default function HomeScreen({
             <div className="flex items-center gap-2.5">
               <span className="text-xl">🔍</span>
               <span className="text-sm sm:text-base font-black tracking-wide text-white">
-                {language === 'EN' ? 'Browse Service Experts' : 'ब्राउज़ सर्विस एक्सपर्ट्स'}
+                {language === 'EN' ? 'Browse Service Experts' : language === 'GU' ? 'સર્વિસ એક્સપર્ટ્સ અને કારીગરો શોધો' : 'ब्राउज़ सर्विस एक्सपर्ट्स'}
               </span>
             </div>
             <div className="text-amber-950 bg-white/90 text-xs font-black px-3.5 py-1.5 rounded-xl shrink-0 shadow-2xs">
@@ -1162,11 +1219,11 @@ export default function HomeScreen({
             <div className="flex items-center gap-2.5">
               <span className="text-xl shrink-0">🏪</span>
               <span className="text-sm sm:text-base font-black tracking-wide text-white">
-                {language === 'EN' ? 'Business & Shop Register' : 'दुकान व बिजनेस रजिस्टर करें'}
+                {language === 'EN' ? 'Business & Shop Register' : language === 'GU' ? 'દુકાન અને બિઝનેસ રજિસ્ટર કરો' : 'दुकान व बिजनेस रजिस्टर करें'}
               </span>
             </div>
             <div className="text-emerald-900 bg-white/95 text-xs font-black px-3.5 py-1.5 rounded-xl shrink-0 shadow-2xs">
-              {language === 'EN' ? 'Register →' : 'रजिस्टर करें →'}
+              {language === 'EN' ? 'Register →' : language === 'GU' ? 'રજિસ્ટર કરો →' : 'रजिस्टर करें →'}
             </div>
           </div>
 
@@ -1181,13 +1238,13 @@ export default function HomeScreen({
                 <div className="flex items-center gap-2">
                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
                   <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-1.5">
-                    <span>{language === 'EN' ? '⚡ ACTIVE NEARBY' : '⚡ आस-पास की लाइव पोस्ट्स'}</span>
+                    <span>{language === 'EN' ? '⚡ ACTIVE NEARBY' : language === 'GU' ? '⚡ આસપાસની લાઈવ પોસ્ટ્સ' : '⚡ आस-पास की लाइव पोस्ट्स'}</span>
                   </h3>
                 </div>
                 
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 font-extrabold px-2 py-0.5 rounded-full border border-amber-300 dark:border-amber-800 flex items-center gap-1">
-                    ⏱️ Auto-Deletes in 1 Hour
+                    ⏱️ {language === 'GU' ? '1 કલાકમાં આપોઆપ ડિલીટ' : 'Auto-Deletes in 1 Hour'}
                   </span>
                   <span className="text-[10px] bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-300 font-black px-2 py-0.5 rounded-full">
                     {displayIntents.length} Live
@@ -1205,11 +1262,13 @@ export default function HomeScreen({
                     <h4 className="text-xs sm:text-sm font-black text-slate-900 dark:text-white">
                       {homeSearchQuery.trim()
                         ? `No matching requests for "${homeSearchQuery}"`
-                        : (language === 'EN' ? 'No Active Requests Nearby Right Now' : 'आस-पास कोई लाइव रिक्वेस्ट नहीं है')}
+                        : (language === 'EN' ? 'No Active Requests Nearby Right Now' : language === 'GU' ? 'હાલ આસપાસ કોઈ લાઈવ પોસ્ટ નથી' : 'आस-पास कोई लाइव रिक्वेस्ट नहीं है')}
                     </h4>
                     <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 max-w-xs mx-auto font-medium">
                       {language === 'EN' 
                         ? 'Click the "+ Post / Broadcast" button above to publish your request. It will appear live here for everyone nearby for 1 hour!'
+                        : language === 'GU'
+                        ? 'ઉપર આપેલા "જરૂરિયાત પોસ્ટ કરો" બટન પર ક્લિક કરીને તમારી જરૂરિયાત લખો. તે 1 કલાક માટે અહીં બધાને લાઈવ દેખાશે!'
                         : 'ऊपर दिये गये "+ पोस्ट / ब्रॉडकास्ट" बटन पर क्लिक करके अपनी जरूरत दर्ज करें। यह 1 घंटे के लिए यहाँ लाइव दिखेगी।'}
                     </p>
                   </div>
@@ -1218,7 +1277,7 @@ export default function HomeScreen({
                       onClick={handleSafeOpenPostSheet}
                       className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black px-4 py-2.5 rounded-xl shadow-md cursor-pointer inline-flex items-center gap-1.5 active:scale-95 transition-all"
                     >
-                      <span>⚡ Post New Requirement</span> &rarr;
+                      <span>⚡ {language === 'GU' ? 'નવી પોસ્ટ મૂકો' : language === 'HI' ? 'नई पोस्ट डालें' : 'Post New Requirement'}</span> &rarr;
                     </button>
                   </div>
                 </div>
@@ -1348,7 +1407,7 @@ export default function HomeScreen({
                             className="bg-amber-500 hover:bg-amber-600 text-white font-black text-xs px-3.5 py-1.5 rounded-xl shadow-md active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer"
                           >
                             <MessageSquare className="w-3.5 h-3.5" />
-                            <span>{language === 'EN' ? 'Responses / Chats' : 'प्राप्त जवाब देखें (Inbox)'}</span>
+                            <span>{language === 'EN' ? 'Responses / Chats' : language === 'GU' ? 'મળેલા જવાબો જુઓ (Inbox)' : 'प्राप्त जवाब देखें (Inbox)'}</span>
                           </button>
                         ) : (
                           <button
@@ -1357,7 +1416,7 @@ export default function HomeScreen({
                             className="bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs px-3.5 py-1.5 rounded-xl shadow-md active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer"
                           >
                             <MessageSquare className="w-3.5 h-3.5" />
-                            <span>{language === 'EN' ? 'Chat / Reply' : 'बात करें / उत्तर दें'}</span>
+                            <span>{language === 'EN' ? 'Chat / Reply' : language === 'GU' ? 'વાત કરો / જવાબ આપો' : 'बात करें / उत्तर दें'}</span>
                           </button>
                         )}
 
@@ -1381,7 +1440,7 @@ export default function HomeScreen({
                           className="px-2.5 py-1.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-black text-[10px] uppercase shadow-sm active:scale-95 transition-all flex items-center gap-1 cursor-pointer ml-auto"
                         >
                           <Trash2 className="w-3 h-3" />
-                          <span>{language === 'EN' ? 'Delete' : 'हटाएं'}</span>
+                          <span>{language === 'EN' ? 'Delete' : language === 'GU' ? 'દૂર કરો' : 'हटाएं'}</span>
                         </button>
                       )}
                     </div>
@@ -1528,6 +1587,9 @@ export default function HomeScreen({
             </div>
           </div>
         </footer>
+
+        {/* Bottom-of-Page Auto-Scrolling Official Red Warning & Legal Disclaimer Ticker (Visible only when user scrolls to the bottom) */}
+        <RedWarningTicker />
       </div>
     </div>
 
@@ -1541,76 +1603,7 @@ export default function HomeScreen({
         />
       )}
 
-      {/* Language Picker Modal */}
-      <AnimatePresence>
-        {isLangModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs">
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.92, y: 12 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.92, y: 12 }}
-              className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl p-5 shadow-2xl border border-violet-200 dark:border-slate-800 max-h-[85vh] flex flex-col"
-            >
-              <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-                <div className="flex items-center gap-2">
-                  <Globe className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-                  <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
-                    {t('home.selectLanguage')}
-                  </h3>
-                </div>
-                <button 
-                  onClick={() => setIsLangModalOpen(false)}
-                  className="p-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <div className="overflow-y-auto py-3 space-y-1.5 flex-1">
-                {SUPPORTED_LANGUAGES.map((langItem) => {
-                  const isSelected = language === langItem.code;
-                  return (
-                    <button
-                      key={langItem.code}
-                      onClick={() => {
-                        setLanguage(langItem.code);
-                        setIsLangModalOpen(false);
-                      }}
-                      className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all text-left ${
-                        isSelected 
-                          ? 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-500 text-indigo-900 dark:text-indigo-200 font-bold'
-                          : 'bg-stone-50/50 dark:bg-slate-800/50 border-slate-200/70 dark:border-slate-700/60 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <span className="w-8 h-8 rounded-lg bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 flex items-center justify-center font-extrabold text-xs text-indigo-600 dark:text-indigo-400 shrink-0 shadow-xs">
-                          {langItem.code}
-                        </span>
-                        <div>
-                          <div className="text-sm font-extrabold">{langItem.nativeName}</div>
-                          <div className="text-xs text-slate-400">{langItem.label}</div>
-                        </div>
-                      </div>
-                      {isSelected && (
-                        <Check className="w-5 h-5 text-indigo-600 dark:text-indigo-400 shrink-0" />
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="pt-2 border-t border-slate-100 dark:border-slate-800 text-center">
-                <button
-                  onClick={() => setIsLangModalOpen(false)}
-                  className="w-full py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold hover:bg-slate-200 transition-colors"
-                >
-                  Close
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      {/* Language dropdown is now anchored directly below the header button */}
 
       {/* Post Intent Sheet Overlay */}
       <AnimatePresence>

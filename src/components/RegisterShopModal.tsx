@@ -4,7 +4,7 @@ import { Store, Building, Building2, ShoppingBag, X, Check, Camera, MapPin, Phon
 import { useLanguage } from '../i18n';
 import { getShops, saveShop, getCurrentUser } from '../auth';
 import { applyIdWatermark } from '../lib/watermark';
-import { validateUploadedFile } from '../lib/security';
+import { validateUploadedFile, checkSystemSecurityBlock } from '../lib/security';
 import { submitVerification } from '../api';
 import { isEntityOwner } from '../lib/ownership';
 
@@ -176,6 +176,13 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess }: Regist
     e.preventDefault();
     if (!shopName.trim() || !phone.trim()) return;
 
+    const secBlock = checkSystemSecurityBlock(shopName, customType, ownerName, area, address, description);
+    if (secBlock.blocked) {
+      setIdUploadNotice(secBlock.getMessage(language));
+      return;
+    }
+
+    setIdUploadNotice(null);
     setIsSubmitting(true);
 
     const activeUser = getCurrentUser();

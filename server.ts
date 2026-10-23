@@ -403,6 +403,93 @@ function sanitizeServerPayload<T>(payload: T): T {
 }
 
 // ==========================================
+// 2B. SILENT BACKGROUND COMMUNITY GUIDELINES & ABUSE FILTER (SERVER-SIDE SYSTEM SECURITY BLOCK)
+// ==========================================
+const SERVER_BLOCKED_ROMAN_TOKENS = new Set([
+  'mc', 'bc', 'bkl', 'mkc', 'mkb', 'tmkc', 'tmkb', 'pkmkb',
+  'madarchod', 'madharchod', 'maadarchod', 'maderchod',
+  'bhenchod', 'behenchod', 'bahenchod', 'benchod', 'bhanchod', 'behanchod',
+  'betichod', 'baapchod', 'bhosda', 'bhosdi', 'bhosdike', 'bhosadike', 'bhosdika', 'bhosdiwale', 'bhosadi',
+  'chutiya', 'chutia', 'chutiye', 'chutiyapa', 'chuitya', 'chootiya',
+  'choot', 'chut', 'lund', 'land', 'loda', 'lauda', 'lawda', 'lavda', 'lode', 'laude', 'lavde',
+  'gaand', 'gand', 'gandu', 'gaandu', 'gandmasti', 'gandmara',
+  'randi', 'raandi', 'randibaaz', 'randikhana', 'chinaal', 'chinal',
+  'harami', 'haramkhor', 'haramzada', 'haramzade', 'haramzadi',
+  'kamina', 'kamine', 'kaminey', 'kamini', 'kuttey', 'kutiya',
+  'suar', 'suwar', 'ullu', 'bhadwa', 'bhadwe', 'bhadva', 'bhadve', 'dalla',
+  'jhant', 'jhaat', 'jhatu', 'jhaatu', 'mutthal', 'chudai', 'chod', 'chodna', 'chodu',
+  'pikina', 'pikino', 'pikini', 'gandina', 'gandino', 'gandini',
+  'chodina', 'chodino', 'lodaa', 'bhosadina', 'bhosadino', 'chodva',
+  'raand', 'randva', 'randvo', 'bhadvo', 'bhadvi',
+  'fuck', 'fucker', 'fucking', 'motherfucker', 'motherfucking', 'fck', 'fuk', 'fuq',
+  'bitch', 'bitches', 'sonofabitch', 'asshole', 'arsehole', 'bastard', 'cunt',
+  'dick', 'dickhead', 'cock', 'pussy', 'whore', 'slut', 'prostitute', 'escort',
+  'porn', 'porno', 'xxx', 'nude', 'nudes', 'sexchat', 'callgirl', 'callgirls'
+]);
+
+const SERVER_BLOCKED_NATIVE_SUBSTRINGS = [
+  'मादरचोद', 'बहनचोद', 'बेहनचोद', 'भेनचोद', 'बेटीचोद', 'भोसड़ी', 'भोसडी', 'भोसड़ा', 'भोसदिके', 'भोसड़ीके',
+  'चूतिया', 'चुतिया', 'चूतिये', 'चूत', 'लंड', 'लौड़ा', 'लौडा', 'लवड़ा', 'लवडे', 'लौड़े',
+  'गांड', 'गाण्ड', 'गांडू', 'गाण्डू', 'रंडी', 'रंड़ी', 'छिनाल', 'हरामी', 'हरामखोर', 'हरामजादा', 'हरामज़ादा',
+  'भड़वा', 'भडवा', 'भड़वे', 'झाटू', 'झांटू', 'चोदू', 'चुदाई', 'चोदना',
+  'માદરચોદ', 'બહેનચોદ', 'બેનચોદ', 'ભોસડી', 'ભોસડા', 'ભોસડીના', 'ભોસડીનો',
+  'ચૂતિયા', 'ચુતિયા', 'ચોદુ', 'ચોદૂ', 'ચોદવા', 'ચોદીના', 'ચોદીનો',
+  'ગાંડ', 'ગાંડુ', 'ગાંડું', 'ગાંડીના', 'ગાંડીનો', 'પીકીના', 'પીકીનો',
+  'લંડ', 'લોડા', 'લોડો', 'લવડા', 'રાંડ', 'ભડવો', 'ભડવા', 'હરામી', 'હરામખોર'
+];
+
+const SERVER_BLOCKED_PHRASES = [
+  'teri maa ki', 'teri ma ki', 'teri bhen ki', 'teri behen ki',
+  'maa chod', 'bhen chod', 'gand mar', 'gaand maar', 'muh me le',
+  'tari maa ni', 'tari ben ni', 'gand mara', 'call girl', 'sex service', 'paid sex'
+];
+
+function checkServerTextViolatesSecurityBlock(text: string): boolean {
+  if (!text || typeof text !== "string") return false;
+  if (text.startsWith("data:") || text.startsWith("http://") || text.startsWith("https://")) return false;
+
+  for (const nativeSub of SERVER_BLOCKED_NATIVE_SUBSTRINGS) {
+    if (text.includes(nativeSub)) return true;
+  }
+
+  const lower = text.toLowerCase();
+  const cleanedSpaces = lower.replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+  for (const phrase of SERVER_BLOCKED_PHRASES) {
+    if (cleanedSpaces.includes(phrase)) return true;
+  }
+
+  const rawTokens = lower.split(/[\s,.;:!?/\\|()[\]{}"'`~_+=<>-]+/).filter(Boolean);
+  for (const rawToken of rawTokens) {
+    const directClean = rawToken.replace(/[^a-z]/g, "");
+    if (directClean && SERVER_BLOCKED_ROMAN_TOKENS.has(directClean)) return true;
+    const norm = rawToken
+      .replace(/[@4]/g, "a")
+      .replace(/[0]/g, "o")
+      .replace(/[1!]/g, "i")
+      .replace(/[$5]/g, "s")
+      .replace(/[^a-z]/g, "")
+      .replace(/([a-z])\1{2,}/g, "$1");
+    if (norm && norm.length >= 3 && SERVER_BLOCKED_ROMAN_TOKENS.has(norm)) return true;
+  }
+  return false;
+}
+
+function checkServerPayloadSecurityBlock(payload: any): boolean {
+  if (!payload) return false;
+  if (typeof payload === "string") return checkServerTextViolatesSecurityBlock(payload);
+  if (Array.isArray(payload)) return payload.some((item) => checkServerPayloadSecurityBlock(item));
+  if (typeof payload === "object") {
+    for (const [k, v] of Object.entries(payload)) {
+      if (UPLOAD_DATA_KEYS.has(k) || k === "password" || k === "newPassword" || k === "oldPassword" || k === "token") {
+        continue;
+      }
+      if (checkServerPayloadSecurityBlock(v)) return true;
+    }
+  }
+  return false;
+}
+
+// ==========================================
 // 3. RAILWAY BACKEND RATE LIMITING & COOLDOWNS
 // ==========================================
 interface RateBucket {
@@ -1206,11 +1293,25 @@ async function startServer() {
   // Parse JSON bodies (bounded to 8MB max payload for 5MB base64 PDFs)
   app.use(express.json({ limit: "8mb" }));
 
-  // Global Rate Limiter & Automatic XSS Input Sanitizer on all /api routes
+  // Global Rate Limiter, Automatic XSS Input Sanitizer & Silent System Security Block on all /api routes
   app.use("/api", generalApiLimiter);
-  app.use("/api", (req, _res, next) => {
+  app.use("/api", (req, res, next) => {
     if (req.body && typeof req.body === "object") {
       req.body = sanitizeServerPayload(req.body);
+      if (
+        (req.method === "POST" || req.method === "PUT" || req.method === "PATCH") &&
+        !req.path.startsWith("/auth") &&
+        !req.path.startsWith("/admin/login") &&
+        !req.path.startsWith("/upload")
+      ) {
+        if (checkServerPayloadSecurityBlock(req.body)) {
+          return res.status(400).json({
+            success: false,
+            error: "⚠️ System Security Block: आपकी पोस्ट हमारे कम्युनिटी नियमों (Community Guidelines) के विरुद्ध है। नियम तोड़ने पर सख्त कानूनी कार्यवाही की जाएगी।",
+            code: "SYSTEM_SECURITY_BLOCK"
+          });
+        }
+      }
     }
     next();
   });

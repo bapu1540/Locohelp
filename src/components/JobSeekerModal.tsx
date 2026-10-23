@@ -25,7 +25,7 @@ import {
 import { useLanguage } from '../i18n';
 import { submitJobPortalItem, fetchJobPortalItems } from '../api';
 import { JobPortalItem } from '../types';
-import { validateUploadedFile } from '../lib/security';
+import { validateUploadedFile, checkSystemSecurityBlock } from '../lib/security';
 import { getCurrentUser } from '../auth';
 import { isEntityOwner } from '../lib/ownership';
 
@@ -215,6 +215,12 @@ export default function JobSeekerModal({
     }
     if (!phone.trim()) {
       setErrorMessage(language === 'EN' ? 'Please enter your Mobile Number' : 'कृपया अपना मोबाइल नंबर दर्ज करें');
+      return;
+    }
+
+    const secBlock = checkSystemSecurityBlock(fullName, headline, skillInput, selectedSkills, expectedSalary, education, area, description);
+    if (secBlock.blocked) {
+      setErrorMessage(secBlock.getMessage(language));
       return;
     }
 

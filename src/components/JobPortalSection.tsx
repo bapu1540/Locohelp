@@ -48,7 +48,7 @@ export default function JobPortalSection({
         <div className="flex items-center gap-1.5">
           <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></div>
           <span className="text-[11px] font-black uppercase tracking-wider text-slate-700 dark:text-slate-300">
-            {language === 'EN' ? 'LocoHelp Local Job Portal' : 'लोकोहेल्प रोजगार व स्टाफ पोर्टल'}
+            {language === 'EN' ? 'LocoHelp Local Job Portal' : language === 'GU' ? 'લોકોહેલ્પ રોજગાર અને સ્ટાફ પોર્ટલ' : 'लोकोहेल्प रोजगार व स्टाफ पोर्टल'}
           </span>
         </div>
       </div>
@@ -65,17 +65,19 @@ export default function JobPortalSection({
           <div 
             onClick={handleSeekerRegistered}
             className="relative z-10 text-center pb-3 cursor-pointer select-none"
-            title={language === 'EN' ? 'Click to view Job Seekers' : 'काम तलाशने वाले उम्मीदवारों की सूची देखें'}
+            title={language === 'EN' ? 'Click to view Job Seekers' : language === 'GU' ? 'નોકરી શોધતા ઉમેદવારોની યાદી જુઓ' : 'काम तलाशने वाले उम्मीदवारों की सूची देखें'}
           >
             <div className="inline-flex items-center justify-center w-11 h-11 rounded-2xl bg-white/15 backdrop-blur-xs border border-white/30 text-2xl mb-1.5 shadow-inner">
               💼
             </div>
             <h3 className="text-base sm:text-lg font-black tracking-tight text-white leading-tight">
-              {language === 'EN' ? 'Job / Work Registration' : 'जॉब / काम का रजिस्ट्रेशन'}
+              {language === 'EN' ? 'Job / Work Registration' : language === 'GU' ? 'નોકરી / કામનું રજિસ્ટ્રેશન' : 'जॉब / काम का रजिस्ट्रेशन'}
             </h3>
             <p className="text-[11px] text-blue-100 font-medium mt-1 leading-snug max-w-xs mx-auto">
               {language === 'EN'
                 ? 'Only for Job Seekers: View registered candidates or create your profile.'
+                : language === 'GU'
+                ? 'માત્ર નોકરી કે કામ શોધનારાઓ માટે: રજિસ્ટર્ડ ઉમેદવાર જુઓ અથવા તમારી પ્રોફાઈલ બનાવો.'
                 : 'सिर्फ काम चाहने वालों के लिए: रजिस्टर्ड उम्मीदवार देखें या अपनी प्रोफाइल बनाएं।'}
             </p>
           </div>
@@ -94,10 +96,10 @@ export default function JobPortalSection({
                 <UserCheck className="w-3.5 h-3.5 text-emerald-300" />
               </div>
               <span className="text-xs font-black leading-tight">
-                {language === 'EN' ? 'Already Registered' : 'पहले से रजिस्टर्ड'}
+                {language === 'EN' ? 'Already Registered' : language === 'GU' ? 'પહેલાથી રજિસ્ટર્ડ' : 'पहले से रजिस्टर्ड'}
               </span>
               <span className="text-[10px] text-blue-200 font-semibold mt-0.5">
-                {language === 'EN' ? 'Registered Candidates' : 'उम्मीदवारों की सूची'}
+                {language === 'EN' ? 'Registered Candidates' : language === 'GU' ? 'ઉમેદવારોની યાદી' : 'उम्मीदवारों की सूची'}
               </span>
             </motion.button>
 
@@ -113,10 +115,10 @@ export default function JobPortalSection({
                 <Sparkles className="w-3.5 h-3.5 text-indigo-700" />
               </div>
               <span className="text-xs font-black leading-tight text-indigo-950">
-                {language === 'EN' ? 'New Register' : 'नया रजिस्ट्रेशन'}
+                {language === 'EN' ? 'New Register' : language === 'GU' ? 'નવું રજિસ્ટ્રેશન' : 'नया रजिस्ट्रेशन'}
               </span>
               <span className="text-[10px] text-indigo-600 font-extrabold mt-0.5">
-                {language === 'EN' ? 'Create Profile' : 'प्रोफाइल बनाएं'}
+                {language === 'EN' ? 'Create Profile' : language === 'GU' ? 'પ્રોફાઈલ બનાવો' : 'प्रोफाइल बनाएं'}
               </span>
             </motion.button>
           </div>
@@ -131,17 +133,19 @@ export default function JobPortalSection({
           <div 
             onClick={handleEmployerRegistered}
             className="relative z-10 text-center pb-3 cursor-pointer select-none"
-            title={language === 'EN' ? 'For Employer / Give a Job' : 'नौकरी / काम देने वाले (Employer)'}
+            title={language === 'EN' ? 'For Employer / Give a Job' : language === 'GU' ? 'નોકરી / કામ આપનારા (Employer)' : 'नौकरी / काम देने वाले (Employer)'}
           >
             <div className="inline-flex items-center justify-center w-11 h-11 rounded-2xl bg-white/15 backdrop-blur-xs border border-white/30 text-2xl mb-1.5 shadow-inner">
               🏢
             </div>
             <h3 className="text-base sm:text-lg font-black tracking-tight text-white leading-tight">
-              {language === 'EN' ? 'For Employer / Give a Job' : 'नौकरी / काम देने वाले (Employer)'}
+              {language === 'EN' ? 'For Employer / Give a Job' : language === 'GU' ? 'નોકરી / કામ આપનારા (Employer)' : 'नौकरी / काम देने वाले (Employer)'}
             </h3>
             <p className="text-[11px] text-amber-100 font-medium mt-1 leading-snug max-w-xs mx-auto">
               {language === 'EN'
                 ? 'Hire local staff: Link your registered shop/business or register as a new employer.'
+                : language === 'GU'
+                ? 'સ્ટાફ રાખો: તમારી રજિસ્ટર્ડ દુકાન/બિઝનેસમાંથી સીધી જોબ પોસ્ટ કરો અથવા નવા એમ્પ્લોયર તરીકે રજિસ્ટર કરો.'
                 : 'स्टाफ हायर करें: अपनी रजिस्टर्ड दुकान/बिज़नेस से सीधे जॉब पोस्ट करें या नया एम्प्लॉयर रजिस्टर करें।'}
             </p>
           </div>
@@ -160,10 +164,10 @@ export default function JobPortalSection({
                 <Building2 className="w-3.5 h-3.5 text-amber-200" />
               </div>
               <span className="text-xs font-black leading-tight">
-                {language === 'EN' ? 'Already Registered' : 'पहले से रजिस्टर्ड'}
+                {language === 'EN' ? 'Already Registered' : language === 'GU' ? 'પહેલાથી રજિસ્ટર્ડ' : 'पहले से रजिस्टर्ड'}
               </span>
               <span className="text-[10px] text-amber-200 font-semibold mt-0.5">
-                {language === 'EN' ? 'Link Shop & Post Job' : 'दुकान चुनें व जॉब दें'}
+                {language === 'EN' ? 'Link Shop & Post Job' : language === 'GU' ? 'દુકાન પસંદ કરો અને જોબ આપો' : 'दुकान चुनें व जॉब दें'}
               </span>
             </motion.button>
 
@@ -179,10 +183,10 @@ export default function JobPortalSection({
                 <Briefcase className="w-3.5 h-3.5 text-orange-700" />
               </div>
               <span className="text-xs font-black leading-tight text-orange-950">
-                {language === 'EN' ? 'New Employer' : 'नया एम्प्लॉयर'}
+                {language === 'EN' ? 'New Employer' : language === 'GU' ? 'નવા એમ્પ્લોયર' : 'नया एम्प्लॉयर'}
               </span>
               <span className="text-[10px] text-orange-600 font-extrabold mt-0.5">
-                {language === 'EN' ? 'Register & Post Job' : 'रजिस्टर व जॉब पोस्ट'}
+                {language === 'EN' ? 'Register & Post Job' : language === 'GU' ? 'રજિસ્ટર અને જોબ પોસ્ટ' : 'रजिस्टर व जॉब पोस्ट'}
               </span>
             </motion.button>
           </div>
@@ -197,6 +201,8 @@ export default function JobPortalSection({
           <span className="font-semibold">
             {language === 'EN'
               ? 'Security Notice: All job seeker profiles & employer vacancies are verified by Admin before going live.'
+              : language === 'GU'
+              ? 'સુરક્ષા સૂચના: તમામ નોકરી પ્રોફાઈલ અને વેકેન્સી એડમિન મંજૂરી પછી જ લાઈવ થાય છે.'
               : 'सुरक्षा सूचना: सभी नौकरी प्रोफाइल और वेकेंसी एडमिन अनुमोदन के बाद ही लाइव होती हैं।'}
           </span>
         </div>

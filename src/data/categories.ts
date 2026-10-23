@@ -524,6 +524,7 @@ export const CATEGORIES: CategoryItem[] = [
 export function getCategoryName(category: CategoryItem | undefined, lang: Language): string {
   if (!category) return '';
   switch (lang) {
+    case 'GU': return category.nameGu || category.nameHi || category.nameEn;
     case 'HI': return category.nameHi || category.nameEn;
     default: return category.nameEn;
   }
@@ -532,6 +533,7 @@ export function getCategoryName(category: CategoryItem | undefined, lang: Langua
 export function getMasterCategoryName(master: MasterCategory | undefined, lang: Language): string {
   if (!master) return '';
   switch (lang) {
+    case 'GU': return master.nameGu || master.nameHi || master.nameEn;
     case 'HI': return master.nameHi || master.nameEn;
     default: return master.nameEn;
   }
@@ -540,6 +542,7 @@ export function getMasterCategoryName(master: MasterCategory | undefined, lang: 
 export function getMasterCategorySubtitle(master: MasterCategory | undefined, lang: Language): string {
   if (!master) return '';
   switch (lang) {
+    case 'GU': return master.subtitleGu || master.subtitleHi || master.subtitleEn;
     case 'HI': return master.subtitleHi || master.subtitleEn;
     default: return master.subtitleEn;
   }

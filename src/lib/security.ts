@@ -387,3 +387,133 @@ export function recordOtpSentTimestamp(identifier?: string): void {
     }
   } catch (e) {}
 }
+
+// ==========================================
+// SILENT BACKGROUND COMMUNITY GUIDELINES & ABUSE FILTER (SYSTEM SECURITY BLOCK)
+// Enforces strict anti-abuse across Hindi, Gujarati, Hinglish, and English without exposing words on UI
+// ==========================================
+
+const BLOCKED_ROMAN_TOKENS = new Set([
+  // Hindi / Hinglish & Gujarati Romanized abusive tokens
+  'mc', 'bc', 'bkl', 'mkc', 'mkb', 'tmkc', 'tmkb', 'pkmkb',
+  'madarchod', 'madharchod', 'maadarchod', 'maderchod',
+  'bhenchod', 'behenchod', 'bahenchod', 'benchod', 'bhanchod', 'behanchod',
+  'betichod', 'baapchod', 'bhosda', 'bhosdi', 'bhosdike', 'bhosadike', 'bhosdika', 'bhosdiwale', 'bhosadi',
+  'chutiya', 'chutia', 'chutiye', 'chutiyapa', 'chuitya', 'chootiya',
+  'choot', 'chut', 'lund', 'land', 'loda', 'lauda', 'lawda', 'lavda', 'lode', 'laude', 'lavde',
+  'gaand', 'gand', 'gandu', 'gaandu', 'gandmasti', 'gandmara',
+  'randi', 'raandi', 'randibaaz', 'randikhana', 'chinaal', 'chinal',
+  'harami', 'haramkhor', 'haramzada', 'haramzade', 'haramzadi',
+  'kamina', 'kamine', 'kaminey', 'kamini', 'kuttey', 'kutiya',
+  'suar', 'suwar', 'ullu', 'bhadwa', 'bhadwe', 'bhadva', 'bhadve', 'dalla', 'dalal',
+  'jhant', 'jhaat', 'jhatu', 'jhaatu', 'mutthal', 'chudai', 'chod', 'chodna', 'chodu', 'chodू',
+  // Gujarati specific Romanized abusive tokens
+  'pikina', 'pikino', 'pikini', 'gandina', 'gandino', 'gandini',
+  'chodina', 'chodino', 'loda', 'lodaa', 'bhosadina', 'bhosadino', 'chodu', 'chodva',
+  'raand', 'randva', 'randvo', 'bhadvo', 'bhadvi', 'navri', 'navro',
+  // English abusive & explicit tokens
+  'fuck', 'fucker', 'fucking', 'motherfucker', 'motherfucking', 'fck', 'fuk', 'fuq',
+  'bitch', 'bitches', 'sonofabitch', 'asshole', 'arsehole', 'bastard', 'cunt',
+  'dick', 'dickhead', 'cock', 'pussy', 'whore', 'slut', 'prostitute', 'escort',
+  'porn', 'porno', 'xxx', 'nude', 'nudes', 'sexchat', 'callgirl', 'callgirls', 'randi'
+]);
+
+const BLOCKED_NATIVE_SCRIPT_SUBSTRINGS = [
+  // Hindi (Devanagari)
+  'मादरचोद', 'बहनचोद', 'बेहनचोद', 'भेनचोद', 'बेटीचोद', 'भोसड़ी', 'भोसडी', 'भोसड़ा', 'भोसदिके', 'भोसड़ीके',
+  'चूतिया', 'चुतिया', 'चूतिये', 'चूत', 'लंड', 'लौड़ा', 'लौडा', 'लवड़ा', 'लवडे', 'लौड़े',
+  'गांड', 'गाण्ड', 'गांडू', 'गाण्डू', 'रंडी', 'रंड़ी', 'छिनाल', 'हरामी', 'हरामखोर', 'हरामजादा', 'हरामज़ादा',
+  'भड़वा', 'भडवा', 'भड़वे', 'झाटू', 'झांटू', 'चोदू', 'चुदाई', 'चोदना',
+  // Gujarati (ગુજરાતી લિપિ)
+  'માદરચોદ', 'બહેનચોદ', 'બેનચોદ', 'ભોસડી', 'ભોસડા', 'ભોસડીના', 'ભોસડીનો',
+  'ચૂતિયા', 'ચુતિયા', 'ચોદુ', 'ચોદૂ', 'ચોદવા', 'ચોદીના', 'ચોદીનો',
+  'ગાંડ', 'ગાંડુ', 'ગાંડું', 'ગાંડીના', 'ગાંડીનો', 'પીકીના', 'પીકીનો',
+  'લંડ', 'લોડા', 'લોડો', 'લવડા', 'રાંડ', 'ભડવો', 'ભડવા', 'હરામી', 'હરામખોર'
+];
+
+const BLOCKED_MULTIWORD_PHRASES = [
+  'teri maa ki', 'teri ma ki', 'teri bhen ki', 'teri behen ki',
+  'maa chod', 'bhen chod', 'gand mar', 'gaand maar', 'muh me le',
+  'tari maa ni', 'tari ben ni', 'gand mara', 'call girl', 'sex service', 'paid sex'
+];
+
+function normalizeRomanWord(word: string): string {
+  return word
+    .toLowerCase()
+    .replace(/[@4]/g, 'a')
+    .replace(/[0]/g, 'o')
+    .replace(/[1!]/g, 'i')
+    .replace(/[$5]/g, 's')
+    .replace(/[^a-z]/g, '')
+    // Collapse 3+ repeated letters down to 1 or 2 (e.g. "chuuuutiya" -> "chutiya")
+    .replace(/([a-z])\1{2,}/g, '$1');
+}
+
+export interface SystemSecurityBlockResult {
+  blocked: boolean;
+  messageEn: string;
+  messageHi: string;
+  messageGu: string;
+  getMessage: (lang?: string) => string;
+}
+
+export function checkSystemSecurityBlock(...inputs: (string | undefined | null | string[])[]): SystemSecurityBlockResult {
+  const messageEn = '⚠️ System Security Block: Your post violates our Community Guidelines. Violating platform rules will result in strict legal action.';
+  const messageHi = '⚠️ System Security Block: आपकी पोस्ट हमारे कम्युनिटी नियमों (Community Guidelines) के विरुद्ध है। नियम तोड़ने पर सख्त कानूनी कार्यवाही की जाएगी।';
+  const messageGu = '⚠️ System Security Block: તમારી પોસ્ટ અમારા કોમ્યુનિટી નિયમો (Community Guidelines) ની વિરુદ્ધ છે. નિયમ તોડવા પર કડક કાયદેસરની કાર્યવાહી કરવામાં આવશે.';
+
+  const getMessage = (lang?: string) => {
+    const l = (lang || '').toUpperCase();
+    if (l === 'GU') return messageGu;
+    if (l === 'HI') return messageHi;
+    return messageHi; // Default Hindi/Gujarati friendly warning or English if EN
+  };
+
+  const getLocalized = (lang?: string) => {
+    const l = (lang || '').toUpperCase();
+    if (l === 'GU') return messageGu;
+    if (l === 'EN') return messageEn;
+    return messageHi;
+  };
+
+  const combinedText = inputs
+    .flat()
+    .filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
+    .join(' ');
+
+  if (!combinedText) {
+    return { blocked: false, messageEn, messageHi, messageGu, getMessage: getLocalized };
+  }
+
+  const lower = combinedText.toLowerCase();
+
+  // 1. Check Devanagari & Gujarati script substrings
+  for (const nativeWord of BLOCKED_NATIVE_SCRIPT_SUBSTRINGS) {
+    if (combinedText.includes(nativeWord)) {
+      return { blocked: true, messageEn, messageHi, messageGu, getMessage: getLocalized };
+    }
+  }
+
+  // 2. Check multi-word phrases
+  const cleanedSpaces = lower.replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  for (const phrase of BLOCKED_MULTIWORD_PHRASES) {
+    if (cleanedSpaces.includes(phrase)) {
+      return { blocked: true, messageEn, messageHi, messageGu, getMessage: getLocalized };
+    }
+  }
+
+  // 3. Check individual Roman words (with obfuscation normalization)
+  const rawTokens = lower.split(/[\s,.;:!?/\\|()[\]{}"'`~_+=<>-]+/).filter(Boolean);
+  for (const rawToken of rawTokens) {
+    const directClean = rawToken.replace(/[^a-z]/g, '');
+    if (directClean && BLOCKED_ROMAN_TOKENS.has(directClean)) {
+      return { blocked: true, messageEn, messageHi, messageGu, getMessage: getLocalized };
+    }
+    const normalized = normalizeRomanWord(rawToken);
+    if (normalized && normalized.length >= 3 && BLOCKED_ROMAN_TOKENS.has(normalized)) {
+      return { blocked: true, messageEn, messageHi, messageGu, getMessage: getLocalized };
+    }
+  }
+
+  return { blocked: false, messageEn, messageHi, messageGu, getMessage: getLocalized };
+}

@@ -39,7 +39,7 @@ export type ServiceProvider = {
 
 export type Screen = 'login' | 'home' | 'chat' | 'notifications' | 'pro' | 'settings' | 'guidelines' | 'roadmap' | 'report' | 'directory' | 'profile' | 'support' | 'mesh' | 'leaderboard' | 'professionals' | 'categories' | 'admin';
 
-export type Language = 'EN' | 'HI';
+export type Language = 'EN' | 'HI' | 'GU';
 
 export interface JobPortalItem {
   id: string;

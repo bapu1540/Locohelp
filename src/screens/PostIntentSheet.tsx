@@ -10,7 +10,8 @@ import { isGuestUser, getUserProfile } from '../lib/authUtils';
 import {
   sanitizeText,
   getPostCooldownRemainingSeconds,
-  recordPostCreatedTimestamp
+  recordPostCreatedTimestamp,
+  checkSystemSecurityBlock
 } from '../lib/security';
 import {
   PAN_INDIA_STATES_DISTRICTS,
@@ -67,14 +68,14 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
   );
 
   const QUICK_TEMPLATES = [
-    { label: '🔧 ' + (language === 'EN' ? 'Plumber' : 'प्लंबर'), text: t('post.tmpl.plumber'), tag: '#Plumber' },
-    { label: '⚡ ' + (language === 'EN' ? 'Electrician' : 'इलेक्ट्रीशियन'), text: t('post.tmpl.electrician'), tag: '#Electrician' },
-    { label: '🚗 ' + (language === 'EN' ? 'Mechanic' : 'मैकेनिक'), text: t('post.tmpl.mechanic'), tag: '#Mechanic' },
-    { label: '🧹 ' + (language === 'EN' ? 'Cleaning' : 'सफाई'), text: t('post.tmpl.cleaning'), tag: '#Cleaning' },
-    { label: '💊 ' + (language === 'EN' ? 'Emergency' : 'इमरजेंसी'), text: t('post.tmpl.emergency'), tag: '#Urgent' },
-    { label: '🎓 ' + (language === 'EN' ? 'Tutor' : 'ट्यूटर'), text: t('post.tmpl.tutor'), tag: '#Tutor' },
-    { label: '🏏 ' + (language === 'EN' ? 'Cricket' : 'क्रिकेट'), text: t('post.tmpl.cricket'), tag: '#Cricket' },
-    { label: '☕ ' + (language === 'EN' ? 'Chai Meet' : 'चाय मीटअप'), text: t('post.tmpl.chai'), tag: '#General' },
+    { label: '🔧 ' + (language === 'EN' ? 'Plumber' : language === 'GU' ? 'પ્લમ્બર' : 'प्लंबर'), text: t('post.tmpl.plumber'), tag: '#Plumber' },
+    { label: '⚡ ' + (language === 'EN' ? 'Electrician' : language === 'GU' ? 'ઈલેક્ટ્રિશિયન' : 'इलेक्ट्रीशियन'), text: t('post.tmpl.electrician'), tag: '#Electrician' },
+    { label: '🚗 ' + (language === 'EN' ? 'Mechanic' : language === 'GU' ? 'મિકેનિક' : 'मैकेनिक'), text: t('post.tmpl.mechanic'), tag: '#Mechanic' },
+    { label: '🧹 ' + (language === 'EN' ? 'Cleaning' : language === 'GU' ? 'સફાઈ' : 'सफाई'), text: t('post.tmpl.cleaning'), tag: '#Cleaning' },
+    { label: '💊 ' + (language === 'EN' ? 'Emergency' : language === 'GU' ? 'ઈમરજન્સી' : 'इमरजेंसी'), text: t('post.tmpl.emergency'), tag: '#Urgent' },
+    { label: '🎓 ' + (language === 'EN' ? 'Tutor' : language === 'GU' ? 'ટ્યુટર' : 'ट्यूटर'), text: t('post.tmpl.tutor'), tag: '#Tutor' },
+    { label: '🏏 ' + (language === 'EN' ? 'Cricket' : language === 'GU' ? 'ક્રિકેટ' : 'क्रिकेट'), text: t('post.tmpl.cricket'), tag: '#Cricket' },
+    { label: '☕ ' + (language === 'EN' ? 'Chai Meet' : language === 'GU' ? 'ચા મીટઅપ' : 'चाय मीटअप'), text: t('post.tmpl.chai'), tag: '#General' },
   ];
 
   const QUICK_TAGS = ['#Plumber', '#Electrician', '#Mechanic', '#Carpenter', '#Painter', '#AC_Repair', '#Cleaning', '#Delivery', '#Urgent', '#Cricket', '#Gym', '#Tutor'];
@@ -99,7 +100,7 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SpeechRecognition) {
       const recognition = new SpeechRecognition();
-      recognition.lang = 'hi-IN';
+      recognition.lang = language === 'EN' ? 'en-US' : language === 'GU' ? 'gu-IN' : 'hi-IN';
       recognition.continuous = false;
       recognition.interimResults = false;
 
@@ -139,6 +140,14 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
 
     const safeText = sanitizeText(text.trim(), 1000);
     if (!safeText || isPosting || isSubmittingRef.current) return;
+
+    // Silent Background Community Guidelines & Abuse Filter (System Security Block)
+    const secBlock = checkSystemSecurityBlock(safeText, localArea, customCity, combinedTags);
+    if (secBlock.blocked) {
+      setPostError(secBlock.getMessage(language));
+      return;
+    }
+
     isSubmittingRef.current = true;
     setIsPosting(true);
     setPostError(null);
@@ -181,8 +190,10 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
 
       // 1. Sync to central Express backend & PostgreSQL
       const serverResp: any = await broadcastIntentToServer(newIntent);
-      if (serverResp && serverResp.error && serverResp.cooldownRemaining) {
-        setCooldownRemaining(serverResp.cooldownRemaining);
+      if (serverResp && serverResp.error) {
+        if (serverResp.cooldownRemaining) {
+          setCooldownRemaining(serverResp.cooldownRemaining);
+        }
         setPostError(serverResp.error);
         setIsPosting(false);
         isSubmittingRef.current = false;

@@ -5,7 +5,7 @@ import { CATEGORIES, CategoryItem, getCategoryName, saveFreeHelperProfile, getFr
 import { useLanguage } from '../i18n';
 import { saveHelper, getCurrentUser, getHelpers, saveUserProfile } from '../auth';
 import { submitVerification, getVerificationStatus } from '../api';
-import { validateUploadedFile, sanitizeText } from '../lib/security';
+import { validateUploadedFile, sanitizeText, checkSystemSecurityBlock } from '../lib/security';
 import { applyIdWatermark } from '../lib/watermark';
 
 interface FreeHelperRegisterModalProps {
@@ -128,6 +128,13 @@ export default function FreeHelperRegisterModal({
     e.preventDefault();
     if (!formName.trim() || !formPhone.trim()) return;
 
+    const secBlock = checkSystemSecurityBlock(formName, customCategoryName, formArea, formExp, formSkills);
+    if (secBlock.blocked) {
+      setFileError(secBlock.getMessage(language));
+      return;
+    }
+
+    setFileError(null);
     setIsSubmitting(true);
 
     const activeUser = getCurrentUser();

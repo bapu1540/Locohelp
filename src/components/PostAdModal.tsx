@@ -3,7 +3,7 @@ import { X, Sparkles, Store, Image as ImageIcon, Tag, MapPin, CheckCircle2, Aler
 import { motion } from 'motion/react';
 import { useLanguage } from '../i18n';
 import { AdBannerItem } from './AdBannerSection';
-import { validateUploadedFile, sanitizeText } from '../lib/security';
+import { validateUploadedFile, sanitizeText, checkSystemSecurityBlock } from '../lib/security';
 
 interface PostAdModalProps {
   isOpen: boolean;
@@ -65,6 +65,13 @@ export default function PostAdModal({ isOpen, onClose, onAdCreated }: PostAdModa
     e.preventDefault();
     if (!businessName.trim() || !offerTitle.trim() || !description.trim()) return;
 
+    const secBlock = checkSystemSecurityBlock(businessName, offerBadge, offerTitle, description, area);
+    if (secBlock.blocked) {
+      setUploadError(secBlock.getMessage(language));
+      return;
+    }
+
+    setUploadError(null);
     setIsSubmitting(true);
 
     const newAd: AdBannerItem = {

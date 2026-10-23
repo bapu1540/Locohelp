@@ -21,7 +21,7 @@ import {
 import { useLanguage } from '../i18n';
 import { submitJobPortalItem, fetchJobPortalItems } from '../api';
 import { JobPortalItem } from '../types';
-import { validateUploadedFile } from '../lib/security';
+import { validateUploadedFile, checkSystemSecurityBlock } from '../lib/security';
 import { getCurrentUser, getShops, saveShop } from '../auth';
 import { isEntityOwner } from '../lib/ownership';
 
@@ -283,6 +283,12 @@ export default function EmployerVacancyModal({
       return;
     }
 
+    const secBlockA = checkSystemSecurityBlock(companyOrShopName, jobRole, salaryOffered, area, address, description);
+    if (secBlockA.blocked) {
+      setErrorMessage(secBlockA.getMessage(language));
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const bizName = selectedBusiness?.businessName || selectedBusiness?.name || companyOrShopName.trim();
@@ -349,6 +355,12 @@ export default function EmployerVacancyModal({
     }
     if (!area.trim()) {
       setErrorMessage(language === 'EN' ? 'Please enter Market / Area Name' : 'कृपया मार्केट / क्षेत्र का नाम दर्ज करें');
+      return;
+    }
+
+    const secBlockB = checkSystemSecurityBlock(companyOrShopName, ownerName, jobRole, salaryOffered, area, address, description);
+    if (secBlockB.blocked) {
+      setErrorMessage(secBlockB.getMessage(language));
       return;
     }
 
