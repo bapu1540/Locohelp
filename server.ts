@@ -890,38 +890,6 @@ function redactBulkItemForPrivacy(item: Record<string, any>, isAuthenticatedCall
 // ==========================================
 // RAILWAY POSTGRESQL POOL INITIALIZATION & GUARANTEED TABLE CREATION
 // ==========================================
-let dbPool: pg.Pool | null = null;
-let isDbConnected = false;
-let tablesVerified = false;
-let verifiedTableNames: string[] = [];
-let lastDbInitError = "";
-let ensureTablesPromise: Promise<{ connected: boolean; tables: string[]; error?: string }> | null = null;
-
-const DEFAULT_CATEGORIES_SEED = [
-  { id: "electrician", name: "Electrician (इलेक्ट्रीशियन)", icon: "⚡" },
-  { id: "plumber", name: "Plumber (प्लंबर)", icon: "🚰" },
-  { id: "ac_appliance", name: "AC & Appliance Repair (एसी/फ्रिज रिपेयर)", icon: "❄️" },
-  { id: "carpenter", name: "Carpenter (कारपेंटर / बढ़ई)", icon: "🪚" },
-  { id: "painter", name: "Painter & POP (पेंटर / पुताई)", icon: "🎨" },
-  { id: "cleaning_pest", name: "Home Cleaning & Maid (सफाई / मेड)", icon: "🧹" },
-  { id: "mechanic", name: "Bike & Car Mechanic (मैकेनिक)", icon: "🔧" },
-  { id: "driver_cab", name: "Driver & Auto/Cab (ड्राइवर / कैब)", icon: "🚕" },
-  { id: "tutor", name: "Home Tutor & Coaching (होम ट्यूटर)", icon: "📚" },
-  { id: "beauty_parlour", name: "Beauty & Salon at Home (ब्यूटी पार्लर)", icon: "💇‍♀️" },
-  { id: "tailor", name: "Tailor & Boutique (दर्जी / बुटीक)", icon: "🧵" },
-  { id: "tiffin_catering", name: "Tiffin & Catering (टिफिन / कैटरिंग)", icon: "🍱" },
-  { id: "computer_mobile", name: "Computer & Mobile Repair (मोबाइल/लैपटॉप)", icon: "💻" },
-  { id: "cctv_security", name: "CCTV & Security Guards (सीसीटीवी / गार्ड)", icon: "📹" },
-  { id: "packers_movers", name: "Packers, Movers & Tempo (पैकर्स / टेम्पो)", icon: "🚚" },
-  { id: "civil_mason", name: "Mason & Construction (कड़िया / मिस्त्री)", icon: "🧱" },
-  { id: "welder_fabrication", name: "Welding & Fabrication (वेल्डिंग / फेब्रिकेशन)", icon: "🔥" },
-  { id: "gardening", name: "Gardener & Nursery (माली / गार्डनिंग)", icon: "🪴" },
-  { id: "event_photo", name: "Photographer & DJ/Events (फोटोग्राफर / इवेंट)", icon: "📸" },
-  { id: "astrology_pandit", name: "Pandit Ji & Astrology (पंडित जी / पूजा)", icon: "🕉️" },
-  { id: "medical_nursing", name: "Nursing & Medical Care (नर्सिंग / केयर)", icon: "🩺" },
-  { id: "other", name: "Other Local Services (अन्य सेवाएं)", icon: "🛠️" }
-];
-
 function cleanConnectionString(raw?: string): string {
   if (!raw) return "";
   const trimmed = String(raw).trim().replace(/^['"]+|['"]+$/g, "").trim();
@@ -990,6 +958,62 @@ function getCandidateDatabaseUrls(): string[] {
   }
   return validUrls;
 }
+
+const initialDatabaseUrl =
+  cleanConnectionString(process.env.DATABASE_URL) ||
+  cleanConnectionString(process.env.DATABASE_PRIVATE_URL) ||
+  getPrimaryConnectionString();
+
+const hasDatabaseUrlEnv = Boolean(initialDatabaseUrl);
+
+const pool: pg.Pool | null = hasDatabaseUrlEnv
+  ? new Pool({
+      connectionString:
+        cleanConnectionString(process.env.DATABASE_URL) ||
+        cleanConnectionString(process.env.DATABASE_PRIVATE_URL) ||
+        initialDatabaseUrl,
+      ssl: { rejectUnauthorized: false },
+      connectionTimeoutMillis: 10000
+    })
+  : null;
+
+if (pool) {
+  pool.on("error", (err) => {
+    console.warn("[PostgreSQL Pool Notice]", err.message);
+  });
+}
+
+let dbPool: pg.Pool | null = pool;
+let isDbConnected = hasDatabaseUrlEnv;
+let tablesVerified = false;
+let verifiedTableNames: string[] = [];
+let lastDbInitError = "";
+let ensureTablesPromise: Promise<{ connected: boolean; tables: string[]; error?: string }> | null = null;
+
+const DEFAULT_CATEGORIES_SEED = [
+  { id: "electrician", name: "Electrician (इलेक्ट्रीशियन)", icon: "⚡" },
+  { id: "plumber", name: "Plumber (प्लंबर)", icon: "🚰" },
+  { id: "ac_appliance", name: "AC & Appliance Repair (एसी/फ्रिज रिपेयर)", icon: "❄️" },
+  { id: "carpenter", name: "Carpenter (कारपेंटर / बढ़ई)", icon: "🪚" },
+  { id: "painter", name: "Painter & POP (पेंटर / पुताई)", icon: "🎨" },
+  { id: "cleaning_pest", name: "Home Cleaning & Maid (सफाई / मेड)", icon: "🧹" },
+  { id: "mechanic", name: "Bike & Car Mechanic (मैकेनिक)", icon: "🔧" },
+  { id: "driver_cab", name: "Driver & Auto/Cab (ड्राइवर / कैब)", icon: "🚕" },
+  { id: "tutor", name: "Home Tutor & Coaching (होम ट्यूटर)", icon: "📚" },
+  { id: "beauty_parlour", name: "Beauty & Salon at Home (ब्यूटी पार्लर)", icon: "💇‍♀️" },
+  { id: "tailor", name: "Tailor & Boutique (दर्जी / बुटीक)", icon: "🧵" },
+  { id: "tiffin_catering", name: "Tiffin & Catering (टिफिन / कैटरिंग)", icon: "🍱" },
+  { id: "computer_mobile", name: "Computer & Mobile Repair (मोबाइल/लैपटॉप)", icon: "💻" },
+  { id: "cctv_security", name: "CCTV & Security Guards (सीसीटीवी / गार्ड)", icon: "📹" },
+  { id: "packers_movers", name: "Packers, Movers & Tempo (पैकर्स / टेम्पो)", icon: "🚚" },
+  { id: "civil_mason", name: "Mason & Construction (कड़िया / मिस्त्री)", icon: "🧱" },
+  { id: "welder_fabrication", name: "Welding & Fabrication (वेल्डिंग / फेब्रिकेशन)", icon: "🔥" },
+  { id: "gardening", name: "Gardener & Nursery (माली / गार्डनिंग)", icon: "🪴" },
+  { id: "event_photo", name: "Photographer & DJ/Events (फोटोग्राफर / इवेंट)", icon: "📸" },
+  { id: "astrology_pandit", name: "Pandit Ji & Astrology (पंडित जी / पूजा)", icon: "🕉️" },
+  { id: "medical_nursing", name: "Nursing & Medical Care (नर्सिंग / केयर)", icon: "🩺" },
+  { id: "other", name: "Other Local Services (अन्य सेवाएं)", icon: "🛠️" }
+];
 
 async function execSafeDDL(pool: pg.Pool, sql: string, label: string): Promise<void> {
   try {
@@ -1989,10 +2013,6 @@ async function syncExistingRecordsToSecurityVault(): Promise<void> {
     console.warn("[Security Vault Initial Sync Note]:", e);
   }
 }
-setTimeout(() => {
-  syncExistingRecordsToSecurityVault().catch(() => {});
-}, 1500);
-
 async function initDb(poolToUse?: pg.Pool): Promise<string[]> {
   const activePool = poolToUse || dbPool;
   if (!activePool) return [];
@@ -2005,16 +2025,6 @@ async function initDb(poolToUse?: pg.Pool): Promise<string[]> {
 }
 
 async function connectRailwayPostgres(): Promise<boolean> {
-  if (dbPool && isDbConnected) {
-    try {
-      await dbPool.query("SELECT NOW()");
-      return true;
-    } catch {
-      isDbConnected = false;
-      dbPool = null;
-    }
-  }
-
   const connectionString =
     cleanConnectionString(process.env.DATABASE_URL) ||
     cleanConnectionString(process.env.DATABASE_PRIVATE_URL) ||
@@ -2027,44 +2037,81 @@ async function connectRailwayPostgres(): Promise<boolean> {
     candidateUrls.unshift(connectionString);
   }
 
+  // Only fallback to local files if NO database URL environment variable is present at all
   if (!connectionString && candidateUrls.length === 0) {
-    lastDbInitError = "No PostgreSQL connection string found in DATABASE_URL / DATABASE_PRIVATE_URL / DB_URL / DB_PRIVATE_URL";
+    isDbConnected = false;
+    dbPool = null;
+    lastDbInitError = "No PostgreSQL connection string found in environment variables";
     return false;
   }
 
-  for (const connStr of candidateUrls) {
-    // 1. Primary attempt as required: new Pool({ connectionString, ssl: { rejectUnauthorized: false } })
-    const sslAttempts: any[] = [{ rejectUnauthorized: false }, false];
-
-    for (const sslSetting of sslAttempts) {
-      try {
-        const pool = new Pool({
-          connectionString: connStr,
-          ssl: sslSetting,
-          connectionTimeoutMillis: 10000,
-          max: 15,
-          idleTimeoutMillis: 30000
-        });
-        pool.on("error", (err) => {
-          console.warn("[PostgreSQL Pool Notice]", err.message);
-        });
-        await pool.query("SELECT NOW()");
-        dbPool = pool;
-        isDbConnected = true;
-        lastDbInitError = "";
-        console.log("✅ Connected to Railway PostgreSQL successfully.");
-        await initDb(pool);
-        return true;
-      } catch (err: any) {
-        lastDbInitError = err?.message || "Connection attempt failed";
-        console.warn(
-          `[Railway PostgreSQL] Connection attempt (ssl=${Boolean(sslSetting)}) failed: ${lastDbInitError}`
-        );
-      }
+  // Do not fallback immediately if DATABASE_URL / DATABASE_PRIVATE_URL exists; test existing pool first
+  if (dbPool) {
+    try {
+      await dbPool.query("SELECT 1");
+      isDbConnected = true;
+      lastDbInitError = "";
+      console.log("✅ Connected to Railway PostgreSQL successfully.");
+      await initDb(dbPool);
+      return true;
+    } catch (firstErr: any) {
+      lastDbInitError = firstErr?.message || "Initial pool SELECT 1 check failed";
     }
   }
 
-  return false;
+  // Retry across candidate URLs and SSL settings with 10s connection timeout
+  const maxRetries = 4;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    for (const connStr of candidateUrls) {
+      const sslAttempts: any[] = [{ rejectUnauthorized: false }, false];
+
+      for (const sslSetting of sslAttempts) {
+        try {
+          const candidatePool = new Pool({
+            connectionString: connStr,
+            ssl: sslSetting,
+            connectionTimeoutMillis: 10000,
+            max: 15,
+            idleTimeoutMillis: 30000
+          });
+          candidatePool.on("error", (err) => {
+            console.warn("[PostgreSQL Pool Notice]", err.message);
+          });
+          await candidatePool.query("SELECT 1");
+          dbPool = candidatePool;
+          isDbConnected = true;
+          lastDbInitError = "";
+          console.log("✅ Connected to Railway PostgreSQL successfully.");
+          await initDb(candidatePool);
+          return true;
+        } catch (err: any) {
+          lastDbInitError = err?.message || "Connection attempt failed";
+          console.warn(
+            `[Railway PostgreSQL] Attempt ${attempt}/${maxRetries} (ssl=${Boolean(sslSetting)}) failed: ${lastDbInitError}`
+          );
+        }
+      }
+    }
+
+    if (attempt < maxRetries) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+  }
+
+  // Keep dbPool alive if connectionString is present so subsequent requests can still query/retry
+  if (!dbPool && connectionString) {
+    dbPool = new Pool({
+      connectionString,
+      ssl: { rejectUnauthorized: false },
+      connectionTimeoutMillis: 10000
+    });
+    dbPool.on("error", (err) => {
+      console.warn("[PostgreSQL Pool Notice]", err.message);
+    });
+    isDbConnected = true;
+  }
+
+  return Boolean(dbPool && isDbConnected);
 }
 
 async function ensureTablesExist(force = false): Promise<{ connected: boolean; tables: string[]; error?: string }> {
@@ -2104,22 +2151,20 @@ async function ensureTablesExist(force = false): Promise<{ connected: boolean; t
   return runTask;
 }
 
-// Run immediately at boot AND schedule automatic retry checks if connectionString is present
-ensureTablesExist(true).catch(() => {});
-let bootRetryCount = 0;
-const bootRetryTimer = setInterval(() => {
-  bootRetryCount += 1;
-  const hasAnyConnStr = Boolean(getPrimaryConnectionString());
-  if (tablesVerified || !hasAnyConnStr || bootRetryCount > 12) {
-    clearInterval(bootRetryTimer);
-    return;
-  }
-  ensureTablesExist(true).catch(() => {});
-}, 5000);
-
 async function startServer() {
   const app = express();
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+
+  // Verify PostgreSQL connection (await pool.query('SELECT 1')) and create all tables BEFORE starting server routes
+  const startupConnStr =
+    cleanConnectionString(process.env.DATABASE_URL) ||
+    cleanConnectionString(process.env.DATABASE_PRIVATE_URL) ||
+    getPrimaryConnectionString();
+
+  if (startupConnStr) {
+    await ensureTablesExist(true);
+  }
+  syncExistingRecordsToSecurityVault().catch(() => {});
 
   // ==========================================
   // 5. DATA PRIVACY & CORS PROTECTION + SECURITY HEADERS
