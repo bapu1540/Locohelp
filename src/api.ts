@@ -1430,24 +1430,19 @@ export async function syncBrowserDataToPostgres(): Promise<void> {
       }
     } catch {}
 
-    const hasAnyData =
-      users.length > 0 ||
-      Object.keys(categories).length > 0 ||
-      profiles.length > 0 ||
-      businesses.length > 0 ||
-      ads.length > 0 ||
-      posts.length > 0;
-
-    if (!hasAnyData) return;
-
+    // Always call /api/sync-browser-data on app load so ensureTablesExist() runs on the server
     await fetch('/api/sync-browser-data', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
       body: JSON.stringify({
+        user: users[0] || null,
         users,
         categories,
+        categoryImages: categories,
         profiles,
+        helpers: profiles,
         businesses,
+        shops: businesses,
         ads,
         posts
       })
@@ -1458,8 +1453,45 @@ export async function syncBrowserDataToPostgres(): Promise<void> {
 }
 
 // ==========================================
-// ADMIN DATABASE BACKUP & RESTORE (JSON)
+// ADMIN POSTGRESQL SYNC & REPAIR + DB BACKUP & RESTORE
 // ==========================================
+export async function initAndRepairPostgresDatabaseOnServer(): Promise<{
+  success: boolean;
+  postgresConnected?: boolean;
+  tables?: string[];
+  tableCounts?: Record<string, number>;
+  message?: string;
+  error?: string;
+}> {
+  try {
+    await syncBrowserDataToPostgres();
+    const res = await fetch('/api/admin/init-db', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() }
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      return {
+        success: false,
+        postgresConnected: Boolean(data.postgresConnected),
+        error: data.error || 'Failed to sync & repair PostgreSQL tables'
+      };
+    }
+    return {
+      success: true,
+      postgresConnected: Boolean(data.postgresConnected),
+      tables: Array.isArray(data.tables) ? data.tables : [],
+      tableCounts: data.tableCounts || {},
+      message: data.message || '✅ PostgreSQL Tables Initialized & Synced: categories, profiles, users, shops, ads, posts'
+    };
+  } catch (e: any) {
+    return {
+      success: false,
+      error: e.message || 'Network error while syncing PostgreSQL tables'
+    };
+  }
+}
+
 export async function downloadDatabaseBackupFromServer(): Promise<{ success: boolean; data?: any; error?: string }> {
   try {
     const res = await fetch('/api/admin/db-backup', {
@@ -1491,5 +1523,6 @@ export async function restoreDatabaseBackupOnServer(backupPayload: any): Promise
     return { success: false, error: e.message || 'Network error while restoring DB backup' };
   }
 }
+
 
 

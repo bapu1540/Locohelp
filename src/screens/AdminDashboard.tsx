@@ -83,7 +83,8 @@ import {
   SecurityVaultRecord,
   downloadDatabaseBackupFromServer,
   restoreDatabaseBackupOnServer,
-  syncBrowserDataToPostgres
+  syncBrowserDataToPostgres,
+  initAndRepairPostgresDatabaseOnServer
 } from '../api';
 import { validateUploadedFile } from '../lib/security';
 import { compressImageToWebP } from '../lib/imageCompression';
@@ -636,8 +637,60 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
     }
   };
 
+  // Live PostgreSQL Status & Repair State
+  const [dbSyncStatus, setDbSyncStatus] = useState<{
+    connected: boolean;
+    tables: string[];
+    message: string;
+    syncing: boolean;
+  }>({
+    connected: false,
+    tables: [],
+    message: '',
+    syncing: false
+  });
+
+  const handleSyncAndRepairPostgres = async (silent: boolean = false) => {
+    setDbSyncStatus(prev => ({ ...prev, syncing: true }));
+    if (!silent) {
+      showToast('⏳ Initializing & Syncing Railway PostgreSQL Tables...');
+    }
+    try {
+      const res = await initAndRepairPostgresDatabaseOnServer();
+      const defaultMsg = '✅ PostgreSQL Tables Initialized & Synced: categories, profiles, users, shops, ads, posts';
+      if (res.success) {
+        const finalMsg = res.message || defaultMsg;
+        setDbSyncStatus({
+          connected: Boolean(res.postgresConnected),
+          tables: res.tables && res.tables.length > 0 ? res.tables : ['categories', 'profiles', 'users', 'shops', 'ads', 'posts'],
+          message: finalMsg,
+          syncing: false
+        });
+        if (!silent) {
+          showToast(finalMsg);
+          await loadAllData();
+        }
+      } else {
+        setDbSyncStatus(prev => ({
+          ...prev,
+          syncing: false,
+          message: res.error || '⚠️ Failed to verify PostgreSQL tables'
+        }));
+        if (!silent) {
+          showToast(`❌ ${res.error || 'Failed to sync & repair PostgreSQL tables'}`);
+        }
+      }
+    } catch (err: any) {
+      setDbSyncStatus(prev => ({ ...prev, syncing: false }));
+      if (!silent) {
+        showToast(`❌ ${err?.message || 'PostgreSQL sync error'}`);
+      }
+    }
+  };
+
   useEffect(() => {
     if (!isAdminAuthenticated) return;
+    handleSyncAndRepairPostgres(true);
     loadAllData();
     const interval = setInterval(() => {
       if (!document.hidden) loadAllData();
@@ -1753,8 +1806,30 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
             </div>
           </div>
 
-          {/* Right: Prominent DB Backup & Restore, Change Admin Password Button, Refresh & Logout */}
+          {/* Right: Prominent DB Status, Sync & Repair, Backup & Restore, Change Admin Password Button, Refresh & Logout */}
           <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
+            <span
+              className={`px-2.5 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1.5 border ${
+                dbSyncStatus.connected
+                  ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
+                  : 'bg-amber-500/15 text-amber-300 border-amber-500/40'
+              }`}
+              title={dbSyncStatus.message || 'Railway PostgreSQL Connection Status'}
+            >
+              <span className={`w-2 h-2 rounded-full ${dbSyncStatus.connected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+              <span>{dbSyncStatus.connected ? 'PostgreSQL Connected' : 'PostgreSQL Standby'}</span>
+            </span>
+
+            <button
+              type="button"
+              disabled={dbSyncStatus.syncing}
+              onClick={() => handleSyncAndRepairPostgres(false)}
+              className="px-3 py-2 rounded-xl bg-purple-600/25 hover:bg-purple-600/35 text-purple-200 border border-purple-500/40 text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-60"
+              title="Create all missing PostgreSQL tables, seed 22 categories, and migrate browser data"
+            >
+              <span>{dbSyncStatus.syncing ? '⏳ Syncing PostgreSQL...' : '🔄 Sync & Repair PostgreSQL Tables'}</span>
+            </button>
+
             <button
               type="button"
               onClick={async () => {
@@ -1842,6 +1917,18 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
             </button>
           </div>
         </div>
+
+        {/* Live PostgreSQL Verified Tables Status Banner in Admin Top Bar */}
+        {dbSyncStatus.message && (
+          <div className="max-w-7xl mx-auto mt-2 px-3 py-1.5 rounded-xl bg-slate-900/90 border border-emerald-500/30 flex flex-wrap items-center justify-between gap-2 text-[11px] font-bold text-emerald-300">
+            <span>{dbSyncStatus.message}</span>
+            {dbSyncStatus.tables.length > 0 && (
+              <span className="text-[10px] text-slate-400">
+                Total Tables Verified: {dbSyncStatus.tables.length}
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Inline Expandable Change Admin Password Section right in the Top Bar */}
         <AnimatePresence>

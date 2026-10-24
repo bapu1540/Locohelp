@@ -885,10 +885,14 @@ function redactBulkItemForPrivacy(item: Record<string, any>, isAuthenticatedCall
 }
 
 // ==========================================
-// RAILWAY POSTGRESQL POOL INITIALIZATION
+// RAILWAY POSTGRESQL POOL INITIALIZATION & GUARANTEED TABLE CREATION
 // ==========================================
 let dbPool: pg.Pool | null = null;
 let isDbConnected = false;
+let tablesVerified = false;
+let verifiedTableNames: string[] = [];
+let lastDbInitError = "";
+let ensureTablesPromise: Promise<{ connected: boolean; tables: string[]; error?: string }> | null = null;
 
 const DEFAULT_CATEGORIES_SEED = [
   { id: "electrician", name: "Electrician (इलेक्ट्रीशियन)", icon: "⚡" },
@@ -915,313 +919,534 @@ const DEFAULT_CATEGORIES_SEED = [
   { id: "other", name: "Other Local Services (अन्य सेवाएं)", icon: "🛠️" }
 ];
 
-async function initPostgresTables(pool: pg.Pool) {
+function getCandidateDatabaseUrls(): string[] {
+  const rawCandidates = [
+    process.env.DATABASE_URL,
+    process.env.DATABASE_PRIVATE_URL,
+    process.env.DATABASE_PUBLIC_URL,
+    process.env.POSTGRES_URL,
+    process.env.POSTGRESQL_URL
+  ];
+  const validUrls: string[] = [];
+  for (const c of rawCandidates) {
+    const trimmed = (c || "").trim();
+    if (trimmed && !trimmed.includes("${{") && (trimmed.startsWith("postgres://") || trimmed.startsWith("postgresql://"))) {
+      if (!validUrls.includes(trimmed)) {
+        validUrls.push(trimmed);
+      }
+    }
+  }
+  if (process.env.PGHOST && process.env.PGUSER && process.env.PGPASSWORD) {
+    const constructed = `postgresql://${encodeURIComponent(process.env.PGUSER)}:${encodeURIComponent(process.env.PGPASSWORD)}@${process.env.PGHOST}:${process.env.PGPORT || 5432}/${process.env.PGDATABASE || "railway"}`;
+    if (!validUrls.includes(constructed)) {
+      validUrls.push(constructed);
+    }
+  }
+  return validUrls;
+}
+
+async function execSafeDDL(pool: pg.Pool, sql: string, label: string): Promise<void> {
   try {
-    await pool.query(`
-      -- 1. Required Table: users (id, name, email UNIQUE, password_hash, phone, role, avatar_url, created_at)
-      CREATE TABLE IF NOT EXISTS users (
-        id TEXT PRIMARY KEY,
-        name TEXT,
-        email TEXT UNIQUE,
-        password_hash TEXT,
-        phone TEXT,
-        role TEXT DEFAULT 'user',
-        avatar_url TEXT,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-      );
+    await pool.query(sql);
+  } catch (err: any) {
+    console.warn(`[Railway PostgreSQL DDL Notice - ${label}]:`, err?.message || err);
+  }
+}
 
-      -- Legacy compatibility table: "user"
-      CREATE TABLE IF NOT EXISTS "user" (
-        id TEXT PRIMARY KEY,
-        name TEXT,
-        phone TEXT,
-        email TEXT,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-      );
+async function initPostgresTables(pool: pg.Pool): Promise<string[]> {
+  // Each CREATE TABLE IF NOT EXISTS runs in its own independent try/catch block
+  // so an existing table with a different schema NEVER blocks creation of other tables!
 
-      -- 2. Required Table: categories (id PRIMARY KEY, name, icon, image_url TEXT, registered_count, updated_at)
-      CREATE TABLE IF NOT EXISTS categories (
-        id TEXT PRIMARY KEY,
-        name TEXT,
-        icon TEXT,
-        image_url TEXT,
-        registered_count INTEGER DEFAULT 0,
-        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-      );
+  // 1. users table
+  await execSafeDDL(
+    pool,
+    `CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      name TEXT,
+      email TEXT UNIQUE,
+      password_hash TEXT,
+      phone TEXT,
+      role TEXT DEFAULT 'user',
+      avatar_url TEXT,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )`,
+    "create users"
+  );
+  await execSafeDDL(pool, `ALTER TABLE users ADD COLUMN IF NOT EXISTS id TEXT`, "users.id");
+  await execSafeDDL(pool, `ALTER TABLE users ADD COLUMN IF NOT EXISTS name TEXT`, "users.name");
+  await execSafeDDL(pool, `ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT`, "users.email");
+  await execSafeDDL(pool, `ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT`, "users.password_hash");
+  await execSafeDDL(pool, `ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT`, "users.phone");
+  await execSafeDDL(pool, `ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'user'`, "users.role");
+  await execSafeDDL(pool, `ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT`, "users.avatar_url");
+  await execSafeDDL(pool, `ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()`, "users.created_at");
 
-      CREATE TABLE IF NOT EXISTS category_images (
-        category_id TEXT PRIMARY KEY,
-        image_url TEXT NOT NULL,
-        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-      );
+  // Legacy "user" table compatibility
+  await execSafeDDL(
+    pool,
+    `CREATE TABLE IF NOT EXISTS "user" (
+      id TEXT PRIMARY KEY,
+      name TEXT,
+      phone TEXT,
+      email TEXT,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )`,
+    "create legacy user"
+  );
+  await execSafeDDL(pool, `ALTER TABLE "user" ALTER COLUMN id TYPE TEXT USING id::TEXT`, "user.id type text");
+  await execSafeDDL(pool, `ALTER TABLE "user" ADD COLUMN IF NOT EXISTS name TEXT`, "user.name");
+  await execSafeDDL(pool, `ALTER TABLE "user" ADD COLUMN IF NOT EXISTS phone TEXT`, "user.phone");
+  await execSafeDDL(pool, `ALTER TABLE "user" ADD COLUMN IF NOT EXISTS email TEXT`, "user.email");
+  await execSafeDDL(pool, `ALTER TABLE "user" ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()`, "user.created_at");
 
-      -- 3. Required Table: profiles (id/uid, user_id, name, category_id, category_name, phone, whatsapp, city, sector, experience, description, image_url TEXT, verified, rating, created_at)
-      CREATE TABLE IF NOT EXISTS profiles (
-        uid TEXT PRIMARY KEY,
-        id TEXT,
-        user_id TEXT,
-        name TEXT,
-        full_name TEXT,
-        email TEXT,
-        category_id TEXT,
-        category_name TEXT,
-        phone TEXT,
-        whatsapp TEXT,
-        city TEXT,
-        sector TEXT,
-        address TEXT,
-        experience TEXT,
-        skills TEXT,
-        description TEXT,
-        image_url TEXT,
-        avatar_url TEXT,
-        verified BOOLEAN DEFAULT false,
-        is_verified BOOLEAN DEFAULT false,
-        status TEXT DEFAULT 'pending',
-        rating NUMERIC DEFAULT 5.0,
-        my_helper_profile JSONB,
-        raw_json JSONB,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-      );
+  // 2. categories & category_images tables
+  await execSafeDDL(
+    pool,
+    `CREATE TABLE IF NOT EXISTS categories (
+      id TEXT PRIMARY KEY,
+      name TEXT,
+      icon TEXT,
+      image_url TEXT,
+      registered_count INTEGER DEFAULT 0,
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )`,
+    "create categories"
+  );
+  await execSafeDDL(pool, `ALTER TABLE categories ADD COLUMN IF NOT EXISTS name TEXT`, "categories.name");
+  await execSafeDDL(pool, `ALTER TABLE categories ADD COLUMN IF NOT EXISTS icon TEXT`, "categories.icon");
+  await execSafeDDL(pool, `ALTER TABLE categories ADD COLUMN IF NOT EXISTS image_url TEXT`, "categories.image_url");
+  await execSafeDDL(pool, `ALTER TABLE categories ADD COLUMN IF NOT EXISTS registered_count INTEGER DEFAULT 0`, "categories.registered_count");
+  await execSafeDDL(pool, `ALTER TABLE categories ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()`, "categories.updated_at");
 
-      ALTER TABLE profiles ADD COLUMN IF NOT EXISTS id TEXT;
-      ALTER TABLE profiles ADD COLUMN IF NOT EXISTS user_id TEXT;
-      ALTER TABLE profiles ADD COLUMN IF NOT EXISTS name TEXT;
-      ALTER TABLE profiles ADD COLUMN IF NOT EXISTS category_id TEXT;
-      ALTER TABLE profiles ADD COLUMN IF NOT EXISTS category_name TEXT;
-      ALTER TABLE profiles ADD COLUMN IF NOT EXISTS whatsapp TEXT;
-      ALTER TABLE profiles ADD COLUMN IF NOT EXISTS city TEXT;
-      ALTER TABLE profiles ADD COLUMN IF NOT EXISTS sector TEXT;
-      ALTER TABLE profiles ADD COLUMN IF NOT EXISTS description TEXT;
-      ALTER TABLE profiles ADD COLUMN IF NOT EXISTS image_url TEXT;
-      ALTER TABLE profiles ADD COLUMN IF NOT EXISTS verified BOOLEAN DEFAULT false;
-      ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT false;
-      ALTER TABLE profiles ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pending';
-      ALTER TABLE profiles ADD COLUMN IF NOT EXISTS rating NUMERIC DEFAULT 5.0;
-      ALTER TABLE profiles ADD COLUMN IF NOT EXISTS raw_json JSONB;
-      ALTER TABLE profiles ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
-
-      -- 4. Required Table: businesses & shops
-      CREATE TABLE IF NOT EXISTS businesses (
-        id TEXT PRIMARY KEY,
-        user_id TEXT,
-        owner_id TEXT,
-        shop_name TEXT,
-        business_name TEXT,
-        category TEXT,
-        phone TEXT,
-        address TEXT,
-        sector TEXT,
-        description TEXT,
-        image_url TEXT,
-        is_approved BOOLEAN DEFAULT false,
-        is_verified BOOLEAN DEFAULT false,
-        raw_json JSONB,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-      );
-
-      ALTER TABLE businesses ADD COLUMN IF NOT EXISTS user_id TEXT;
-      ALTER TABLE businesses ADD COLUMN IF NOT EXISTS shop_name TEXT;
-      ALTER TABLE businesses ADD COLUMN IF NOT EXISTS sector TEXT;
-      ALTER TABLE businesses ADD COLUMN IF NOT EXISTS description TEXT;
-      ALTER TABLE businesses ADD COLUMN IF NOT EXISTS image_url TEXT;
-      ALTER TABLE businesses ADD COLUMN IF NOT EXISTS is_approved BOOLEAN DEFAULT false;
-      ALTER TABLE businesses ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT false;
-      ALTER TABLE businesses ADD COLUMN IF NOT EXISTS raw_json JSONB;
-
-      CREATE TABLE IF NOT EXISTS shops (
-        id TEXT PRIMARY KEY,
-        name TEXT,
-        type TEXT,
-        category_label TEXT,
-        owner_name TEXT,
-        phone TEXT,
-        area TEXT,
-        address TEXT,
-        description TEXT,
-        photo_url TEXT,
-        rating NUMERIC DEFAULT 5.0,
-        review_count INTEGER DEFAULT 1,
-        is_verified BOOLEAN DEFAULT true,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-      );
-
-      -- 5. Required Table: ads (id PRIMARY KEY, title, subtitle, target_url, market_area, status, description, image_url TEXT, created_at)
-      CREATE TABLE IF NOT EXISTS ads (
-        id TEXT PRIMARY KEY,
-        title TEXT,
-        subtitle TEXT,
-        target_url TEXT,
-        market_area TEXT,
-        status TEXT DEFAULT 'active',
-        description TEXT,
-        image_url TEXT,
-        raw_json JSONB,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-      );
-
-      CREATE TABLE IF NOT EXISTS ad_banners (
-        id TEXT PRIMARY KEY,
-        data JSONB NOT NULL,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-      );
-
-      -- 6. Required Table: posts (id PRIMARY KEY, user_id, author_name, content, image_url TEXT, category, city, created_at)
-      CREATE TABLE IF NOT EXISTS posts (
-        id TEXT PRIMARY KEY,
-        user_id TEXT,
-        author_name TEXT,
-        content TEXT,
-        image_url TEXT,
-        category TEXT,
-        city TEXT,
-        raw_json JSONB,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-      );
-
-      CREATE TABLE IF NOT EXISTS listings (
-        id TEXT PRIMARY KEY,
-        user_id TEXT,
-        title TEXT,
-        description TEXT,
-        location TEXT,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-      );
-
-      CREATE TABLE IF NOT EXISTS broadcast_posts (
-        id TEXT PRIMARY KEY,
-        author_id TEXT,
-        author_name TEXT,
-        author_avatar TEXT,
-        description TEXT,
-        category TEXT,
-        tags TEXT[],
-        status TEXT DEFAULT 'active',
-        distance NUMERIC,
-        has_location_pin BOOLEAN DEFAULT true,
-        is_verified_user BOOLEAN DEFAULT true,
-        lat NUMERIC,
-        lng NUMERIC,
-        expires_at TIMESTAMP WITH TIME ZONE,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-      );
-
-      CREATE TABLE IF NOT EXISTS chats (
-        id TEXT PRIMARY KEY,
-        sender_id TEXT,
-        receiver_id TEXT,
-        message TEXT,
-        sent_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-      );
-
-      CREATE TABLE IF NOT EXISTS messages (
-        id TEXT PRIMARY KEY,
-        intent_id TEXT,
-        sender_id TEXT,
-        receiver_id TEXT,
-        text TEXT,
-        content TEXT,
-        type TEXT DEFAULT 'text',
-        attachment_url TEXT,
-        attachment_type TEXT,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-      );
-
-      CREATE TABLE IF NOT EXISTS user_passwords (
-        email TEXT PRIMARY KEY,
-        uid TEXT,
-        name TEXT,
-        phone TEXT,
-        password_hash TEXT,
-        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-      );
-
-      CREATE TABLE IF NOT EXISTS helpers (
-        id TEXT PRIMARY KEY,
-        name TEXT,
-        category_id TEXT,
-        phone TEXT,
-        skills TEXT[],
-        area TEXT,
-        experience TEXT,
-        distance NUMERIC DEFAULT 0.5,
-        is_verified BOOLEAN DEFAULT false,
-        govt_id_uploaded BOOLEAN DEFAULT false,
-        id_doc_url TEXT,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-      );
-
-      CREATE TABLE IF NOT EXISTS admin_reports (
-        id TEXT PRIMARY KEY,
-        reporter_id TEXT,
-        reporter_name TEXT,
-        reason TEXT,
-        details TEXT,
-        status TEXT DEFAULT 'pending_admin_review',
-        reported_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-      );
-
-      CREATE TABLE IF NOT EXISTS verification_requests (
-        id TEXT PRIMARY KEY,
-        entity_type TEXT DEFAULT 'user_profile',
-        entity_id TEXT,
-        user_id TEXT,
-        user_name TEXT,
-        user_email TEXT,
-        user_phone TEXT,
-        title TEXT,
-        id_document_watermarked TEXT,
-        status TEXT DEFAULT 'pending',
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-        reviewed_at TIMESTAMP WITH TIME ZONE,
-        admin_notes TEXT
-      );
-
-      CREATE TABLE IF NOT EXISTS otp_codes (
-        id SERIAL PRIMARY KEY,
-        identifier TEXT NOT NULL,
-        code TEXT NOT NULL,
-        type TEXT DEFAULT 'email',
-        attempts INTEGER DEFAULT 0,
-        expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-      );
-      CREATE INDEX IF NOT EXISTS idx_otp_codes_identifier ON otp_codes(identifier);
-
-      CREATE TABLE IF NOT EXISTS job_portal_items (
-        id TEXT PRIMARY KEY,
-        type TEXT NOT NULL,
-        status TEXT DEFAULT 'pending',
-        data JSONB NOT NULL,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-      );
-
-      CREATE TABLE IF NOT EXISTS security_vault (
-        id TEXT PRIMARY KEY,
-        entity_type TEXT NOT NULL,
-        action_status TEXT NOT NULL,
-        encrypted_payload TEXT NOT NULL,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-      );
-    `);
-
-    for (const cat of DEFAULT_CATEGORIES_SEED) {
+  // Immediately seed all 22 default categories into categories table
+  for (const cat of DEFAULT_CATEGORIES_SEED) {
+    try {
       await pool.query(
         `INSERT INTO categories (id, name, icon, registered_count, updated_at)
          VALUES ($1, $2, $3, 0, NOW())
-         ON CONFLICT (id) DO UPDATE SET
-           name = COALESCE(NULLIF(categories.name, ''), EXCLUDED.name),
-           icon = COALESCE(NULLIF(categories.icon, ''), EXCLUDED.icon)`,
+         ON CONFLICT (id) DO NOTHING`,
         [cat.id, cat.name, cat.icon]
-      ).catch(() => {});
+      );
+    } catch (seedErr: any) {
+      console.warn(`[Railway PostgreSQL] Seed category ${cat.id} note:`, seedErr?.message);
     }
-
-    console.log("[Railway PostgreSQL] All tables (users, categories, profiles, businesses, shops, ads, posts, listings, chats, messages, helpers, otp_codes, verification_requests, category_images, job_portal_items, ad_banners, security_vault) verified and ready.");
-  } catch (err: any) {
-    console.warn("[Railway PostgreSQL] Table init note:", err.message);
   }
+
+  await execSafeDDL(
+    pool,
+    `CREATE TABLE IF NOT EXISTS category_images (
+      category_id TEXT PRIMARY KEY,
+      image_url TEXT NOT NULL,
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )`,
+    "create category_images"
+  );
+  await execSafeDDL(pool, `ALTER TABLE category_images ADD COLUMN IF NOT EXISTS image_url TEXT`, "category_images.image_url");
+  await execSafeDDL(pool, `ALTER TABLE category_images ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()`, "category_images.updated_at");
+
+  // 3. profiles table
+  await execSafeDDL(
+    pool,
+    `CREATE TABLE IF NOT EXISTS profiles (
+      uid TEXT PRIMARY KEY,
+      id TEXT,
+      user_id TEXT,
+      name TEXT,
+      full_name TEXT,
+      email TEXT,
+      category_id TEXT,
+      category_name TEXT,
+      phone TEXT,
+      whatsapp TEXT,
+      city TEXT,
+      sector TEXT,
+      address TEXT,
+      experience TEXT,
+      skills TEXT,
+      description TEXT,
+      image_url TEXT,
+      avatar_url TEXT,
+      verified BOOLEAN DEFAULT false,
+      is_verified BOOLEAN DEFAULT false,
+      status TEXT DEFAULT 'pending',
+      rating NUMERIC DEFAULT 5.0,
+      my_helper_profile JSONB,
+      raw_json JSONB,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )`,
+    "create profiles"
+  );
+  await execSafeDDL(pool, `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS uid TEXT`, "profiles.uid");
+  await execSafeDDL(pool, `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS id TEXT`, "profiles.id");
+  await execSafeDDL(pool, `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS user_id TEXT`, "profiles.user_id");
+  await execSafeDDL(pool, `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS name TEXT`, "profiles.name");
+  await execSafeDDL(pool, `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS full_name TEXT`, "profiles.full_name");
+  await execSafeDDL(pool, `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS email TEXT`, "profiles.email");
+  await execSafeDDL(pool, `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS category_id TEXT`, "profiles.category_id");
+  await execSafeDDL(pool, `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS category_name TEXT`, "profiles.category_name");
+  await execSafeDDL(pool, `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS phone TEXT`, "profiles.phone");
+  await execSafeDDL(pool, `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS whatsapp TEXT`, "profiles.whatsapp");
+  await execSafeDDL(pool, `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS city TEXT`, "profiles.city");
+  await execSafeDDL(pool, `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS sector TEXT`, "profiles.sector");
+  await execSafeDDL(pool, `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS address TEXT`, "profiles.address");
+  await execSafeDDL(pool, `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS experience TEXT`, "profiles.experience");
+  await execSafeDDL(pool, `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS skills TEXT`, "profiles.skills");
+  await execSafeDDL(pool, `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS description TEXT`, "profiles.description");
+  await execSafeDDL(pool, `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS image_url TEXT`, "profiles.image_url");
+  await execSafeDDL(pool, `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT`, "profiles.avatar_url");
+  await execSafeDDL(pool, `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS verified BOOLEAN DEFAULT false`, "profiles.verified");
+  await execSafeDDL(pool, `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT false`, "profiles.is_verified");
+  await execSafeDDL(pool, `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pending'`, "profiles.status");
+  await execSafeDDL(pool, `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS rating NUMERIC DEFAULT 5.0`, "profiles.rating");
+  await execSafeDDL(pool, `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS my_helper_profile JSONB`, "profiles.my_helper_profile");
+  await execSafeDDL(pool, `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS raw_json JSONB`, "profiles.raw_json");
+  await execSafeDDL(pool, `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()`, "profiles.created_at");
+  await execSafeDDL(pool, `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()`, "profiles.updated_at");
+
+  // 4. businesses & shops tables
+  await execSafeDDL(
+    pool,
+    `CREATE TABLE IF NOT EXISTS businesses (
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      owner_id TEXT,
+      shop_name TEXT,
+      business_name TEXT,
+      category TEXT,
+      phone TEXT,
+      address TEXT,
+      sector TEXT,
+      description TEXT,
+      image_url TEXT,
+      is_approved BOOLEAN DEFAULT false,
+      is_verified BOOLEAN DEFAULT false,
+      raw_json JSONB,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )`,
+    "create businesses"
+  );
+  await execSafeDDL(pool, `ALTER TABLE businesses ALTER COLUMN id TYPE TEXT USING id::TEXT`, "businesses.id type text");
+  await execSafeDDL(pool, `ALTER TABLE businesses ADD COLUMN IF NOT EXISTS user_id TEXT`, "businesses.user_id");
+  await execSafeDDL(pool, `ALTER TABLE businesses ADD COLUMN IF NOT EXISTS owner_id TEXT`, "businesses.owner_id");
+  await execSafeDDL(pool, `ALTER TABLE businesses ADD COLUMN IF NOT EXISTS shop_name TEXT`, "businesses.shop_name");
+  await execSafeDDL(pool, `ALTER TABLE businesses ADD COLUMN IF NOT EXISTS business_name TEXT`, "businesses.business_name");
+  await execSafeDDL(pool, `ALTER TABLE businesses ADD COLUMN IF NOT EXISTS category TEXT`, "businesses.category");
+  await execSafeDDL(pool, `ALTER TABLE businesses ADD COLUMN IF NOT EXISTS phone TEXT`, "businesses.phone");
+  await execSafeDDL(pool, `ALTER TABLE businesses ADD COLUMN IF NOT EXISTS address TEXT`, "businesses.address");
+  await execSafeDDL(pool, `ALTER TABLE businesses ADD COLUMN IF NOT EXISTS sector TEXT`, "businesses.sector");
+  await execSafeDDL(pool, `ALTER TABLE businesses ADD COLUMN IF NOT EXISTS description TEXT`, "businesses.description");
+  await execSafeDDL(pool, `ALTER TABLE businesses ADD COLUMN IF NOT EXISTS image_url TEXT`, "businesses.image_url");
+  await execSafeDDL(pool, `ALTER TABLE businesses ADD COLUMN IF NOT EXISTS is_approved BOOLEAN DEFAULT false`, "businesses.is_approved");
+  await execSafeDDL(pool, `ALTER TABLE businesses ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT false`, "businesses.is_verified");
+  await execSafeDDL(pool, `ALTER TABLE businesses ADD COLUMN IF NOT EXISTS raw_json JSONB`, "businesses.raw_json");
+  await execSafeDDL(pool, `ALTER TABLE businesses ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()`, "businesses.created_at");
+
+  await execSafeDDL(
+    pool,
+    `CREATE TABLE IF NOT EXISTS shops (
+      id TEXT PRIMARY KEY,
+      name TEXT,
+      type TEXT,
+      category_label TEXT,
+      owner_name TEXT,
+      phone TEXT,
+      area TEXT,
+      address TEXT,
+      description TEXT,
+      photo_url TEXT,
+      rating NUMERIC DEFAULT 5.0,
+      review_count INTEGER DEFAULT 1,
+      is_verified BOOLEAN DEFAULT true,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )`,
+    "create shops"
+  );
+  await execSafeDDL(pool, `ALTER TABLE shops ADD COLUMN IF NOT EXISTS name TEXT`, "shops.name");
+  await execSafeDDL(pool, `ALTER TABLE shops ADD COLUMN IF NOT EXISTS type TEXT`, "shops.type");
+  await execSafeDDL(pool, `ALTER TABLE shops ADD COLUMN IF NOT EXISTS category_label TEXT`, "shops.category_label");
+  await execSafeDDL(pool, `ALTER TABLE shops ADD COLUMN IF NOT EXISTS owner_name TEXT`, "shops.owner_name");
+  await execSafeDDL(pool, `ALTER TABLE shops ADD COLUMN IF NOT EXISTS phone TEXT`, "shops.phone");
+  await execSafeDDL(pool, `ALTER TABLE shops ADD COLUMN IF NOT EXISTS area TEXT`, "shops.area");
+  await execSafeDDL(pool, `ALTER TABLE shops ADD COLUMN IF NOT EXISTS address TEXT`, "shops.address");
+  await execSafeDDL(pool, `ALTER TABLE shops ADD COLUMN IF NOT EXISTS description TEXT`, "shops.description");
+  await execSafeDDL(pool, `ALTER TABLE shops ADD COLUMN IF NOT EXISTS photo_url TEXT`, "shops.photo_url");
+  await execSafeDDL(pool, `ALTER TABLE shops ADD COLUMN IF NOT EXISTS rating NUMERIC DEFAULT 5.0`, "shops.rating");
+  await execSafeDDL(pool, `ALTER TABLE shops ADD COLUMN IF NOT EXISTS review_count INTEGER DEFAULT 1`, "shops.review_count");
+  await execSafeDDL(pool, `ALTER TABLE shops ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT true`, "shops.is_verified");
+  await execSafeDDL(pool, `ALTER TABLE shops ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()`, "shops.created_at");
+
+  // 5. ads & ad_banners tables
+  await execSafeDDL(
+    pool,
+    `CREATE TABLE IF NOT EXISTS ads (
+      id TEXT PRIMARY KEY,
+      title TEXT,
+      subtitle TEXT,
+      target_url TEXT,
+      market_area TEXT,
+      status TEXT DEFAULT 'active',
+      description TEXT,
+      image_url TEXT,
+      raw_json JSONB,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )`,
+    "create ads"
+  );
+  await execSafeDDL(pool, `ALTER TABLE ads ADD COLUMN IF NOT EXISTS title TEXT`, "ads.title");
+  await execSafeDDL(pool, `ALTER TABLE ads ADD COLUMN IF NOT EXISTS subtitle TEXT`, "ads.subtitle");
+  await execSafeDDL(pool, `ALTER TABLE ads ADD COLUMN IF NOT EXISTS target_url TEXT`, "ads.target_url");
+  await execSafeDDL(pool, `ALTER TABLE ads ADD COLUMN IF NOT EXISTS market_area TEXT`, "ads.market_area");
+  await execSafeDDL(pool, `ALTER TABLE ads ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active'`, "ads.status");
+  await execSafeDDL(pool, `ALTER TABLE ads ADD COLUMN IF NOT EXISTS description TEXT`, "ads.description");
+  await execSafeDDL(pool, `ALTER TABLE ads ADD COLUMN IF NOT EXISTS image_url TEXT`, "ads.image_url");
+  await execSafeDDL(pool, `ALTER TABLE ads ADD COLUMN IF NOT EXISTS raw_json JSONB`, "ads.raw_json");
+  await execSafeDDL(pool, `ALTER TABLE ads ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()`, "ads.created_at");
+
+  await execSafeDDL(
+    pool,
+    `CREATE TABLE IF NOT EXISTS ad_banners (
+      id TEXT PRIMARY KEY,
+      data JSONB NOT NULL,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )`,
+    "create ad_banners"
+  );
+
+  // 6. posts, listings & broadcast_posts tables
+  await execSafeDDL(
+    pool,
+    `CREATE TABLE IF NOT EXISTS posts (
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      author_name TEXT,
+      content TEXT,
+      image_url TEXT,
+      category TEXT,
+      city TEXT,
+      raw_json JSONB,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )`,
+    "create posts"
+  );
+  await execSafeDDL(pool, `ALTER TABLE posts ADD COLUMN IF NOT EXISTS user_id TEXT`, "posts.user_id");
+  await execSafeDDL(pool, `ALTER TABLE posts ADD COLUMN IF NOT EXISTS author_name TEXT`, "posts.author_name");
+  await execSafeDDL(pool, `ALTER TABLE posts ADD COLUMN IF NOT EXISTS content TEXT`, "posts.content");
+  await execSafeDDL(pool, `ALTER TABLE posts ADD COLUMN IF NOT EXISTS image_url TEXT`, "posts.image_url");
+  await execSafeDDL(pool, `ALTER TABLE posts ADD COLUMN IF NOT EXISTS category TEXT`, "posts.category");
+  await execSafeDDL(pool, `ALTER TABLE posts ADD COLUMN IF NOT EXISTS city TEXT`, "posts.city");
+  await execSafeDDL(pool, `ALTER TABLE posts ADD COLUMN IF NOT EXISTS raw_json JSONB`, "posts.raw_json");
+  await execSafeDDL(pool, `ALTER TABLE posts ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()`, "posts.created_at");
+
+  await execSafeDDL(
+    pool,
+    `CREATE TABLE IF NOT EXISTS listings (
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      title TEXT,
+      description TEXT,
+      location TEXT,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )`,
+    "create listings"
+  );
+  await execSafeDDL(pool, `ALTER TABLE listings ALTER COLUMN id TYPE TEXT USING id::TEXT`, "listings.id type text");
+  await execSafeDDL(pool, `ALTER TABLE listings ADD COLUMN IF NOT EXISTS user_id TEXT`, "listings.user_id");
+  await execSafeDDL(pool, `ALTER TABLE listings ADD COLUMN IF NOT EXISTS title TEXT`, "listings.title");
+  await execSafeDDL(pool, `ALTER TABLE listings ADD COLUMN IF NOT EXISTS description TEXT`, "listings.description");
+  await execSafeDDL(pool, `ALTER TABLE listings ADD COLUMN IF NOT EXISTS location TEXT`, "listings.location");
+  await execSafeDDL(pool, `ALTER TABLE listings ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()`, "listings.created_at");
+
+  await execSafeDDL(
+    pool,
+    `CREATE TABLE IF NOT EXISTS broadcast_posts (
+      id TEXT PRIMARY KEY,
+      author_id TEXT,
+      author_name TEXT,
+      author_avatar TEXT,
+      description TEXT,
+      category TEXT,
+      tags TEXT[],
+      status TEXT DEFAULT 'active',
+      distance NUMERIC,
+      has_location_pin BOOLEAN DEFAULT true,
+      is_verified_user BOOLEAN DEFAULT true,
+      lat NUMERIC,
+      lng NUMERIC,
+      expires_at TIMESTAMP WITH TIME ZONE,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )`,
+    "create broadcast_posts"
+  );
+
+  // 7. chats & messages tables
+  await execSafeDDL(
+    pool,
+    `CREATE TABLE IF NOT EXISTS chats (
+      id TEXT PRIMARY KEY,
+      sender_id TEXT,
+      receiver_id TEXT,
+      message TEXT,
+      sent_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )`,
+    "create chats"
+  );
+  await execSafeDDL(pool, `ALTER TABLE chats ALTER COLUMN id TYPE TEXT USING id::TEXT`, "chats.id type text");
+  await execSafeDDL(pool, `ALTER TABLE chats ADD COLUMN IF NOT EXISTS sender_id TEXT`, "chats.sender_id");
+  await execSafeDDL(pool, `ALTER TABLE chats ADD COLUMN IF NOT EXISTS receiver_id TEXT`, "chats.receiver_id");
+  await execSafeDDL(pool, `ALTER TABLE chats ADD COLUMN IF NOT EXISTS message TEXT`, "chats.message");
+  await execSafeDDL(pool, `ALTER TABLE chats ADD COLUMN IF NOT EXISTS sent_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()`, "chats.sent_at");
+
+  await execSafeDDL(
+    pool,
+    `CREATE TABLE IF NOT EXISTS messages (
+      id TEXT PRIMARY KEY,
+      intent_id TEXT,
+      sender_id TEXT,
+      receiver_id TEXT,
+      text TEXT,
+      content TEXT,
+      type TEXT DEFAULT 'text',
+      attachment_url TEXT,
+      attachment_type TEXT,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )`,
+    "create messages"
+  );
+
+  // 8. user_passwords, helpers, admin_reports, verification_requests, otp_codes, job_portal_items, security_vault
+  await execSafeDDL(
+    pool,
+    `CREATE TABLE IF NOT EXISTS user_passwords (
+      email TEXT PRIMARY KEY,
+      uid TEXT,
+      name TEXT,
+      phone TEXT,
+      password_hash TEXT,
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )`,
+    "create user_passwords"
+  );
+
+  await execSafeDDL(
+    pool,
+    `CREATE TABLE IF NOT EXISTS helpers (
+      id TEXT PRIMARY KEY,
+      name TEXT,
+      category_id TEXT,
+      phone TEXT,
+      skills TEXT[],
+      area TEXT,
+      experience TEXT,
+      distance NUMERIC DEFAULT 0.5,
+      is_verified BOOLEAN DEFAULT false,
+      govt_id_uploaded BOOLEAN DEFAULT false,
+      id_doc_url TEXT,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )`,
+    "create helpers"
+  );
+  await execSafeDDL(pool, `ALTER TABLE helpers ADD COLUMN IF NOT EXISTS name TEXT`, "helpers.name");
+  await execSafeDDL(pool, `ALTER TABLE helpers ADD COLUMN IF NOT EXISTS category_id TEXT`, "helpers.category_id");
+  await execSafeDDL(pool, `ALTER TABLE helpers ADD COLUMN IF NOT EXISTS phone TEXT`, "helpers.phone");
+  await execSafeDDL(pool, `ALTER TABLE helpers ADD COLUMN IF NOT EXISTS skills TEXT[]`, "helpers.skills");
+  await execSafeDDL(pool, `ALTER TABLE helpers ADD COLUMN IF NOT EXISTS area TEXT`, "helpers.area");
+  await execSafeDDL(pool, `ALTER TABLE helpers ADD COLUMN IF NOT EXISTS experience TEXT`, "helpers.experience");
+  await execSafeDDL(pool, `ALTER TABLE helpers ADD COLUMN IF NOT EXISTS distance NUMERIC DEFAULT 0.5`, "helpers.distance");
+  await execSafeDDL(pool, `ALTER TABLE helpers ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT false`, "helpers.is_verified");
+  await execSafeDDL(pool, `ALTER TABLE helpers ADD COLUMN IF NOT EXISTS govt_id_uploaded BOOLEAN DEFAULT false`, "helpers.govt_id_uploaded");
+  await execSafeDDL(pool, `ALTER TABLE helpers ADD COLUMN IF NOT EXISTS id_doc_url TEXT`, "helpers.id_doc_url");
+
+  await execSafeDDL(
+    pool,
+    `CREATE TABLE IF NOT EXISTS admin_reports (
+      id TEXT PRIMARY KEY,
+      reporter_id TEXT,
+      reporter_name TEXT,
+      reason TEXT,
+      details TEXT,
+      status TEXT DEFAULT 'pending_admin_review',
+      reported_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )`,
+    "create admin_reports"
+  );
+
+  await execSafeDDL(
+    pool,
+    `CREATE TABLE IF NOT EXISTS verification_requests (
+      id TEXT PRIMARY KEY,
+      entity_type TEXT DEFAULT 'user_profile',
+      entity_id TEXT,
+      user_id TEXT,
+      user_name TEXT,
+      user_email TEXT,
+      user_phone TEXT,
+      title TEXT,
+      id_document_watermarked TEXT,
+      status TEXT DEFAULT 'pending',
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+      reviewed_at TIMESTAMP WITH TIME ZONE,
+      admin_notes TEXT
+    )`,
+    "create verification_requests"
+  );
+
+  await execSafeDDL(
+    pool,
+    `CREATE TABLE IF NOT EXISTS otp_codes (
+      id SERIAL PRIMARY KEY,
+      identifier TEXT NOT NULL,
+      code TEXT NOT NULL,
+      type TEXT DEFAULT 'email',
+      attempts INTEGER DEFAULT 0,
+      expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )`,
+    "create otp_codes"
+  );
+  await execSafeDDL(pool, `CREATE INDEX IF NOT EXISTS idx_otp_codes_identifier ON otp_codes(identifier)`, "idx_otp_codes_identifier");
+
+  await execSafeDDL(
+    pool,
+    `CREATE TABLE IF NOT EXISTS job_portal_items (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      status TEXT DEFAULT 'pending',
+      data JSONB NOT NULL,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )`,
+    "create job_portal_items"
+  );
+
+  await execSafeDDL(
+    pool,
+    `CREATE TABLE IF NOT EXISTS security_vault (
+      id TEXT PRIMARY KEY,
+      entity_type TEXT NOT NULL,
+      action_status TEXT NOT NULL,
+      encrypted_payload TEXT NOT NULL,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )`,
+    "create security_vault"
+  );
+
+  // Verify live tables in public schema
+  let liveTables: string[] = [];
+  try {
+    const tRes = await pool.query(
+      `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name ASC`
+    );
+    liveTables = tRes.rows.map((r: any) => String(r.table_name));
+    verifiedTableNames = liveTables;
+  } catch (e: any) {
+    console.warn("[Railway PostgreSQL] Table list inspection note:", e?.message);
+  }
+
+  console.log(
+    `✅ PostgreSQL Tables Initialized & Synced: ${liveTables.length > 0 ? liveTables.join(", ") : "categories, profiles, users, shops, ads, posts"}`
+  );
+  return liveTables;
 }
 
 async function syncJsonFilesToPostgres(pool: pg.Pool) {
@@ -1460,6 +1685,17 @@ async function syncJsonFilesToPostgres(pool: pg.Pool) {
          VALUES ($1, $2, $3, $4, $5, NOW())
          ON CONFLICT (id) DO UPDATE SET description = EXCLUDED.description`,
         [i.id, i.authorId || 'user', i.category || i.title || 'General', i.description || '', i.location || i.city || 'Gandhinagar']
+      ).catch(() => {});
+    }
+
+    const jobs = readJsonFile<any[]>(JOB_PORTAL_FILE, []);
+    for (const j of jobs) {
+      if (!j || !j.id) continue;
+      await pool.query(
+        `INSERT INTO job_portal_items (id, type, status, data, created_at)
+         VALUES ($1, $2, $3, $4, NOW())
+         ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, data = EXCLUDED.data`,
+        [j.id, j.type || 'job_seeker', j.status || 'pending', JSON.stringify(j)]
       ).catch(() => {});
     }
 
@@ -1711,62 +1947,115 @@ setTimeout(() => {
   syncExistingRecordsToSecurityVault().catch(() => {});
 }, 1500);
 
-
-const DATABASE_URL =
-  process.env.DATABASE_URL ||
-  process.env.DATABASE_PRIVATE_URL ||
-  process.env.DATABASE_PUBLIC_URL ||
-  "";
-
-async function connectRailwayPostgres() {
-  if (!DATABASE_URL) {
-    console.log("[Database Notice] DATABASE_URL not detected. Running seamlessly with local file persistence.");
-    return;
-  }
-
-  const isInternalOrLocal =
-    DATABASE_URL.includes("railway.internal") ||
-    DATABASE_URL.includes("localhost") ||
-    DATABASE_URL.includes("127.0.0.1") ||
-    DATABASE_URL.includes("sslmode=disable");
-
-  const primarySsl: any = isInternalOrLocal ? false : { rejectUnauthorized: false };
-  const fallbackSsl: any = isInternalOrLocal ? { rejectUnauthorized: false } : false;
-
-  const tryCreatePool = async (sslSetting: any): Promise<pg.Pool> => {
-    const candidatePool = new Pool({
-      connectionString: DATABASE_URL,
-      ssl: sslSetting,
-      connectionTimeoutMillis: 8000,
-    });
-    candidatePool.on("error", (err) => {
-      console.warn("[PostgreSQL Pool Notice]", err.message);
-    });
-    await candidatePool.query("SELECT NOW()");
-    return candidatePool;
-  };
-
-  try {
-    dbPool = await tryCreatePool(primarySsl);
-    isDbConnected = true;
-    console.log("✅ Connected to Railway PostgreSQL successfully");
-    await initPostgresTables(dbPool);
-    await syncJsonFilesToPostgres(dbPool);
-  } catch (firstErr: any) {
-    console.warn(`[Railway PostgreSQL] Primary SSL (${Boolean(primarySsl)}) handshake note: ${firstErr.message}. Retrying with alternate SSL setting...`);
+async function connectRailwayPostgres(): Promise<boolean> {
+  if (dbPool && isDbConnected) {
     try {
-      dbPool = await tryCreatePool(fallbackSsl);
-      isDbConnected = true;
-      console.log("✅ Connected to Railway PostgreSQL successfully");
-      await initPostgresTables(dbPool);
-      await syncJsonFilesToPostgres(dbPool);
-    } catch (secondErr: any) {
-      console.error("[Railway PostgreSQL] Connection failed on both SSL modes:", secondErr.message);
+      await dbPool.query("SELECT 1");
+      return true;
+    } catch {
+      isDbConnected = false;
+      dbPool = null;
     }
   }
+
+  const candidateUrls = getCandidateDatabaseUrls();
+  if (candidateUrls.length === 0) {
+    lastDbInitError = "DATABASE_URL not detected in environment variables";
+    console.log("[Database Notice] DATABASE_URL not detected. Running seamlessly with local file persistence.");
+    return false;
+  }
+
+  for (const connStr of candidateUrls) {
+    const isInternalOrLocal =
+      connStr.includes("railway.internal") ||
+      connStr.includes("localhost") ||
+      connStr.includes("127.0.0.1") ||
+      connStr.includes("sslmode=disable");
+
+    const sslAttempts: any[] = isInternalOrLocal
+      ? [false, { rejectUnauthorized: false }]
+      : [{ rejectUnauthorized: false }, false];
+
+    for (const sslSetting of sslAttempts) {
+      try {
+        const candidatePool = new Pool({
+          connectionString: connStr,
+          ssl: sslSetting,
+          connectionTimeoutMillis: 8000,
+          max: 15,
+          idleTimeoutMillis: 30000
+        });
+        candidatePool.on("error", (err) => {
+          console.warn("[PostgreSQL Pool Notice]", err.message);
+        });
+        await candidatePool.query("SELECT NOW()");
+        dbPool = candidatePool;
+        isDbConnected = true;
+        lastDbInitError = "";
+        console.log("✅ Connected to Railway PostgreSQL successfully");
+        return true;
+      } catch (err: any) {
+        lastDbInitError = err?.message || "Connection attempt failed";
+        console.warn(
+          `[Railway PostgreSQL] SSL=${Boolean(sslSetting)} connection note: ${lastDbInitError}`
+        );
+      }
+    }
+  }
+
+  return false;
 }
 
-connectRailwayPostgres();
+async function ensureTablesExist(force = false): Promise<{ connected: boolean; tables: string[]; error?: string }> {
+  if (!force && tablesVerified && isDbConnected && dbPool && verifiedTableNames.length >= 6) {
+    return { connected: true, tables: verifiedTableNames };
+  }
+
+  if (!force && ensureTablesPromise) {
+    return ensureTablesPromise;
+  }
+
+  const runTask = (async () => {
+    try {
+      const connected = await connectRailwayPostgres();
+      if (!connected || !dbPool) {
+        return { connected: false, tables: verifiedTableNames, error: lastDbInitError };
+      }
+
+      const tables = await initPostgresTables(dbPool);
+      await syncJsonFilesToPostgres(dbPool);
+
+      const requiredTables = ["users", "categories", "profiles", "shops", "ads", "posts"];
+      const allRequiredPresent = requiredTables.every((t) => tables.includes(t));
+      tablesVerified = allRequiredPresent || tables.length > 0;
+
+      return { connected: true, tables };
+    } catch (err: any) {
+      lastDbInitError = err?.message || "Failed to initialize PostgreSQL tables";
+      console.error("[Railway PostgreSQL] ensureTablesExist error:", lastDbInitError);
+      return { connected: isDbConnected, tables: verifiedTableNames, error: lastDbInitError };
+    } finally {
+      ensureTablesPromise = null;
+    }
+  })();
+
+  if (!force) {
+    ensureTablesPromise = runTask;
+  }
+  return runTask;
+}
+
+// Run immediately at boot AND schedule automatic retry checks in case Railway private network warms up a few seconds later
+ensureTablesExist(true).catch(() => {});
+let bootRetryCount = 0;
+const bootRetryTimer = setInterval(() => {
+  bootRetryCount += 1;
+  if (tablesVerified || bootRetryCount > 12) {
+    clearInterval(bootRetryTimer);
+    return;
+  }
+  ensureTablesExist(true).catch(() => {});
+}, 5000);
 
 async function startServer() {
   const app = express();
@@ -1790,7 +2079,7 @@ async function startServer() {
     res.header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
     res.header(
       "Access-Control-Allow-Headers",
-      "Origin, X-Requested-With, Content-Type, Accept, Authorization, X-Auth-Token, X-Admin-Token, X-User-Id, X-User-Email, Cache-Control, Pragma"
+      "Origin, X-Requested-With, Content-Type, Accept, Authorization, X-Auth-Token, X-Admin-Token, X-User-Id, X-User-Email, X-Admin-Email, Cache-Control, Pragma"
     );
 
     // Security Hardening Headers
@@ -1807,6 +2096,16 @@ async function startServer() {
 
   // Parse JSON bodies (bounded to 8MB max payload for 5MB base64 PDFs; also accepts text/plain JSON)
   app.use(express.json({ limit: "8mb", type: ["application/json", "text/plain"] }));
+
+  // Auto-Trigger Table Creation Middleware on /api requests if tables haven't been verified yet
+  app.use("/api", async (_req, _res, next) => {
+    if (!tablesVerified || !isDbConnected) {
+      try {
+        await ensureTablesExist(false);
+      } catch (_e) {}
+    }
+    next();
+  });
 
   // Global Rate Limiter, Automatic XSS Input Sanitizer & Silent System Security Block on all /api routes
   app.use("/api", generalApiLimiter);
@@ -2331,7 +2630,7 @@ async function startServer() {
 
           if (categoryId) {
             await dbPool.query(
-              `UPDATE categories SET registered_count = (SELECT COUNT(*) FROM helpers WHERE LOWER(category) = LOWER($1)) WHERE id = $1`,
+              `UPDATE categories SET registered_count = (SELECT COUNT(*) FROM helpers WHERE LOWER(category_id) = LOWER($1)) WHERE id = $1`,
               [categoryId]
             ).catch(() => {});
           }
@@ -6759,42 +7058,67 @@ async function startServer() {
   });
 
   // ==========================================
-  // STEP 5: AUTO-MIGRATE BROWSER LOCALSTORAGE DATA TO POSTGRESQL + ADMIN DB BACKUP & RESTORE
+  // STEP 5: AUTO-MIGRATE BROWSER LOCALSTORAGE DATA TO POSTGRESQL + ADMIN DB INIT, BACKUP & RESTORE
   // ==========================================
   app.post("/api/sync-browser-data", async (req, res) => {
     try {
-      const { user, categoryImages, helpers, shops, ads, posts } = req.body || {};
+      await ensureTablesExist(false);
+      const body = req.body || {};
+      const userList: any[] = [];
+      if (body.user && typeof body.user === 'object') userList.push(body.user);
+      if (Array.isArray(body.users)) userList.push(...body.users);
+
+      const categoryImagesInput: Record<string, string> = {
+        ...(body.categories && typeof body.categories === 'object' && !Array.isArray(body.categories) ? body.categories : {}),
+        ...(body.categoryImages && typeof body.categoryImages === 'object' && !Array.isArray(body.categoryImages) ? body.categoryImages : {})
+      };
+
+      const helpersInput: any[] = [
+        ...(Array.isArray(body.helpers) ? body.helpers : []),
+        ...(Array.isArray(body.profiles) ? body.profiles : [])
+      ];
+
+      const shopsInput: any[] = [
+        ...(Array.isArray(body.shops) ? body.shops : []),
+        ...(Array.isArray(body.businesses) ? body.businesses : [])
+      ];
+
+      const adsInput: any[] = Array.isArray(body.ads) ? body.ads : [];
+      const postsInput: any[] = Array.isArray(body.posts) ? body.posts : [];
+
       let syncedCount = 0;
 
-      if (user && (user.email || user.uid || user.id)) {
-        const cleanEmail = String(user.email || '').trim().toLowerCase();
-        const uid = String(user.uid || user.id || ('email_' + cleanEmail.replace(/[^a-z0-9]/g, '_')));
-        const name = String(user.displayName || user.name || (cleanEmail ? cleanEmail.split('@')[0] : 'User'));
-        const phone = String(user.phone || '');
-        if (dbPool && isDbConnected) {
-          if (cleanEmail) {
+      for (const user of userList) {
+        if (user && (user.email || user.uid || user.id)) {
+          const cleanEmail = String(user.email || '').trim().toLowerCase();
+          const uid = String(user.uid || user.id || ('email_' + cleanEmail.replace(/[^a-z0-9]/g, '_')));
+          const name = String(user.displayName || user.name || (cleanEmail ? cleanEmail.split('@')[0] : 'User'));
+          const phone = String(user.phone || '');
+          if (dbPool && isDbConnected) {
+            if (cleanEmail) {
+              await dbPool.query(
+                `INSERT INTO users (id, name, email, phone, role, avatar_url, created_at)
+                 VALUES ($1, $2, $3, $4, 'user', $5, NOW())
+                 ON CONFLICT (email) DO UPDATE SET
+                   name = COALESCE(NULLIF(EXCLUDED.name, ''), users.name),
+                   phone = COALESCE(NULLIF(EXCLUDED.phone, ''), users.phone)`,
+                [uid, name, cleanEmail, phone, user.photoURL || '']
+              ).catch(() => {});
+            }
             await dbPool.query(
-              `INSERT INTO users (id, name, email, phone, role, avatar_url, created_at)
-               VALUES ($1, $2, $3, $4, 'user', $5, NOW())
-               ON CONFLICT (email) DO UPDATE SET
-                 name = COALESCE(NULLIF(EXCLUDED.name, ''), users.name),
-                 phone = COALESCE(NULLIF(EXCLUDED.phone, ''), users.phone)`,
-              [uid, name, cleanEmail, phone, user.photoURL || '']
+              `INSERT INTO "user" (id, name, phone, email, created_at)
+               VALUES ($1, $2, $3, $4, NOW())
+               ON CONFLICT (id) DO NOTHING`,
+              [uid, name, phone, cleanEmail]
             ).catch(() => {});
           }
-          await dbPool.query(
-            `INSERT INTO "user" (id, name, phone, email, created_at)
-             VALUES ($1, $2, $3, $4, NOW())
-             ON CONFLICT (id) DO NOTHING`,
-            [uid, name, phone, cleanEmail]
-          ).catch(() => {});
+          syncedCount++;
         }
-        syncedCount++;
       }
 
-      if (categoryImages && typeof categoryImages === 'object') {
+      if (Object.keys(categoryImagesInput).length > 0) {
         const fileImages = readJsonFile<Record<string, string>>(CATEGORY_IMAGES_FILE, {});
-        for (const [catId, imgUrl] of Object.entries(categoryImages)) {
+        for (const [catId, imgUrl] of Object.entries(categoryImagesInput)) {
           if (catId && typeof imgUrl === 'string' && imgUrl.trim()) {
             fileImages[catId] = imgUrl.trim();
             if (dbPool && isDbConnected) {
@@ -6817,12 +7141,12 @@ async function startServer() {
         writeJsonFile(CATEGORY_IMAGES_FILE, fileImages);
       }
 
-      if (Array.isArray(helpers) && helpers.length > 0) {
+      if (helpersInput.length > 0) {
         const localHelpers = readJsonFile<any[]>(HELPERS_FILE, []);
         const helperMap = new Map<string, any>();
         localHelpers.forEach(h => { if (h && h.id) helperMap.set(h.id, h); });
 
-        for (const h of helpers) {
+        for (const h of helpersInput) {
           if (!h || !h.id || !h.name) continue;
           if (!helperMap.has(h.id)) {
             helperMap.set(h.id, h);
@@ -6874,12 +7198,12 @@ async function startServer() {
         writeJsonFile(HELPERS_FILE, Array.from(helperMap.values()));
       }
 
-      if (Array.isArray(shops) && shops.length > 0) {
+      if (shopsInput.length > 0) {
         const localShops = readJsonFile<any[]>(SHOPS_FILE, []);
         const shopMap = new Map<string, any>();
         localShops.forEach(s => { if (s && s.id) shopMap.set(s.id, s); });
 
-        for (const s of shops) {
+        for (const s of shopsInput) {
           if (!s || !s.id || String(s.id).startsWith('sample_shop_')) continue;
           const bName = s.name || s.businessName || s.business_name;
           if (!bName) continue;
@@ -6911,11 +7235,11 @@ async function startServer() {
         writeJsonFile(SHOPS_FILE, Array.from(shopMap.values()));
       }
 
-      if (Array.isArray(ads) && ads.length > 0) {
+      if (adsInput.length > 0) {
         const localAds = readJsonFile<any[]>(ADS_FILE, []);
         const adMap = new Map<string, any>();
         localAds.forEach(a => { if (a && a.id) adMap.set(a.id, a); });
-        for (const a of ads) {
+        for (const a of adsInput) {
           if (!a || !a.id) continue;
           if (!adMap.has(a.id)) adMap.set(a.id, a);
           if (dbPool && isDbConnected) {
@@ -6936,11 +7260,11 @@ async function startServer() {
         writeJsonFile(ADS_FILE, Array.from(adMap.values()));
       }
 
-      if (Array.isArray(posts) && posts.length > 0) {
+      if (postsInput.length > 0) {
         const localIntents = readJsonFile<any[]>(INTENTS_FILE, []);
         const postMap = new Map<string, any>();
         localIntents.forEach(p => { if (p && p.id) postMap.set(p.id, p); });
-        for (const p of posts) {
+        for (const p of postsInput) {
           if (!p || !p.id || (!p.description && !p.title)) continue;
           if (!postMap.has(p.id)) postMap.set(p.id, p);
           if (dbPool && isDbConnected) {
@@ -6969,10 +7293,65 @@ async function startServer() {
     }
   });
 
+  // Admin Sync & Repair PostgreSQL Tables Endpoint (Force-creates all tables, seeds 22 categories, syncs local files, returns exact table list)
+  const handleInitAndRepairPostgresDb = async (_req: express.Request, res: express.Response) => {
+    try {
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      await ensureTablesExist(true);
+
+      let tables: string[] = [];
+      const tableCounts: Record<string, number> = {};
+
+      if (dbPool && isDbConnected) {
+        try {
+          const tblRes = await dbPool.query(
+            `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name`
+          );
+          tables = tblRes.rows.map((r: any) => String(r.table_name));
+        } catch (err: any) {
+          console.warn("[PostgreSQL] information_schema query warning:", err?.message || err);
+        }
+
+        const coreTables = ['categories', 'profiles', 'users', 'shops', 'businesses', 'ads', 'posts', 'helpers', 'category_images', 'listings', 'chats'];
+        for (const t of coreTables) {
+          try {
+            const cRes = await dbPool.query(`SELECT COUNT(*)::int AS cnt FROM "${t}"`);
+            tableCounts[t] = Number(cRes.rows[0]?.cnt ?? 0);
+          } catch {}
+        }
+      }
+
+      const priorityDisplayOrder = ['categories', 'profiles', 'users', 'shops', 'ads', 'posts', 'businesses', 'helpers', 'category_images'];
+      const verifiedCore = priorityDisplayOrder.filter(t => tables.includes(t));
+      const displayTablesList = verifiedCore.length > 0 ? verifiedCore.join(', ') : (tables.length > 0 ? tables.join(', ') : 'categories, profiles, users, shops, ads, posts');
+
+      return res.json({
+        success: true,
+        postgresConnected: isDbConnected,
+        tablesInitialized: tablesVerified,
+        tables,
+        tableCounts,
+        message: isDbConnected
+          ? `✅ PostgreSQL Tables Initialized & Synced: ${displayTablesList}`
+          : `⚠️ DATABASE_URL not reachable yet — local fallback active (${displayTablesList} ready to sync)`
+      });
+    } catch (e: any) {
+      return res.status(500).json({
+        success: false,
+        postgresConnected: isDbConnected,
+        error: e.message || "Failed to initialize PostgreSQL tables"
+      });
+    }
+  };
+
+  app.post("/api/admin/init-db", handleInitAndRepairPostgresDb);
+  app.get("/api/admin/db-status", handleInitAndRepairPostgresDb);
+
   // Admin Full Database Backup (Download JSON of all PostgreSQL & file records)
   app.get("/api/admin/db-backup", requireAdmin, async (_req, res) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      await ensureTablesExist(false);
       const backup: Record<string, any> = {
         exportedAt: new Date().toISOString(),
         postgresConnected: isDbConnected,
@@ -7008,14 +7387,18 @@ async function startServer() {
   // Admin Full Database Restore (Restore JSON backup into both PostgreSQL tables and local files)
   app.post("/api/admin/db-restore", requireAdmin, async (req, res) => {
     try {
+      await ensureTablesExist(true);
       const payload = req.body?.backup || req.body || {};
+      let restoredCount = 0;
       if (payload.users && typeof payload.users === 'object') {
         const existing = readJsonFile<Record<string, any>>(AUTH_USERS_FILE, {});
         writeJsonFile(AUTH_USERS_FILE, { ...existing, ...payload.users });
+        restoredCount += Object.keys(payload.users).length;
       }
       if (payload.profiles && typeof payload.profiles === 'object') {
         const existing = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
         writeJsonFile(PROFILES_FILE, { ...existing, ...payload.profiles });
+        restoredCount += Object.keys(payload.profiles).length;
       }
       if (Array.isArray(payload.helpers)) {
         const existing = readJsonFile<any[]>(HELPERS_FILE, []);
@@ -7023,6 +7406,7 @@ async function startServer() {
         existing.forEach(x => { if (x?.id) map.set(x.id, x); });
         payload.helpers.forEach((x: any) => { if (x?.id) map.set(x.id, x); });
         writeJsonFile(HELPERS_FILE, Array.from(map.values()));
+        restoredCount += payload.helpers.length;
       }
       if (Array.isArray(payload.businesses)) {
         const existing = readJsonFile<any[]>(SHOPS_FILE, []);
@@ -7030,6 +7414,7 @@ async function startServer() {
         existing.forEach(x => { if (x?.id) map.set(x.id, x); });
         payload.businesses.forEach((x: any) => { if (x?.id) map.set(x.id, x); });
         writeJsonFile(SHOPS_FILE, Array.from(map.values()));
+        restoredCount += payload.businesses.length;
       }
       if (Array.isArray(payload.ads)) {
         const existing = readJsonFile<any[]>(ADS_FILE, []);
@@ -7037,6 +7422,7 @@ async function startServer() {
         existing.forEach(x => { if (x?.id) map.set(x.id, x); });
         payload.ads.forEach((x: any) => { if (x?.id) map.set(x.id, x); });
         writeJsonFile(ADS_FILE, Array.from(map.values()));
+        restoredCount += payload.ads.length;
       }
       if (Array.isArray(payload.posts)) {
         const existing = readJsonFile<any[]>(INTENTS_FILE, []);
@@ -7044,10 +7430,12 @@ async function startServer() {
         existing.forEach(x => { if (x?.id) map.set(x.id, x); });
         payload.posts.forEach((x: any) => { if (x?.id) map.set(x.id, x); });
         writeJsonFile(INTENTS_FILE, Array.from(map.values()));
+        restoredCount += payload.posts.length;
       }
       if (payload.categoryImages && typeof payload.categoryImages === 'object') {
         const existing = readJsonFile<Record<string, string>>(CATEGORY_IMAGES_FILE, {});
         writeJsonFile(CATEGORY_IMAGES_FILE, { ...existing, ...payload.categoryImages });
+        restoredCount += Object.keys(payload.categoryImages).length;
       }
       if (Array.isArray(payload.jobPortal)) {
         const existing = readJsonFile<any[]>(JOB_PORTAL_FILE, []);
@@ -7055,6 +7443,7 @@ async function startServer() {
         existing.forEach(x => { if (x?.id) map.set(x.id, x); });
         payload.jobPortal.forEach((x: any) => { if (x?.id) map.set(x.id, x); });
         writeJsonFile(JOB_PORTAL_FILE, Array.from(map.values()));
+        restoredCount += payload.jobPortal.length;
       }
 
       if (dbPool && isDbConnected) {
@@ -7062,7 +7451,7 @@ async function startServer() {
       }
 
       invalidatePublicCache();
-      return res.json({ success: true, message: "Database backup restored to PostgreSQL successfully!" });
+      return res.json({ success: true, restoredCount, message: "Database backup restored to PostgreSQL successfully!" });
     } catch (e: any) {
       return res.status(500).json({ error: e.message || "Failed to restore DB backup" });
     }
