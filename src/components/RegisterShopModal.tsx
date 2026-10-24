@@ -452,17 +452,38 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
                         </div>
 
                         {gallery.length > 0 && (
-                          <div className="flex gap-2 overflow-x-auto pb-1">
-                            {gallery.map((imgUrl, idx) => (
-                              <img
-                                key={idx}
-                                src={imgUrl}
-                                alt={`${shop.name} ${idx + 1}`}
-                                loading="lazy"
-                                decoding="async"
-                                className="w-20 h-16 object-cover rounded-xl border border-amber-200 dark:border-slate-700 shrink-0"
-                              />
-                            ))}
+                          <div className="pt-1">
+                            {gallery.length === 1 ? (
+                              <div className="w-full h-44 sm:h-52 rounded-2xl overflow-hidden border-2 border-amber-300 dark:border-slate-700 shadow-md">
+                                <img
+                                  src={gallery[0]}
+                                  alt={shop.name}
+                                  loading="lazy"
+                                  decoding="async"
+                                  className="w-full h-full object-cover"
+                                />
+                              </div>
+                            ) : (
+                              <div className="flex gap-2 overflow-x-auto snap-x snap-mandatory scrollbar-hide pb-1">
+                                {gallery.map((imgUrl, idx) => (
+                                  <div
+                                    key={idx}
+                                    className="min-w-[85%] sm:min-w-[65%] snap-start h-44 sm:h-52 rounded-2xl overflow-hidden border-2 border-amber-300 dark:border-slate-700 shadow-md relative shrink-0"
+                                  >
+                                    <img
+                                      src={imgUrl}
+                                      alt={`${shop.name} photo ${idx + 1}`}
+                                      loading="lazy"
+                                      decoding="async"
+                                      className="w-full h-full object-cover"
+                                    />
+                                    <span className="absolute bottom-2 right-2 bg-black/70 backdrop-blur-xs text-white text-[10px] font-black px-2 py-0.5 rounded-lg border border-white/20">
+                                      Photo {idx + 1}/{gallery.length}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         )}
 

@@ -331,51 +331,86 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
               </div>
             )}
 
-            {filteredShops.map((shop) => (
-              <div
-                key={shop.id}
-                className="bg-white dark:bg-slate-800 border-2 border-amber-200/80 dark:border-slate-700 rounded-2xl p-3.5 shadow-xs hover:border-amber-400 transition-all space-y-2.5"
-              >
-                <div className="flex gap-3 items-start">
-                  {/* Shop Photo / Icon */}
-                  <div className="w-16 h-16 sm:w-18 sm:h-18 rounded-2xl bg-gradient-to-br from-amber-100 to-orange-100 dark:from-slate-700 dark:to-slate-800 flex items-center justify-center text-2xl overflow-hidden shrink-0 border border-amber-300 dark:border-slate-600 shadow-xs">
-                    {shop.photoUrl ? (
-                      <img src={shop.photoUrl} alt={shop.name} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-                    ) : (
-                      <span>🏪</span>
-                    )}
-                  </div>
-
-                  {/* Shop Info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-amber-500 text-white shadow-2xs">
-                        {shop.categoryLabel || 'Shop / Business'}
-                      </span>
-                      {shop.isVerified && (
-                        <span className="text-[9px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950 px-1.5 py-0.2 rounded flex items-center gap-0.5">
-                          <CheckCircle2 className="w-2.5 h-2.5" /> Verified
-                        </span>
-                      )}
+            {filteredShops.map((shop) => {
+              const gallery = Array.isArray(shop.photos) && shop.photos.length > 0 ? shop.photos : (shop.photoUrl ? [shop.photoUrl] : []);
+              return (
+                <div
+                  key={shop.id}
+                  className="bg-white dark:bg-slate-800 border-2 border-amber-200/80 dark:border-slate-700 rounded-2xl p-3.5 sm:p-4 shadow-xs hover:border-amber-400 transition-all space-y-3"
+                >
+                  <div className="flex gap-3 items-start">
+                    {/* Shop Icon Badge */}
+                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 text-white flex items-center justify-center text-2xl shrink-0 shadow-md">
+                      🏪
                     </div>
 
-                    <h3 className="text-sm font-black text-slate-900 dark:text-white mt-1 leading-snug line-clamp-2">
-                      {shop.name}
-                    </h3>
+                    {/* Shop Info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-amber-500 text-white shadow-2xs">
+                          {shop.categoryLabel || 'Shop / Business'}
+                        </span>
+                        {shop.isVerified && (
+                          <span className="text-[9px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950 px-1.5 py-0.2 rounded flex items-center gap-0.5">
+                            <CheckCircle2 className="w-2.5 h-2.5" /> Verified
+                          </span>
+                        )}
+                      </div>
 
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium flex items-center gap-1 mt-0.5">
-                      <MapPin className="w-3 h-3 text-amber-500 shrink-0" />
-                      <span className="truncate">{shop.area} • {shop.address}</span>
-                    </p>
+                      <h3 className="text-base font-black text-slate-900 dark:text-white mt-1 leading-snug line-clamp-2">
+                        {shop.name}
+                      </h3>
+
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium flex items-center gap-1 mt-0.5">
+                        <MapPin className="w-3 h-3 text-amber-500 shrink-0" />
+                        <span className="truncate">{shop.area} • {shop.address}</span>
+                      </p>
+                    </div>
                   </div>
-                </div>
 
-                {/* Description / Offers */}
-                {shop.description && (
-                  <p className="text-xs text-slate-600 dark:text-slate-300 bg-amber-50/50 dark:bg-slate-750 p-2.5 rounded-xl border border-amber-100 dark:border-slate-700 leading-relaxed font-medium">
-                    🏷️ {shop.description}
-                  </p>
-                )}
+                  {/* Prominent Large Shop Image Slider (h-44 sm:h-52, 2-image scrollable) */}
+                  {gallery.length > 0 && (
+                    <div className="pt-0.5">
+                      {gallery.length === 1 ? (
+                        <div className="w-full h-44 sm:h-52 rounded-2xl overflow-hidden border-2 border-amber-200 dark:border-slate-700 shadow-sm relative group">
+                          <img
+                            src={gallery[0]}
+                            alt={shop.name}
+                            loading="lazy"
+                            decoding="async"
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                          />
+                        </div>
+                      ) : (
+                        <div className="flex gap-2.5 overflow-x-auto snap-x snap-mandatory scrollbar-hide pb-1">
+                          {gallery.map((imgUrl, idx) => (
+                            <div
+                              key={idx}
+                              className="min-w-[85%] sm:min-w-[65%] snap-start h-44 sm:h-52 rounded-2xl overflow-hidden border-2 border-amber-300 dark:border-slate-700 shadow-md relative shrink-0 group"
+                            >
+                              <img
+                                src={imgUrl}
+                                alt={`${shop.name} photo ${idx + 1}`}
+                                loading="lazy"
+                                decoding="async"
+                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                              />
+                              <span className="absolute bottom-2 right-2 bg-black/75 backdrop-blur-xs text-white text-[10px] font-black px-2 py-0.5 rounded-lg border border-white/20 shadow-md">
+                                Photo {idx + 1}/{gallery.length} 📸
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Description / Offers */}
+                  {shop.description && (
+                    <p className="text-xs text-slate-700 dark:text-slate-300 bg-amber-50/60 dark:bg-slate-750 p-2.5 rounded-xl border border-amber-200/80 dark:border-slate-700 leading-relaxed font-medium">
+                      🏷️ {shop.description}
+                    </p>
+                  )}
 
                 {/* Owner info & Action Buttons */}
                 <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-700/80 gap-2 flex-wrap">
@@ -420,7 +455,8 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
                   </div>
                 </div>
               </div>
-            ))}
+            );
+          })}
           </div>
         )}
 

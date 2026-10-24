@@ -29,6 +29,7 @@ export interface AdBannerItem {
   offerTitle: string;
   description: string;
   photoUrl: string;
+  photos?: string[];
   distance: number;
   area: string;
   rating: number;
@@ -431,29 +432,72 @@ export default function AdBannerSection({ onOpenChat, onOpenPostAd }: AdBannerSe
                 </div>
 
                 {/* Product / Shop Photo with Overlay Tag (16:9 Aspect Ratio) */}
-                {adItem.photoUrl && (
-                  <div className="relative rounded-2xl overflow-hidden aspect-video bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-700 shadow-inner group">
-                    <img
-                      src={adItem.photoUrl}
-                      alt={adItem.businessName}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                      loading="lazy"
-                      decoding="async"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent" />
-                    <div className="absolute top-2.5 left-2.5">
-                      <span className="bg-gradient-to-r from-red-600 to-amber-600 text-white font-black text-[10px] sm:text-[11px] px-2.5 py-1 rounded-xl shadow-md flex items-center gap-1 border border-white/20">
-                        <Tag className="w-3 h-3 shrink-0" />
-                        <span>{adItem.offerBadge}</span>
-                      </span>
+                {(() => {
+                  const adGallery = Array.isArray(adItem.photos) && adItem.photos.length > 0 ? adItem.photos : (adItem.photoUrl ? [adItem.photoUrl] : []);
+                  if (!adGallery.length) return null;
+
+                  if (adGallery.length === 1) {
+                    return (
+                      <div className="relative rounded-2xl overflow-hidden aspect-video bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-700 shadow-inner group">
+                        <img
+                          src={adGallery[0]}
+                          alt={adItem.businessName}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                          loading="lazy"
+                          decoding="async"
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent" />
+                        <div className="absolute top-2.5 left-2.5">
+                          <span className="bg-gradient-to-r from-red-600 to-amber-600 text-white font-black text-[10px] sm:text-[11px] px-2.5 py-1 rounded-xl shadow-md flex items-center gap-1 border border-white/20">
+                            <Tag className="w-3 h-3 shrink-0" />
+                            <span>{adItem.offerBadge}</span>
+                          </span>
+                        </div>
+                        <div className="absolute bottom-2 left-3 right-3 text-white">
+                          <p className="text-xs sm:text-sm font-black drop-shadow-md leading-tight line-clamp-1">
+                            {adItem.offerTitle}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="space-y-1">
+                      <div className="flex gap-2 overflow-x-auto snap-x snap-mandatory scrollbar-hide rounded-2xl pb-0.5">
+                        {adGallery.map((pUrl, pIdx) => (
+                          <div
+                            key={pIdx}
+                            className="min-w-[90%] sm:min-w-[80%] snap-start relative aspect-video bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-2xl overflow-hidden shadow-inner group shrink-0"
+                          >
+                            <img
+                              src={pUrl}
+                              alt={`${adItem.businessName} ${pIdx + 1}`}
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                              loading="lazy"
+                              decoding="async"
+                            />
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent" />
+                            <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
+                              <span className="bg-gradient-to-r from-red-600 to-amber-600 text-white font-black text-[10px] sm:text-[11px] px-2.5 py-1 rounded-xl shadow-md flex items-center gap-1 border border-white/20">
+                                <Tag className="w-3 h-3 shrink-0" />
+                                <span>{adItem.offerBadge}</span>
+                              </span>
+                              <span className="bg-black/60 backdrop-blur-xs text-white font-black text-[9px] px-2 py-0.5 rounded-lg border border-white/20">
+                                {pIdx + 1}/{adGallery.length} 📸
+                              </span>
+                            </div>
+                            <div className="absolute bottom-2 left-3 right-3 text-white">
+                              <p className="text-xs sm:text-sm font-black drop-shadow-md leading-tight line-clamp-1">
+                                {adItem.offerTitle}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                    <div className="absolute bottom-2 left-3 right-3 text-white">
-                      <p className="text-xs sm:text-sm font-black drop-shadow-md leading-tight line-clamp-1">
-                        {adItem.offerTitle}
-                      </p>
-                    </div>
-                  </div>
-                )}
+                  );
+                })()}
 
                 {/* Offer Description */}
                 <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 leading-snug line-clamp-2">
@@ -550,17 +594,48 @@ export default function AdBannerSection({ onOpenChat, onOpenPostAd }: AdBannerSe
                   </div>
                 </div>
 
-                {selectedAdForDetails.photoUrl && (
-                  <div className="relative rounded-2xl overflow-hidden aspect-[16/9] bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-md">
-                    <img
-                      src={selectedAdForDetails.photoUrl}
-                      alt={selectedAdForDetails.businessName}
-                      loading="lazy"
-                      decoding="async"
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                )}
+                {(() => {
+                  const modalGallery = Array.isArray(selectedAdForDetails.photos) && selectedAdForDetails.photos.length > 0
+                    ? selectedAdForDetails.photos
+                    : (selectedAdForDetails.photoUrl ? [selectedAdForDetails.photoUrl] : []);
+                  if (!modalGallery.length) return null;
+
+                  if (modalGallery.length === 1) {
+                    return (
+                      <div className="relative rounded-2xl overflow-hidden aspect-[16/9] bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-md">
+                        <img
+                          src={modalGallery[0]}
+                          alt={selectedAdForDetails.businessName}
+                          loading="lazy"
+                          decoding="async"
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="flex gap-2 overflow-x-auto snap-x snap-mandatory scrollbar-hide rounded-2xl pb-1">
+                      {modalGallery.map((mUrl, mIdx) => (
+                        <div
+                          key={mIdx}
+                          className="min-w-[85%] sm:min-w-[75%] snap-start relative aspect-[16/9] bg-slate-100 dark:bg-slate-800 border-2 border-amber-300 dark:border-slate-700 rounded-2xl overflow-hidden shadow-md shrink-0"
+                        >
+                          <img
+                            src={mUrl}
+                            alt={`${selectedAdForDetails.businessName} ${mIdx + 1}`}
+                            loading="lazy"
+                            decoding="async"
+                            className="w-full h-full object-cover"
+                          />
+                          <span className="absolute bottom-2 right-2 bg-black/70 backdrop-blur-xs text-white text-[10px] font-black px-2 py-0.5 rounded-lg border border-white/20">
+                            Photo {mIdx + 1} of {modalGallery.length}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
 
                 <div className="bg-amber-50/70 dark:bg-slate-800/80 border border-amber-200/80 dark:border-slate-700 rounded-2xl p-4 space-y-2">
                   <h4 className="text-sm sm:text-base font-black text-slate-900 dark:text-white leading-snug">

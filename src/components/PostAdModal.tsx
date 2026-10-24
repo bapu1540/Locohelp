@@ -34,6 +34,7 @@ export default function PostAdModal({ isOpen, onClose, onAdCreated }: PostAdModa
   const [offerTitle, setOfferTitle] = useState('');
   const [description, setDescription] = useState('');
   const [photoUrl, setPhotoUrl] = useState('');
+  const [adPhotos, setAdPhotos] = useState<string[]>([]);
   const [area, setArea] = useState('');
   const [destinationUrl, setDestinationUrl] = useState('');
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -43,9 +44,19 @@ export default function PostAdModal({ isOpen, onClose, onAdCreated }: PostAdModa
   if (!isOpen) return null;
 
   const handleAdPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setUploadError(null);
+    const files: File[] = e.target.files ? Array.from(e.target.files) : [];
+    if (!files.length) return;
+
+    setUploadError(null);
+    const remainingSlots = Math.max(0, 5 - adPhotos.length);
+    if (remainingSlots === 0) {
+      setUploadError('Maximum 5 photos allowed per advertisement banner.');
+      e.target.value = '';
+      return;
+    }
+
+    const newPhotos: string[] = [];
+    for (const file of files.slice(0, remainingSlots)) {
       const check = await validateUploadedFile(file, { allowPdf: false });
       if (!check.valid) {
         setUploadError(check.error || 'Only safe JPEG, PNG, or WebP images up to 2MB are allowed.');
@@ -54,17 +65,38 @@ export default function PostAdModal({ isOpen, onClose, onAdCreated }: PostAdModa
       }
       try {
         const compressed = await compressImageToWebP(file, { maxWidth: 1200, maxHeight: 675, quality: 0.75 });
-        setPhotoUrl(compressed);
+        newPhotos.push(compressed);
       } catch {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          if (reader.result) {
-            setPhotoUrl(reader.result as string);
-          }
-        };
-        reader.readAsDataURL(file);
+        const fallbackUrl = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.readAsDataURL(file);
+        });
+        newPhotos.push(fallbackUrl);
       }
     }
+
+    const updated = [...adPhotos, ...newPhotos].slice(0, 5);
+    setAdPhotos(updated);
+    if (updated[0]) setPhotoUrl(updated[0]);
+    e.target.value = '';
+  };
+
+  const handleRemovePhoto = (index: number) => {
+    const updated = adPhotos.filter((_, i) => i !== index);
+    setAdPhotos(updated);
+    setPhotoUrl(updated[0] || '');
+  };
+
+  const handleAddUrlPhoto = () => {
+    if (!photoUrl.trim()) return;
+    if (adPhotos.includes(photoUrl.trim())) return;
+    if (adPhotos.length >= 5) {
+      setUploadError('Maximum 5 photos allowed.');
+      return;
+    }
+    const updated = [...adPhotos, photoUrl.trim()];
+    setAdPhotos(updated);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -80,6 +112,8 @@ export default function PostAdModal({ isOpen, onClose, onAdCreated }: PostAdModa
     setUploadError(null);
     setIsSubmitting(true);
 
+    const finalPhotos = adPhotos.length > 0 ? adPhotos : (photoUrl.trim() ? [photoUrl.trim()] : [PHOTO_PRESETS[0].url]);
+
     const newAd: AdBannerItem = {
       id: 'custom_ad_' + Date.now(),
       businessName: businessName.trim(),
@@ -88,7 +122,8 @@ export default function PostAdModal({ isOpen, onClose, onAdCreated }: PostAdModa
       offerBadge: offerBadge.trim() || '🔥 Special Deal',
       offerTitle: offerTitle.trim(),
       description: description.trim(),
-      photoUrl: photoUrl.trim() || PHOTO_PRESETS[0].url,
+      photoUrl: finalPhotos[0],
+      photos: finalPhotos,
       distance: 0.4,
       area: area.trim() || 'Local Area',
       rating: 5.0,
@@ -263,26 +298,41 @@ export default function PostAdModal({ isOpen, onClose, onAdCreated }: PostAdModa
               />
             </div>
 
-            {/* High Quality Product/Shop Photo */}
-            <div>
-              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                Ad Photo (Upload Image or Enter Image URL) *
-              </label>
+            {/* High Quality Product/Shop Photo (Supports Multiple Photos up to 5) */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block">
+                  Ad Photos (Upload Multiple Photos - Max 5) *
+                </label>
+                <span className="text-[10px] font-black text-amber-600 dark:text-amber-400">
+                  {adPhotos.length}/5 uploaded
+                </span>
+              </div>
               
               <div className="flex gap-2">
                 <input
                   type="text"
-                  required
                   value={photoUrl}
                   onChange={(e) => setPhotoUrl(e.target.value)}
-                  placeholder="Enter manual image URL (https://...)"
+                  placeholder="Paste image URL or choose files..."
                   className="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-amber-500"
                 />
+
+                {photoUrl.trim() && (
+                  <button
+                    type="button"
+                    onClick={handleAddUrlPhoto}
+                    className="px-2.5 py-2 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold text-xs rounded-xl hover:bg-slate-300 cursor-pointer"
+                  >
+                    + Add URL
+                  </button>
+                )}
                 
-                <label className="px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white font-black text-xs rounded-xl cursor-pointer flex items-center gap-1.5 shrink-0 shadow-xs active:scale-95 transition-all">
-                  <span>📸 Upload Photo</span>
+                <label className="px-3 py-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-black text-xs rounded-xl cursor-pointer flex items-center gap-1.5 shrink-0 shadow-xs active:scale-95 transition-all">
+                  <span>📸 Upload Photos</span>
                   <input 
                     type="file" 
+                    multiple
                     accept="image/*" 
                     onChange={handleAdPhotoUpload} 
                     className="hidden" 
@@ -290,9 +340,25 @@ export default function PostAdModal({ isOpen, onClose, onAdCreated }: PostAdModa
                 </label>
               </div>
 
-              {photoUrl && (
-                <div className="mt-2 h-28 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 relative">
-                  <img src={photoUrl} alt="Ad Preview" loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              {/* Uploaded Thumbnails Row */}
+              {adPhotos.length > 0 && (
+                <div className="flex gap-2 pt-1 overflow-x-auto pb-1">
+                  {adPhotos.map((img, idx) => (
+                    <div key={idx} className="relative w-24 h-16 rounded-xl overflow-hidden border-2 border-amber-400 shrink-0 group shadow-sm">
+                      <img src={img} alt={`Ad Photo ${idx + 1}`} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => handleRemovePhoto(idx)}
+                        className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-600 text-white flex items-center justify-center text-[10px] font-bold shadow-md cursor-pointer hover:scale-110 transition-transform"
+                        title="Remove photo"
+                      >
+                        ✕
+                      </button>
+                      <span className="absolute bottom-1 left-1 bg-black/70 text-white text-[9px] px-1 rounded font-bold">
+                        #{idx + 1}
+                      </span>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>

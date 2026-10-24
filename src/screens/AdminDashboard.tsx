@@ -1360,6 +1360,18 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
     pendingCount: number;
   }> = [
     {
+      id: 'help_posts',
+      title: '📢 Manage All Public Broadcast Posts on Main Page',
+      titleHi: '📢 मुख्य पेज की सभी पब्लिक ब्रॉडकास्ट हेल्प पोस्ट्स',
+      subtitle: 'View, filter, edit & 1-click delete all user help posts displayed on home screen',
+      icon: <Megaphone className="w-5 h-5 text-white" />,
+      gradient: 'from-amber-600 via-orange-600 to-red-600',
+      border: 'border-orange-500/50 hover:border-orange-400 shadow-lg shadow-orange-500/10',
+      badgeBg: 'bg-orange-500/20 text-orange-200 border-orange-500/40',
+      totalCount: intents.length,
+      pendingCount: countPending(intents, 'help_posts')
+    },
+    {
       id: 'helpers',
       title: 'Browse Local Service Experts / Service Expert Profiles',
       titleHi: 'लोकल सर्विस एक्सपर्ट्स और कारीगर प्रोफाइल',
