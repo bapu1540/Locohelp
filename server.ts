@@ -6,6 +6,9 @@ import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import nodemailer from "nodemailer";
 import pg from "pg";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const { Pool } = pg;
 
@@ -919,27 +922,70 @@ const DEFAULT_CATEGORIES_SEED = [
   { id: "other", name: "Other Local Services (अन्य सेवाएं)", icon: "🛠️" }
 ];
 
+function cleanConnectionString(raw?: string): string {
+  if (!raw) return "";
+  const trimmed = String(raw).trim().replace(/^['"]+|['"]+$/g, "").trim();
+  if (!trimmed || trimmed.includes("${{")) return "";
+  return trimmed;
+}
+
+function getPrimaryConnectionString(): string {
+  const connectionString =
+    cleanConnectionString(process.env.DATABASE_URL) ||
+    cleanConnectionString(process.env.DATABASE_PRIVATE_URL) ||
+    cleanConnectionString(process.env.DB_URL) ||
+    cleanConnectionString(process.env.DB_PRIVATE_URL) ||
+    cleanConnectionString(process.env.DATABASE_PUBLIC_URL) ||
+    cleanConnectionString(process.env.POSTGRES_URL) ||
+    cleanConnectionString(process.env.POSTGRESQL_URL) ||
+    cleanConnectionString(process.env.POSTGRES_PRIVATE_URL);
+
+  if (connectionString) {
+    return connectionString;
+  }
+
+  if (process.env.PGHOST && process.env.PGUSER && process.env.PGPASSWORD) {
+    return `postgresql://${encodeURIComponent(process.env.PGUSER)}:${encodeURIComponent(process.env.PGPASSWORD)}@${process.env.PGHOST}:${process.env.PGPORT || 5432}/${process.env.PGDATABASE || "railway"}`;
+  }
+
+  for (const [, val] of Object.entries(process.env)) {
+    const candidate = cleanConnectionString(val);
+    if (candidate.startsWith("postgres://") || candidate.startsWith("postgresql://")) {
+      return candidate;
+    }
+  }
+
+  return "";
+}
+
 function getCandidateDatabaseUrls(): string[] {
   const rawCandidates = [
     process.env.DATABASE_URL,
     process.env.DATABASE_PRIVATE_URL,
+    process.env.DB_URL,
+    process.env.DB_PRIVATE_URL,
     process.env.DATABASE_PUBLIC_URL,
     process.env.POSTGRES_URL,
-    process.env.POSTGRESQL_URL
+    process.env.POSTGRESQL_URL,
+    process.env.POSTGRES_PRIVATE_URL
   ];
   const validUrls: string[] = [];
   for (const c of rawCandidates) {
-    const trimmed = (c || "").trim();
-    if (trimmed && !trimmed.includes("${{") && (trimmed.startsWith("postgres://") || trimmed.startsWith("postgresql://"))) {
-      if (!validUrls.includes(trimmed)) {
-        validUrls.push(trimmed);
-      }
+    const cleaned = cleanConnectionString(c);
+    if (cleaned && !validUrls.includes(cleaned)) {
+      validUrls.push(cleaned);
     }
   }
   if (process.env.PGHOST && process.env.PGUSER && process.env.PGPASSWORD) {
     const constructed = `postgresql://${encodeURIComponent(process.env.PGUSER)}:${encodeURIComponent(process.env.PGPASSWORD)}@${process.env.PGHOST}:${process.env.PGPORT || 5432}/${process.env.PGDATABASE || "railway"}`;
     if (!validUrls.includes(constructed)) {
       validUrls.push(constructed);
+    }
+  }
+  for (const [, val] of Object.entries(process.env)) {
+    const cleaned = cleanConnectionString(val);
+    if ((cleaned.startsWith("postgres://") || cleaned.startsWith("postgresql://")) && !validUrls.includes(cleaned)) {
+      validUrls.push(cleaned);
     }
   }
   return validUrls;
@@ -1947,10 +1993,21 @@ setTimeout(() => {
   syncExistingRecordsToSecurityVault().catch(() => {});
 }, 1500);
 
+async function initDb(poolToUse?: pg.Pool): Promise<string[]> {
+  const activePool = poolToUse || dbPool;
+  if (!activePool) return [];
+  const tables = await initPostgresTables(activePool);
+  await syncJsonFilesToPostgres(activePool);
+  const requiredTables = ["users", "categories", "profiles", "businesses", "shops", "ads", "posts"];
+  const allRequiredPresent = requiredTables.every((t) => tables.includes(t));
+  tablesVerified = allRequiredPresent || tables.length > 0;
+  return tables;
+}
+
 async function connectRailwayPostgres(): Promise<boolean> {
   if (dbPool && isDbConnected) {
     try {
-      await dbPool.query("SELECT 1");
+      await dbPool.query("SELECT NOW()");
       return true;
     } catch {
       isDbConnected = false;
@@ -1958,46 +2015,50 @@ async function connectRailwayPostgres(): Promise<boolean> {
     }
   }
 
+  const connectionString =
+    cleanConnectionString(process.env.DATABASE_URL) ||
+    cleanConnectionString(process.env.DATABASE_PRIVATE_URL) ||
+    cleanConnectionString(process.env.DB_URL) ||
+    cleanConnectionString(process.env.DB_PRIVATE_URL) ||
+    getPrimaryConnectionString();
+
   const candidateUrls = getCandidateDatabaseUrls();
-  if (candidateUrls.length === 0) {
-    lastDbInitError = "DATABASE_URL not detected in environment variables";
-    console.log("[Database Notice] DATABASE_URL not detected. Running seamlessly with local file persistence.");
+  if (connectionString && !candidateUrls.includes(connectionString)) {
+    candidateUrls.unshift(connectionString);
+  }
+
+  if (!connectionString && candidateUrls.length === 0) {
+    lastDbInitError = "No PostgreSQL connection string found in DATABASE_URL / DATABASE_PRIVATE_URL / DB_URL / DB_PRIVATE_URL";
     return false;
   }
 
   for (const connStr of candidateUrls) {
-    const isInternalOrLocal =
-      connStr.includes("railway.internal") ||
-      connStr.includes("localhost") ||
-      connStr.includes("127.0.0.1") ||
-      connStr.includes("sslmode=disable");
-
-    const sslAttempts: any[] = isInternalOrLocal
-      ? [false, { rejectUnauthorized: false }]
-      : [{ rejectUnauthorized: false }, false];
+    // 1. Primary attempt as required: new Pool({ connectionString, ssl: { rejectUnauthorized: false } })
+    const sslAttempts: any[] = [{ rejectUnauthorized: false }, false];
 
     for (const sslSetting of sslAttempts) {
       try {
-        const candidatePool = new Pool({
+        const pool = new Pool({
           connectionString: connStr,
           ssl: sslSetting,
-          connectionTimeoutMillis: 8000,
+          connectionTimeoutMillis: 10000,
           max: 15,
           idleTimeoutMillis: 30000
         });
-        candidatePool.on("error", (err) => {
+        pool.on("error", (err) => {
           console.warn("[PostgreSQL Pool Notice]", err.message);
         });
-        await candidatePool.query("SELECT NOW()");
-        dbPool = candidatePool;
+        await pool.query("SELECT NOW()");
+        dbPool = pool;
         isDbConnected = true;
         lastDbInitError = "";
-        console.log("✅ Connected to Railway PostgreSQL successfully");
+        console.log("✅ Connected to Railway PostgreSQL successfully.");
+        await initDb(pool);
         return true;
       } catch (err: any) {
         lastDbInitError = err?.message || "Connection attempt failed";
         console.warn(
-          `[Railway PostgreSQL] SSL=${Boolean(sslSetting)} connection note: ${lastDbInitError}`
+          `[Railway PostgreSQL] Connection attempt (ssl=${Boolean(sslSetting)}) failed: ${lastDbInitError}`
         );
       }
     }
@@ -2022,14 +2083,12 @@ async function ensureTablesExist(force = false): Promise<{ connected: boolean; t
         return { connected: false, tables: verifiedTableNames, error: lastDbInitError };
       }
 
-      const tables = await initPostgresTables(dbPool);
-      await syncJsonFilesToPostgres(dbPool);
+      if (!tablesVerified || force) {
+        const tables = await initDb(dbPool);
+        return { connected: true, tables };
+      }
 
-      const requiredTables = ["users", "categories", "profiles", "shops", "ads", "posts"];
-      const allRequiredPresent = requiredTables.every((t) => tables.includes(t));
-      tablesVerified = allRequiredPresent || tables.length > 0;
-
-      return { connected: true, tables };
+      return { connected: true, tables: verifiedTableNames };
     } catch (err: any) {
       lastDbInitError = err?.message || "Failed to initialize PostgreSQL tables";
       console.error("[Railway PostgreSQL] ensureTablesExist error:", lastDbInitError);
@@ -2045,12 +2104,13 @@ async function ensureTablesExist(force = false): Promise<{ connected: boolean; t
   return runTask;
 }
 
-// Run immediately at boot AND schedule automatic retry checks in case Railway private network warms up a few seconds later
+// Run immediately at boot AND schedule automatic retry checks if connectionString is present
 ensureTablesExist(true).catch(() => {});
 let bootRetryCount = 0;
 const bootRetryTimer = setInterval(() => {
   bootRetryCount += 1;
-  if (tablesVerified || bootRetryCount > 12) {
+  const hasAnyConnStr = Boolean(getPrimaryConnectionString());
+  if (tablesVerified || !hasAnyConnStr || bootRetryCount > 12) {
     clearInterval(bootRetryTimer);
     return;
   }
