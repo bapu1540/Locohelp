@@ -110,22 +110,22 @@ export default function JobPortalBrowseModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/65 backdrop-blur-xs">
+    <div className="fixed inset-0 z-50 bg-slate-50 dark:bg-slate-950 flex flex-col overflow-hidden">
       <motion.div
-        initial={{ opacity: 0, y: 12, scale: 0.92 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: 12, scale: 0.92 }}
-        className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 max-h-[90vh] flex flex-col overflow-hidden"
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: 12 }}
+        className="w-full max-w-5xl mx-auto h-full bg-white dark:bg-slate-900 shadow-2xl border-x border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden"
       >
         {/* Header */}
-        <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex items-center justify-between shrink-0">
+        <div className="px-4 sm:px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex items-center justify-between shrink-0 gap-2">
           <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-2xl bg-indigo-500/20 border border-indigo-400/40 flex items-center justify-center text-indigo-300">
+            <div className="w-10 h-10 rounded-2xl bg-indigo-500/20 border border-indigo-400/40 flex items-center justify-center text-indigo-300 shrink-0">
               <Briefcase className="w-5 h-5 text-indigo-400" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-base font-black tracking-tight text-white">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-base sm:text-lg font-black tracking-tight text-white">
                   {language === 'EN' ? 'LocoHelp Verified Job Portal' : 'लोकोहेल्प जॉब पोर्टल'}
                 </h3>
                 <span className="text-[10px] font-black bg-emerald-500 text-slate-950 px-2 py-0.5 rounded-full flex items-center gap-1">
@@ -141,9 +141,10 @@ export default function JobPortalBrowseModal({
           </div>
           <button
             onClick={onClose}
-            className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-300 transition-colors cursor-pointer"
+            className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 flex items-center gap-1.5 text-slate-200 text-xs font-extrabold transition-colors cursor-pointer shrink-0"
           >
             <X className="w-4 h-4" />
+            <span>{language === 'EN' ? 'Back / Close' : 'वापस जाएं'}</span>
           </button>
         </div>
 

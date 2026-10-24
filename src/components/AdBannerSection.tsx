@@ -180,12 +180,28 @@ export default function AdBannerSection({ onOpenChat, onOpenPostAd }: AdBannerSe
     };
   }, []);
 
-  // Combine the Permanent Locked LocoHelp Official Banner + all active advertisements
+  // Combine the Permanent Locked LocoHelp Official Banner + all active advertisements & multi-photo slides
   const allScrollableBanners = React.useMemo(() => {
     const customAds = (ads || []).filter(
       a => a && a.id && a.id !== PERMANENT_LOCOHELP_PROMO_AD.id && a.isActive !== false
     );
-    return [PERMANENT_LOCOHELP_PROMO_AD, ...customAds];
+    const slides: AdBannerItem[] = [PERMANENT_LOCOHELP_PROMO_AD];
+    customAds.forEach(a => {
+      const photos = Array.isArray(a.photos) && a.photos.length > 0 ? a.photos : (a.photoUrl ? [a.photoUrl] : []);
+      if (photos.length <= 1) {
+        slides.push(a);
+      } else {
+        photos.forEach((pUrl, pIdx) => {
+          slides.push({
+            ...a,
+            id: `${a.id}_photo_${pIdx}`,
+            photoUrl: pUrl,
+            offerBadge: `${a.offerBadge || '🔥 Special Deal'} (📸 ${pIdx + 1}/${photos.length})`
+          });
+        });
+      }
+    });
+    return slides;
   }, [ads]);
 
   // Smoothly scroll the horizontal container to the active slide
@@ -202,7 +218,7 @@ export default function AdBannerSection({ onOpenChat, onOpenPostAd }: AdBannerSe
     }
   };
 
-  // Auto-scroll one after another every 3.8 seconds
+  // Auto-scroll one after another every 3.5 seconds
   useEffect(() => {
     if (!isAutoPlaying || allScrollableBanners.length <= 1) return;
     const interval = setInterval(() => {
@@ -211,7 +227,7 @@ export default function AdBannerSection({ onOpenChat, onOpenPostAd }: AdBannerSe
         scrollToSlide(nextIdx);
         return nextIdx;
       });
-    }, 3800);
+    }, 3500);
     return () => clearInterval(interval);
   }, [isAutoPlaying, allScrollableBanners.length]);
 

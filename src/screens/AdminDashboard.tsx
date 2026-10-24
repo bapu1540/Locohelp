@@ -346,6 +346,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
   const [adOfferTitle, setAdOfferTitle] = useState('');
   const [adDescription, setAdDescription] = useState('');
   const [adPhotoUrl, setAdPhotoUrl] = useState('/assets/aistudio/advertisement_30c9824f.png');
+  const [adPhotos, setAdPhotos] = useState<string[]>([]);
   const [adIsActive, setAdIsActive] = useState<boolean>(true);
   const [adDistance, setAdDistance] = useState('0.8');
   const [adArea, setAdArea] = useState('');
@@ -2593,6 +2594,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                   setAdArea('Local Market');
                   setAdDestinationUrl('');
                   setAdPhotoUrl('/assets/aistudio/advertisement_30c9824f.png');
+                  setAdPhotos([]);
                   setAdIsActive(true);
                   setIsCreateAdModalOpen(true);
                 }}
@@ -2677,27 +2679,60 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                         </div>
 
                         <div className="flex flex-wrap items-center justify-between gap-2 pt-3 mt-2 border-t border-slate-800">
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              const nextActive = !isActive;
-                              const updatedAd = { ...ad, isActive: nextActive };
-                              await createAdOnServer(updatedAd);
-                              setAds(prev => prev.map(a => (a.id === ad.id ? updatedAd : a)));
-                              showToast(
-                                nextActive
-                                  ? '✅ Ad Banner activated on Main Website!'
-                                  : '⏸ Ad Banner set to Inactive (Hidden from Main Website).'
-                              );
-                            }}
-                            className={`px-3 py-1.5 rounded-xl text-xs font-black border cursor-pointer transition-all ${
-                              isActive
-                                ? 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border-amber-500/30'
-                                : 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-500'
-                            }`}
-                          >
-                            {isActive ? 'Set Inactive' : 'Set Active'}
-                          </button>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const nextActive = !isActive;
+                                const updatedAd = { ...ad, isActive: nextActive };
+                                await createAdOnServer(updatedAd);
+                                setAds(prev => prev.map(a => (a.id === ad.id ? updatedAd : a)));
+                                showToast(
+                                  nextActive
+                                    ? '✅ Ad Banner activated on Main Website!'
+                                    : '⏸ Ad Banner set to Inactive (Hidden from Main Website).'
+                                );
+                              }}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-black border cursor-pointer transition-all ${
+                                isActive
+                                  ? 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border-amber-500/30'
+                                  : 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-500'
+                              }`}
+                            >
+                              {isActive ? 'Set Inactive' : 'Set Active'}
+                            </button>
+
+                            <label className="px-3 py-1.5 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-xs font-black flex items-center gap-1 cursor-pointer">
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>+ Add Photos ({Array.isArray(ad.photos) ? ad.photos.length : 1})</span>
+                              <input
+                                type="file"
+                                multiple
+                                accept="image/*"
+                                className="hidden"
+                                onChange={async (e) => {
+                                  const files: File[] = e.target.files ? Array.from(e.target.files) : [];
+                                  if (!files.length) return;
+                                  const existingPhotos = Array.isArray(ad.photos) && ad.photos.length > 0 ? ad.photos : (ad.photoUrl ? [ad.photoUrl] : []);
+                                  const added: string[] = [];
+                                  for (const f of files) {
+                                    try {
+                                      const dataUrl = await processCategoryImageFileTo16x9(f);
+                                      added.push(dataUrl);
+                                    } catch {}
+                                  }
+                                  if (added.length > 0) {
+                                    const nextPhotos = [...existingPhotos, ...added];
+                                    const updatedAd = { ...ad, photos: nextPhotos, photoUrl: nextPhotos[0] };
+                                    await createAdOnServer(updatedAd);
+                                    setAds(prev => prev.map(a => (a.id === ad.id ? updatedAd : a)));
+                                    showToast(`✅ Added ${added.length} new photo(s)! Total ${nextPhotos.length} auto-scrolling photos.`);
+                                  }
+                                  e.target.value = '';
+                                }}
+                              />
+                            </label>
+                          </div>
 
                           <button
                             type="button"
@@ -3929,6 +3964,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                     return;
                   }
                   setIsSubmittingAd(true);
+                  const finalAdPhotos = adPhotos.length > 0 ? adPhotos : [adPhotoUrl];
                   const newAd: AdBannerItem = {
                     id: 'ad_' + Date.now(),
                     businessName: adBusinessName.trim(),
@@ -3937,7 +3973,8 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                     offerBadge: adOfferBadge,
                     offerTitle: adOfferTitle.trim() || adBusinessName.trim(),
                     description: adDescription.trim(),
-                    photoUrl: adPhotoUrl,
+                    photoUrl: finalAdPhotos[0],
+                    photos: finalAdPhotos,
                     isActive: adIsActive,
                     distance: parseFloat(adDistance) || 0.5,
                     area: adArea.trim() || 'Local Market',
@@ -3951,32 +3988,44 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                   setAds(prev => [newAd, ...prev]);
                   setIsSubmittingAd(false);
                   setIsCreateAdModalOpen(false);
-                  showToast('✅ 16:9 Ad Banner saved!');
+                  showToast(`✅ Ad Banner saved with ${finalAdPhotos.length} auto-scrolling photo(s)!`);
                 }}
                 className="p-6 overflow-y-auto space-y-3.5 text-xs"
               >
-                {/* 16:9 Banner Image Upload + Live Preview */}
+                {/* 16:9 Banner Multi-Image Upload + Live Preview */}
                 <div className="space-y-2 p-3 rounded-2xl bg-slate-900 border border-slate-800">
-                  <label className="block font-black text-slate-200">
-                    16:9 Banner Image (Upload from Device or Paste Image URL) *
-                  </label>
+                  <div className="flex items-center justify-between">
+                    <label className="block font-black text-slate-200">
+                      16:9 Banner Photos (Upload Multiple Photos - Auto Scrolls!) *
+                    </label>
+                    <span className="text-[10px] font-black text-cyan-400">
+                      {adPhotos.length} photo(s) added
+                    </span>
+                  </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <label className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-black text-xs flex items-center gap-1.5 cursor-pointer">
                       <Upload className="w-3.5 h-3.5" />
-                      <span>Upload 16:9 Image</span>
+                      <span>Upload Multiple 16:9 Photos</span>
                       <input
                         type="file"
+                        multiple
                         accept="image/*"
                         className="hidden"
                         onChange={async (e) => {
-                          const file = e.target.files?.[0];
-                          if (!file) return;
-                          try {
-                            const dataUrl = await processCategoryImageFileTo16x9(file);
-                            setAdPhotoUrl(dataUrl);
-                            showToast('✅ 16:9 Banner Image processed & ready!');
-                          } catch {
-                            showToast('⚠️ Failed to process image');
+                          const files: File[] = e.target.files ? Array.from(e.target.files) : [];
+                          if (!files.length) return;
+                          const processed: string[] = [];
+                          for (const file of files) {
+                            try {
+                              const dataUrl = await processCategoryImageFileTo16x9(file);
+                              processed.push(dataUrl);
+                            } catch {}
+                          }
+                          if (processed.length > 0) {
+                            const next = [...adPhotos, ...processed];
+                            setAdPhotos(next);
+                            setAdPhotoUrl(next[0]);
+                            showToast(`✅ ${processed.length} Banner Image(s) added (${next.length} total)!`);
                           }
                           e.target.value = '';
                         }}
@@ -3987,10 +4036,45 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                       value={adPhotoUrl}
                       onChange={(e) => setAdPhotoUrl(e.target.value)}
                       placeholder="Or paste 16:9 image URL..."
-                      className="flex-1 min-w-[180px] px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs"
+                      className="flex-1 min-w-[160px] px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs"
                     />
+                    {adPhotoUrl.trim() && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!adPhotos.includes(adPhotoUrl.trim())) {
+                            setAdPhotos([...adPhotos, adPhotoUrl.trim()]);
+                          }
+                        }}
+                        className="px-2.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-300 font-black text-xs cursor-pointer"
+                      >
+                        + Add URL
+                      </button>
+                    )}
                   </div>
-                  {adPhotoUrl && (
+                  {adPhotos.length > 0 ? (
+                    <div className="flex gap-2 overflow-x-auto pt-2 pb-1">
+                      {adPhotos.map((img, idx) => (
+                        <div key={idx} className="relative w-28 aspect-video rounded-xl overflow-hidden bg-slate-950 border-2 border-cyan-500/60 shrink-0">
+                          <img src={img} alt={`Slide ${idx + 1}`} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = adPhotos.filter((_, i) => i !== idx);
+                              setAdPhotos(next);
+                              if (next[0]) setAdPhotoUrl(next[0]);
+                            }}
+                            className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-600 text-white text-[10px] font-black flex items-center justify-center cursor-pointer"
+                          >
+                            ✕
+                          </button>
+                          <span className="absolute bottom-1 left-1 bg-black/75 text-white text-[9px] font-black px-1.5 py-0.2 rounded">
+                            #{idx + 1}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : adPhotoUrl && (
                     <div className="w-full aspect-video rounded-xl overflow-hidden bg-slate-950 border border-slate-700 mt-2">
                       <img src={adPhotoUrl} alt="16:9 Ad Preview" loading="lazy" decoding="async" className="w-full h-full object-cover" />
                     </div>

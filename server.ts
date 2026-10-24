@@ -3105,10 +3105,10 @@ async function startServer() {
     }
   };
 
-  app.post("/api/intents/:id/messages", registrationAndMessageLimiter, chatMessageLimiter, sendChatMessageHandler);
-  app.post("/api/chats", registrationAndMessageLimiter, chatMessageLimiter, sendChatMessageHandler);
-  app.post("/api/messages", registrationAndMessageLimiter, chatMessageLimiter, sendChatMessageHandler);
-  app.post("/api/messages/:id", registrationAndMessageLimiter, chatMessageLimiter, sendChatMessageHandler);
+  app.post("/api/intents/:id/messages", chatMessageLimiter, sendChatMessageHandler);
+  app.post("/api/chats", chatMessageLimiter, sendChatMessageHandler);
+  app.post("/api/messages", chatMessageLimiter, sendChatMessageHandler);
+  app.post("/api/messages/:id", chatMessageLimiter, sendChatMessageHandler);
 
   // Background Auto-Delete Job: Purge posts inactive for >1 hour
   setInterval(async () => {
@@ -3983,12 +3983,34 @@ async function startServer() {
         return res.status(400).json({ error: "Business name and offer title are required" });
       }
 
-      if (ad.photoUrl && String(ad.photoUrl).startsWith('data:')) {
-        const photoCheck = validateServerUploadedDataUrl(ad.photoUrl, { allowPdf: false });
-        if (!photoCheck.valid) {
-          return res.status(400).json({ error: photoCheck.error });
+      const validPhotos: string[] = [];
+      if (Array.isArray(ad.photos)) {
+        for (const p of ad.photos) {
+          if (typeof p === 'string' && p.trim()) {
+            if (p.trim().startsWith('data:')) {
+              const pCheck = validateServerUploadedDataUrl(p.trim(), { allowPdf: false });
+              if (!pCheck.valid) {
+                return res.status(400).json({ error: pCheck.error });
+              }
+            }
+            validPhotos.push(p.trim());
+          }
         }
       }
+      if (ad.photoUrl && typeof ad.photoUrl === 'string' && ad.photoUrl.trim()) {
+        if (ad.photoUrl.trim().startsWith('data:')) {
+          const photoCheck = validateServerUploadedDataUrl(ad.photoUrl.trim(), { allowPdf: false });
+          if (!photoCheck.valid) {
+            return res.status(400).json({ error: photoCheck.error });
+          }
+        }
+        if (!validPhotos.includes(ad.photoUrl.trim())) {
+          validPhotos.unshift(ad.photoUrl.trim());
+        }
+      }
+
+      const defaultFallbackImg = 'https://images.unsplash.com/photo-1550009158-9ebf69173e03?auto=format&fit=crop&w=800&q=80';
+      const finalPhotos = validPhotos.length > 0 ? validPhotos : [defaultFallbackImg];
 
       const ads = readJsonFile<any[]>(ADS_FILE, []);
       const newAd = {
@@ -3999,7 +4021,9 @@ async function startServer() {
         offerBadge: sanitizeStringServer(ad.offerBadge || '🔥 Special Offer', 100),
         offerTitle: sanitizeStringServer(ad.offerTitle.trim(), 200),
         description: sanitizeStringServer(ad.description || '', 1000),
-        photoUrl: ad.photoUrl || 'https://images.unsplash.com/photo-1550009158-9ebf69173e03?auto=format&fit=crop&w=800&q=80',
+        photoUrl: finalPhotos[0],
+        photos: finalPhotos,
+        isActive: ad.isActive !== false,
         distance: typeof ad.distance === 'number' ? ad.distance : 0.4,
         area: sanitizeStringServer(ad.area || 'Local Market', 200),
         rating: typeof ad.rating === 'number' ? ad.rating : 4.9,

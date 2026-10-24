@@ -48,15 +48,8 @@ export default function PostAdModal({ isOpen, onClose, onAdCreated }: PostAdModa
     if (!files.length) return;
 
     setUploadError(null);
-    const remainingSlots = Math.max(0, 5 - adPhotos.length);
-    if (remainingSlots === 0) {
-      setUploadError('Maximum 5 photos allowed per advertisement banner.');
-      e.target.value = '';
-      return;
-    }
-
     const newPhotos: string[] = [];
-    for (const file of files.slice(0, remainingSlots)) {
+    for (const file of files) {
       const check = await validateUploadedFile(file, { allowPdf: false });
       if (!check.valid) {
         setUploadError(check.error || 'Only safe JPEG, PNG, or WebP images up to 2MB are allowed.');
@@ -76,7 +69,7 @@ export default function PostAdModal({ isOpen, onClose, onAdCreated }: PostAdModa
       }
     }
 
-    const updated = [...adPhotos, ...newPhotos].slice(0, 5);
+    const updated = [...adPhotos, ...newPhotos];
     setAdPhotos(updated);
     if (updated[0]) setPhotoUrl(updated[0]);
     e.target.value = '';
@@ -91,10 +84,6 @@ export default function PostAdModal({ isOpen, onClose, onAdCreated }: PostAdModa
   const handleAddUrlPhoto = () => {
     if (!photoUrl.trim()) return;
     if (adPhotos.includes(photoUrl.trim())) return;
-    if (adPhotos.length >= 5) {
-      setUploadError('Maximum 5 photos allowed.');
-      return;
-    }
     const updated = [...adPhotos, photoUrl.trim()];
     setAdPhotos(updated);
   };

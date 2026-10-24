@@ -311,21 +311,21 @@ export default function JobSeekerModal({
   });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/65 backdrop-blur-xs">
+    <div className="fixed inset-0 z-50 bg-slate-50 dark:bg-slate-950 flex flex-col overflow-hidden">
       <motion.div
-        initial={{ opacity: 0, y: 12, scale: 0.92 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: 12, scale: 0.92 }}
-        className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-blue-200 dark:border-slate-800 max-h-[90vh] flex flex-col overflow-hidden"
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: 12 }}
+        className="w-full max-w-5xl mx-auto h-full bg-white dark:bg-slate-900 shadow-2xl border-x border-blue-200 dark:border-slate-800 flex flex-col overflow-hidden"
       >
         {/* Header */}
-        <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-blue-600 via-indigo-600 to-indigo-800 text-white flex items-center justify-between shrink-0">
+        <div className="px-4 sm:px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-blue-600 via-indigo-600 to-indigo-800 text-white flex items-center justify-between shrink-0 gap-2">
           <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-2xl bg-white/15 backdrop-blur-xs flex items-center justify-center text-white border border-white/25 text-xl shadow-inner">
+            <div className="w-10 h-10 rounded-2xl bg-white/15 backdrop-blur-xs flex items-center justify-center text-white border border-white/25 text-xl shadow-inner shrink-0">
               💼
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="text-base sm:text-lg font-black tracking-tight text-white">
                   {language === 'EN' ? 'Job / Work Registration' : 'जॉब / काम का रजिस्ट्रेशन'}
                 </h3>
@@ -342,9 +342,10 @@ export default function JobSeekerModal({
           </div>
           <button
             onClick={handleCloseAndReset}
-            className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors cursor-pointer"
+            className="px-3.5 py-2 rounded-xl bg-white/15 hover:bg-white/25 border border-white/25 flex items-center gap-1.5 text-white text-xs font-extrabold transition-colors cursor-pointer shrink-0"
           >
             <X className="w-4 h-4" />
+            <span>{language === 'EN' ? 'Back / Close' : 'वापस जाएं'}</span>
           </button>
         </div>
 

@@ -103,7 +103,7 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
     } catch (e) {}
   }, [messages, chatId]);
 
-  // Real-time cross-device server sync with 3-second polling while chat is open
+  // Real-time cross-device server sync with 1.2-second polling while chat is open
   useEffect(() => {
     let isMounted = true;
 
@@ -118,14 +118,15 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
             });
             serverMessages.forEach((m: any) => {
               if (m && m.id) {
+                const existing = map.get(m.id);
                 map.set(m.id, {
                   id: m.id,
-                  text: m.text || m.content || m.message || '',
-                  type: m.type || 'text',
-                  authorId: m.authorId || m.senderId || m.sender_id || 'peer',
-                  attachmentUrl: m.attachmentUrl || m.attachment_url || undefined,
-                  attachmentType: m.attachmentType || m.attachment_type || undefined,
-                  createdAt: m.createdAt || m.created_at || m.sent_at || new Date().toISOString()
+                  text: m.text || m.content || m.message || (existing?.text || ''),
+                  type: m.type || existing?.type || 'text',
+                  authorId: m.authorId || m.senderId || m.sender_id || existing?.authorId || 'peer',
+                  attachmentUrl: m.attachmentUrl || m.attachment_url || existing?.attachmentUrl || undefined,
+                  attachmentType: m.attachmentType || m.attachment_type || existing?.attachmentType || undefined,
+                  createdAt: m.createdAt || m.created_at || m.sent_at || existing?.createdAt || new Date().toISOString()
                 });
               }
             });
@@ -138,7 +139,7 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
     };
 
     syncChat();
-    const pollInterval = setInterval(syncChat, 3000);
+    const pollInterval = setInterval(syncChat, 1200);
 
     return () => {
       isMounted = false;
