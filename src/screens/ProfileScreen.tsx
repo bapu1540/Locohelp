@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   ArrowLeft, User, Camera, MapPin, Briefcase, Award, CheckCircle2, Star, Wrench, 
   ChevronRight, Trash2, Store, Mail, CloudCheck, Sparkles, ShieldCheck, Lock, 
-  FileCheck2, ShieldAlert, Check, Building2, Phone, Tag, Upload, AlertCircle, Plus, Search, ExternalLink, Clock, Edit3
+  FileCheck2, ShieldAlert, Check, Building2, Phone, Tag, Upload, AlertCircle, Plus, Search, ExternalLink, Clock, Edit3, LogOut
 } from 'lucide-react';
 import { useLanguage } from '../i18n';
 import { 
@@ -1071,18 +1071,6 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
               </form>
             )}
 
-            {/* Account Closure / Deactivation Request */}
-            <div className="pt-2 text-center">
-              <button
-                type="button"
-                onClick={() => setShowDeleteConfirm(true)}
-                className="text-xs text-rose-600 dark:text-rose-400 font-extrabold hover:underline cursor-pointer flex items-center justify-center gap-1.5 mx-auto"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>{t('pro.closureBtn')}</span>
-              </button>
-            </div>
-
           </div>
         )}
 
@@ -1907,6 +1895,25 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
           </div>
         )}
 
+        {/* Logout Option cleanly at the very bottom of the Profile Page */}
+        <div className="pt-6 pb-4 border-t border-slate-200 dark:border-slate-800 mt-6">
+          <button
+            type="button"
+            onClick={() => {
+              logoutUser().finally(() => {
+                onBack();
+                window.location.reload();
+              });
+            }}
+            className="w-full flex items-center justify-center gap-2.5 p-4 bg-white dark:bg-slate-850 border border-rose-200 dark:border-rose-900/50 rounded-2xl active:scale-[0.98] transition-all hover:bg-rose-50 dark:hover:bg-rose-950/20 shadow-xs cursor-pointer"
+          >
+            <LogOut className="w-5 h-5 text-rose-500" />
+            <span className="text-rose-600 dark:text-rose-400 font-extrabold tracking-wide text-sm">
+              {t('set.logout') || (language === 'GU' ? 'લોગ આઉટ (Log Out)' : language === 'HI' ? 'लॉग आउट (Log Out)' : 'Log Out')}
+            </span>
+          </button>
+        </div>
+
       </div>
 
       {/* Helper Profile Approval Confirmation Notice Popup Modal */}
@@ -1954,132 +1961,6 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
           setVerificationStatus('pending');
         }}
       />
-
-      {/* Request Account Closure / Deactivation Modal */}
-      {showDeleteConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/65 backdrop-blur-xs">
-          <div className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-3xl p-5 shadow-2xl border border-rose-200 dark:border-rose-900/60 text-center space-y-4">
-            <div className="w-12 h-12 rounded-2xl bg-rose-100 dark:bg-rose-950/60 text-rose-600 mx-auto flex items-center justify-center text-2xl shadow-inner">
-              {isDeleting ? '⏳' : '🛡️'}
-            </div>
-            <div>
-              <h3 className="text-base font-black text-slate-900 dark:text-white">
-                {t('prof.closureTitle') || 'Request Account Closure / Deactivation'}
-              </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
-                {t('prof.closureDesc') || 'Submitting this request sends your account details to the Admin Panel for verification before safe deactivation and data purging.'}
-              </p>
-            </div>
-
-            {closureSubmitted ? (
-              <div className="p-3 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 rounded-xl text-emerald-800 dark:text-emerald-200 text-xs font-bold">
-                ✓ {t('prof.closureSuccess') || 'Account closure request submitted to Admin! Status: Pending Verification.'}
-              </div>
-            ) : (
-              <div className="space-y-2 text-left">
-                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300">
-                  Reason for Account Closure (Optional):
-                </label>
-                <textarea
-                  rows={2}
-                  value={closureReason}
-                  onChange={(e) => setClosureReason(e.target.value)}
-                  placeholder="e.g. No longer using app / Moving to another city..."
-                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-rose-500 resize-none font-medium"
-                />
-              </div>
-            )}
-
-            <div className="flex gap-2 pt-1">
-              <button
-                type="button"
-                disabled={isDeleting}
-                onClick={() => {
-                  setShowDeleteConfirm(false);
-                  setClosureSubmitted(false);
-                  setClosureReason('');
-                }}
-                className="flex-1 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-50"
-              >
-                {closureSubmitted ? 'Close' : 'Cancel'}
-              </button>
-              {!closureSubmitted && (
-                <button
-                  type="button"
-                  disabled={isDeleting}
-                  onClick={async () => {
-                    try {
-                      setIsDeleting(true);
-                      const activeUser = getCurrentUser();
-                      const cleanPhone = (userPhone || '').replace(/\D/g, '') || activeUser?.phone || '';
-                      const userKey = activeUser?.uid || (cleanPhone ? `phone_${cleanPhone}` : 'guest');
-
-                      // Submit closure ticket to Admin reports
-                      await fetch('/api/reports', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          reason: 'ACCOUNT_CLOSURE_REQUEST',
-                          description: `ACCOUNT CLOSURE REQUEST for user "${userName || activeUser?.displayName || 'User'}" (Phone: ${cleanPhone}, Email: ${userEmail || activeUser?.email || 'N/A'}). User Reason: ${closureReason.trim() || 'User requested account closure/deactivation'}`,
-                          targetId: userKey,
-                          reporterId: userKey,
-                          userName: userName || activeUser?.displayName || 'User',
-                          userEmail: userEmail || activeUser?.email || '',
-                          userPhone: cleanPhone,
-                          status: 'deletion_requested',
-                          createdAt: new Date().toISOString()
-                        })
-                      }).catch(() => {});
-
-                      // Update profile status to deletion_requested so only Admin can review and permanently delete it
-                      const updatedClosureProfile = {
-                        uid: userKey,
-                        full_name: userName || activeUser?.displayName || 'User',
-                        email: userEmail || activeUser?.email || '',
-                        phone: userPhone || cleanPhone,
-                        skills: userSkills,
-                        address: userAddress,
-                        experience: userExp,
-                        avatar_url: profilePhoto,
-                        myHelperProfile: myHelperProfile ? { ...myHelperProfile, status: 'deletion_requested', isVerified: false } : null,
-                        status: 'deletion_requested',
-                        isVerified: false,
-                        updated_at: new Date().toISOString()
-                      };
-
-                      try {
-                        localStorage.setItem(`locohelp_user_profile_${userKey}`, JSON.stringify(updatedClosureProfile));
-                        if (myHelperProfile) {
-                          const updatedHelper = { ...myHelperProfile, status: 'deletion_requested', isVerified: false };
-                          setMyHelperProfile(updatedHelper);
-                          localStorage.setItem('locohelp_my_helper_profile', JSON.stringify(updatedHelper));
-                        }
-                      } catch (e) {}
-
-                      await saveUserProfile(updatedClosureProfile).catch(() => {});
-
-                      setVerificationStatus('deletion_requested');
-                      setClosureSubmitted(true);
-                      setIsDeleting(false);
-                      setTimeout(() => {
-                        setShowDeleteConfirm(false);
-                        setClosureSubmitted(false);
-                        setClosureReason('');
-                      }, 2500);
-                    } catch (err) {
-                      setIsDeleting(false);
-                      setShowDeleteConfirm(false);
-                    }
-                  }}
-                  className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs shadow-md shadow-rose-600/25 cursor-pointer disabled:opacity-70"
-                >
-                  {isDeleting ? 'Submitting...' : (t('prof.closureSubmit') || 'Submit Closure Request')}
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
     </div>
   );

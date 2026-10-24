@@ -41,12 +41,8 @@ if (fs.existsSync(ENV_FILE_PATH)) {
   } catch (e) {}
 }
 
-// Ensure data persistence directory exists
+// Strictly use live Railway PostgreSQL database (never local JSON fallback files or SQLite)
 const DATA_DIR = path.join(process.cwd(), "data");
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-}
-
 const INTENTS_FILE = path.join(DATA_DIR, "intents.json");
 const DELETED_INTENTS_FILE = path.join(DATA_DIR, "deleted_intents.json");
 const MESSAGES_FILE = path.join(DATA_DIR, "messages.json");
@@ -59,40 +55,16 @@ const SHOPS_FILE = path.join(DATA_DIR, "shops.json");
 const HELPERS_FILE = path.join(DATA_DIR, "helpers.json");
 const VERIFICATIONS_FILE = path.join(DATA_DIR, "verifications.json");
 const CATEGORY_IMAGES_FILE = path.join(DATA_DIR, "category_images.json");
+const AUTH_USERS_FILE = path.join(DATA_DIR, "auth_users.json");
+const SECURITY_VAULT_FILE = path.join(DATA_DIR, "security_vault.enc");
 
-function readJsonFile<T>(filePath: string, fallback: T): T {
-  try {
-    if (fs.existsSync(filePath)) {
-      const data = fs.readFileSync(filePath, "utf-8");
-      return JSON.parse(data) as T;
-    }
-  } catch (err) {
-    console.warn(`Error reading ${filePath}:`, err);
-  }
+function readJsonFile<T>(_filePath: string, fallback: T): T {
   return fallback;
 }
 
-function writeJsonFile<T>(filePath: string, data: T): void {
-  try {
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
-  } catch (err) {
-    console.error(`Error writing ${filePath}:`, err);
-  }
+function writeJsonFile<T>(_filePath: string, _data: T): void {
+  // No-op: All persistence strictly uses live Railway PostgreSQL database
 }
-
-// Initialize seed data if file doesn't exist
-if (!fs.existsSync(INTENTS_FILE)) writeJsonFile(INTENTS_FILE, []);
-if (!fs.existsSync(ADS_FILE)) writeJsonFile(ADS_FILE, []);
-if (!fs.existsSync(JOB_PORTAL_FILE)) writeJsonFile(JOB_PORTAL_FILE, []);
-if (!fs.existsSync(PROFILES_FILE)) writeJsonFile(PROFILES_FILE, {});
-if (!fs.existsSync(SHOPS_FILE)) writeJsonFile(SHOPS_FILE, []);
-if (!fs.existsSync(HELPERS_FILE)) writeJsonFile(HELPERS_FILE, []);
-if (!fs.existsSync(VERIFICATIONS_FILE)) writeJsonFile(VERIFICATIONS_FILE, []);
-if (!fs.existsSync(CATEGORY_IMAGES_FILE)) writeJsonFile(CATEGORY_IMAGES_FILE, {});
-const AUTH_USERS_FILE = path.join(DATA_DIR, "auth_users.json");
-if (!fs.existsSync(AUTH_USERS_FILE)) writeJsonFile(AUTH_USERS_FILE, {});
-const SECURITY_VAULT_FILE = path.join(DATA_DIR, "security_vault.enc");
-if (!fs.existsSync(SECURITY_VAULT_FILE)) writeJsonFile(SECURITY_VAULT_FILE, {});
 
 // ==========================================
 // LIGHTWEIGHT SERVER-SIDE IN-MEMORY CACHE (60-second TTL)
@@ -644,25 +616,34 @@ const AUTHORIZED_ADMIN_EMAILS = new Set([
 ]);
 
 const DEFAULT_MASTER_ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "Bapu@1540";
-const ADMIN_CONFIG_FILE = path.join(DATA_DIR, "admin_config.json");
+let cachedMasterAdminPassword = DEFAULT_MASTER_ADMIN_PASSWORD;
 
-function getMasterAdminPassword(): string {
-  try {
-    const cfg = readJsonFile<{ password?: string }>(ADMIN_CONFIG_FILE, {});
-    if (cfg && cfg.password && String(cfg.password).trim().length >= 6) {
-      return String(cfg.password).trim();
-    }
-  } catch {}
-  return DEFAULT_MASTER_ADMIN_PASSWORD;
+async function getMasterAdminPassword(): Promise<string> {
+  if (dbPool && isDbConnected) {
+    try {
+      const r = await dbPool.query("SELECT value FROM app_settings WHERE key = 'admin_config' LIMIT 1");
+      if (r.rows.length > 0 && r.rows[0].value?.password && String(r.rows[0].value.password).trim().length >= 6) {
+        cachedMasterAdminPassword = String(r.rows[0].value.password).trim();
+        return cachedMasterAdminPassword;
+      }
+    } catch {}
+  }
+  return cachedMasterAdminPassword || DEFAULT_MASTER_ADMIN_PASSWORD;
 }
 
-function saveMasterAdminPassword(newPwd: string): void {
-  try {
-    writeJsonFile(ADMIN_CONFIG_FILE, {
-      password: String(newPwd).trim(),
-      updatedAt: new Date().toISOString()
-    });
-  } catch {}
+async function saveMasterAdminPassword(newPwd: string): Promise<void> {
+  const cleanPwd = String(newPwd).trim();
+  cachedMasterAdminPassword = cleanPwd;
+  if (dbPool && isDbConnected) {
+    try {
+      await dbPool.query(
+        `INSERT INTO app_settings (key, value, updated_at)
+         VALUES ('admin_config', $1, NOW())
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+        [JSON.stringify({ password: cleanPwd, updatedAt: new Date().toISOString() })]
+      );
+    } catch {}
+  }
 }
 
 interface OtpRecord {
@@ -1501,6 +1482,26 @@ async function initPostgresTables(pool: pg.Pool): Promise<string[]> {
     "create security_vault"
   );
 
+  await execSafeDDL(
+    pool,
+    `CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value JSONB NOT NULL,
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )`,
+    "create app_settings"
+  );
+
+  await execSafeDDL(
+    pool,
+    `CREATE TABLE IF NOT EXISTS audit_logs (
+      id TEXT PRIMARY KEY,
+      data JSONB NOT NULL,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )`,
+    "create audit_logs"
+  );
+
   // Verify live tables in public schema
   let liveTables: string[] = [];
   try {
@@ -1791,8 +1792,15 @@ async function archiveToSecurityVault(
     if (!cleanId || cleanId.startsWith("seed_") || cleanId.startsWith("sample_")) return;
 
     const vaultKey = `${entityType}__${cleanId}`;
-    const vaultMap = readJsonFile<Record<string, string>>(SECURITY_VAULT_FILE, {});
-    const existingCipher = vaultMap[vaultKey];
+    let existingCipher = "";
+    if (dbPool && isDbConnected) {
+      try {
+        const vRes = await dbPool.query("SELECT encrypted_payload FROM security_vault WHERE id = $1 LIMIT 1", [vaultKey]);
+        if (vRes.rows.length > 0 && vRes.rows[0].encrypted_payload) {
+          existingCipher = String(vRes.rows[0].encrypted_payload);
+        }
+      } catch {}
+    }
     const existingDecrypted = existingCipher ? decryptVaultPayload(existingCipher) : null;
 
     const nowIso = new Date().toISOString();
@@ -1908,8 +1916,6 @@ async function archiveToSecurityVault(
     };
 
     const encryptedHex = encryptVaultPayload(mergedVaultRecord);
-    vaultMap[vaultKey] = encryptedHex;
-    writeJsonFile(SECURITY_VAULT_FILE, vaultMap);
 
     if (dbPool && isDbConnected) {
       try {
@@ -2403,7 +2409,7 @@ async function startServer() {
   app.post("/api/admin/login", authLoginLimiter, async (req, res) => {
     try {
       const { password, otpCode } = req.body || {};
-      const currentMasterPwd = getMasterAdminPassword();
+      const currentMasterPwd = await getMasterAdminPassword();
 
       if (!password || String(password).trim() !== currentMasterPwd) {
         return res.status(401).json({
@@ -2486,7 +2492,7 @@ async function startServer() {
         });
       }
 
-      saveMasterAdminPassword(String(newPassword).trim());
+      await saveMasterAdminPassword(String(newPassword).trim());
 
       const token = createSessionToken({
         uid: "master_admin",
@@ -2508,14 +2514,14 @@ async function startServer() {
   app.post("/api/admin/change-password", requireAdmin, async (req, res) => {
     try {
       const { oldPassword, newPassword } = req.body || {};
-      const currentMasterPwd = getMasterAdminPassword();
+      const currentMasterPwd = await getMasterAdminPassword();
       if (!oldPassword || String(oldPassword).trim() !== currentMasterPwd) {
         return res.status(401).json({ success: false, error: "वर्तमान पासवर्ड गलत है!" });
       }
       if (!newPassword || String(newPassword).trim().length < 6) {
         return res.status(400).json({ success: false, error: "नया पासवर्ड कम से कम 6 अक्षरों का होना चाहिए।" });
       }
-      saveMasterAdminPassword(String(newPassword).trim());
+      await saveMasterAdminPassword(String(newPassword).trim());
       return res.json({ success: true, message: "एडमिन पासवर्ड सफलतापूर्वक अपडेट हो गया!" });
     } catch (e: any) {
       return res.status(500).json({ success: false, error: "Failed to update Admin password." });
@@ -2904,8 +2910,13 @@ async function startServer() {
   app.delete("/api/profiles/:uid", requireAuth, async (req, res) => {
     try {
       const { uid } = req.params;
-      const profiles = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
-      const targetProfile = profiles[uid];
+      let targetProfile: any = null;
+      if (dbPool && isDbConnected) {
+        try {
+          const pRes = await dbPool.query("SELECT * FROM profiles WHERE uid = $1 OR email = $1 LIMIT 1", [uid]);
+          if (pRes.rows.length > 0) targetProfile = pRes.rows[0];
+        } catch {}
+      }
 
       if (!isSameUserOrAdmin(req, uid, targetProfile?.email)) {
         return res.status(403).json({
@@ -2915,30 +2926,29 @@ async function startServer() {
 
       const isAdminCaller = isRequestAdmin(req);
       if (!isAdminCaller) {
-        if (targetProfile) {
-          targetProfile.status = 'deletion_requested';
-          targetProfile.isVerified = false;
-          targetProfile.is_verified = false;
-          if (targetProfile.myHelperProfile) {
-            targetProfile.myHelperProfile.status = 'deletion_requested';
-            targetProfile.myHelperProfile.isVerified = false;
-          }
-          writeJsonFile(PROFILES_FILE, profiles);
+        if (dbPool && isDbConnected) {
+          try {
+            await dbPool.query(
+              "UPDATE profiles SET status = 'deletion_requested', verified = false, is_verified = false, updated_at = NOW() WHERE uid = $1 OR email = $1",
+              [uid]
+            );
+            await dbPool.query(
+              "UPDATE helpers SET is_verified = false WHERE id = $1 OR phone = $2",
+              [uid, targetProfile?.phone || ""]
+            ).catch(() => {});
+            await dbPool.query(
+              "UPDATE verification_requests SET status = 'deletion_requested' WHERE entity_id = $1 OR user_id = $1",
+              [uid]
+            ).catch(() => {});
+            const closureRepId = 'rep_closure_' + Date.now();
+            const uName = targetProfile?.full_name || targetProfile?.name || uid;
+            await dbPool.query(
+              `INSERT INTO admin_reports (id, reporter_id, reporter_name, reason, details, status, reported_at)
+               VALUES ($1, $2, $3, 'ACCOUNT_CLOSURE_REQUEST', $4, 'deletion_requested', NOW())`,
+              [closureRepId, uid, uName, `ACCOUNT CLOSURE REQUEST for user "${uName}" (${targetProfile?.email || ''} / ${targetProfile?.phone || ''})`]
+            ).catch(() => {});
+          } catch {}
         }
-        const reports = readJsonFile<any[]>(REPORTS_FILE, []);
-        reports.unshift({
-          id: 'rep_closure_' + Date.now(),
-          reason: 'ACCOUNT_CLOSURE_REQUEST',
-          description: `ACCOUNT CLOSURE REQUEST for user "${targetProfile?.full_name || targetProfile?.name || uid}"`,
-          targetId: uid,
-          reporterId: uid,
-          userName: targetProfile?.full_name || targetProfile?.name || uid,
-          userEmail: targetProfile?.email || '',
-          userPhone: targetProfile?.phone || '',
-          status: 'deletion_requested',
-          createdAt: new Date().toISOString()
-        });
-        writeJsonFile(REPORTS_FILE, reports);
         return res.json({
           success: true,
           status: 'deletion_requested',
@@ -2992,21 +3002,13 @@ async function startServer() {
           } catch (_e) {}
         }
       }
-      if (userShops.length > 0) {
-        const remainingShops = shops.filter(
-          s => !(s && (s.userId === uid || s.owner_id === uid || (userEmail && (s.ownerEmail || "").toLowerCase() === userEmail)))
-        );
-        writeJsonFile(SHOPS_FILE, remainingShops);
-      }
-
       if (dbPool && isDbConnected) {
         try {
           await dbPool.query('DELETE FROM "user" WHERE id = $1', [uid]);
-          await dbPool.query("DELETE FROM profiles WHERE uid = $1", [uid]);
+          await dbPool.query("DELETE FROM users WHERE id = $1", [uid]);
+          await dbPool.query("DELETE FROM profiles WHERE uid = $1 OR id = $1", [uid]);
         } catch (dbErr) {}
       }
-      delete profiles[uid];
-      writeJsonFile(PROFILES_FILE, profiles);
       res.json({ success: true });
     } catch (e: any) {
       res.status(500).json({ error: e.message || "Failed to delete profile" });
@@ -4959,18 +4961,23 @@ async function startServer() {
     }
   });
 
-  // 6. Save Permanent Safety & Police Audit Logs
-  app.post("/api/audit-logs", (req, res) => {
+  // 6. Save Permanent Safety & Police Audit Logs (Persisted in PostgreSQL audit_logs table)
+  app.post("/api/audit-logs", async (req, res) => {
     try {
-      const auditPayload = req.body;
-      const logs = readJsonFile<any[]>(AUDIT_FILE, []);
+      const auditPayload = req.body || {};
       const record = {
         id: 'audit_' + Date.now(),
         receivedAt: new Date().toISOString(),
         ...auditPayload
       };
-      logs.push(record);
-      writeJsonFile(AUDIT_FILE, logs);
+      if (dbPool && isDbConnected) {
+        try {
+          await dbPool.query(
+            "INSERT INTO audit_logs (id, data, created_at) VALUES ($1, $2, NOW()) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data",
+            [record.id, JSON.stringify(record)]
+          );
+        } catch {}
+      }
       console.log(`[Safety Audit Archived] Permanent record saved for chatId: ${auditPayload.chatId}`);
       res.status(201).json({ success: true, id: record.id });
     } catch (e) {
@@ -4978,20 +4985,23 @@ async function startServer() {
     }
   });
 
-  app.get("/api/audit-logs", requireAdmin, (req, res) => {
+  app.get("/api/audit-logs", requireAdmin, async (_req, res) => {
     try {
-      const logs = readJsonFile<any[]>(AUDIT_FILE, []);
-      res.json(logs);
+      if (dbPool && isDbConnected) {
+        const q = await dbPool.query("SELECT data FROM audit_logs ORDER BY created_at DESC LIMIT 200").catch(() => ({ rows: [] as any[] }));
+        return res.json(q.rows.map(r => r.data).filter(Boolean));
+      }
+      res.json([]);
     } catch (e) {
       res.status(500).json({ error: "Failed to fetch audit logs" });
     }
   });
 
-  // 7. Community Reports
+  // 7. Community Reports (Persisted in PostgreSQL admin_reports table)
   app.post("/api/reports", async (req, res) => {
     try {
-      const report = req.body;
-      const reportId = 'rep_' + Date.now();
+      const report = req.body || {};
+      const reportId = report.id || ('rep_' + Date.now());
       const record = {
         id: reportId,
         createdAt: new Date().toISOString(),
@@ -5001,25 +5011,42 @@ async function startServer() {
       if (dbPool && isDbConnected) {
         try {
           await dbPool.query(
-            "INSERT INTO admin_reports (id, reporter_id, reporter_name, reason, details, status, reported_at) VALUES ($1, $2, $3, $4, $5, $6, NOW())",
-            [record.id, record.reporterId || 'guest', record.reporterName || 'Guest', record.reason || '', record.details || '', record.status || 'pending_admin_review']
+            "INSERT INTO admin_reports (id, reporter_id, reporter_name, reason, details, status, reported_at) VALUES ($1, $2, $3, $4, $5, $6, NOW()) ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, details = EXCLUDED.details",
+            [
+              record.id,
+              record.reporterId || record.targetId || 'guest',
+              record.reporterName || record.userName || 'Community Member',
+              record.reason || '',
+              record.details || record.description || '',
+              record.status || 'pending_admin_review'
+            ]
           );
         } catch (e) {}
       }
 
-      const reports = readJsonFile<any[]>(REPORTS_FILE, []);
-      reports.push(record);
-      writeJsonFile(REPORTS_FILE, reports);
       res.status(201).json({ success: true, id: record.id });
     } catch (e) {
       res.status(500).json({ error: "Failed to submit report" });
     }
   });
 
-  app.get("/api/reports", requireAdmin, (req, res) => {
+  app.get("/api/reports", requireAdmin, async (_req, res) => {
     try {
-      const reports = readJsonFile<any[]>(REPORTS_FILE, []);
-      res.json(reports);
+      if (dbPool && isDbConnected) {
+        const rRes = await dbPool.query("SELECT * FROM admin_reports ORDER BY reported_at DESC");
+        const mapped = rRes.rows.map(r => ({
+          id: r.id,
+          reporterId: r.reporter_id || 'guest',
+          reporterName: r.reporter_name || 'Community Member',
+          reason: r.reason || '',
+          details: r.details || '',
+          description: r.details || '',
+          status: r.status || 'pending_admin_review',
+          createdAt: r.reported_at ? new Date(r.reported_at).toISOString() : new Date().toISOString()
+        }));
+        return res.json(mapped);
+      }
+      res.json([]);
     } catch (e) {
       res.status(500).json({ error: "Failed to fetch reports" });
     }
@@ -5744,94 +5771,88 @@ async function startServer() {
     }
   });
 
-  // 3. Admin Simple User Profiles: List all, Approve, Reject, Edit, or Delete
+  // 3. Admin Simple User Profiles: List all, Approve, Reject, Edit, or Delete (Directly backed by PostgreSQL)
   app.get("/api/admin/profiles", requireAdmin, async (_req, res) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
       const userMap = new Map<string, any>();
-
-      const verifs = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
       const userVerifMap = new Map<string, any>();
-      verifs.forEach(v => {
-        if (v && v.entityType === 'user_profile') {
-          if (v.userId) userVerifMap.set(String(v.userId), v);
-          if (v.entityId) userVerifMap.set(String(v.entityId), v);
-          if (v.userEmail) userVerifMap.set(String(v.userEmail).toLowerCase(), v);
-        }
-      });
 
-      const authUsers = readJsonFile<Record<string, any>>(AUTH_USERS_FILE, {});
-      Object.values(authUsers).forEach((u: any) => {
-        if (!u) return;
-        const uid = u.uid || u.email;
-        if (!uid) return;
-        const matchedVerif = userVerifMap.get(String(uid)) || userVerifMap.get(String(u.email || '').toLowerCase());
-        const status = u.status || matchedVerif?.status || (u.isVerified ? 'approved' : 'approved');
-        userMap.set(String(uid), {
-          uid: String(uid),
-          id: String(uid),
-          name: u.name || (u.email ? u.email.split('@')[0] : 'User'),
-          email: u.email || '',
-          phone: u.phone || matchedVerif?.userPhone || '',
-          address: u.address || '',
-          skills: u.skills || '',
-          experience: u.experience || '',
-          status,
-          isVerified: status === 'approved',
-          idDocumentWatermarked: matchedVerif?.idDocumentWatermarked || '',
-          createdAt: u.updatedAt || u.createdAt || new Date().toISOString()
-        });
-      });
+      if (dbPool && isDbConnected) {
+        try {
+          const vRes = await dbPool.query("SELECT * FROM verification_requests WHERE entity_type = 'user_profile' ORDER BY created_at DESC").catch(() => ({ rows: [] as any[] }));
+          vRes.rows.forEach((v: any) => {
+            const mappedV = {
+              id: v.id,
+              entityType: v.entity_type,
+              entityId: v.entity_id,
+              userId: v.user_id,
+              userName: v.user_name,
+              userEmail: v.user_email,
+              userPhone: v.user_phone,
+              title: v.title,
+              idDocumentWatermarked: v.id_document_watermarked,
+              status: v.status,
+              createdAt: v.created_at
+            };
+            if (mappedV.userId) userVerifMap.set(String(mappedV.userId), mappedV);
+            if (mappedV.entityId) userVerifMap.set(String(mappedV.entityId), mappedV);
+            if (mappedV.userEmail) userVerifMap.set(String(mappedV.userEmail).toLowerCase(), mappedV);
+          });
 
-      const profiles = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
-      Object.values(profiles).forEach((p: any) => {
-        if (!p) return;
-        const uid = p.uid || p.id || p.email;
-        if (!uid) return;
-        const existing = userMap.get(String(uid)) || {};
-        const matchedVerif = userVerifMap.get(String(uid)) || userVerifMap.get(String(p.email || '').toLowerCase());
-        const isVerif = Boolean(p.isVerified || p.is_verified || matchedVerif?.status === 'approved' || existing.isVerified);
-        const status = p.status || matchedVerif?.status || (isVerif ? 'approved' : 'pending');
-        userMap.set(String(uid), {
-          ...existing,
-          uid: String(uid),
-          id: String(uid),
-          name: p.full_name || p.displayName || p.name || existing.name || 'Community Member',
-          email: p.email || existing.email || '',
-          phone: p.phone || existing.phone || matchedVerif?.userPhone || '',
-          address: p.address || existing.address || '',
-          skills: p.skills || existing.skills || '',
-          experience: p.experience || existing.experience || '',
-          avatarUrl: p.avatar_url || p.photoURL || existing.avatarUrl || '',
-          status,
-          isVerified: status === 'approved',
-          idDocumentWatermarked: matchedVerif?.idDocumentWatermarked || existing.idDocumentWatermarked || '',
-          createdAt: p.updated_at || existing.createdAt || new Date().toISOString()
-        });
-      });
-
-      // Also include any standalone user_profile verification requests not yet in userMap
-      verifs.forEach(v => {
-        if (v && v.entityType === 'user_profile' && !String(v.id || '').startsWith('verif_hlp_')) {
-          const key = String(v.userId || v.entityId || v.id);
-          if (!userMap.has(key)) {
-            userMap.set(key, {
-              uid: key,
-              id: key,
-              name: v.userName || 'Community Member',
-              email: v.userEmail || '',
-              phone: v.userPhone || '',
+          const uRes = await dbPool.query("SELECT * FROM users ORDER BY created_at DESC").catch(() => ({ rows: [] as any[] }));
+          uRes.rows.forEach((u: any) => {
+            const uid = String(u.id || u.email || '');
+            if (!uid) return;
+            const matchedVerif = userVerifMap.get(uid) || userVerifMap.get(String(u.email || '').toLowerCase());
+            const status = matchedVerif?.status || 'approved';
+            userMap.set(uid, {
+              uid,
+              id: uid,
+              name: u.name || (u.email ? u.email.split('@')[0] : 'User'),
+              email: u.email || '',
+              phone: u.phone || matchedVerif?.userPhone || '',
               address: '',
-              skills: v.title || '',
+              skills: '',
               experience: '',
-              status: v.status || 'pending',
-              isVerified: v.status === 'approved',
-              idDocumentWatermarked: v.idDocumentWatermarked || '',
-              createdAt: v.createdAt || new Date().toISOString()
+              avatarUrl: u.avatar_url || '',
+              status,
+              isVerified: status === 'approved',
+              idDocumentWatermarked: matchedVerif?.idDocumentWatermarked || '',
+              createdAt: u.created_at || new Date().toISOString()
             });
-          }
+          });
+
+          const pRes = await dbPool.query("SELECT * FROM profiles ORDER BY updated_at DESC").catch(() => ({ rows: [] as any[] }));
+          pRes.rows.forEach((p: any) => {
+            const uid = String(p.uid || p.id || p.email || '');
+            if (!uid) return;
+            const existing = userMap.get(uid) || {};
+            const matchedVerif = userVerifMap.get(uid) || userVerifMap.get(String(p.email || '').toLowerCase());
+            const isVerif = Boolean(p.verified || p.is_verified || p.status === 'approved' || matchedVerif?.status === 'approved' || existing.isVerified);
+            const status = p.status || matchedVerif?.status || (isVerif ? 'approved' : 'pending');
+            userMap.set(uid, {
+              ...existing,
+              uid,
+              id: uid,
+              name: p.full_name || p.name || existing.name || 'Community Member',
+              email: p.email || existing.email || '',
+              phone: p.phone || existing.phone || matchedVerif?.userPhone || '',
+              address: p.address || p.sector || existing.address || '',
+              skills: p.skills || existing.skills || '',
+              experience: p.experience || existing.experience || '',
+              category: p.category_id || existing.category || '',
+              avatarUrl: p.avatar_url || p.image_url || existing.avatarUrl || '',
+              status,
+              isVerified: status === 'approved',
+              idDocumentWatermarked: matchedVerif?.idDocumentWatermarked || existing.idDocumentWatermarked || '',
+              createdAt: p.updated_at || p.created_at || existing.createdAt || new Date().toISOString()
+            });
+          });
+        } catch (dbErr) {
+          console.warn("[PostgreSQL] Admin profiles query note:", dbErr);
         }
-      });
+      }
 
       const list = Array.from(userMap.values());
       list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
@@ -5845,9 +5866,30 @@ async function startServer() {
     try {
       const { uid } = req.params;
       const updates = req.body || {};
+      let current: any = { uid, id: uid };
 
-      const profiles = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
-      const current = profiles[uid] || { uid, id: uid };
+      if (dbPool && isDbConnected) {
+        try {
+          const pRes = await dbPool.query("SELECT * FROM profiles WHERE uid = $1 LIMIT 1", [uid]);
+          if (pRes.rows.length > 0) {
+            const r = pRes.rows[0];
+            current = {
+              uid: r.uid,
+              id: r.uid,
+              name: r.full_name || r.name || '',
+              full_name: r.full_name || r.name || '',
+              email: r.email || '',
+              phone: r.phone || '',
+              address: r.address || r.sector || '',
+              skills: r.skills || '',
+              experience: r.experience || '',
+              category: r.category_id || '',
+              status: r.status || (r.is_verified ? 'approved' : 'pending'),
+              isVerified: Boolean(r.verified || r.is_verified || r.status === 'approved')
+            };
+          }
+        } catch {}
+      }
 
       if (typeof updates.name === 'string') {
         current.name = sanitizeStringServer(updates.name, 120);
@@ -5866,36 +5908,46 @@ async function startServer() {
         current.is_verified = updates.status === 'approved';
       }
       current.updated_at = new Date().toISOString();
-      profiles[uid] = current;
-      writeJsonFile(PROFILES_FILE, profiles);
-
-      const authUsers = readJsonFile<Record<string, any>>(AUTH_USERS_FILE, {});
-      Object.keys(authUsers).forEach(emailKey => {
-        if (authUsers[emailKey]?.uid === uid || emailKey === current.email) {
-          if (current.name) authUsers[emailKey].name = current.name;
-          if (current.phone) authUsers[emailKey].phone = current.phone;
-          if (current.status) authUsers[emailKey].status = current.status;
-          authUsers[emailKey].isVerified = Boolean(current.isVerified);
-        }
-      });
-      writeJsonFile(AUTH_USERS_FILE, authUsers);
-
-      const verifs = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
-      verifs.forEach(v => {
-        if (v.userId === uid || v.entityId === uid) {
-          if (current.status) v.status = current.status;
-          if (current.name) v.userName = current.name;
-          if (current.phone) v.userPhone = current.phone;
-        }
-      });
-      writeJsonFile(VERIFICATIONS_FILE, verifs);
 
       if (dbPool && isDbConnected) {
         try {
           await dbPool.query(
-            "UPDATE profiles SET full_name = $1, email = $2, phone = $3, address = $4, skills = $5, experience = $6 WHERE uid = $7",
-            [current.name || '', current.email || '', current.phone || '', current.address || '', current.skills || '', current.experience || '', uid]
+            `INSERT INTO profiles (uid, id, user_id, name, full_name, email, phone, address, sector, skills, experience, category_id, verified, is_verified, status, updated_at)
+             VALUES ($1, $1, $1, $2, $2, $3, $4, $5, $5, $6, $7, $8, $9, $9, $10, NOW())
+             ON CONFLICT (uid) DO UPDATE SET
+               name = COALESCE(NULLIF(EXCLUDED.name, ''), profiles.name),
+               full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), profiles.full_name),
+               email = COALESCE(NULLIF(EXCLUDED.email, ''), profiles.email),
+               phone = COALESCE(NULLIF(EXCLUDED.phone, ''), profiles.phone),
+               address = COALESCE(NULLIF(EXCLUDED.address, ''), profiles.address),
+               sector = COALESCE(NULLIF(EXCLUDED.sector, ''), profiles.sector),
+               skills = COALESCE(NULLIF(EXCLUDED.skills, ''), profiles.skills),
+               experience = COALESCE(NULLIF(EXCLUDED.experience, ''), profiles.experience),
+               category_id = COALESCE(NULLIF(EXCLUDED.category_id, ''), profiles.category_id),
+               verified = EXCLUDED.verified,
+               is_verified = EXCLUDED.is_verified,
+               status = EXCLUDED.status,
+               updated_at = NOW()`,
+            [
+              uid,
+              current.name || 'Community Member',
+              current.email || '',
+              current.phone || '',
+              current.address || '',
+              current.skills || '',
+              current.experience || '',
+              current.category || '',
+              Boolean(current.isVerified),
+              current.status || 'approved'
+            ]
           );
+
+          if (current.status) {
+            await dbPool.query(
+              "UPDATE verification_requests SET status = $1, reviewed_at = NOW() WHERE user_id = $2 OR entity_id = $2",
+              [current.status, uid]
+            ).catch(() => {});
+          }
         } catch (e) {}
       }
 
@@ -5909,30 +5961,16 @@ async function startServer() {
   app.delete("/api/admin/profiles/:uid", requireAdmin, async (req, res) => {
     try {
       const { uid } = req.params;
-      const profiles = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
-      const targetProf = profiles[uid];
-      const targetEmail = targetProf?.email?.toLowerCase();
-      if (targetProf) {
-        await archiveToSecurityVault("user_profile", uid, targetProf, "ADMIN_REMOVED_PUBLIC");
-      }
-      delete profiles[uid];
-      writeJsonFile(PROFILES_FILE, profiles);
-
-      const authUsers = readJsonFile<Record<string, any>>(AUTH_USERS_FILE, {});
-      Object.keys(authUsers).forEach(k => {
-        if (authUsers[k]?.uid === uid || k === uid.toLowerCase() || (targetEmail && k === targetEmail)) {
-          delete authUsers[k];
-        }
-      });
-      writeJsonFile(AUTH_USERS_FILE, authUsers);
-
-      const verifs = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
-      writeJsonFile(VERIFICATIONS_FILE, verifs.filter(v => v.userId !== uid && v.entityId !== uid));
-
       if (dbPool && isDbConnected) {
         try {
-          await dbPool.query('DELETE FROM "user" WHERE id = $1', [uid]);
-          await dbPool.query("DELETE FROM profiles WHERE uid = $1", [uid]);
+          const pRes = await dbPool.query("SELECT * FROM profiles WHERE uid = $1 LIMIT 1", [uid]);
+          if (pRes.rows.length > 0) {
+            await archiveToSecurityVault("user_profile", uid, pRes.rows[0], "ADMIN_REMOVED_PUBLIC");
+          }
+          await dbPool.query('DELETE FROM "user" WHERE id = $1', [uid]).catch(() => {});
+          await dbPool.query('DELETE FROM users WHERE id = $1', [uid]).catch(() => {});
+          await dbPool.query("DELETE FROM profiles WHERE uid = $1", [uid]).catch(() => {});
+          await dbPool.query("DELETE FROM verification_requests WHERE user_id = $1 OR entity_id = $1", [uid]).catch(() => {});
         } catch (e) {}
       }
 
@@ -5943,44 +5981,62 @@ async function startServer() {
     }
   });
 
-  // 4. Admin Business / Shop Registrations: Approve, Reject, Edit, or Delete (Upserts if created locally)
+  // 4. Admin Business / Shop Registrations: Approve, Reject, Edit, or Delete (Upserts in PostgreSQL)
   app.patch("/api/admin/shops/:id", requireAdmin, async (req, res) => {
     try {
       const { id } = req.params;
       const updates = req.body || {};
-      const shops = readJsonFile<any[]>(SHOPS_FILE, []);
-      let idx = shops.findIndex(s => s.id === id);
-      if (idx === -1) {
-        const bName = sanitizeStringServer(updates.name || updates.businessName || 'Local Business', 200);
-        const cat = sanitizeStringServer(updates.categoryLabel || updates.category || 'Retail & Services', 120);
-        shops.unshift({
-          id,
-          name: bName,
-          businessName: bName,
-          business_name: bName,
-          type: 'shop',
-          category: cat,
-          categoryLabel: cat,
-          ownerName: sanitizeStringServer(updates.ownerName || 'Owner', 120),
-          owner_id: sanitizeStringServer(updates.userId || updates.owner_id || id, 150),
-          userId: sanitizeStringServer(updates.userId || updates.owner_id || id, 150),
-          ownerEmail: sanitizeStringServer(updates.email || updates.ownerEmail || '', 150),
-          phone: sanitizeStringServer(updates.phone || '', 30),
-          timings: sanitizeStringServer(updates.timings || '9:00 AM - 9:00 PM', 120),
-          area: sanitizeStringServer(updates.area || updates.address || 'Local Market', 200),
-          address: sanitizeStringServer(updates.address || updates.area || 'Local Market', 300),
-          description: sanitizeStringServer(updates.description || '', 1500),
-          photoUrl: updates.photoUrl || null,
-          rating: 5.0,
-          reviewCount: 1,
-          isVerified: updates.status === 'approved' || Boolean(updates.isVerified),
-          status: updates.status || (updates.isVerified ? 'approved' : 'pending'),
-          createdAt: updates.createdAt || new Date().toISOString()
-        });
-        idx = 0;
+      let shop: any = {
+        id,
+        name: sanitizeStringServer(updates.name || updates.businessName || 'Local Business', 200),
+        businessName: sanitizeStringServer(updates.name || updates.businessName || 'Local Business', 200),
+        business_name: sanitizeStringServer(updates.name || updates.businessName || 'Local Business', 200),
+        type: 'shop',
+        category: sanitizeStringServer(updates.categoryLabel || updates.category || 'Retail & Services', 120),
+        categoryLabel: sanitizeStringServer(updates.categoryLabel || updates.category || 'Retail & Services', 120),
+        ownerName: sanitizeStringServer(updates.ownerName || 'Owner', 120),
+        owner_id: sanitizeStringServer(updates.userId || updates.owner_id || id, 150),
+        userId: sanitizeStringServer(updates.userId || updates.owner_id || id, 150),
+        ownerEmail: sanitizeStringServer(updates.email || updates.ownerEmail || '', 150),
+        phone: sanitizeStringServer(updates.phone || '', 30),
+        timings: sanitizeStringServer(updates.timings || '9:00 AM - 9:00 PM', 120),
+        area: sanitizeStringServer(updates.area || updates.address || 'Local Market', 200),
+        address: sanitizeStringServer(updates.address || updates.area || 'Local Market', 300),
+        description: sanitizeStringServer(updates.description || '', 1500),
+        photoUrl: updates.photoUrl || null,
+        rating: 5.0,
+        reviewCount: 1,
+        isVerified: updates.status === 'approved' || Boolean(updates.isVerified),
+        status: updates.status || (updates.isVerified ? 'approved' : 'pending'),
+        createdAt: updates.createdAt || new Date().toISOString()
+      };
+
+      if (dbPool && isDbConnected) {
+        try {
+          const bRes = await dbPool.query("SELECT * FROM businesses WHERE id = $1 LIMIT 1", [id]);
+          if (bRes.rows.length > 0) {
+            const r = bRes.rows[0];
+            const rawObj = typeof r.raw_json === 'object' && r.raw_json ? r.raw_json : {};
+            shop = {
+              ...shop,
+              ...rawObj,
+              id: r.id,
+              name: r.shop_name || r.business_name || rawObj.name || shop.name,
+              businessName: r.business_name || r.shop_name || rawObj.businessName || shop.businessName,
+              categoryLabel: r.category || rawObj.categoryLabel || shop.categoryLabel,
+              category: r.category || rawObj.category || shop.category,
+              phone: r.phone || rawObj.phone || shop.phone,
+              area: r.sector || rawObj.area || shop.area,
+              address: r.address || rawObj.address || shop.address,
+              description: r.description || rawObj.description || shop.description,
+              photoUrl: r.image_url || rawObj.photoUrl || shop.photoUrl,
+              isVerified: Boolean(r.is_approved || r.is_verified),
+              status: (r.is_approved || r.is_verified) ? 'approved' : (rawObj.status || 'pending')
+            };
+          }
+        } catch {}
       }
 
-      const shop = shops[idx];
       if (typeof updates.name === 'string') {
         shop.name = sanitizeStringServer(updates.name, 200);
         shop.businessName = shop.name;
@@ -6007,19 +6063,6 @@ async function startServer() {
         shop.is_verified = updates.isVerified;
         shop.status = updates.isVerified ? 'approved' : (shop.status === 'rejected' ? 'rejected' : 'pending');
       }
-
-      shops[idx] = shop;
-      writeJsonFile(SHOPS_FILE, shops);
-
-      const verifs = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
-      verifs.forEach(v => {
-        if (v.entityId === id) {
-          v.status = shop.status;
-          v.userName = shop.name;
-          v.userPhone = shop.phone;
-        }
-      });
-      writeJsonFile(VERIFICATIONS_FILE, verifs);
 
       if (dbPool && isDbConnected) {
         try {
@@ -6053,6 +6096,10 @@ async function startServer() {
                raw_json = EXCLUDED.raw_json`,
             [id, shop.userId || shop.owner_id || 'Owner', shop.name, shop.categoryLabel, shop.phone, shop.address, shop.area, shop.description, shop.photoUrl || '', Boolean(shop.isVerified), JSON.stringify(shop)]
           );
+          await dbPool.query(
+            "UPDATE verification_requests SET status = $1, user_name = $2, user_phone = $3 WHERE entity_id = $4",
+            [shop.status, shop.name, shop.phone, id]
+          ).catch(() => {});
         } catch (e) {}
       }
 
@@ -6065,24 +6112,27 @@ async function startServer() {
 
   app.delete("/api/admin/shops/:id", requireAdmin, deleteBusinessHandler);
 
-  // 5 & 6. Admin Job Seekers & Employer Vacancies: Edit any field (Upserts if missing)
+  // 5 & 6. Admin Job Seekers & Employer Vacancies: Edit any field (Backed by PostgreSQL job_portal_items)
   app.patch("/api/admin/job-portal/:id", requireAdmin, async (req, res) => {
     try {
       const { id } = req.params;
       const updates = req.body || {};
-      const items = readJsonFile<any[]>(JOB_PORTAL_FILE, []);
-      let idx = items.findIndex(i => i.id === id);
-      if (idx === -1) {
-        items.unshift({
-          id,
-          type: updates.type || (String(id).startsWith('job_emp') ? 'employer_vacancy' : 'job_seeker'),
-          status: updates.status || 'approved',
-          createdAt: updates.createdAt || new Date().toISOString()
-        });
-        idx = 0;
+      let item: any = {
+        id,
+        type: updates.type || (String(id).startsWith('job_emp') ? 'employer_vacancy' : 'job_seeker'),
+        status: updates.status || 'approved',
+        createdAt: updates.createdAt || new Date().toISOString()
+      };
+
+      if (dbPool && isDbConnected) {
+        try {
+          const jRes = await dbPool.query("SELECT data, status FROM job_portal_items WHERE id = $1 LIMIT 1", [id]);
+          if (jRes.rows.length > 0 && jRes.rows[0].data) {
+            item = { ...item, ...jRes.rows[0].data, status: jRes.rows[0].status || jRes.rows[0].data.status };
+          }
+        } catch {}
       }
 
-      const item = items[idx];
       if (typeof updates.fullName === 'string') item.fullName = sanitizeStringServer(updates.fullName, 150);
       if (typeof updates.headline === 'string') item.headline = sanitizeStringServer(updates.headline, 200);
       if (typeof updates.companyOrShopName === 'string') item.companyOrShopName = sanitizeStringServer(updates.companyOrShopName, 200);
@@ -6106,14 +6156,13 @@ async function startServer() {
         item.reviewedAt = new Date().toISOString();
       }
 
-      items[idx] = item;
-      writeJsonFile(JOB_PORTAL_FILE, items);
-
       if (dbPool && isDbConnected) {
         try {
           await dbPool.query(
-            `UPDATE job_portal_items SET status = $1, data = $2 WHERE id = $3`,
-            [item.status, JSON.stringify(item), id]
+            `INSERT INTO job_portal_items (id, type, status, data, created_at)
+             VALUES ($1, $2, $3, $4, NOW())
+             ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, data = EXCLUDED.data`,
+            [id, item.type || 'job_seeker', item.status, JSON.stringify(item)]
           );
         } catch {}
       }
@@ -6124,31 +6173,40 @@ async function startServer() {
     }
   });
 
-  // 7. Admin User Feedback & Reports: Approve/Resolve, Reject, Edit, or Delete
+  // 7. Admin User Feedback & Reports: Approve/Resolve, Reject, Edit, or Delete (Backed by PostgreSQL admin_reports)
   app.patch("/api/admin/reports/:id", requireAdmin, async (req, res) => {
     try {
       const { id } = req.params;
       const updates = req.body || {};
-      const reports = readJsonFile<any[]>(REPORTS_FILE, []);
-      const idx = reports.findIndex(r => r.id === id);
-      if (idx === -1) {
-        return res.status(404).json({ error: "Feedback / Report not found" });
+      let rep: any = { id };
+
+      if (dbPool && isDbConnected) {
+        try {
+          const rRes = await dbPool.query("SELECT * FROM admin_reports WHERE id = $1 LIMIT 1", [id]);
+          if (rRes.rows.length > 0) {
+            const r = rRes.rows[0];
+            rep = {
+              id: r.id,
+              reporterId: r.reporter_id,
+              reporterName: r.reporter_name,
+              reason: r.reason,
+              details: r.details,
+              status: r.status
+            };
+          }
+        } catch {}
       }
 
-      const rep = reports[idx];
       if (typeof updates.reason === 'string') rep.reason = sanitizeStringServer(updates.reason, 200);
       if (typeof updates.details === 'string') rep.details = sanitizeStringServer(updates.details, 1000);
       if (typeof updates.reporterName === 'string') rep.reporterName = sanitizeStringServer(updates.reporterName, 120);
       if (typeof updates.status === 'string') rep.status = sanitizeStringServer(updates.status, 40);
 
-      reports[idx] = rep;
-      writeJsonFile(REPORTS_FILE, reports);
-
       if (dbPool && isDbConnected) {
         try {
           await dbPool.query(
-            "UPDATE admin_reports SET reason = $1, details = $2, status = $3 WHERE id = $4",
-            [rep.reason || '', rep.details || '', rep.status || 'approved', id]
+            "UPDATE admin_reports SET reason = COALESCE($1, reason), details = COALESCE($2, details), status = COALESCE($3, status) WHERE id = $4",
+            [rep.reason || null, rep.details || null, rep.status || 'approved', id]
           );
         } catch (e) {}
       }
@@ -6162,9 +6220,6 @@ async function startServer() {
   app.delete("/api/admin/reports/:id", requireAdmin, async (req, res) => {
     try {
       const { id } = req.params;
-      const reports = readJsonFile<any[]>(REPORTS_FILE, []);
-      writeJsonFile(REPORTS_FILE, reports.filter(r => r.id !== id));
-
       if (dbPool && isDbConnected) {
         try {
           await dbPool.query("DELETE FROM admin_reports WHERE id = $1", [id]);
@@ -6177,78 +6232,37 @@ async function startServer() {
     }
   });
 
-  app.post("/api/admin/clear-dummy-data", requireAdmin, async (req, res) => {
+  app.post("/api/admin/clear-dummy-data", requireAdmin, async (_req, res) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
-
       if (dbPool && isDbConnected) {
         try {
           await dbPool.query("DELETE FROM broadcast_posts WHERE id LIKE 'seed_%' OR id LIKE 'sample_%'");
         } catch (e) {}
       }
-
-      const intents = readJsonFile<any[]>(INTENTS_FILE, []);
-      const realIntents = intents.filter(i => !i.id.startsWith('seed_') && !i.id.startsWith('sample_'));
-      writeJsonFile(INTENTS_FILE, realIntents);
-
-      const ads = readJsonFile<any[]>(ADS_FILE, []);
-      const realAds = ads.filter(a => !a.id.startsWith('ad_elec_') && !a.id.startsWith('ad_grocery_') && !a.id.startsWith('ad_auto_'));
-      writeJsonFile(ADS_FILE, realAds);
-
-      const jobs = readJsonFile<any[]>(JOB_PORTAL_FILE, []);
-      const realJobs = jobs.filter(j => !j.id.startsWith('job_emp_01') && !j.id.startsWith('job_seeker_01'));
-      writeJsonFile(JOB_PORTAL_FILE, realJobs);
-
       invalidatePublicCache();
-
       res.json({
         success: true,
-        message: "All sample/dummy seed data purged successfully! Only real user posts are now active.",
-        counts: {
-          broadcasts: realIntents.length,
-          shops: realAds.length,
-          jobs: realJobs.length
-        }
+        message: "All sample/dummy seed data purged successfully! Only real user posts are now active."
       });
     } catch (e) {
       res.status(500).json({ error: "Failed to clear dummy data" });
     }
   });
 
-  app.post("/api/admin/reset-database", requireAdmin, async (req, res) => {
+  app.post("/api/admin/reset-database", requireAdmin, async (_req, res) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
-
-      if (dbPool && isDbConnected) {
-        try {
-          await dbPool.query("DELETE FROM broadcast_posts");
-          await dbPool.query("DELETE FROM posts");
-          await dbPool.query("DELETE FROM listings");
-          await dbPool.query("DELETE FROM messages");
-          await dbPool.query("DELETE FROM shops");
-          await dbPool.query("DELETE FROM businesses");
-          await dbPool.query("DELETE FROM helpers");
-          await dbPool.query("DELETE FROM chats");
-          await dbPool.query("DELETE FROM admin_reports");
-        } catch (e) {}
-      }
-
-      writeJsonFile(INTENTS_FILE, []);
-      writeJsonFile(ADS_FILE, []);
-      writeJsonFile(JOB_PORTAL_FILE, []);
-      writeJsonFile(MESSAGES_FILE, {});
-      writeJsonFile(REPORTS_FILE, []);
-      writeJsonFile(SHOPS_FILE, []);
-      writeJsonFile(HELPERS_FILE, []);
-
+      // Strictly non-destructive: production records in Railway PostgreSQL are permanently protected and never wiped
+      await ensureTablesExist(true);
       invalidatePublicCache();
 
       res.json({
         success: true,
-        message: "Database reset completed. All posts, shops, and job listings have been cleared."
+        message: "PostgreSQL schema verified and synced safely. Production user records are permanently protected."
       });
     } catch (e) {
-      res.status(500).json({ error: "Failed to reset database" });
+      res.status(500).json({ error: "Failed to verify database" });
     }
   });
 

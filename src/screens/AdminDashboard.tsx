@@ -96,6 +96,7 @@ interface AdminDashboardProps {
 
 type AdminModuleId =
   | 'home'
+  | 'approved_list'
   | 'help_posts'
   | 'helpers'
   | 'simple_users'
@@ -157,6 +158,8 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
   const [activeModule, setActiveModule] = useState<AdminModuleId>('home');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
+  const [approvedGroupFilter, setApprovedGroupFilter] = useState<'all' | 'helpers' | 'businesses' | 'simple_users' | 'employers' | 'job_seekers' | 'help_posts'>('all');
+  const [approvedSearchQuery, setApprovedSearchQuery] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Live Data States for all 7 modules
@@ -2041,6 +2044,13 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
 
               <div className="flex flex-wrap items-center gap-2 shrink-0">
                 <button
+                  onClick={() => openModule('approved_list')}
+                  className="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white text-xs font-black flex items-center gap-1.5 cursor-pointer transition-all shadow-lg shadow-emerald-500/25 border border-emerald-400/40"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>✅ Approved List</span>
+                </button>
+                <button
                   onClick={() => openModule('ads')}
                   className="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-black flex items-center gap-1.5 cursor-pointer transition-all shadow-lg shadow-cyan-500/20"
                 >
@@ -2066,6 +2076,45 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
 
             {/* 2. GRID OF SMALL CLICKABLE ADMIN BANNERS (CARDS) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {/* Dedicated Card: Approved List (All Admin-Approved Items Grouped) */}
+              <motion.button
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                onClick={() => openModule('approved_list')}
+                className="text-left group relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-950/70 via-[#111827] to-[#111827] hover:from-emerald-900/60 border-2 border-emerald-500/50 hover:border-emerald-400 p-4 sm:p-5 transition-all duration-200 shadow-lg shadow-emerald-500/10 hover:shadow-xl cursor-pointer flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center shadow-md shrink-0 group-hover:scale-105 transition-transform">
+                      <CheckCircle2 className="w-5 h-5 text-white" />
+                    </div>
+                    <span className="px-2.5 py-1 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-[11px] font-black text-emerald-300">
+                      ✅ Total Approved: {
+                        helpers.filter(h => getNormalizedStatus(h, 'helpers') === 'approved').length +
+                        businesses.filter(b => getNormalizedStatus(b, 'businesses') === 'approved').length +
+                        simpleUsers.filter(u => getNormalizedStatus(u, 'simple_users') === 'approved').length +
+                        employersList.filter(j => getNormalizedStatus(j, 'employers') === 'approved').length +
+                        jobSeekersList.filter(j => getNormalizedStatus(j, 'job_seekers') === 'approved').length +
+                        intents.filter(i => getNormalizedStatus(i, 'help_posts') === 'approved').length
+                      }
+                    </span>
+                  </div>
+                  <h3 className="text-base font-black text-white group-hover:text-emerald-300 transition-colors leading-snug">
+                    ✅ Approved List (All Approved Items)
+                  </h3>
+                  <p className="text-xs font-bold text-emerald-400 mt-0.5">
+                    एडमिन द्वारा अप्रूव किए गए सभी प्रोफाइल, दुकानें और जॉब्स
+                  </p>
+                  <p className="text-[11px] text-slate-400/90 mt-2 line-clamp-2 leading-relaxed">
+                    Dedicated grouped directory of all admin-approved Service Experts, Shops/Businesses, User Profiles, Employers, Job Seekers &amp; Broadcasts.
+                  </p>
+                </div>
+                <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs font-black text-emerald-400 group-hover:text-emerald-300">
+                  <span>Open Approved List</span>
+                  <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                </div>
+              </motion.button>
+
               {ADMIN_MODULES.map((mod, idx) => (
                 <motion.button
                   key={mod.id}
@@ -2228,9 +2277,269 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         )}
 
         {/* ============================================================ */}
+        {/* VIEW 1B: DEDICATED APPROVED LIST (ALL ADMIN-APPROVED ITEMS)  */}
+        {/* ============================================================ */}
+        {activeModule === 'approved_list' && (() => {
+          const q = approvedSearchQuery.trim().toLowerCase();
+          const matchesSearch = (item: any) => !q || JSON.stringify(item).toLowerCase().includes(q);
+
+          const approvedGroups: Array<{
+            key: 'helpers' | 'businesses' | 'simple_users' | 'employers' | 'job_seekers' | 'help_posts';
+            module: AdminModuleId;
+            title: string;
+            titleHi: string;
+            badgeColor: string;
+            items: any[];
+          }> = [
+            {
+              key: 'helpers',
+              module: 'helpers',
+              title: '🛠️ Approved Service Experts & Skilled Workers',
+              titleHi: 'अप्रूव्ड सर्विस एक्सपर्ट्स और कारीगर',
+              badgeColor: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
+              items: helpers.filter(h => getNormalizedStatus(h, 'helpers') === 'approved' && matchesSearch(h))
+            },
+            {
+              key: 'businesses',
+              module: 'businesses',
+              title: '🏪 Approved Businesses & Shops',
+              titleHi: 'अप्रूव्ड दुकानें और बिज़नेस',
+              badgeColor: 'bg-purple-500/20 text-purple-300 border-purple-500/40',
+              items: businesses.filter(b => getNormalizedStatus(b, 'businesses') === 'approved' && matchesSearch(b))
+            },
+            {
+              key: 'simple_users',
+              module: 'simple_users',
+              title: '👤 Approved Simple User Profiles',
+              titleHi: 'अप्रूव्ड यूज़र प्रोफाइल्स',
+              badgeColor: 'bg-sky-500/20 text-sky-300 border-sky-500/40',
+              items: simpleUsers.filter(u => getNormalizedStatus(u, 'simple_users') === 'approved' && matchesSearch(u))
+            },
+            {
+              key: 'employers',
+              module: 'employers',
+              title: '🏢 Approved Employer Registrations & Job Vacancies',
+              titleHi: 'अप्रूव्ड नियोक्ता और स्टाफ वेकेंसी',
+              badgeColor: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
+              items: employersList.filter(j => getNormalizedStatus(j, 'employers') === 'approved' && matchesSearch(j))
+            },
+            {
+              key: 'job_seekers',
+              module: 'job_seekers',
+              title: '💼 Approved Job Seekers',
+              titleHi: 'अप्रूव्ड नौकरी चाहने वाले (Job Seekers)',
+              badgeColor: 'bg-blue-500/20 text-blue-300 border-blue-500/40',
+              items: jobSeekersList.filter(j => getNormalizedStatus(j, 'job_seekers') === 'approved' && matchesSearch(j))
+            },
+            {
+              key: 'help_posts',
+              module: 'help_posts',
+              title: '📢 Approved Public Broadcast Help Posts',
+              titleHi: 'अप्रूव्ड पब्लिक हेल्प पोस्ट्स',
+              badgeColor: 'bg-orange-500/20 text-orange-300 border-orange-500/40',
+              items: intents.filter(i => getNormalizedStatus(i, 'help_posts') === 'approved' && matchesSearch(i))
+            }
+          ];
+
+          const visibleGroups = approvedGroupFilter === 'all'
+            ? approvedGroups
+            : approvedGroups.filter(g => g.key === approvedGroupFilter);
+
+          const totalApprovedCount = approvedGroups.reduce((acc, g) => acc + g.items.length, 0);
+
+          return (
+            <div className="space-y-6">
+              <div className="rounded-3xl bg-[#111827] border border-emerald-500/40 p-5 sm:p-6 shadow-xl">
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                  <button
+                    onClick={() => openModule('home')}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs sm:text-sm font-black border border-slate-700 transition-all cursor-pointer"
+                  >
+                    <ArrowLeft className="w-4 h-4 text-emerald-400" />
+                    <span>← Back to Admin Dashboard</span>
+                  </button>
+
+                  <span className="px-3.5 py-1.5 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-xs font-black text-emerald-300">
+                    ✅ Total Approved Items: {totalApprovedCount}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-3.5">
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center shadow-lg shrink-0">
+                    <CheckCircle2 className="w-6 h-6 text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl sm:text-2xl font-black text-white">
+                      ✅ Approved List (Master Verified Directory)
+                    </h2>
+                    <p className="text-xs sm:text-sm text-slate-400 font-medium">
+                      एडमिन द्वारा अप्रूव किए गए सभी आइटम्स अलग-अलग सेक्शन में यहाँ व्यवस्थित हैं।
+                    </p>
+                  </div>
+                </div>
+
+                {/* Search + Group Filter Tabs */}
+                <div className="mt-5 pt-4 border-t border-slate-800/90 space-y-3">
+                  <div className="relative">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={approvedSearchQuery}
+                      onChange={(e) => setApprovedSearchQuery(e.target.value)}
+                      placeholder="Search across all approved items (Name, Business, Category, Phone, Area)..."
+                      className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <button
+                      onClick={() => setApprovedGroupFilter('all')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                        approvedGroupFilter === 'all'
+                          ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/25'
+                          : 'bg-slate-800/80 text-slate-300 hover:text-white'
+                      }`}
+                    >
+                      All Approved ({totalApprovedCount})
+                    </button>
+                    {approvedGroups.map(g => (
+                      <button
+                        key={g.key}
+                        onClick={() => setApprovedGroupFilter(g.key)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                          approvedGroupFilter === g.key
+                            ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/25'
+                            : 'bg-slate-800/80 text-slate-300 hover:text-white'
+                        }`}
+                      >
+                        {g.title.split(' ').slice(0, 3).join(' ')} ({g.items.length})
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Distinctly Grouped Approved Sections */}
+              {visibleGroups.map(group => (
+                <div key={group.key} className="rounded-3xl bg-[#111827] border border-slate-800 p-5 space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
+                    <div>
+                      <h3 className="text-base sm:text-lg font-black text-white">{group.title}</h3>
+                      <p className="text-xs text-slate-400 font-bold">{group.titleHi}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={`px-3 py-1 rounded-xl text-xs font-black border ${group.badgeColor}`}>
+                        {group.items.length} Approved
+                      </span>
+                      <button
+                        onClick={() => {
+                          openModule(group.module);
+                          setStatusFilter('approved');
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-black text-slate-200 cursor-pointer"
+                      >
+                        Open Full Module →
+                      </button>
+                    </div>
+                  </div>
+
+                  {group.items.length === 0 ? (
+                    <div className="py-6 text-center text-xs font-bold text-slate-500">
+                      No approved items found in this group.
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                      {group.items.map(item => {
+                        const title =
+                          item.name ||
+                          item.businessName ||
+                          item.companyOrShopName ||
+                          item.fullName ||
+                          item.userName ||
+                          item.authorName ||
+                          'Approved Record';
+                        const categoryLabel =
+                          item.customCategoryName ||
+                          item.categoryLabel ||
+                          item.jobRole ||
+                          item.category ||
+                          item.categoryId ||
+                          item.skills?.[0] ||
+                          'Verified';
+                        const phone = item.phone || item.whatsapp || item.contactPhone || '';
+                        const area = item.area || item.jobLocation || item.location || item.address || 'Local Area';
+                        const desc = item.description || item.bio || item.jobDescription || item.skills || '';
+
+                        return (
+                          <div
+                            key={`${group.key}_${item.id}`}
+                            className="rounded-2xl bg-slate-900/90 border border-emerald-500/25 hover:border-emerald-500/50 p-4 flex flex-col justify-between gap-3 transition-all"
+                          >
+                            <div className="space-y-1.5">
+                              <div className="flex items-start justify-between gap-2">
+                                <div>
+                                  <h4 className="text-sm font-black text-white leading-snug">{title}</h4>
+                                  <span className="inline-block mt-0.5 text-[11px] font-extrabold text-emerald-400">
+                                    {String(categoryLabel)}
+                                  </span>
+                                </div>
+                                <span className="px-2 py-0.5 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-[10px] font-black text-emerald-300 shrink-0">
+                                  ✅ APPROVED
+                                </span>
+                              </div>
+
+                              {desc && (
+                                <p className="text-xs text-slate-300 line-clamp-2 leading-relaxed">
+                                  {Array.isArray(desc) ? desc.join(', ') : String(desc)}
+                                </p>
+                              )}
+
+                              <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px] text-slate-400 font-bold">
+                                {area && <span>📍 {area}</span>}
+                                {phone && <span>📞 {phone}</span>}
+                              </div>
+                            </div>
+
+                            <div className="pt-2.5 border-t border-slate-800/80 flex flex-wrap items-center justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => openEditModal(group.module, item)}
+                                className="px-2.5 py-1.5 rounded-xl bg-blue-500/15 hover:bg-blue-500/25 text-blue-300 border border-blue-500/30 text-[11px] font-black cursor-pointer"
+                              >
+                                ✏️ Edit
+                              </button>
+                              <button
+                                type="button"
+                                disabled={actionLoadingId === item.id}
+                                onClick={() => handleStatusAction(group.module, item, 'rejected')}
+                                className="px-2.5 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-[11px] font-black cursor-pointer disabled:opacity-50"
+                              >
+                                ⏸️ Revoke
+                              </button>
+                              <button
+                                type="button"
+                                disabled={actionLoadingId === item.id}
+                                onClick={() => handleDeleteAction(group.module, item)}
+                                className="px-2.5 py-1.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-[11px] font-black cursor-pointer disabled:opacity-50"
+                              >
+                                🗑️ Delete
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          );
+        })()}
+
+        {/* ============================================================ */}
         {/* VIEW 2: DEDICATED MANAGEMENT SUB-PAGE FOR SELECTED MODULE    */}
         {/* ============================================================ */}
-        {activeModule !== 'home' && activeModule !== 'ads' && activeModule !== 'category_images' && activeModule !== 'security_vault' && currentModuleMeta && (
+        {activeModule !== 'home' && activeModule !== 'approved_list' && activeModule !== 'ads' && activeModule !== 'category_images' && activeModule !== 'security_vault' && currentModuleMeta && (
           <div className="space-y-5">
             {/* Top Back Button + Module Header */}
             <div className="rounded-3xl bg-[#111827] border border-slate-800 p-5 sm:p-6">

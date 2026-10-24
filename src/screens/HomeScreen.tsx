@@ -148,7 +148,7 @@ export default function HomeScreen({
   const [isJobSeekerModalOpen, setIsJobSeekerModalOpen] = useState(false);
   const [seekerModalInitialTab, setSeekerModalInitialTab] = useState<'registered' | 'new'>('registered');
   const [isEmployerVacancyModalOpen, setIsEmployerVacancyModalOpen] = useState(false);
-  const [employerModalInitialTab, setEmployerModalInitialTab] = useState<'registered' | 'new'>('registered');
+  const [employerModalInitialTab, setEmployerModalInitialTab] = useState<'browse' | 'new' | 'registered'>('browse');
   const [isJobBrowseModalOpen, setIsJobBrowseModalOpen] = useState(false);
   const [jobBrowseInitialTab, setJobBrowseInitialTab] = useState<'all' | 'employer_vacancy' | 'job_seeker'>('all');
 
@@ -955,13 +955,13 @@ export default function HomeScreen({
           </AnimatePresence>
         </div>
 
-        {/* 2. LocoHelp Logo (flex-shrink-0 h-7 on mobile, md:h-9 on tablet/laptop/desktop) */}
+        {/* 2. LocoHelp Logo (Icon unchanged, prominent bold brand text next to it) */}
         <div
           onClick={() => {
             onSelectCategory?.('all');
             onNavigate('home');
           }}
-          className="flex-shrink-0 h-7 md:h-9 flex items-center justify-center select-none cursor-pointer"
+          className="flex-shrink-0 flex items-center justify-center select-none cursor-pointer py-0.5"
           title="Home"
         >
           <LocoHelpLogo size={28} showText={true} textSize="sm" className="flex-shrink-0" />
@@ -1770,6 +1770,10 @@ export default function HomeScreen({
             onOpenSeekerRegistered={() => {
               setSeekerModalInitialTab('registered');
               setIsJobSeekerModalOpen(true);
+            }}
+            onOpenEmployerForm={() => {
+              setEmployerModalInitialTab('browse');
+              setIsEmployerVacancyModalOpen(true);
             }}
             onOpenEmployerNew={() => {
               if (isGuestUser()) {

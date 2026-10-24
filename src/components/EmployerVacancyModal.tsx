@@ -30,7 +30,7 @@ interface EmployerVacancyModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: (item: JobPortalItem) => void;
-  initialTab?: 'registered' | 'new';
+  initialTab?: 'browse' | 'new' | 'registered';
 }
 
 const BUSINESS_CATEGORIES = [
@@ -50,15 +50,15 @@ export default function EmployerVacancyModal({
   isOpen, 
   onClose, 
   onSuccess,
-  initialTab = 'registered'
+  initialTab = 'browse'
 }: EmployerVacancyModalProps) {
   const { language } = useLanguage();
 
-  // Active mode:
-  // 'registered' = Option A: Already Registered Shop/Business on LocoHelp (Select & Post Job Directly)
-  // 'new'        = Option B: New Employer Registration (Register Business + Post Job)
-  // 'browse'     = Browse Live Posted Employer Vacancies
-  const [activeTab, setActiveTab] = useState<'registered' | 'new' | 'browse'>(initialTab);
+  // Active mode sequence:
+  // 1. 'browse'     = Live Jobs (First / Leftmost)
+  // 2. 'new'        = New Registration / New Employer (Second / Middle)
+  // 3. 'registered' = Existing Business / Direct Job Post (Third / Rightmost)
+  const [activeTab, setActiveTab] = useState<'browse' | 'new' | 'registered'>(initialTab);
   const [editingVacancyId, setEditingVacancyId] = useState<string | null>(null);
 
   // Registered Shops / Businesses on LocoHelp (for Option A)
@@ -519,34 +519,42 @@ export default function EmployerVacancyModal({
           </button>
         </div>
 
-        {/* Two Prominent Employer Options + Live Vacancies Browse Tab */}
+        {/* Top Job Posting Workflow Tabs (Strictly Ordered: 1. Live Jobs -> 2. New Registration / New Employer -> 3. Existing Business / Direct Job Post) */}
         <div className="grid grid-cols-1 sm:grid-cols-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850 shrink-0 p-2 gap-1.5">
-          {/* OPTION A: Already Registered Shop/Business on LocoHelp */}
+          {/* 1. First / Leftmost: Live Jobs */}
           <button
             type="button"
             onClick={() => {
-              setActiveTab('registered');
+              setActiveTab('browse');
               setSubmitSuccessMessage(null);
               setErrorMessage(null);
             }}
             className={`py-2.5 px-3 rounded-xl text-left transition-all cursor-pointer border ${
-              activeTab === 'registered'
-                ? 'bg-amber-600 text-white border-amber-500 shadow-md shadow-amber-600/25'
-                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-amber-50 dark:hover:bg-slate-750'
+              activeTab === 'browse'
+                ? 'bg-indigo-600 text-white border-indigo-500 shadow-md shadow-indigo-600/25'
+                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-indigo-50 dark:hover:bg-slate-750'
             }`}
           >
             <div className="flex items-center gap-1.5 font-black text-xs">
-              <Building2 className="w-3.5 h-3.5 shrink-0" />
+              <Briefcase className="w-3.5 h-3.5 shrink-0" />
               <span className="truncate">
-                {language === 'EN' ? 'Option A: Already Registered' : 'विकल्प A: पहले से रजिस्टर्ड'}
+                {language === 'EN'
+                  ? `Live Jobs (${filteredVacancies.length})`
+                  : language === 'GU'
+                  ? `લાઈવ જોબ્સ (${filteredVacancies.length})`
+                  : `लाइव जॉब्स (${filteredVacancies.length})`}
               </span>
             </div>
-            <p className={`text-[10px] mt-0.5 font-semibold truncate ${activeTab === 'registered' ? 'text-amber-100' : 'text-slate-500 dark:text-slate-400'}`}>
-              {language === 'EN' ? 'Link Shop & Post Job Directly' : 'दुकान चुनें व सीधे जॉब पोस्ट करें'}
+            <p className={`text-[10px] mt-0.5 font-semibold truncate ${activeTab === 'browse' ? 'text-indigo-100' : 'text-slate-500 dark:text-slate-400'}`}>
+              {language === 'EN'
+                ? 'View Posted Vacancies'
+                : language === 'GU'
+                ? 'પોસ્ટ કરેલી વેકેન્સી જુઓ'
+                : 'पोस्ट की गई वेकेंसी देखें'}
             </p>
           </button>
 
-          {/* OPTION B: New Employer Registration */}
+          {/* 2. Second / Middle: New Registration / New Employer */}
           <button
             type="button"
             onClick={() => {
@@ -564,36 +572,52 @@ export default function EmployerVacancyModal({
             <div className="flex items-center gap-1.5 font-black text-xs">
               <Plus className="w-3.5 h-3.5 shrink-0" />
               <span className="truncate">
-                {language === 'EN' ? 'Option B: New Employer' : 'विकल्प B: नया एम्प्लॉयर'}
+                {language === 'EN'
+                  ? 'New Registration / New Employer'
+                  : language === 'GU'
+                  ? 'નવું રજિસ્ટ્રેશન / નવા એમ્પ્લોયર'
+                  : 'नया रजिस्ट्रेशन / नया एम्प्लॉयर'}
               </span>
             </div>
             <p className={`text-[10px] mt-0.5 font-semibold truncate ${activeTab === 'new' ? 'text-orange-100' : 'text-slate-500 dark:text-slate-400'}`}>
-              {language === 'EN' ? 'Register Business & Post Job' : 'नया रजिस्ट्रेशन व जॉब पोस्ट'}
+              {language === 'EN'
+                ? 'Register Business & Post Job'
+                : language === 'GU'
+                ? 'બિઝનેસ રજિસ્ટર કરો અને જોબ પોસ્ટ કરો'
+                : 'नया रजिस्ट्रेशन व जॉब पोस्ट'}
             </p>
           </button>
 
-          {/* Browse Live Vacancies */}
+          {/* 3. Third / Rightmost: Existing Business / Direct Job Post */}
           <button
             type="button"
             onClick={() => {
-              setActiveTab('browse');
+              setActiveTab('registered');
               setSubmitSuccessMessage(null);
               setErrorMessage(null);
             }}
             className={`py-2.5 px-3 rounded-xl text-left transition-all cursor-pointer border ${
-              activeTab === 'browse'
-                ? 'bg-indigo-600 text-white border-indigo-500 shadow-md shadow-indigo-600/25'
-                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-indigo-50 dark:hover:bg-slate-750'
+              activeTab === 'registered'
+                ? 'bg-amber-600 text-white border-amber-500 shadow-md shadow-amber-600/25'
+                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-amber-50 dark:hover:bg-slate-750'
             }`}
           >
             <div className="flex items-center gap-1.5 font-black text-xs">
-              <Briefcase className="w-3.5 h-3.5 shrink-0" />
+              <Building2 className="w-3.5 h-3.5 shrink-0" />
               <span className="truncate">
-                {language === 'EN' ? `Live Jobs (${filteredVacancies.length})` : `लाइव जॉब्स (${filteredVacancies.length})`}
+                {language === 'EN'
+                  ? 'Existing Business / Direct Job Post'
+                  : language === 'GU'
+                  ? 'રજિસ્ટર્ડ બિઝનેસ / સીધી જોબ પોસ્ટ'
+                  : 'रजिस्टर्ड बिज़नेस / डायरेक्ट जॉब पोस्ट'}
               </span>
             </div>
-            <p className={`text-[10px] mt-0.5 font-semibold truncate ${activeTab === 'browse' ? 'text-indigo-100' : 'text-slate-500 dark:text-slate-400'}`}>
-              {language === 'EN' ? 'View Posted Vacancies' : 'पोस्ट की गई वेकेंसी देखें'}
+            <p className={`text-[10px] mt-0.5 font-semibold truncate ${activeTab === 'registered' ? 'text-amber-100' : 'text-slate-500 dark:text-slate-400'}`}>
+              {language === 'EN'
+                ? 'Link Shop & Post Job Directly'
+                : language === 'GU'
+                ? 'દુકાન પસંદ કરો અને સીધી જોબ મૂકો'
+                : 'दुकान चुनें व सीधे जॉब पोस्ट करें'}
             </p>
           </button>
         </div>

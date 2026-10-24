@@ -42,13 +42,13 @@ export default function LocoHelpLogo({
 
       {showText && (
         <div className={`font-black tracking-tight flex-shrink-0 flex items-center justify-center gap-0.5 text-center leading-none ${
-          textSize === 'sm' ? 'text-base md:text-2xl' :
+          textSize === 'sm' ? 'text-2xl sm:text-3xl md:text-4xl' :
           textSize === 'lg' ? 'text-4xl sm:text-6xl' :
           textSize === 'xl' ? 'text-5xl sm:text-7xl' :
-          'text-2xl sm:text-3xl md:text-4xl'
+          'text-3xl sm:text-4xl md:text-5xl'
         }`}>
-          <span className="text-[#0066FF] dark:text-[#3388FF] drop-shadow-xs">Loco</span>
-          <span className="text-[#FF8800] dark:text-orange-400 drop-shadow-xs">Help</span>
+          <span className="text-[#0066FF] dark:text-[#3388FF] drop-shadow-sm">Loco</span>
+          <span className="text-[#FF8800] dark:text-orange-400 drop-shadow-sm">Help</span>
         </div>
       )}
     </div>

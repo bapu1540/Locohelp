@@ -150,43 +150,62 @@ export default function JobPortalSection({
             </p>
           </div>
 
-          {/* Two Clear Options: Option A (Already Registered Shop/Business) & Option B (New Employer Registration) */}
-          <div className="relative z-10 grid grid-cols-2 gap-2 pt-1 border-t border-white/15">
-            {/* Option A: Already Registered Shop/Business on LocoHelp */}
+          {/* Three Clear Options Strictly Ordered: 1. Live Jobs -> 2. New Employer -> 3. Existing Business / Direct Job Post */}
+          <div className="relative z-10 grid grid-cols-3 gap-1.5 pt-1 border-t border-white/15">
+            {/* 1. First / Leftmost: Live Jobs */}
             <motion.button
               type="button"
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.97 }}
-              onClick={handleEmployerRegistered}
-              className="flex flex-col items-center justify-center p-2.5 rounded-xl bg-white/15 hover:bg-white/25 active:bg-white/30 border border-white/30 text-white text-center cursor-pointer transition-all shadow-2xs group"
+              onClick={onOpenEmployerForm || onBrowseJobs}
+              className="flex flex-col items-center justify-center p-2 rounded-xl bg-white/15 hover:bg-white/25 active:bg-white/30 border border-white/30 text-white text-center cursor-pointer transition-all shadow-2xs group"
             >
               <div className="w-6 h-6 rounded-lg bg-white/20 flex items-center justify-center mb-1 group-hover:bg-white/30 transition-colors">
-                <Building2 className="w-3.5 h-3.5 text-amber-200" />
+                <Briefcase className="w-3.5 h-3.5 text-amber-200" />
               </div>
-              <span className="text-xs font-black leading-tight">
-                {language === 'EN' ? 'Already Registered' : language === 'GU' ? 'પહેલાથી રજિસ્ટર્ડ' : 'पहले से रजिस्टर्ड'}
+              <span className="text-[11px] font-black leading-tight">
+                {language === 'EN' ? 'Live Jobs' : language === 'GU' ? 'લાઈવ જોબ્સ' : 'लाइव जॉब्स'}
               </span>
-              <span className="text-[10px] text-amber-200 font-semibold mt-0.5">
-                {language === 'EN' ? 'Link Shop & Post Job' : language === 'GU' ? 'દુકાન પસંદ કરો અને જોબ આપો' : 'दुकान चुनें व जॉब दें'}
+              <span className="text-[9px] text-amber-200 font-semibold mt-0.5 leading-tight">
+                {language === 'EN' ? 'View Vacancies' : language === 'GU' ? 'વેકેન્સી જુઓ' : 'वेकेंसी देखें'}
               </span>
             </motion.button>
 
-            {/* Option B: New Employer Registration */}
+            {/* 2. Second / Middle: New Registration / New Employer */}
             <motion.button
               type="button"
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.97 }}
               onClick={handleEmployerNew}
-              className="flex flex-col items-center justify-center p-2.5 rounded-xl bg-white text-orange-950 hover:bg-amber-50 active:bg-amber-100 text-center cursor-pointer transition-all shadow-md group"
+              className="flex flex-col items-center justify-center p-2 rounded-xl bg-white text-orange-950 hover:bg-amber-50 active:bg-amber-100 text-center cursor-pointer transition-all shadow-md group"
             >
               <div className="w-6 h-6 rounded-lg bg-orange-100 flex items-center justify-center mb-1 group-hover:scale-110 transition-transform">
-                <Briefcase className="w-3.5 h-3.5 text-orange-700" />
+                <Plus className="w-3.5 h-3.5 text-orange-700" />
               </div>
-              <span className="text-xs font-black leading-tight text-orange-950">
+              <span className="text-[11px] font-black leading-tight text-orange-950">
                 {language === 'EN' ? 'New Employer' : language === 'GU' ? 'નવા એમ્પ્લોયર' : 'नया एम्प्लॉयर'}
               </span>
-              <span className="text-[10px] text-orange-600 font-extrabold mt-0.5">
-                {language === 'EN' ? 'Register & Post Job' : language === 'GU' ? 'રજિસ્ટર અને જોબ પોસ્ટ' : 'रजिस्टर व जॉब पोस्ट'}
+              <span className="text-[9px] text-orange-600 font-extrabold mt-0.5 leading-tight">
+                {language === 'EN' ? 'New Registration' : language === 'GU' ? 'નવું રજિસ્ટ્રેશન' : 'नया रजिस्ट्रेशन'}
+              </span>
+            </motion.button>
+
+            {/* 3. Third / Rightmost: Existing Business / Direct Job Post */}
+            <motion.button
+              type="button"
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.97 }}
+              onClick={handleEmployerRegistered}
+              className="flex flex-col items-center justify-center p-2 rounded-xl bg-white/15 hover:bg-white/25 active:bg-white/30 border border-white/30 text-white text-center cursor-pointer transition-all shadow-2xs group"
+            >
+              <div className="w-6 h-6 rounded-lg bg-white/20 flex items-center justify-center mb-1 group-hover:bg-white/30 transition-colors">
+                <Building2 className="w-3.5 h-3.5 text-amber-200" />
+              </div>
+              <span className="text-[11px] font-black leading-tight">
+                {language === 'EN' ? 'Existing Business' : language === 'GU' ? 'રજિસ્ટર્ડ બિઝનેસ' : 'रजिस्टर्ड बिज़नेस'}
+              </span>
+              <span className="text-[9px] text-amber-200 font-semibold mt-0.5 leading-tight">
+                {language === 'EN' ? 'Direct Job Post' : language === 'GU' ? 'સીધી જોબ પોસ્ટ' : 'डायरेक्ट जॉब पोस्ट'}
               </span>
             </motion.button>
           </div>
