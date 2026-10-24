@@ -7,6 +7,7 @@ import { saveHelper, getCurrentUser, getHelpers, saveUserProfile } from '../auth
 import { submitVerification, getVerificationStatus } from '../api';
 import { validateUploadedFile, sanitizeText, checkSystemSecurityBlock } from '../lib/security';
 import { applyIdWatermark } from '../lib/watermark';
+import { compressImageToWebP } from '../lib/imageCompression';
 
 interface FreeHelperRegisterModalProps {
   isOpen: boolean;
@@ -37,6 +38,7 @@ export default function FreeHelperRegisterModal({
   const [formIdDoc, setFormIdDoc] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [hpWebsiteUrl, setHpWebsiteUrl] = useState('');
 
   useEffect(() => {
     if (!isOpen) return;
@@ -92,6 +94,7 @@ export default function FreeHelperRegisterModal({
     } else {
       setExistingProfile(null);
       setIsEditing(false);
+      setFormCategory(defaultCategory);
     }
 
     // 2. Sync with backend server to get latest approval status
@@ -145,7 +148,7 @@ export default function FreeHelperRegisterModal({
     const trimmedCustom = customCategoryName.trim();
     const finalCatName = formCategory === 'other' && trimmedCustom
       ? trimmedCustom
-      : (matchedCat ? matchedCat.nameEn : 'General Helper');
+      : (matchedCat ? matchedCat.nameEn : 'Service Expert');
 
     const rawSkills = formSkills.trim()
       ? formSkills.split(',').map(s => s.trim()).filter(Boolean)
@@ -188,7 +191,7 @@ export default function FreeHelperRegisterModal({
     } catch (e) {}
 
     try {
-      await saveHelper({ ...newHelper, photoUrl: formPhotoUrl || (existingProfile as any)?.photoUrl || undefined, isVerified: false, status: 'pending' });
+      await saveHelper({ ...newHelper, website_url_hp: hpWebsiteUrl, photoUrl: formPhotoUrl || (existingProfile as any)?.photoUrl || undefined, isVerified: false, status: 'pending' });
     } catch (e) {}
 
     try {
@@ -199,7 +202,7 @@ export default function FreeHelperRegisterModal({
         userName: newHelper.name,
         userEmail: userEmail || undefined,
         userPhone: newHelper.phone,
-        title: `Helper Profile (${finalCatName}) - ${newHelper.area}`,
+        title: `Service Expert Profile (${finalCatName}) - ${newHelper.area}`,
         idDocumentWatermarked: formIdDoc || formPhotoUrl || ''
       });
     } catch (verifErr) {
@@ -382,6 +385,17 @@ export default function FreeHelperRegisterModal({
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-3.5">
+              {/* Hidden Trap Field for Bot Submissions */}
+              <input
+                type="text"
+                name="website_url_hp"
+                tabIndex={-1}
+                autoComplete="off"
+                value={hpWebsiteUrl}
+                onChange={(e) => setHpWebsiteUrl(e.target.value)}
+                className="hidden opacity-0 pointer-events-none absolute -left-[9999px]"
+              />
+
               {/* Helper Name */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
@@ -507,6 +521,8 @@ export default function FreeHelperRegisterModal({
                     <img
                       src={formPhotoUrl}
                       alt="Helper Preview"
+                      loading="lazy"
+                      decoding="async"
                       className="w-12 h-12 rounded-xl object-cover border border-emerald-400 shrink-0"
                     />
                   )}
@@ -523,11 +539,16 @@ export default function FreeHelperRegisterModal({
                           e.target.value = '';
                           return;
                         }
-                        const reader = new FileReader();
-                        reader.onloadend = () => {
-                          setFormPhotoUrl(reader.result as string);
-                        };
-                        reader.readAsDataURL(file);
+                        try {
+                          const compressed = await compressImageToWebP(file, { maxWidth: 1200, quality: 0.75 });
+                          setFormPhotoUrl(compressed);
+                        } catch {
+                          const reader = new FileReader();
+                          reader.onloadend = () => {
+                            setFormPhotoUrl(reader.result as string);
+                          };
+                          reader.readAsDataURL(file);
+                        }
                       }
                     }}
                     className="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-emerald-100 file:text-emerald-800 dark:file:bg-emerald-950 dark:file:text-emerald-300 hover:file:bg-emerald-200 cursor-pointer bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-2 py-1.5"

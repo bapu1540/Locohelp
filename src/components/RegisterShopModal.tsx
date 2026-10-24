@@ -7,6 +7,7 @@ import { applyIdWatermark } from '../lib/watermark';
 import { validateUploadedFile, checkSystemSecurityBlock } from '../lib/security';
 import { submitVerification } from '../api';
 import { isEntityOwner } from '../lib/ownership';
+import { compressImageToWebP } from '../lib/imageCompression';
 
 export interface RegisteredShop {
   id: string;
@@ -47,12 +48,13 @@ interface RegisterShopModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: (shop: RegisteredShop) => void;
+  initialTab?: 'registered' | 'new';
 }
 
-export default function RegisterShopModal({ isOpen, onClose, onSuccess }: RegisterShopModalProps) {
+export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialTab = 'new' }: RegisterShopModalProps) {
   const { language, t } = useLanguage();
 
-  const [activeTab, setActiveTab] = useState<'registered' | 'new'>('registered');
+  const [activeTab, setActiveTab] = useState<'registered' | 'new'>(initialTab);
   const [searchQuery, setSearchQuery] = useState('');
 
   // Form states
@@ -70,6 +72,7 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess }: Regist
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [pendingNotice, setPendingNotice] = useState<string | null>(null);
   const [editingShopId, setEditingShopId] = useState<string | null>(null);
+  const [hpWebsiteUrl, setHpWebsiteUrl] = useState('');
 
   const handleStartEditShop = (shop: RegisteredShop) => {
     setEditingShopId(shop.id);
@@ -97,6 +100,7 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess }: Regist
   // Load approved registered shops from localStorage & backend
   useEffect(() => {
     if (!isOpen) return;
+    setActiveTab(initialTab);
 
     try {
       const stored = localStorage.getItem('locohelp_registered_shops');
@@ -143,12 +147,17 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess }: Regist
         e.target.value = '';
         return;
       }
-      const dataUrl = await new Promise<string>((resolve) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result as string);
-        reader.readAsDataURL(file);
-      });
-      newDataUrls.push(dataUrl);
+      try {
+        const dataUrl = await compressImageToWebP(file, { maxWidth: 1200, quality: 0.75 });
+        newDataUrls.push(dataUrl);
+      } catch (err) {
+        const fallbackUrl = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.readAsDataURL(file);
+        });
+        newDataUrls.push(fallbackUrl);
+      }
     }
 
     const combined = [...shopPhotos, ...newDataUrls].slice(0, 3);
@@ -230,6 +239,7 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess }: Regist
     try {
       await saveShop({
         ...newShop,
+        website_url_hp: hpWebsiteUrl,
         idDocumentWatermarked: idDocumentWatermarked || primaryPhoto || ''
       });
     } catch (err) {
@@ -448,6 +458,8 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess }: Regist
                                 key={idx}
                                 src={imgUrl}
                                 alt={`${shop.name} ${idx + 1}`}
+                                loading="lazy"
+                                decoding="async"
                                 className="w-20 h-16 object-cover rounded-xl border border-amber-200 dark:border-slate-700 shrink-0"
                               />
                             ))}
@@ -496,6 +508,17 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess }: Regist
           ) : (
             /* NEW BUSINESS / SHOP REGISTRATION FORM */
             <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto space-y-3.5 pr-1">
+              {/* Hidden Trap Field for Bot Submissions */}
+              <input
+                type="text"
+                name="website_url_hp"
+                tabIndex={-1}
+                autoComplete="off"
+                value={hpWebsiteUrl}
+                onChange={(e) => setHpWebsiteUrl(e.target.value)}
+                className="hidden opacity-0 pointer-events-none absolute -left-[9999px]"
+              />
+
               {idUploadNotice && (
                 <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-700 text-xs font-bold text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
                   <AlertCircle className="w-4 h-4 shrink-0" />
@@ -662,7 +685,7 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess }: Regist
                   <div className="flex gap-2 pt-1 overflow-x-auto">
                     {shopPhotos.map((img, idx) => (
                       <div key={idx} className="relative w-20 h-16 rounded-xl overflow-hidden border border-amber-300 shrink-0 group">
-                        <img src={img} alt={`Shop ${idx + 1}`} className="w-full h-full object-cover" />
+                        <img src={img} alt={`Shop ${idx + 1}`} loading="lazy" decoding="async" className="w-full h-full object-cover" />
                         <button
                           type="button"
                           onClick={() => handleRemoveShopPhoto(idx)}

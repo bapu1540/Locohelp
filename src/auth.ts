@@ -470,16 +470,18 @@ export const verifyEmailOtpViaSupabase = verifyEmailOtp;
 export async function logoutUser() {
   try {
     await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
-    const preservedLocationKeys = new Set([
-      'locohelp_user_location',
-      'locohelp_selected_state',
-      'locohelp_selected_city',
-      'locohelp_selected_area'
-    ]);
-    Object.keys(localStorage).forEach(key => {
-      if (key.startsWith('locohelp_') && !preservedLocationKeys.has(key)) {
-        localStorage.removeItem(key);
-      }
+    // Remove ONLY authentication/session keys — never delete cached profiles, shops, ads, or category images
+    const sessionKeysToRemove = [
+      'locohelp_user',
+      'locohelp_logged_in',
+      'locohelp_token',
+      'locohelp_admin_token',
+      'locohelp_admin_logged_in',
+      'locohelp_last_logged_in_email',
+      'locohelp_last_logged_in_name'
+    ];
+    sessionKeysToRemove.forEach(key => {
+      localStorage.removeItem(key);
     });
     sessionStorage.clear();
     notifyAuthState('SIGNED_OUT', null);
@@ -765,6 +767,21 @@ export async function saveShop(shop: any): Promise<any> {
 }
 
 export async function getShops(includePending = false): Promise<any[]> {
+  let deletedIds: string[] = [];
+  try {
+    const delRaw = localStorage.getItem('locohelp_deleted_shops');
+    if (delRaw) deletedIds = JSON.parse(delRaw);
+  } catch {}
+
+  let localShops: any[] = [];
+  try {
+    const existingRaw = localStorage.getItem('locohelp_registered_shops');
+    const existing: any[] = existingRaw ? JSON.parse(existingRaw) : [];
+    localShops = existing.filter(
+      s => s && s.id && !String(s.id).startsWith('sample_shop_') && !deletedIds.includes(String(s.id))
+    );
+  } catch {}
+
   try {
     const query = includePending ? `includePending=true&_t=${Date.now()}` : `_t=${Date.now()}`;
     const res = await fetch(`/api/shops?${query}`, {
@@ -773,25 +790,48 @@ export async function getShops(includePending = false): Promise<any[]> {
     if (res.ok) {
       const list = await res.json();
       if (Array.isArray(list)) {
+        const serverIds = new Set<string>();
+        const map = new Map<string, any>();
+
+        localShops.forEach(s => map.set(String(s.id), s));
+        list.forEach(s => {
+          if (s && s.id && !String(s.id).startsWith('sample_shop_') && !deletedIds.includes(String(s.id))) {
+            serverIds.add(String(s.id));
+            map.set(String(s.id), { ...(map.get(String(s.id)) || {}), ...s });
+          }
+        });
+
+        const merged = Array.from(map.values());
         try {
-          const existingRaw = localStorage.getItem('locohelp_registered_shops');
-          const existing: any[] = existingRaw ? JSON.parse(existingRaw) : [];
-          const map = new Map<string, any>();
-          existing.filter(s => s && s.id && !String(s.id).startsWith('sample_shop_')).forEach(s => map.set(s.id, s));
-          list.forEach(s => {
-            if (s && s.id && !String(s.id).startsWith('sample_shop_')) {
-              map.set(s.id, { ...(map.get(s.id) || {}), ...s });
-            }
-          });
-          localStorage.setItem('locohelp_registered_shops', JSON.stringify(Array.from(map.values())));
+          localStorage.setItem('locohelp_registered_shops', JSON.stringify(merged));
         } catch (e) {}
-        return list;
+
+        // Auto-recover any local shops that are missing on the server (e.g. after container restart)
+        const missingOnServer = localShops.filter(s => s && s.id && !serverIds.has(String(s.id)));
+        if (missingOnServer.length > 0) {
+          missingOnServer.forEach(shopItem => {
+            fetch('/api/shops', {
+              method: 'POST',
+              headers: getAuthHeaders(),
+              body: JSON.stringify(shopItem)
+            }).catch(() => {});
+          });
+        }
+
+        if (!includePending) {
+          return merged.filter(s => s.isVerified === true || s.status === 'approved');
+        }
+        return merged;
       }
     }
   } catch (e) {
     console.warn("Get shops error:", e);
   }
-  return [];
+
+  if (!includePending) {
+    return localShops.filter(s => s.isVerified === true || s.status === 'approved');
+  }
+  return localShops;
 }
 
 /**
@@ -813,6 +853,21 @@ export async function saveHelper(helper: any): Promise<any> {
 }
 
 export async function getHelpers(includePending = false): Promise<any[]> {
+  let deletedIds: string[] = [];
+  try {
+    const delRaw = localStorage.getItem('locohelp_deleted_helpers');
+    if (delRaw) deletedIds = JSON.parse(delRaw);
+  } catch {}
+
+  let localHelpers: any[] = [];
+  try {
+    const existingRaw = localStorage.getItem('locohelp_free_helper_profiles');
+    const existing: any[] = existingRaw ? JSON.parse(existingRaw) : [];
+    localHelpers = existing.filter(
+      h => h && h.id && !/^h\d+/.test(String(h.id)) && !deletedIds.includes(String(h.id))
+    );
+  } catch {}
+
   try {
     const query = includePending ? `includePending=true&_t=${Date.now()}` : `_t=${Date.now()}`;
     const res = await fetch(`/api/helpers?${query}`, {
@@ -821,39 +876,59 @@ export async function getHelpers(includePending = false): Promise<any[]> {
     if (res.ok) {
       const list = await res.json();
       if (Array.isArray(list)) {
+        const serverIds = new Set<string>();
+        const map = new Map<string, any>();
+
+        localHelpers.forEach(h => {
+          map.set(String(h.id), h);
+        });
+        list.forEach(h => {
+          if (h && h.id && !/^h\d+/.test(String(h.id)) && !deletedIds.includes(String(h.id))) {
+            serverIds.add(String(h.id));
+            map.set(String(h.id), { ...(map.get(String(h.id)) || {}), ...h });
+          }
+        });
+
+        const merged = Array.from(map.values());
         try {
-          const existingRaw = localStorage.getItem('locohelp_free_helper_profiles');
-          const existing: any[] = existingRaw ? JSON.parse(existingRaw) : [];
-          const map = new Map<string, any>();
-          existing.forEach(h => {
-            if (h && h.id && !/^h\d+/.test(String(h.id))) {
-              map.set(h.id, h);
-            }
-          });
-          list.forEach(h => {
-            if (h && h.id && !/^h\d+/.test(String(h.id))) {
-              map.set(h.id, { ...(map.get(h.id) || {}), ...h });
-            }
-          });
-          const merged = Array.from(map.values());
           localStorage.setItem('locohelp_free_helper_profiles', JSON.stringify(merged));
 
           const myHelperRaw = localStorage.getItem('locohelp_my_helper_profile');
           if (myHelperRaw) {
             const myHelper = JSON.parse(myHelperRaw);
-            const updatedMy = list.find(h => h.id === myHelper.id || (myHelper.phone && h.phone === myHelper.phone));
+            const updatedMy = merged.find(h => h.id === myHelper.id || (myHelper.phone && h.phone === myHelper.phone));
             if (updatedMy) {
               localStorage.setItem('locohelp_my_helper_profile', JSON.stringify({ ...myHelper, ...updatedMy }));
             }
           }
         } catch (e) {}
-        return list;
+
+        // Auto-recover any local helper profiles missing on the server (e.g. after container restart)
+        const missingOnServer = localHelpers.filter(h => h && h.id && !serverIds.has(String(h.id)));
+        if (missingOnServer.length > 0) {
+          missingOnServer.forEach(helperItem => {
+            fetch('/api/helpers', {
+              method: 'POST',
+              headers: getAuthHeaders(),
+              body: JSON.stringify(helperItem)
+            }).catch(() => {});
+          });
+        }
+
+        if (!includePending) {
+          return merged.filter(h => h.isVerified === true || h.status === 'approved');
+        }
+        return merged;
       }
     }
   } catch (e) {
     console.warn("Get helpers error:", e);
   }
-  return [];
+
+  if (!includePending) {
+    return localHelpers.filter(h => h.isVerified === true || h.status === 'approved');
+  }
+  return localHelpers;
 }
 
 /**

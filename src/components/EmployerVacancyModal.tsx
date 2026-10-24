@@ -24,6 +24,7 @@ import { JobPortalItem } from '../types';
 import { validateUploadedFile, checkSystemSecurityBlock } from '../lib/security';
 import { getCurrentUser, getShops, saveShop } from '../auth';
 import { isEntityOwner } from '../lib/ownership';
+import { compressImageToWebP } from '../lib/imageCompression';
 
 interface EmployerVacancyModalProps {
   isOpen: boolean;
@@ -91,6 +92,7 @@ export default function EmployerVacancyModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitSuccessMessage, setSubmitSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [hpWebsiteUrl, setHpWebsiteUrl] = useState('');
 
   useEffect(() => {
     if (isOpen) {
@@ -252,11 +254,16 @@ export default function EmployerVacancyModal({
         return;
       }
       setErrorMessage(null);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setLogoOrPhotoUrl(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      try {
+        const compressed = await compressImageToWebP(file, { maxWidth: 1200, quality: 0.75 });
+        setLogoOrPhotoUrl(compressed);
+      } catch {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setLogoOrPhotoUrl(reader.result as string);
+        };
+        reader.readAsDataURL(file);
+      }
     }
   };
 
@@ -298,6 +305,7 @@ export default function EmployerVacancyModal({
 
       const res = await submitJobPortalItem({
         type: 'employer_vacancy',
+        website_url_hp: hpWebsiteUrl,
         companyOrShopName: bizName,
         jobRole: jobRole.trim(),
         category: bizCategory,
@@ -401,6 +409,7 @@ export default function EmployerVacancyModal({
       const res = await submitJobPortalItem({
         id: editingVacancyId || undefined,
         type: 'employer_vacancy',
+        website_url_hp: hpWebsiteUrl,
         companyOrShopName: companyOrShopName.trim(),
         jobRole: jobRole.trim(),
         category,
@@ -631,6 +640,16 @@ export default function EmployerVacancyModal({
               </div>
             ) : (
               <form onSubmit={handleDirectVacancySubmitFromExisting} className="space-y-4">
+                {/* Hidden Trap Field for Bot Submissions */}
+                <input
+                  type="text"
+                  name="website_url_hp"
+                  tabIndex={-1}
+                  autoComplete="off"
+                  value={hpWebsiteUrl}
+                  onChange={(e) => setHpWebsiteUrl(e.target.value)}
+                  className="hidden opacity-0 pointer-events-none absolute -left-[9999px]"
+                />
                 <div className="p-3.5 rounded-2xl bg-amber-50/90 dark:bg-slate-800/90 border border-amber-200 dark:border-slate-700 space-y-3">
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <div>
@@ -913,6 +932,16 @@ export default function EmployerVacancyModal({
               </div>
             ) : (
               <form onSubmit={handleNewEmployerSubmit} className="space-y-4">
+                {/* Hidden Trap Field for Bot Submissions */}
+                <input
+                  type="text"
+                  name="website_url_hp"
+                  tabIndex={-1}
+                  autoComplete="off"
+                  value={hpWebsiteUrl}
+                  onChange={(e) => setHpWebsiteUrl(e.target.value)}
+                  className="hidden opacity-0 pointer-events-none absolute -left-[9999px]"
+                />
                 <div className="p-3 rounded-xl bg-orange-50 dark:bg-slate-800 border border-orange-200 dark:border-slate-700 text-xs font-bold text-orange-900 dark:text-orange-200">
                   {language === 'EN'
                     ? '🏢 New Employer Registration: Register your Shop/Company/Business and post your Staff Vacancy in one step.'
@@ -1229,7 +1258,7 @@ export default function EmployerVacancyModal({
                       <div className="flex items-start gap-3">
                         <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 text-white font-black text-lg flex items-center justify-center shadow-xs shrink-0 overflow-hidden">
                           {vac.photoOrLogoUrl ? (
-                            <img src={vac.photoOrLogoUrl} alt={vac.companyOrShopName} className="w-full h-full object-cover" />
+                            <img src={vac.photoOrLogoUrl} alt={vac.companyOrShopName} loading="lazy" decoding="async" className="w-full h-full object-cover" />
                           ) : (
                             <span>{vac.companyOrShopName ? vac.companyOrShopName.charAt(0).toUpperCase() : '🏢'}</span>
                           )}

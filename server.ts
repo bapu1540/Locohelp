@@ -92,6 +92,42 @@ const SECURITY_VAULT_FILE = path.join(DATA_DIR, "security_vault.enc");
 if (!fs.existsSync(SECURITY_VAULT_FILE)) writeJsonFile(SECURITY_VAULT_FILE, {});
 
 // ==========================================
+// LIGHTWEIGHT SERVER-SIDE IN-MEMORY CACHE (60-second TTL)
+// Used for high-traffic public read endpoints (categories, approved profiles, active banners)
+// Reduces database load while automatically invalidating on any mutation
+// ==========================================
+interface PublicCacheEntry {
+  data: any;
+  timestamp: number;
+}
+const publicApiCache = new Map<string, PublicCacheEntry>();
+const PUBLIC_CACHE_TTL_MS = 60 * 1000; // 60-second TTL
+
+function getPublicCache(key: string): any | null {
+  const entry = publicApiCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.timestamp > PUBLIC_CACHE_TTL_MS) {
+    publicApiCache.delete(key);
+    return null;
+  }
+  return entry.data;
+}
+
+function setPublicCache(key: string, data: any): void {
+  publicApiCache.set(key, { data, timestamp: Date.now() });
+}
+
+function invalidatePublicCache(keys?: string[]): void {
+  if (!keys || keys.length === 0) {
+    publicApiCache.clear();
+  } else {
+    for (const key of keys) {
+      publicApiCache.delete(key);
+    }
+  }
+}
+
+// ==========================================
 // AES-256-GCM ENCRYPTED APPEND-ONLY SECURITY VAULT
 // Even if a user deletes their account/profile/post, or if someone inspects disk files,
 // all records (Name, Phone, Email, Address, Photo, Watermarked Govt ID, History) remain
@@ -541,10 +577,30 @@ function createRateLimiter(options: { windowMs: number; max: number; keyPrefix: 
 
 const generalApiLimiter = createRateLimiter({
   windowMs: 60 * 1000,
-  max: 180,
+  max: 120, // 120 requests per minute per IP
   keyPrefix: "api_gen",
-  message: "Too many requests from this IP. Please wait a moment and try again."
+  message: "Too many requests from this IP. Please wait a moment and try again. / इस IP से बहुत सारे अनुरोध प्राप्त हुए हैं। कृपया कुछ देर प्रतीक्षा करें।"
 });
+
+// Strict rate limiter for registration & message POST endpoints: 10 requests per 10 minutes per IP
+const registrationAndMessageLimiter = createRateLimiter({
+  windowMs: 10 * 60 * 1000, // 10 minutes
+  max: 10, // 10 requests per 10 minutes per IP
+  keyPrefix: "reg_msg_limit",
+  message: "Too many requests. Please wait a few minutes before trying again. / बहुत सारे अनुरोध प्राप्त हुए हैं। कृपया 10 मिनट बाद पुनः प्रयास करें।"
+});
+
+// Anti-Bot Honeypot Helper: Detect hidden trap fields filled by automated spam bots
+function isBotSubmission(req: express.Request): boolean {
+  if (req.body && typeof req.body === "object") {
+    const b = req.body as Record<string, any>;
+    const honeypotVal = b.website_url_hp || b.hp_field || b.honeypot || b.company_website_trap;
+    if (typeof honeypotVal === "string" && honeypotVal.trim().length > 0) {
+      return true;
+    }
+  }
+  return false;
+}
 
 const authLoginLimiter = createRateLimiter({
   windowMs: 60 * 1000,
@@ -1778,6 +1834,19 @@ async function startServer() {
       const experience = sanitizeServerText(profile.experience || "", 120);
       const myHelper = profile.my_helper_profile || profile.myHelperProfile || null;
 
+      const isAdminCaller = isRequestAdmin(req);
+      const requestedStatus = profile.status === 'deletion_requested'
+        ? 'deletion_requested'
+        : (isAdminCaller && (profile.status === 'approved' || profile.isVerified === true) ? 'approved' : 'pending');
+      const isApprovedStatus = requestedStatus === 'approved';
+      const normalizedHelper = myHelper
+        ? {
+            ...myHelper,
+            isVerified: isApprovedStatus,
+            status: requestedStatus
+          }
+        : null;
+
       // 1. PostgreSQL Upsert into primary "user" table (Parameterized Query)
       if (dbPool && isDbConnected) {
         try {
@@ -1803,7 +1872,18 @@ async function startServer() {
               experience = EXCLUDED.experience,
               my_helper_profile = COALESCE(EXCLUDED.my_helper_profile, profiles.my_helper_profile),
               updated_at = NOW()
-          `, [uid, fullName, email, phone, avatarUrl, skills, address, experience, myHelper ? JSON.stringify(myHelper) : null]);
+          `, [uid, fullName, email, phone, avatarUrl, skills, address, experience, normalizedHelper ? JSON.stringify(normalizedHelper) : null]);
+
+          if (!isAdminCaller) {
+            await dbPool.query(
+              "UPDATE helpers SET is_verified = false WHERE id = $1 OR phone = $2",
+              [normalizedHelper?.id || uid, phone]
+            ).catch(() => {});
+            await dbPool.query(
+              "UPDATE verification_requests SET status = $1 WHERE entity_id = $2 OR user_id = $2",
+              [requestedStatus === 'deletion_requested' ? 'deletion_requested' : 'pending', normalizedHelper?.id || uid]
+            ).catch(() => {});
+          }
         } catch (dbErr) {
           console.warn("DB user table upsert error:", dbErr);
         }
@@ -1824,13 +1904,46 @@ async function startServer() {
         skills,
         address,
         experience,
-        myHelperProfile: myHelper,
+        myHelperProfile: normalizedHelper,
+        status: requestedStatus,
+        isVerified: isApprovedStatus,
+        is_verified: isApprovedStatus,
         updated_at: new Date().toISOString()
       };
       writeJsonFile(PROFILES_FILE, profiles);
+
+      // Revert any linked helper & verification entry to pending (or deletion_requested) when edited by a non-admin user
+      if (!isAdminCaller) {
+        const helpers = readJsonFile<any[]>(HELPERS_FILE, []);
+        let helpersModified = false;
+        helpers.forEach(h => {
+          if (h && (h.userId === uid || (normalizedHelper?.id && h.id === normalizedHelper.id) || (email && (h.email || '').toLowerCase() === email))) {
+            h.isVerified = false;
+            h.is_verified = false;
+            h.status = requestedStatus;
+            helpersModified = true;
+          }
+        });
+        if (helpersModified) {
+          writeJsonFile(HELPERS_FILE, helpers);
+        }
+
+        const verifs = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
+        let verifsModified = false;
+        verifs.forEach(v => {
+          if (v && (v.userId === uid || v.entityId === uid || (normalizedHelper?.id && v.entityId === normalizedHelper.id))) {
+            v.status = requestedStatus;
+            verifsModified = true;
+          }
+        });
+        if (verifsModified) {
+          writeJsonFile(VERIFICATIONS_FILE, verifs);
+        }
+      }
+
       await archiveToSecurityVault("user_profile", uid, profiles[uid], "ACTIVE_REGISTERED");
-      if (myHelper && myHelper.id) {
-        await archiveToSecurityVault("helper", myHelper.id, { ...myHelper, userId: uid, email: email || myHelper.email }, "ACTIVE_REGISTERED");
+      if (normalizedHelper && normalizedHelper.id) {
+        await archiveToSecurityVault("helper", normalizedHelper.id, { ...normalizedHelper, userId: uid, email: email || normalizedHelper.email }, "ACTIVE_REGISTERED");
       }
 
       res.status(200).json({ success: true, profile: profiles[uid], user: profiles[uid] });
@@ -1903,7 +2016,7 @@ async function startServer() {
   app.post("/api/users", authLoginLimiter, signupHandler);
 
   // Delete profile protected with strict authentication & ownership verification
-  // SOFT DELETE FOR SAFETY: Removes from public view & user account, but permanently retains encrypted record in Security Vault!
+  // Users cannot directly delete their profiles; non-admin requests mark status as deletion_requested for Admin review.
   app.delete("/api/profiles/:uid", requireAuth, async (req, res) => {
     try {
       const { uid } = req.params;
@@ -1912,7 +2025,40 @@ async function startServer() {
 
       if (!isSameUserOrAdmin(req, uid, targetProfile?.email)) {
         return res.status(403).json({
-          error: "Forbidden: You can only delete your own profile."
+          error: "Forbidden: You can only request closure for your own profile."
+        });
+      }
+
+      const isAdminCaller = isRequestAdmin(req);
+      if (!isAdminCaller) {
+        if (targetProfile) {
+          targetProfile.status = 'deletion_requested';
+          targetProfile.isVerified = false;
+          targetProfile.is_verified = false;
+          if (targetProfile.myHelperProfile) {
+            targetProfile.myHelperProfile.status = 'deletion_requested';
+            targetProfile.myHelperProfile.isVerified = false;
+          }
+          writeJsonFile(PROFILES_FILE, profiles);
+        }
+        const reports = readJsonFile<any[]>(REPORTS_FILE, []);
+        reports.unshift({
+          id: 'rep_closure_' + Date.now(),
+          reason: 'ACCOUNT_CLOSURE_REQUEST',
+          description: `ACCOUNT CLOSURE REQUEST for user "${targetProfile?.full_name || targetProfile?.name || uid}"`,
+          targetId: uid,
+          reporterId: uid,
+          userName: targetProfile?.full_name || targetProfile?.name || uid,
+          userEmail: targetProfile?.email || '',
+          userPhone: targetProfile?.phone || '',
+          status: 'deletion_requested',
+          createdAt: new Date().toISOString()
+        });
+        writeJsonFile(REPORTS_FILE, reports);
+        return res.json({
+          success: true,
+          status: 'deletion_requested',
+          message: 'Account closure request sent to Admin for review.'
         });
       }
 
@@ -1925,7 +2071,7 @@ async function startServer() {
         "user_profile",
         uid,
         { ...(authRecord || {}), ...(targetProfile || {}), uid, id: uid },
-        "DELETED_BY_USER"
+        "ADMIN_REMOVED_PUBLIC"
       );
 
       // 2. Also archive & remove any linked Helper Profile of this user from public listings
@@ -1934,7 +2080,7 @@ async function startServer() {
         h => h && (h.userId === uid || (userEmail && (h.email || "").toLowerCase() === userEmail))
       );
       for (const uh of userHelpers) {
-        await archiveToSecurityVault("helper", uh.id, uh, "DELETED_BY_USER");
+        await archiveToSecurityVault("helper", uh.id, uh, "ADMIN_REMOVED_PUBLIC");
         if (dbPool && isDbConnected) {
           try {
             await dbPool.query("DELETE FROM helpers WHERE id = $1", [uh.id]);
@@ -1954,7 +2100,7 @@ async function startServer() {
         s => s && (s.userId === uid || s.owner_id === uid || (userEmail && (s.ownerEmail || "").toLowerCase() === userEmail))
       );
       for (const us of userShops) {
-        await archiveToSecurityVault("business", us.id, us, "DELETED_BY_USER");
+        await archiveToSecurityVault("business", us.id, us, "ADMIN_REMOVED_PUBLIC");
         if (dbPool && isDbConnected) {
           try {
             await dbPool.query("DELETE FROM businesses WHERE id = $1", [us.id]);
@@ -2164,8 +2310,13 @@ async function startServer() {
   };
 
   // Email & Password Registration (STRICTLY REQUIRES REAL EMAIL 6-DIGIT OTP VERIFICATION)
-  app.post("/api/auth/register-password", authLimiter, async (req, res) => {
+  app.post("/api/auth/register-password", registrationAndMessageLimiter, authLimiter, async (req, res) => {
     try {
+      if (isBotSubmission(req)) {
+        console.log("[Honeypot Triggered] Silently rejecting automated bot registration");
+        return res.status(200).json({ success: true, message: "Registration received" });
+      }
+
       const { email, password, name, phone, otpCode } = req.body;
       if (!email || !password) {
         return res.status(400).json({ error: "Email and password are required" });
@@ -2711,37 +2862,58 @@ async function startServer() {
   // Strict Privacy: Private 1:1 chats can ONLY be fetched by the two participants (or Admin)
   // ==========================================
 
-  // 4. Get Chat Messages
+  // 4. Get Chat Messages (GET /api/messages/:conversationId and GET /api/intents/:id/messages)
   const getChatMessagesHandler = async (req: express.Request, res: express.Response) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
       res.setHeader("Pragma", "no-cache");
       res.setHeader("Expires", "0");
       const { id } = req.params;
-      const intentId = (req.query?.intentId as string) || (req.query?.intent_id as string) || id || 'general';
+      const conversationId = (req.query?.conversationId as string) || (req.query?.intentId as string) || (req.query?.intent_id as string) || id || 'general';
       const userId = (req.query?.userId as string) || (req.query?.user_id as string) || '';
       const otherUserId = (req.query?.otherUserId as string) || (req.query?.other_user_id as string) || '';
-      const targetChatKey = intentId && intentId !== 'general' ? intentId : (userId && otherUserId ? [userId, otherUserId].sort().join('_') : (id || 'general'));
+      const targetChatKey = conversationId && conversationId !== 'general' ? conversationId : (userId && otherUserId ? [userId, otherUserId].sort().join('_') : (id || 'general'));
 
-      // Verify that for private 1:1 chats (userId + otherUserId), the caller is one of the two participants or Admin
-      const caller = extractRequestUser(req);
-      const isAdmin = isRequestAdmin(req);
-      if (userId && otherUserId && !isAdmin) {
-        const isParticipant =
-          isSameUserOrAdmin(req, userId, userId) ||
-          isSameUserOrAdmin(req, otherUserId, otherUserId);
-        if (caller && !isParticipant) {
-          return res.status(403).json({
-            error: "Forbidden: Private chats can only be accessed by the two conversation participants."
-          });
-        }
-      }
+      const mergedMap = new Map<string, any>();
 
       if (dbPool && isDbConnected) {
         try {
-          // 1. Query primary chats table (Parameterized Queries)
+          // 1. Query messages table by conversationId (intent_id) or participant IDs
+          let result;
+          if (userId && otherUserId && (!conversationId || conversationId === 'general')) {
+            result = await dbPool.query(
+              "SELECT * FROM messages WHERE (sender_id = $1 AND receiver_id = $2) OR (sender_id = $2 AND receiver_id = $1) OR intent_id = $3 ORDER BY created_at ASC",
+              [userId, otherUserId, targetChatKey]
+            );
+          } else {
+            result = await dbPool.query(
+              "SELECT * FROM messages WHERE intent_id = $1 OR receiver_id = $1 ORDER BY created_at ASC",
+              [conversationId]
+            );
+          }
+
+          if (result && result.rows.length > 0) {
+            result.rows.forEach(r => {
+              mergedMap.set(r.id, {
+                id: r.id,
+                conversationId: r.intent_id || conversationId,
+                authorId: r.sender_id,
+                senderId: r.sender_id,
+                receiverId: r.receiver_id,
+                text: r.text || r.content || '',
+                content: r.content || r.text || '',
+                message: r.text || r.content || '',
+                type: r.type || 'text',
+                attachmentUrl: r.attachment_url,
+                attachmentType: r.attachment_type,
+                createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString()
+              });
+            });
+          }
+
+          // 2. Also query chats table for any legacy 1:1 messages
           let chatRes;
-          if (userId && otherUserId) {
+          if (userId && otherUserId && (!conversationId || conversationId === 'general')) {
             chatRes = await dbPool.query(
               "SELECT * FROM chats WHERE (sender_id = $1 AND receiver_id = $2) OR (sender_id = $2 AND receiver_id = $1) ORDER BY sent_at ASC",
               [userId, otherUserId]
@@ -2749,54 +2921,27 @@ async function startServer() {
           } else {
             chatRes = await dbPool.query(
               "SELECT * FROM chats WHERE receiver_id = $1 OR sender_id = $1 ORDER BY sent_at ASC",
-              [intentId]
+              [conversationId]
             );
           }
 
           if (chatRes && chatRes.rows.length > 0) {
-            const dbMsgs = chatRes.rows.map(r => ({
-              id: r.id,
-              authorId: r.sender_id,
-              senderId: r.sender_id,
-              receiverId: r.receiver_id,
-              text: r.message || '',
-              content: r.message || '',
-              message: r.message || '',
-              type: 'text',
-              createdAt: r.sent_at ? new Date(r.sent_at).toISOString() : new Date().toISOString()
-            }));
-            return res.json(dbMsgs);
-          }
-
-          // 2. Fallback to messages table
-          let result;
-          if (userId && otherUserId) {
-            result = await dbPool.query(
-              "SELECT * FROM messages WHERE (sender_id = $1 AND receiver_id = $2) OR (sender_id = $2 AND receiver_id = $1) ORDER BY created_at ASC",
-              [userId, otherUserId]
-            );
-          } else {
-            result = await dbPool.query(
-              "SELECT * FROM messages WHERE intent_id = $1 ORDER BY created_at ASC",
-              [intentId]
-            );
-          }
-
-          if (result && result.rows.length > 0) {
-            const dbMsgs = result.rows.map(r => ({
-              id: r.id,
-              authorId: r.sender_id,
-              senderId: r.sender_id,
-              receiverId: r.receiver_id,
-              text: r.text || r.content || '',
-              content: r.content || r.text || '',
-              message: r.text || r.content || '',
-              type: r.type || 'text',
-              attachmentUrl: r.attachment_url,
-              attachmentType: r.attachment_type,
-              createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString()
-            }));
-            return res.json(dbMsgs);
+            chatRes.rows.forEach(r => {
+              if (!mergedMap.has(r.id)) {
+                mergedMap.set(r.id, {
+                  id: r.id,
+                  conversationId,
+                  authorId: r.sender_id,
+                  senderId: r.sender_id,
+                  receiverId: r.receiver_id,
+                  text: r.message || '',
+                  content: r.message || '',
+                  message: r.message || '',
+                  type: 'text',
+                  createdAt: r.sent_at ? new Date(r.sent_at).toISOString() : new Date().toISOString()
+                });
+              }
+            });
           }
         } catch (dbErr) {
           console.warn("DB messages query error:", dbErr);
@@ -2804,8 +2949,17 @@ async function startServer() {
       }
 
       const allMessages = readJsonFile<Record<string, any[]>>(MESSAGES_FILE, {});
-      const chatMessages = allMessages[targetChatKey] || allMessages[intentId] || (id ? allMessages[id] : []) || [];
-      res.json(chatMessages);
+      const fileMessages = allMessages[targetChatKey] || allMessages[conversationId] || (id ? allMessages[id] : []) || [];
+      fileMessages.forEach((m: any) => {
+        if (m && m.id && !mergedMap.has(m.id)) {
+          mergedMap.set(m.id, m);
+        }
+      });
+
+      const finalMessages = Array.from(mergedMap.values()).sort(
+        (a, b) => new Date(a.createdAt || a.sent_at || 0).getTime() - new Date(b.createdAt || b.sent_at || 0).getTime()
+      );
+      res.json(finalMessages);
     } catch (e) {
       res.status(500).json({ error: "Failed to fetch messages" });
     }
@@ -2816,15 +2970,30 @@ async function startServer() {
   app.get("/api/messages", getChatMessagesHandler);
   app.get("/api/messages/:id", getChatMessagesHandler);
 
-  // 5. Send Chat Message (Rate-limited + File Attachment Validation + XSS Sanitization)
+  // 5. Send Chat Message (POST /api/messages & POST /api/intents/:id/messages)
   const sendChatMessageHandler = async (req: express.Request, res: express.Response) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
-      const id = sanitizeServerText(req.params.id || req.body.receiver_id || req.body.receiverId || 'general', 150);
+
+      if (isBotSubmission(req)) {
+        console.log("[Honeypot Triggered] Silently rejecting bot chat message submission");
+        return res.status(200).json({ success: true, message: "Message received" });
+      }
       const message = req.body;
       if (!message) {
         return res.status(400).json({ error: "Message payload required" });
       }
+      const conversationId = sanitizeServerText(
+        req.params.id ||
+        message.conversationId ||
+        message.conversation_id ||
+        message.intentId ||
+        message.intent_id ||
+        message.receiver_id ||
+        message.receiverId ||
+        'general',
+        150
+      );
 
       // Validate any chat attachment (Images <= 2MB, PDFs <= 5MB)
       if (message.attachmentUrl) {
@@ -2835,12 +3004,20 @@ async function startServer() {
       }
 
       const safeText = sanitizeServerText(message.message || message.text || message.content || '', 2000);
+      const caller = extractRequestUser(req);
+      const senderIdVal = sanitizeServerText(
+        message.authorId || message.sender_id || message.senderId || caller?.uid || 'guest',
+        150
+      );
       const newMsg = {
         id: sanitizeServerText(message.id || 'msg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6), 100),
-        authorId: sanitizeServerText(message.authorId || message.sender_id || message.senderId || 'guest', 150),
-        senderId: sanitizeServerText(message.senderId || message.sender_id || message.authorId || 'guest', 150),
-        senderEmail: sanitizeServerText((req as any).user?.email || message.senderEmail || message.email || '', 150),
-        receiverId: sanitizeServerText(message.receiverId || message.receiver_id || id, 150),
+        conversationId,
+        intentId: conversationId,
+        authorId: senderIdVal,
+        senderId: senderIdVal,
+        authorName: sanitizeServerText(message.authorName || message.senderName || caller?.name || '', 120),
+        senderEmail: sanitizeServerText(caller?.email || message.senderEmail || message.email || '', 150),
+        receiverId: sanitizeServerText(message.receiverId || message.receiver_id || conversationId, 150),
         text: safeText,
         content: safeText,
         message: safeText,
@@ -2850,9 +3027,26 @@ async function startServer() {
         createdAt: message.createdAt || message.sent_at || new Date().toISOString()
       };
 
-      // 1. PostgreSQL Insert into primary "chats" table (Parameterized Query)
+      // 1. PostgreSQL Insert into messages and chats tables (Parameterized Query)
       if (dbPool && isDbConnected) {
         try {
+          await dbPool.query(`
+            INSERT INTO messages (id, intent_id, sender_id, receiver_id, text, content, type, attachment_url, attachment_type, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            ON CONFLICT (id) DO NOTHING
+          `, [
+            newMsg.id,
+            conversationId,
+            newMsg.senderId,
+            newMsg.receiverId,
+            newMsg.text,
+            newMsg.content,
+            newMsg.type,
+            newMsg.attachmentUrl,
+            newMsg.attachmentType,
+            newMsg.createdAt
+          ]);
+
           await dbPool.query(`
             INSERT INTO chats (id, sender_id, receiver_id, message, sent_at)
             VALUES ($1, $2, $3, $4, $5)
@@ -2864,24 +3058,6 @@ async function startServer() {
             newMsg.message,
             newMsg.createdAt
           ]);
-
-          // Also insert into messages table
-          await dbPool.query(`
-            INSERT INTO messages (id, intent_id, sender_id, receiver_id, text, content, type, attachment_url, attachment_type, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-            ON CONFLICT (id) DO NOTHING
-          `, [
-            newMsg.id,
-            id,
-            newMsg.senderId,
-            newMsg.receiverId,
-            newMsg.text,
-            newMsg.content,
-            newMsg.type,
-            newMsg.attachmentUrl,
-            newMsg.attachmentType,
-            newMsg.createdAt
-          ]);
         } catch (dbErr) {
           console.warn("DB message insert error:", dbErr);
         }
@@ -2889,18 +3065,20 @@ async function startServer() {
 
       // 2. Local file backup & refresh post interaction time
       const allMessages = readJsonFile<Record<string, any[]>>(MESSAGES_FILE, {});
-      const chatMessages = allMessages[id] || [];
-      chatMessages.push(newMsg);
-      allMessages[id] = chatMessages;
-      writeJsonFile(MESSAGES_FILE, allMessages);
+      const chatMessages = allMessages[conversationId] || [];
+      if (!chatMessages.some((m: any) => m.id === newMsg.id)) {
+        chatMessages.push(newMsg);
+        allMessages[conversationId] = chatMessages;
+        writeJsonFile(MESSAGES_FILE, allMessages);
+      }
 
       // Refresh post interaction timestamp so active conversations extend post expiry
-      if (id && id !== 'general') {
+      if (conversationId && conversationId !== 'general') {
         try {
           const localIntents = readJsonFile<any[]>(INTENTS_FILE, []);
           let updatedIntents = false;
           localIntents.forEach(i => {
-            if (i.id === id) {
+            if (i.id === conversationId) {
               i.lastInteractionAt = new Date().toISOString();
               i.expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
               updatedIntents = true;
@@ -2913,7 +3091,7 @@ async function startServer() {
               UPDATE broadcast_posts 
               SET expires_at = NOW() + INTERVAL '1 hour'
               WHERE id = $1
-            `, [id]).catch(() => {});
+            `, [conversationId]).catch(() => {});
           }
         } catch (syncErr) {
           console.warn("Post interaction refresh error:", syncErr);
@@ -2927,9 +3105,10 @@ async function startServer() {
     }
   };
 
-  app.post("/api/intents/:id/messages", chatMessageLimiter, requireAuth, sendChatMessageHandler);
-  app.post("/api/chats", chatMessageLimiter, requireAuth, sendChatMessageHandler);
-  app.post("/api/messages", chatMessageLimiter, requireAuth, sendChatMessageHandler);
+  app.post("/api/intents/:id/messages", registrationAndMessageLimiter, chatMessageLimiter, sendChatMessageHandler);
+  app.post("/api/chats", registrationAndMessageLimiter, chatMessageLimiter, sendChatMessageHandler);
+  app.post("/api/messages", registrationAndMessageLimiter, chatMessageLimiter, sendChatMessageHandler);
+  app.post("/api/messages/:id", registrationAndMessageLimiter, chatMessageLimiter, sendChatMessageHandler);
 
   // Background Auto-Delete Job: Purge posts inactive for >1 hour
   setInterval(async () => {
@@ -2987,6 +3166,18 @@ async function startServer() {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
       const includeAll = req.query.all === 'true' || req.query.includePending === 'true';
+      const caller = extractUserFromRequest(req);
+      const isAdmin = isRequestAdmin(req);
+      const isAuthenticated = Boolean(caller && caller.uid && !String(caller.uid).startsWith('guest'));
+      const isPublicRequest = !includeAll && !isAdmin && !isAuthenticated;
+
+      if (isPublicRequest) {
+        const cached = getPublicCache('public_shops');
+        if (cached) {
+          return res.json(cached);
+        }
+      }
+
       let allList: any[] = [];
 
       if (dbPool && isDbConnected) {
@@ -3040,9 +3231,6 @@ async function startServer() {
       }
 
       // Data Privacy: Redact private emails/phones for unauthenticated bulk requests (Admin gets full details)
-      const caller = extractUserFromRequest(req);
-      const isAdmin = isRequestAdmin(req);
-      const isAuthenticated = Boolean(caller && caller.uid && !String(caller.uid).startsWith('guest'));
       const verifs = isAdmin ? readJsonFile<any[]>(VERIFICATIONS_FILE, []) : [];
       const sanitizedList = allList.map(s => {
         const item = redactBulkItemForPrivacy(s, isAuthenticated, isAdmin);
@@ -3055,6 +3243,10 @@ async function startServer() {
         return item;
       });
 
+      if (isPublicRequest) {
+        setPublicCache('public_shops', sanitizedList);
+      }
+
       res.json(sanitizedList);
     } catch (e: any) {
       res.status(500).json({ error: e.message || "Failed to fetch businesses" });
@@ -3066,6 +3258,11 @@ async function startServer() {
 
   const saveBusinessHandler = async (req: express.Request, res: express.Response) => {
     try {
+      if (isBotSubmission(req)) {
+        console.log("[Honeypot Triggered] Silently rejecting bot business submission");
+        return res.status(200).json({ success: true, message: "Request received" });
+      }
+
       const shop = req.body;
       const bName = shop.business_name || shop.businessName || shop.name;
       if (!shop || !bName) return res.status(400).json({ error: "Business name required" });
@@ -3194,26 +3391,34 @@ async function startServer() {
       const updated = [newShop, ...shops.filter(s => s.id !== newShop.id && !String(s.id).startsWith('sample_shop_'))];
       writeJsonFile(SHOPS_FILE, updated);
 
-      // Ensure pending entry in Admin Verification Queue for public registrations
+      // Ensure pending entry in Admin Verification Queue for public registrations & edits
       if (!autoApprove) {
         const verifications = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
         const existingVerifIdx = verifications.findIndex(v => v.entityId === newShop.id);
-        if (existingVerifIdx < 0) {
-          const verifEntry = {
-            id: 'verif_biz_' + newShop.id,
-            entityType: 'business',
-            entityId: newShop.id,
-            userId: ownerId,
-            userName: newShop.name,
-            userEmail: ownerEmail,
-            userPhone: newShop.phone,
-            title: `${newShop.name} (${newShop.categoryLabel}) - ${newShop.area}`,
-            idDocumentWatermarked: shop.idDocumentWatermarked || newShop.photoUrl || '',
-            status: 'pending',
-            createdAt: newShop.createdAt
-          };
+        const verifEntry = {
+          id: existingVerifIdx >= 0 ? verifications[existingVerifIdx].id : ('verif_biz_' + newShop.id),
+          entityType: 'business',
+          entityId: newShop.id,
+          userId: ownerId,
+          userName: newShop.name,
+          userEmail: ownerEmail,
+          userPhone: newShop.phone,
+          title: `${newShop.name} (${newShop.categoryLabel}) - ${newShop.area}`,
+          idDocumentWatermarked: shop.idDocumentWatermarked || newShop.photoUrl || (existingVerifIdx >= 0 ? verifications[existingVerifIdx].idDocumentWatermarked : ''),
+          status: 'pending',
+          createdAt: newShop.createdAt
+        };
+        if (existingVerifIdx >= 0) {
+          verifications[existingVerifIdx] = verifEntry;
+        } else {
           verifications.unshift(verifEntry);
-          writeJsonFile(VERIFICATIONS_FILE, verifications);
+        }
+        writeJsonFile(VERIFICATIONS_FILE, verifications);
+        if (dbPool && isDbConnected) {
+          await dbPool.query(
+            "UPDATE verification_requests SET status = 'pending', user_name = $1, user_phone = $2, title = $3 WHERE entity_id = $4",
+            [newShop.name, newShop.phone, verifEntry.title, newShop.id]
+          ).catch(() => {});
         }
       }
 
@@ -3224,14 +3429,15 @@ async function startServer() {
         "ACTIVE_REGISTERED"
       );
 
+      invalidatePublicCache(['public_shops', 'public_helpers']);
       res.status(201).json(newShop);
     } catch (e: any) {
       res.status(500).json({ error: e.message || "Failed to save business" });
     }
   };
 
-  app.post("/api/shops", requireAuth, saveBusinessHandler);
-  app.post("/api/businesses", requireAuth, saveBusinessHandler);
+  app.post("/api/shops", registrationAndMessageLimiter, requireAuth, saveBusinessHandler);
+  app.post("/api/businesses", registrationAndMessageLimiter, requireAuth, saveBusinessHandler);
 
   const deleteBusinessHandler = async (req: express.Request, res: express.Response) => {
     try {
@@ -3267,6 +3473,7 @@ async function startServer() {
         } catch (e) {}
       }
       writeJsonFile(SHOPS_FILE, shops.filter(s => s.id !== id));
+      invalidatePublicCache(['public_shops', 'public_helpers']);
       res.json({ success: true });
     } catch (e: any) {
       res.status(500).json({ error: "Failed to delete business" });
@@ -3284,6 +3491,18 @@ async function startServer() {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
       const includeAll = req.query.all === 'true' || req.query.includePending === 'true';
+      const caller = extractUserFromRequest(req);
+      const isAdmin = isRequestAdmin(req);
+      const isAuthenticated = Boolean(caller && caller.uid && !String(caller.uid).startsWith('guest'));
+      const isPublicRequest = !includeAll && !isAdmin && !isAuthenticated;
+
+      if (isPublicRequest) {
+        const cached = getPublicCache('public_helpers');
+        if (cached) {
+          return res.json(cached);
+        }
+      }
+
       const mergedMap = new Map<string, any>();
 
       const verifs = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
@@ -3442,9 +3661,6 @@ async function startServer() {
       }
 
       // Data Privacy: Redact private emails/phones and ID docs for unauthenticated bulk requests (Admin gets full details)
-      const caller = extractUserFromRequest(req);
-      const isAdmin = isRequestAdmin(req);
-      const isAuthenticated = Boolean(caller && caller.uid && !String(caller.uid).startsWith('guest'));
       const sanitizedHelpers = allHelpers.map(h => {
         const redacted = redactBulkItemForPrivacy(h, isAuthenticated, isAdmin);
         if (!isAdmin) {
@@ -3455,14 +3671,23 @@ async function startServer() {
         return redacted;
       });
 
+      if (isPublicRequest) {
+        setPublicCache('public_helpers', sanitizedHelpers);
+      }
+
       res.json(sanitizedHelpers);
     } catch (e: any) {
       res.status(500).json({ error: e.message || "Failed to fetch helpers" });
     }
   });
 
-  app.post("/api/helpers", requireAuth, async (req, res) => {
+  app.post("/api/helpers", registrationAndMessageLimiter, requireAuth, async (req, res) => {
     try {
+      if (isBotSubmission(req)) {
+        console.log("[Honeypot Triggered] Silently rejecting bot helper registration");
+        return res.status(200).json({ success: true, message: "Request received" });
+      }
+
       const helper = req.body;
       if (!helper || !helper.name) return res.status(400).json({ error: "Helper name required" });
 
@@ -3548,29 +3773,37 @@ async function startServer() {
       const updated = [newHelper, ...helpers.filter(h => h.id !== newHelper.id)];
       writeJsonFile(HELPERS_FILE, updated);
 
-      // Ensure pending entry in Admin Verification Queue for public registrations
+      // Ensure pending entry in Admin Verification Queue for public registrations & edits
       if (!autoApprove) {
         const verifications = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
         const existingVerifIdx = verifications.findIndex(v => v.entityId === newHelper.id);
-        if (existingVerifIdx < 0) {
-          const catDisplay = newHelper.categoryId === 'other' && newHelper.customCategoryName
-            ? `Other (${newHelper.customCategoryName})`
-            : newHelper.categoryId;
-          const verifEntry = {
-            id: 'verif_hlp_' + newHelper.id,
-            entityType: 'user_profile',
-            entityId: newHelper.id,
-            userId: userId || newHelper.id,
-            userName: newHelper.name,
-            userEmail: userEmail,
-            userPhone: newHelper.phone,
-            title: `Helper Profile (${catDisplay}) - ${newHelper.area}`,
-            idDocumentWatermarked: newHelper.idDocUrl || newHelper.photoUrl || '',
-            status: 'pending',
-            createdAt: newHelper.createdAt
-          };
+        const catDisplay = newHelper.categoryId === 'other' && newHelper.customCategoryName
+          ? `Other (${newHelper.customCategoryName})`
+          : newHelper.categoryId;
+        const verifEntry = {
+          id: existingVerifIdx >= 0 ? verifications[existingVerifIdx].id : ('verif_hlp_' + newHelper.id),
+          entityType: 'user_profile',
+          entityId: newHelper.id,
+          userId: userId || newHelper.id,
+          userName: newHelper.name,
+          userEmail: userEmail,
+          userPhone: newHelper.phone,
+          title: `Helper Profile (${catDisplay}) - ${newHelper.area}`,
+          idDocumentWatermarked: newHelper.idDocUrl || newHelper.photoUrl || (existingVerifIdx >= 0 ? verifications[existingVerifIdx].idDocumentWatermarked : ''),
+          status: 'pending',
+          createdAt: newHelper.createdAt
+        };
+        if (existingVerifIdx >= 0) {
+          verifications[existingVerifIdx] = verifEntry;
+        } else {
           verifications.unshift(verifEntry);
-          writeJsonFile(VERIFICATIONS_FILE, verifications);
+        }
+        writeJsonFile(VERIFICATIONS_FILE, verifications);
+        if (dbPool && isDbConnected) {
+          await dbPool.query(
+            "UPDATE verification_requests SET status = 'pending', user_name = $1, user_phone = $2, title = $3 WHERE entity_id = $4",
+            [newHelper.name, newHelper.phone, verifEntry.title, newHelper.id]
+          ).catch(() => {});
         }
       }
 
@@ -3581,6 +3814,7 @@ async function startServer() {
         "ACTIVE_REGISTERED"
       );
 
+      invalidatePublicCache(['public_helpers']);
       res.status(201).json(newHelper);
     } catch (e: any) {
       res.status(500).json({ error: e.message || "Failed to save helper" });
@@ -3621,6 +3855,7 @@ async function startServer() {
           await dbPool.query("DELETE FROM helpers WHERE id = $1", [id]);
         } catch (_e) {}
       }
+      invalidatePublicCache(['public_helpers']);
       res.json({ success: true, id });
     } catch (e: any) {
       res.status(500).json({ error: e.message || "Failed to delete helper profile" });
@@ -3706,11 +3941,17 @@ async function startServer() {
   // AD BANNER MANAGEMENT API ROUTES
   // ==========================================
 
-  app.get("/api/ads", async (req, res) => {
+  app.get("/api/ads", async (_req, res) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
       res.setHeader("Pragma", "no-cache");
       res.setHeader("Expires", "0");
+
+      const cached = getPublicCache('public_ads');
+      if (cached) {
+        return res.json(cached);
+      }
+
       const adsMap = new Map<string, any>();
       const fileAds = readJsonFile<any[]>(ADS_FILE, []);
       fileAds.forEach(a => {
@@ -3726,7 +3967,9 @@ async function startServer() {
           });
         } catch {}
       }
-      res.json(Array.from(adsMap.values()));
+      const allAds = Array.from(adsMap.values());
+      setPublicCache('public_ads', allAds);
+      res.json(allAds);
     } catch (e) {
       res.status(500).json({ error: "Failed to fetch ad banners" });
     }
@@ -3788,6 +4031,7 @@ async function startServer() {
         } catch {}
       }
 
+      invalidatePublicCache(['public_ads']);
       console.log(`[Ad Banner Saved] ${newAd.id}: ${newAd.businessName}`);
       res.status(201).json(newAd);
     } catch (e) {
@@ -3808,6 +4052,7 @@ async function startServer() {
           await dbPool.query("DELETE FROM ad_banners WHERE id = $1", [id]);
         } catch {}
       }
+      invalidatePublicCache(['public_ads']);
       console.log(`[Ad Banner Deleted] ${id}`);
       res.json({ success: true, id });
     } catch (e) {
@@ -3884,9 +4129,15 @@ async function startServer() {
     }
   });
 
-  app.post("/api/job-portal", async (req, res) => {
+  app.post("/api/job-portal", registrationAndMessageLimiter, async (req, res) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+
+      if (isBotSubmission(req)) {
+        console.log("[Honeypot Triggered] Silently rejecting bot job portal submission");
+        return res.status(200).json({ success: true, message: "Submission received" });
+      }
+
       const payload = req.body;
       if (!payload || !payload.type) {
         return res.status(400).json({ error: "Invalid submission payload: type is required" });
@@ -4234,6 +4485,7 @@ async function startServer() {
         } catch (e) {}
       }
 
+      invalidatePublicCache(['public_helpers']);
       res.json({ success: true, item: helper });
     } catch (e: any) {
       res.status(500).json({ error: e.message || "Failed to update helper profile" });
@@ -4272,6 +4524,7 @@ async function startServer() {
         } catch (e) {}
       }
 
+      invalidatePublicCache(['public_helpers']);
       res.json({ success: true, id });
     } catch (e: any) {
       res.status(500).json({ error: e.message || "Failed to delete helper profile" });
@@ -4433,6 +4686,7 @@ async function startServer() {
         } catch (e) {}
       }
 
+      invalidatePublicCache(['public_helpers', 'public_shops']);
       res.json({ success: true, item: current });
     } catch (e: any) {
       res.status(500).json({ error: e.message || "Failed to update user profile" });
@@ -4469,6 +4723,7 @@ async function startServer() {
         } catch (e) {}
       }
 
+      invalidatePublicCache(['public_helpers', 'public_shops']);
       res.json({ success: true, uid });
     } catch (e: any) {
       res.status(500).json({ error: e.message || "Failed to delete user profile" });
@@ -4566,6 +4821,7 @@ async function startServer() {
         } catch (e) {}
       }
 
+      invalidatePublicCache(['public_shops', 'public_helpers']);
       res.json({ success: true, item: shop });
     } catch (e: any) {
       res.status(500).json({ error: e.message || "Failed to update shop/business" });
@@ -4708,6 +4964,8 @@ async function startServer() {
       const realJobs = jobs.filter(j => !j.id.startsWith('job_emp_01') && !j.id.startsWith('job_seeker_01'));
       writeJsonFile(JOB_PORTAL_FILE, realJobs);
 
+      invalidatePublicCache();
+
       res.json({
         success: true,
         message: "All sample/dummy seed data purged successfully! Only real user posts are now active.",
@@ -4740,6 +4998,8 @@ async function startServer() {
       writeJsonFile(SHOPS_FILE, []);
       writeJsonFile(HELPERS_FILE, []);
 
+      invalidatePublicCache();
+
       res.json({
         success: true,
         message: "Database reset completed. All posts, shops, and job listings have been cleared."
@@ -4756,9 +5016,15 @@ async function startServer() {
   // ==========================================
 
   // 1. Submit Identity Verification (Auto-Watermarked Document) - Protected
-  app.post("/api/verifications", requireAuth, async (req, res) => {
+  app.post("/api/verifications", registrationAndMessageLimiter, requireAuth, async (req, res) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+
+      if (isBotSubmission(req)) {
+        console.log("[Honeypot Triggered] Silently rejecting bot verification submission");
+        return res.status(200).json({ success: true, message: "Verification received" });
+      }
+
       const {
         id,
         entityType = 'user_profile', // 'user_profile' or 'business'
@@ -5150,6 +5416,7 @@ async function startServer() {
         }
       }
 
+      invalidatePublicCache(['public_helpers', 'public_shops']);
       res.json({ success: true, item: updatedItem, status });
     } catch (e: any) {
       res.status(500).json({ error: e.message || "Failed to update verification status" });
@@ -5516,6 +5783,11 @@ async function startServer() {
   // ==========================================
   app.get("/api/category-images", async (_req, res) => {
     try {
+      const cached = getPublicCache('category_images');
+      if (cached) {
+        return res.json(cached);
+      }
+
       const fileImages = readJsonFile<Record<string, string>>(CATEGORY_IMAGES_FILE, {});
       const merged: Record<string, string> = { ...fileImages };
 
@@ -5530,7 +5802,9 @@ async function startServer() {
         } catch (_dbErr) {}
       }
 
-      return res.json({ success: true, images: merged });
+      const responsePayload = { success: true, images: merged };
+      setPublicCache('category_images', responsePayload);
+      return res.json(responsePayload);
     } catch (e) {
       return res.json({ success: true, images: {} });
     }
@@ -5563,6 +5837,7 @@ async function startServer() {
         }
       }
 
+      invalidatePublicCache(['category_images']);
       return res.json({ success: true, categoryId: cleanId, imageUrl: cleanUrl, images: fileImages });
     } catch (e: any) {
       return res.status(500).json({ error: e.message || "Failed to save category image" });
@@ -5588,10 +5863,24 @@ async function startServer() {
         }
       }
 
+      invalidatePublicCache(['category_images']);
       return res.json({ success: true, categoryId: cleanId, images: fileImages });
     } catch (e: any) {
       return res.status(500).json({ error: e.message || "Failed to delete category image" });
     }
+  });
+
+  // API Unhandled Error Handler Middleware
+  app.use("/api", (err: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error("[Unhandled API Error]:", err);
+    if (res.headersSent) {
+      return next(err);
+    }
+    return res.status(500).json({
+      success: false,
+      error: "Something went wrong. Please try again later. / सर्वर पर कुछ समस्या आई है, कृपया कुछ समय बाद पुनः प्रयास करें।",
+      code: "INTERNAL_SERVER_ERROR"
+    });
   });
 
   // Serve PWA Manifest, Service Worker, and Icons explicitly with proper MIME types and guaranteed 200 OK fallback
@@ -5638,7 +5927,40 @@ async function startServer() {
     );
   });
 
-  app.use(express.static(publicDir));
+  // Browser cache headers for static assets: Cache-Control: public, max-age=86400 (1 day)
+  app.use((req, res, next) => {
+    const p = req.path.toLowerCase();
+    if (
+      p.endsWith('.webp') ||
+      p.endsWith('.png') ||
+      p.endsWith('.jpg') ||
+      p.endsWith('.jpeg') ||
+      p.endsWith('.svg') ||
+      p.endsWith('.css') ||
+      p.endsWith('.js') ||
+      p.endsWith('.woff') ||
+      p.endsWith('.woff2') ||
+      p.endsWith('.ico')
+    ) {
+      if (!p.includes('sw.js')) {
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+      }
+    }
+    next();
+  });
+
+  const staticCacheOptions = {
+    maxAge: 86400000,
+    setHeaders: (res: express.Response, filePath: string) => {
+      if (filePath.endsWith('.html') || filePath.endsWith('sw.js') || filePath.endsWith('manifest.json')) {
+        res.setHeader('Cache-Control', 'no-cache');
+      } else {
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+      }
+    }
+  };
+
+  app.use(express.static(publicDir, staticCacheOptions));
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production" && process.env.VITE_DEV_SERVER !== 'false') {
@@ -5649,11 +5971,24 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
+    app.use(express.static(distPath, staticCacheOptions));
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
+
+  // Global Express Error-Handling Middleware (catches unhandled 500 errors and returns safe JSON)
+  app.use((err: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error("[Unhandled Express Error]:", err);
+    if (res.headersSent) {
+      return next(err);
+    }
+    return res.status(500).json({
+      success: false,
+      error: "Something went wrong. Please try again later. / सर्वर पर कुछ समस्या आई है, कृपया कुछ समय बाद पुनः प्रयास करें।",
+      code: "INTERNAL_SERVER_ERROR"
+    });
+  });
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);

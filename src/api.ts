@@ -317,11 +317,11 @@ export async function deleteIntentOnServer(id: string, description?: string): Pr
 }
 
 /**
- * Fetches messages for a chat / intent from the central server (Authorized participants only).
+ * Fetches messages for a chat / conversation from the central server (`messages` table via GET /api/messages/:conversationId).
  */
-export async function fetchChatMessages(intentId: string): Promise<ChatMessage[]> {
+export async function fetchChatMessages(conversationId: string): Promise<ChatMessage[]> {
   try {
-    const res = await fetch(`/api/intents/${encodeURIComponent(intentId)}/messages?_t=${Date.now()}`, {
+    const res = await fetch(`/api/messages/${encodeURIComponent(conversationId)}?_t=${Date.now()}`, {
       cache: 'no-store',
       headers: { 
         'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -340,13 +340,20 @@ export async function fetchChatMessages(intentId: string): Promise<ChatMessage[]
 }
 
 /**
- * Sends a message in an intent chat to sync with the other phone (XSS sanitized).
+ * Sends a message in a chat conversation to sync across devices (`messages` table via POST /api/messages).
  */
-export async function sendChatMessage(intentId: string, msg: Partial<ChatMessage>): Promise<ChatMessage> {
+export async function sendChatMessage(conversationId: string, msg: Partial<ChatMessage> & { receiverId?: string; authorName?: string }): Promise<ChatMessage> {
   const payload = {
-    id: msg.id || 'msg_' + Date.now(),
+    id: msg.id || 'msg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+    conversationId,
+    intentId: conversationId,
     authorId: sanitizeText(msg.authorId || 'guest'),
+    senderId: sanitizeText(msg.authorId || 'guest'),
+    authorName: sanitizeText((msg as any).authorName || ''),
+    receiverId: sanitizeText((msg as any).receiverId || conversationId),
     text: sanitizeText(msg.text || ''),
+    content: sanitizeText(msg.text || ''),
+    message: sanitizeText(msg.text || ''),
     type: msg.type || 'text',
     attachmentUrl: msg.attachmentUrl || null,
     attachmentType: msg.attachmentType || null,
@@ -354,7 +361,7 @@ export async function sendChatMessage(intentId: string, msg: Partial<ChatMessage
   };
 
   try {
-    const res = await fetch(`/api/intents/${encodeURIComponent(intentId)}/messages?_t=${Date.now()}`, {
+    const res = await fetch(`/api/messages?_t=${Date.now()}`, {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
@@ -436,8 +443,9 @@ export async function fetchLiveAds(): Promise<any[]> {
           }
         });
         localAds.forEach((a: any) => {
-          if (a && a.id && !deletedIds.includes(a.id) && !mergedMap.has(a.id)) {
-            mergedMap.set(a.id, a);
+          if (a && a.id && !deletedIds.includes(a.id)) {
+            const srv = mergedMap.get(a.id);
+            mergedMap.set(a.id, srv ? { ...srv, ...a } : a);
           }
         });
         const merged = Array.from(mergedMap.values());
@@ -608,6 +616,23 @@ export async function fetchJobPortalItems(params?: {
   type?: 'job_seeker' | 'employer_vacancy' | 'all';
   search?: string;
 }): Promise<JobPortalItem[]> {
+  let deletedIds: string[] = [];
+  try {
+    const delRaw = localStorage.getItem('locohelp_deleted_jobs');
+    if (delRaw) deletedIds = JSON.parse(delRaw);
+  } catch {}
+
+  let cachedItems: JobPortalItem[] = [];
+  try {
+    const cached = localStorage.getItem('locohelp_live_jobs_cache');
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (Array.isArray(parsed)) {
+        cachedItems = parsed.filter(i => i && i.id && !deletedIds.includes(String(i.id)));
+      }
+    }
+  } catch {}
+
   try {
     const query = new URLSearchParams();
     query.set('_t', Date.now().toString());
@@ -627,12 +652,42 @@ export async function fetchJobPortalItems(params?: {
     if (res.ok) {
       const items: JobPortalItem[] = await res.json();
       if (Array.isArray(items)) {
+        const serverIds = new Set<string>();
+        const map = new Map<string, JobPortalItem>();
+
+        cachedItems.forEach(item => map.set(String(item.id), item));
+        items.forEach(item => {
+          if (item && item.id && !deletedIds.includes(String(item.id))) {
+            serverIds.add(String(item.id));
+            map.set(String(item.id), { ...(map.get(String(item.id)) || {}), ...item });
+          }
+        });
+
+        const merged = Array.from(map.values());
         if (!params?.type || params.type === 'all') {
           try {
-            localStorage.setItem('locohelp_live_jobs_cache', JSON.stringify(items));
+            localStorage.setItem('locohelp_live_jobs_cache', JSON.stringify(merged));
           } catch (e) {}
         }
-        let filtered = items;
+
+        // Auto-recover any cached job portal items missing on server after container restart
+        const missingOnServer = cachedItems.filter(i => i && i.id && !serverIds.has(String(i.id)));
+        if (missingOnServer.length > 0) {
+          missingOnServer.forEach(jobItem => {
+            fetch('/api/job-portal', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+              body: JSON.stringify(jobItem)
+            }).catch(() => {});
+          });
+        }
+
+        let filtered = merged;
+        if (params?.status && params.status !== 'all') {
+          filtered = filtered.filter(i => (i.status || 'approved') === params.status);
+        } else if (!params?.status) {
+          filtered = filtered.filter(i => !i.status || i.status === 'approved');
+        }
         if (params?.type && params.type !== 'all') {
           filtered = filtered.filter(i => i.type === params.type);
         }
@@ -643,21 +698,16 @@ export async function fetchJobPortalItems(params?: {
     console.warn("Job portal fetch notice (falling back to cache):", err);
   }
 
-  try {
-    const cached = localStorage.getItem('locohelp_live_jobs_cache');
-    if (cached) {
-      const parsed: JobPortalItem[] = JSON.parse(cached);
-      if (Array.isArray(parsed)) {
-        let filtered = parsed;
-        if (params?.type && params.type !== 'all') {
-          filtered = filtered.filter(i => i.type === params.type);
-        }
-        return filtered;
-      }
-    }
-  } catch (e) {}
-
-  return [];
+  let filtered = cachedItems;
+  if (params?.status && params.status !== 'all') {
+    filtered = filtered.filter(i => (i.status || 'approved') === params.status);
+  } else if (!params?.status) {
+    filtered = filtered.filter(i => !i.status || i.status === 'approved');
+  }
+  if (params?.type && params.type !== 'all') {
+    filtered = filtered.filter(i => i.type === params.type);
+  }
+  return filtered;
 }
 
 /**
@@ -735,6 +785,22 @@ export async function updateJobPortalStatus(
  * Deletes a Job Portal entry permanently (Admin Protected).
  */
 export async function deleteJobPortalItem(id: string): Promise<boolean> {
+  try {
+    const delRaw = localStorage.getItem('locohelp_deleted_jobs');
+    const deletedIds: string[] = delRaw ? JSON.parse(delRaw) : [];
+    if (!deletedIds.includes(id)) {
+      deletedIds.push(id);
+      localStorage.setItem('locohelp_deleted_jobs', JSON.stringify(deletedIds));
+    }
+    const cached = localStorage.getItem('locohelp_live_jobs_cache');
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (Array.isArray(parsed)) {
+        localStorage.setItem('locohelp_live_jobs_cache', JSON.stringify(parsed.filter((i: any) => i.id !== id)));
+      }
+    }
+  } catch {}
+
   try {
     const res = await fetch(`/api/job-portal/${encodeURIComponent(id)}?_t=${Date.now()}`, {
       method: 'DELETE',
@@ -951,6 +1017,15 @@ export async function updateAdminHelperOnServer(
 
 export async function deleteAdminHelperOnServer(id: string): Promise<boolean> {
   try {
+    const delRaw = localStorage.getItem('locohelp_deleted_helpers');
+    const deletedIds: string[] = delRaw ? JSON.parse(delRaw) : [];
+    if (!deletedIds.includes(id)) {
+      deletedIds.push(id);
+      localStorage.setItem('locohelp_deleted_helpers', JSON.stringify(deletedIds));
+    }
+  } catch {}
+
+  try {
     const res = await fetch(`/api/admin/helpers/${encodeURIComponent(id)}`, {
       method: 'DELETE',
       headers: getAuthHeaders()
@@ -1024,6 +1099,15 @@ export async function updateAdminShopOnServer(
 }
 
 export async function deleteAdminShopOnServer(id: string): Promise<boolean> {
+  try {
+    const delRaw = localStorage.getItem('locohelp_deleted_shops');
+    const deletedIds: string[] = delRaw ? JSON.parse(delRaw) : [];
+    if (!deletedIds.includes(id)) {
+      deletedIds.push(id);
+      localStorage.setItem('locohelp_deleted_shops', JSON.stringify(deletedIds));
+    }
+  } catch {}
+
   try {
     const res = await fetch(`/api/admin/shops/${encodeURIComponent(id)}`, {
       method: 'DELETE',
@@ -1117,6 +1201,13 @@ export function getCachedCategoryImages(): Record<string, string> {
 }
 
 export async function fetchCategoryImages(): Promise<Record<string, string>> {
+  const cached = getCachedCategoryImages();
+  let deletedCats: string[] = [];
+  try {
+    const delRaw = localStorage.getItem('locohelp_deleted_category_images');
+    if (delRaw) deletedCats = JSON.parse(delRaw);
+  } catch {}
+
   try {
     const res = await fetch(`/api/category-images?_t=${Date.now()}`, {
       cache: 'no-store'
@@ -1124,20 +1215,47 @@ export async function fetchCategoryImages(): Promise<Record<string, string>> {
     if (res.ok) {
       const data = await res.json();
       if (data && data.images && typeof data.images === 'object') {
+        const merged: Record<string, string> = {};
+        Object.entries(cached).forEach(([k, v]) => {
+          if (v && !deletedCats.includes(k)) merged[k] = v;
+        });
+        Object.entries(data.images as Record<string, string>).forEach(([k, v]) => {
+          if (v && !deletedCats.includes(k)) merged[k] = v;
+        });
         try {
-          localStorage.setItem('locohelp_category_images', JSON.stringify(data.images));
+          localStorage.setItem('locohelp_category_images', JSON.stringify(merged));
         } catch {}
-        return data.images;
+
+        // Auto-recover any cached category images missing on the server after container restart
+        Object.entries(cached).forEach(([catId, imgUrl]) => {
+          if (imgUrl && !deletedCats.includes(catId) && !data.images[catId]) {
+            fetch('/api/category-images', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+              body: JSON.stringify({ categoryId: catId, imageUrl: imgUrl })
+            }).catch(() => {});
+          }
+        });
+
+        return merged;
       }
     }
   } catch (e) {}
-  return getCachedCategoryImages();
+  return cached;
 }
 
 export async function saveCategoryImageOnServer(
   categoryId: string,
   imageUrl: string
 ): Promise<{ success: boolean; images?: Record<string, string>; error?: string }> {
+  try {
+    const delRaw = localStorage.getItem('locohelp_deleted_category_images');
+    if (delRaw) {
+      const delList: string[] = JSON.parse(delRaw).filter((c: string) => c !== categoryId);
+      localStorage.setItem('locohelp_deleted_category_images', JSON.stringify(delList));
+    }
+  } catch {}
+
   try {
     const res = await fetch('/api/category-images', {
       method: 'POST',
@@ -1148,12 +1266,12 @@ export async function saveCategoryImageOnServer(
     if (!res.ok) {
       return { success: false, error: data.error || 'Failed to save category image' };
     }
-    if (data.images) {
-      try {
-        localStorage.setItem('locohelp_category_images', JSON.stringify(data.images));
-      } catch {}
-    }
-    return { success: true, images: data.images };
+    const merged = { ...getCachedCategoryImages(), ...(data.images || {}), [categoryId]: imageUrl };
+    try {
+      localStorage.setItem('locohelp_category_images', JSON.stringify(merged));
+      window.dispatchEvent(new Event('locohelp_category_images_updated'));
+    } catch {}
+    return { success: true, images: merged };
   } catch (e: any) {
     return { success: false, error: e.message || 'Network error while saving category image' };
   }
@@ -1162,6 +1280,18 @@ export async function saveCategoryImageOnServer(
 export async function deleteCategoryImageOnServer(
   categoryId: string
 ): Promise<{ success: boolean; images?: Record<string, string>; error?: string }> {
+  try {
+    const delRaw = localStorage.getItem('locohelp_deleted_category_images');
+    const delList: string[] = delRaw ? JSON.parse(delRaw) : [];
+    if (!delList.includes(categoryId)) {
+      delList.push(categoryId);
+      localStorage.setItem('locohelp_deleted_category_images', JSON.stringify(delList));
+    }
+    const current = getCachedCategoryImages();
+    delete current[categoryId];
+    localStorage.setItem('locohelp_category_images', JSON.stringify(current));
+  } catch {}
+
   try {
     const res = await fetch(`/api/category-images/${encodeURIComponent(categoryId)}`, {
       method: 'DELETE',
@@ -1173,10 +1303,10 @@ export async function deleteCategoryImageOnServer(
     }
     if (data.images) {
       try {
-        localStorage.setItem('locohelp_category_images', JSON.stringify(data.images));
+        window.dispatchEvent(new Event('locohelp_category_images_updated'));
       } catch {}
     }
-    return { success: true, images: data.images };
+    return { success: true, images: getCachedCategoryImages() };
   } catch (e: any) {
     return { success: false, error: e.message || 'Network error while deleting category image' };
   }

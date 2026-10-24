@@ -707,11 +707,17 @@ export function normalizeCategorySlug(
 
 export function getFreeHelperProfiles(includePending = false): FreeHelperProfile[] {
   try {
+    let deletedIds: string[] = [];
+    try {
+      const delRaw = localStorage.getItem('locohelp_deleted_helpers');
+      if (delRaw) deletedIds = JSON.parse(delRaw);
+    } catch {}
+
     const data = localStorage.getItem(STORAGE_KEY);
     const custom: FreeHelperProfile[] = data ? JSON.parse(data) : [];
-    // Filter out any legacy dummy helpers (h1..h14)
+    // Filter out any legacy dummy helpers (h1..h14) and explicitly deleted IDs
     const realOnly = custom
-      .filter(h => h && h.id && !/^h\d+/.test(String(h.id)))
+      .filter(h => h && h.id && !/^h\d+/.test(String(h.id)) && !deletedIds.includes(String(h.id)))
       .map(h => {
         const norm = normalizeCategorySlug(
           h.categoryId || (h as any).category,
@@ -753,7 +759,7 @@ export function saveFreeHelperProfile(
     categoryId: norm.categoryId,
     customCategoryName: profile.customCategoryName || norm.customCategoryName,
     masterCategory: profile.masterCategory || (matched ? matched.masterCategory : 'utility_emergency'),
-    id: profile.id || 'hp_' + Date.now(),
+    id: profile.id || 'hp_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
     rating: 5.0,
     completedTasks: 0,
     isVerified: isApproved,
@@ -765,14 +771,13 @@ export function saveFreeHelperProfile(
   try {
     const existing = localStorage.getItem(STORAGE_KEY);
     const list: FreeHelperProfile[] = existing ? JSON.parse(existing) : [];
+    // Only deduplicate by exact profile ID so multiple profiles created by Admin are never overwritten
     const filtered = list.filter(
       h =>
         h &&
         h.id &&
         !/^h\d+/.test(String(h.id)) &&
-        h.id !== newProfile.id &&
-        !(newProfile.email && h.email && h.email.toLowerCase() === newProfile.email.toLowerCase()) &&
-        !(newProfile.userId && h.userId && h.userId === newProfile.userId)
+        h.id !== newProfile.id
     );
     filtered.unshift(newProfile);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));

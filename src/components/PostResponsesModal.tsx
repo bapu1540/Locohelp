@@ -34,16 +34,22 @@ export default function PostResponsesModal({
     if (!isOpen || !intent?.id) return;
 
     let isMounted = true;
+    let initialLoad = true;
     const loadResponses = async () => {
-      setIsLoading(true);
+      if (initialLoad) {
+        setIsLoading(true);
+        initialLoad = false;
+      }
       try {
         const currentUser = getCurrentUser();
         const activeUid = currentUser?.uid || 'me';
 
-        // 1. Fetch from server/localStorage messages for this intent
+        // 1. Fetch from server messages table for this conversationId
         let rawMessages: any[] = [];
         try {
-          const res = await fetch(`/api/intents/${intent.id}/messages?_t=${Date.now()}`);
+          const res = await fetch(`/api/messages/${encodeURIComponent(intent.id)}?_t=${Date.now()}`, {
+            cache: 'no-store'
+          });
           if (res.ok) {
             rawMessages = await res.json();
           }
@@ -103,9 +109,11 @@ export default function PostResponsesModal({
     };
 
     loadResponses();
+    const pollInterval = setInterval(loadResponses, 3000);
 
     return () => {
       isMounted = false;
+      clearInterval(pollInterval);
     };
   }, [isOpen, intent]);
 

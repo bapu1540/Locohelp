@@ -18,5 +18,10 @@ export default defineConfig(() => {
       hmr: process.env.DISABLE_HMR !== 'true',
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
     },
+    build: {
+      minify: 'esbuild' as const,
+      cssMinify: true,
+      target: 'es2020',
+    },
   };
 });

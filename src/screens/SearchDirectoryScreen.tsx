@@ -178,7 +178,7 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
                 {t('dir.title') || 'Directory & Local Market'}
               </h2>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
-                {language === 'EN' ? 'Shops, Showrooms, Malls & Verified Helpers' : 'दुकानें, शोरूम, मॉल व सत्यापित सेवादार'}
+                {language === 'EN' ? 'Shops, Showrooms, Malls & Verified Service Experts' : language === 'GU' ? 'દુકાનો, શોરૂમ, મોલ અને વેરિફાઈડ સર્વિસ એક્સપર્ટ્સ' : 'दुकानें, शोरूम, मॉल व सत्यापित सर्विस एक्सपर्ट्स'}
               </p>
             </div>
           </div>
@@ -195,7 +195,7 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
               className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-black text-xs px-3 py-2 rounded-xl flex items-center gap-1.5 shadow-md active:scale-95 transition-all shrink-0 cursor-pointer"
             >
               <Plus className="w-4 h-4" />
-              <span>{language === 'EN' ? 'Register Shop / Mall' : 'दुकान/मॉल दर्ज करें'}</span>
+              <span>{language === 'EN' ? 'Register Shop / Mall' : language === 'GU' ? 'દુકાન/મોલ રજિસ્ટર કરો' : 'दुकान/मॉल दर्ज करें'}</span>
             </button>
           ) : (
             <button
@@ -209,12 +209,12 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
               className="bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-black text-xs px-3 py-2 rounded-xl flex items-center gap-1.5 shadow-md active:scale-95 transition-all shrink-0 cursor-pointer"
             >
               <Plus className="w-4 h-4" />
-              <span>{language === 'EN' ? 'Register as Helper' : 'हेल्पर दर्ज करें'}</span>
+              <span>{language === 'EN' ? 'Register as Service Expert' : language === 'GU' ? 'સર્વિસ એક્સપર્ટ રજિસ્ટર કરો' : 'सर्विस एक्सपर्ट दर्ज करें'}</span>
             </button>
           )}
         </div>
 
-        {/* Navigation Tabs: Shops & Malls VS Service Helpers */}
+        {/* Navigation Tabs: Shops & Malls VS Service Experts */}
         <div className="flex bg-[#EAE6DC] dark:bg-slate-800 p-1 rounded-xl gap-1">
           <button
             onClick={() => setActiveDirectoryTab('shops')}
@@ -225,7 +225,7 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
             }`}
           >
             <span>🏪</span>
-            <span>{language === 'EN' ? 'Shops & Malls' : 'दुकान, शोरूम व मॉल'} ({shopsList.length})</span>
+            <span>{language === 'EN' ? 'Shops & Malls' : language === 'GU' ? 'દુકાન, શોરૂમ અને મોલ' : 'दुकान, शोरूम व मॉल'} ({shopsList.length})</span>
           </button>
 
           <button
@@ -237,7 +237,7 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
             }`}
           >
             <span>🛠️</span>
-            <span>{language === 'EN' ? 'Service Helpers' : 'सर्विस हेल्पर्स'} ({helpersList.length})</span>
+            <span>{language === 'EN' ? 'Service Experts' : language === 'GU' ? 'સર્વિસ એક્સપર્ટ્સ' : 'सर्विस एक्सपर्ट्स'} ({helpersList.length})</span>
           </button>
         </div>
         
@@ -340,7 +340,7 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
                   {/* Shop Photo / Icon */}
                   <div className="w-16 h-16 sm:w-18 sm:h-18 rounded-2xl bg-gradient-to-br from-amber-100 to-orange-100 dark:from-slate-700 dark:to-slate-800 flex items-center justify-center text-2xl overflow-hidden shrink-0 border border-amber-300 dark:border-slate-600 shadow-xs">
                     {shop.photoUrl ? (
-                      <img src={shop.photoUrl} alt={shop.name} className="w-full h-full object-cover" />
+                      <img src={shop.photoUrl} alt={shop.name} loading="lazy" decoding="async" className="w-full h-full object-cover" />
                     ) : (
                       <span>🏪</span>
                     )}
@@ -424,13 +424,13 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
           </div>
         )}
 
-        {/* TAB 2: SERVICE HELPERS LIST (Real registered only, zero dummy accounts) */}
+        {/* TAB 2: SERVICE EXPERTS LIST (Real registered only, zero dummy accounts) */}
         {activeDirectoryTab === 'helpers' && (
           <div className="space-y-3">
             <div className="flex items-center justify-between px-1">
               <p className="text-slate-500 dark:text-slate-400 text-[11px] font-extrabold uppercase tracking-wider flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>
-                <span>{language === 'EN' ? 'Nearby Verified Helpers' : 'आस-पास के सत्यापित सर्विस हेल्पर्स'}</span>
+                <span>{language === 'EN' ? 'Nearby Verified Service Experts' : language === 'GU' ? 'આસપાસના વેરિફાઈડ સર્વિસ એક્સપર્ટ્સ' : 'आस-पास के सत्यापित सर्विस एक्सपर्ट्स'}</span>
               </p>
               <button 
                 onClick={() => {
@@ -442,7 +442,7 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
                 }}
                 className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold hover:underline cursor-pointer"
               >
-                + {language === 'EN' ? 'Register Profile' : 'नया हेल्पर प्रोफाइल जोड़ें'}
+                + {language === 'EN' ? 'Register Profile' : language === 'GU' ? 'નવી સર્વિસ એક્સપર્ટ પ્રોફાઈલ ઉમેરો' : 'नया सर्विस एक्सपर्ट प्रोफाइल जोड़ें'}
               </button>
             </div>
 
@@ -454,8 +454,8 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
                 <div>
                   <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">
                     {searchQuery
-                      ? (language === 'EN' ? 'No helpers found matching your search.' : 'आपकी खोज के अनुसार कोई हेल्पर नहीं मिला।')
-                      : (language === 'EN' ? 'No Service Helpers Registered Yet' : 'अभी तक कोई सर्विस हेल्पर लिस्टेड नहीं है')}
+                      ? (language === 'EN' ? 'No service experts found matching your search.' : language === 'GU' ? 'તમારી શોધ મુજબ કોઈ સર્વિસ એક્સપર્ટ મળ્યા નથી.' : 'आपकी खोज के अनुसार कोई सर्विस एक्सपर्ट नहीं मिला।')
+                      : (language === 'EN' ? 'No Service Experts Registered Yet' : language === 'GU' ? 'હજુ સુધી કોઈ સર્વિસ એક્સપર્ટ રજિસ્ટર નથી' : 'अभी तक कोई सर्विस एक्सपर्ट लिस्टेड नहीं है')}
                   </h4>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                     {language === 'EN' 
@@ -473,7 +473,7 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
                   }}
                   className="bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl shadow-md transition-all active:scale-95 cursor-pointer"
                 >
-                  + {language === 'EN' ? 'Register as Service Helper' : 'सर्विस हेल्पर के रूप में रजिस्टर करें'}
+                  + {language === 'EN' ? 'Register as Service Expert' : language === 'GU' ? 'સર્વિસ એક્સપર્ટ તરીકે રજિસ્ટર કરો' : 'सर्विस एक्सपर्ट के रूप में रजिस्टर करें'}
                 </button>
               </div>
             )}

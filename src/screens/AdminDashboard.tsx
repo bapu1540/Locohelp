@@ -83,6 +83,7 @@ import {
   SecurityVaultRecord
 } from '../api';
 import { validateUploadedFile } from '../lib/security';
+import { compressImageToWebP } from '../lib/imageCompression';
 
 interface AdminDashboardProps {
   onBack: () => void;
@@ -191,55 +192,14 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
   const [vaultFilter, setVaultFilter] = useState<'all' | 'deleted' | 'helper' | 'user_profile' | 'business' | 'job' | 'help_post' | 'with_id'>('all');
   const [vaultSearch, setVaultSearch] = useState('');
 
-  // Helper: resize & center-crop any uploaded image file to 16:9 (800x450) JPEG data URL
-  const processCategoryImageFileTo16x9 = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        const dataUrl = String(ev.target?.result || '');
-        if (!dataUrl) return reject(new Error('Failed to read image file'));
-        const img = new window.Image();
-        img.onload = () => {
-          try {
-            const targetW = 800;
-            const targetH = 450; // Strict 16:9 aspect ratio
-            const canvas = document.createElement('canvas');
-            canvas.width = targetW;
-            canvas.height = targetH;
-            const ctx = canvas.getContext('2d');
-            if (!ctx) return resolve(dataUrl);
-
-            // Object-cover math to fill 16:9 cleanly
-            const srcRatio = img.width / img.height;
-            const dstRatio = targetW / targetH;
-            let drawW = targetW;
-            let drawH = targetH;
-            let offsetX = 0;
-            let offsetY = 0;
-
-            if (srcRatio > dstRatio) {
-              drawH = targetH;
-              drawW = img.width * (targetH / img.height);
-              offsetX = (targetW - drawW) / 2;
-            } else {
-              drawW = targetW;
-              drawH = img.height * (targetW / img.width);
-              offsetY = (targetH - drawH) / 2;
-            }
-
-            ctx.fillStyle = '#f8fafc';
-            ctx.fillRect(0, 0, targetW, targetH);
-            ctx.drawImage(img, offsetX, offsetY, drawW, drawH);
-            resolve(canvas.toDataURL('image/jpeg', 0.86));
-          } catch {
-            resolve(dataUrl);
-          }
-        };
-        img.onerror = () => resolve(dataUrl);
-        img.src = dataUrl;
-      };
-      reader.onerror = () => reject(new Error('Error reading file'));
-      reader.readAsDataURL(file);
+  // Helper: resize & center-crop any uploaded image file to 16:9 WebP data URL (max 1200x675, quality 0.75)
+  const processCategoryImageFileTo16x9 = async (file: File): Promise<string> => {
+    return await compressImageToWebP(file, {
+      maxWidth: 1200,
+      maxHeight: 675,
+      aspectRatio: 16 / 9,
+      cropToAspectRatio: true,
+      quality: 0.75
     });
   };
 
@@ -332,7 +292,8 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
 
   // Admin Direct Create / Register Modal State (Email & Mobile 100% Optional, No OTP, Auto-Approved)
   const [creatingItem, setCreatingItem] = useState<{
-    module: 'businesses' | 'helpers' | 'simple_users' | 'job_seekers' | 'employers' | 'help_posts';
+    module: 'businesses' | 'helpers' | 'simple_users' | 'job_seekers' | 'employers';
+    allowModuleSwitch?: boolean;
     nameOrTitle: string;
     ownerOrRole: string;
     category: string;
@@ -352,9 +313,13 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
   } | null>(null);
   const [isSavingCreate, setIsSavingCreate] = useState(false);
 
-  const openAdminCreateModal = (mod: 'businesses' | 'helpers' | 'simple_users' | 'job_seekers' | 'employers' | 'help_posts') => {
+  const openAdminCreateModal = (
+    mod: 'businesses' | 'helpers' | 'simple_users' | 'job_seekers' | 'employers',
+    allowModuleSwitch: boolean = false
+  ) => {
     setCreatingItem({
       module: mod,
+      allowModuleSwitch,
       nameOrTitle: '',
       ownerOrRole: '',
       category: mod === 'helpers' || mod === 'simple_users' ? 'plumber' : mod === 'businesses' ? 'other' : 'Retail & Services',
@@ -376,11 +341,12 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
   const [isCreateAdModalOpen, setIsCreateAdModalOpen] = useState(false);
   const [adBusinessName, setAdBusinessName] = useState('');
   const [adLogo, setAdLogo] = useState('⚡');
-  const [adCategory, setAdCategory] = useState('Electronics & Repair');
-  const [adOfferBadge, setAdOfferBadge] = useState('🔥 25% OFF Today');
+  const [adCategory, setAdCategory] = useState('Sponsored Banner');
+  const [adOfferBadge, setAdOfferBadge] = useState('🔥 Featured Ad');
   const [adOfferTitle, setAdOfferTitle] = useState('');
   const [adDescription, setAdDescription] = useState('');
-  const [adPhotoUrl, setAdPhotoUrl] = useState('https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=600&q=80');
+  const [adPhotoUrl, setAdPhotoUrl] = useState('/assets/aistudio/advertisement_30c9824f.png');
+  const [adIsActive, setAdIsActive] = useState<boolean>(true);
   const [adDistance, setAdDistance] = useState('0.8');
   const [adArea, setAdArea] = useState('');
   const [adDestinationUrl, setAdDestinationUrl] = useState('');
@@ -775,9 +741,9 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
               : [updatedHelper, ...list];
             localStorage.setItem('locohelp_free_helper_profiles', JSON.stringify(nextList));
           } catch {}
-          showToast(isApproved ? '✅ Helper Profile Approved & Live in Categories!' : '❌ Helper Profile Rejected.');
+          showToast(isApproved ? '✅ Service Expert Profile Approved & Live in Categories!' : '❌ Service Expert Profile Rejected.');
         } else {
-          showToast(res.error || 'Failed to update Helper Profile');
+          showToast(res.error || 'Failed to update Service Expert Profile');
         }
       } else if (mod === 'simple_users') {
         if (item.verificationId) {
@@ -853,7 +819,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
             localStorage.setItem('locohelp_free_helper_profiles', JSON.stringify(JSON.parse(raw).filter((h: any) => h.id !== id)));
           }
         } catch {}
-        showToast('🗑️ Helper Profile deleted permanently.');
+        showToast('🗑️ Service Expert Profile deleted permanently.');
       } else if (mod === 'simple_users') {
         await deleteAdminUserOnServer(id);
         setSimpleUsers(prev => prev.filter(u => u.id !== id));
@@ -1060,7 +1026,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
           creatingItem.ownerOrRole.trim() ||
           creatingItem.customCategoryName.trim() ||
           catObj?.nameEn ||
-          'Community Helper';
+          'Service Expert';
 
         const payload = {
           name: creatingItem.nameOrTitle.trim(),
@@ -1117,7 +1083,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
           setSimpleUsers(prev => [userPayload, ...prev.filter(u => u.id !== uid)]);
           showToast('✅ User Profile added & published live in Categories!');
         } else {
-          showToast('✅ Local Helper Profile added & published live in Categories!');
+          showToast('✅ Service Expert Profile added & published live in Categories!');
         }
       } else if (mod === 'job_seekers') {
         const payload = {
@@ -1174,28 +1140,6 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         if (!res.ok) throw new Error(data.error || 'Failed to add Employer Job');
         if (data.item) setJobPortalItems(prev => [data.item, ...prev]);
         showToast('✅ Employer Job Posting added & published live immediately!');
-      } else if (mod === 'help_posts') {
-        const payload = {
-          authorName: creatingItem.ownerOrRole.trim() || 'Community Member',
-          title: creatingItem.nameOrTitle.trim(),
-          description: creatingItem.description.trim() || creatingItem.nameOrTitle.trim(),
-          category: creatingItem.category.trim() || 'General',
-          tags: [`#${(creatingItem.category.trim() || 'General').replace(/\s+/g, '')}`],
-          phone: creatingItem.phone.trim(), // 100% optional for Admin
-          email: creatingItem.email.trim(), // 100% optional for Admin
-          area: creatingItem.areaOrLocation.trim() || 'Local Area',
-          location: creatingItem.areaOrLocation.trim() || 'Local Area',
-          status: 'active'
-        };
-        const res = await fetch('/api/intents', {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(payload)
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Failed to add Help Post');
-        setIntents(prev => [data, ...prev]);
-        showToast('✅ Help Post added & published live immediately!');
       }
 
       try {
@@ -1269,10 +1213,10 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
               : [updates, ...list];
             localStorage.setItem('locohelp_free_helper_profiles', JSON.stringify(nextList));
           } catch {}
-          showToast('✅ Helper Profile updated successfully!');
+          showToast('✅ Service Expert Profile updated successfully!');
           setEditingItem(null);
         } else {
-          showToast(res.error || 'Failed to update Helper Profile');
+          showToast(res.error || 'Failed to update Service Expert Profile');
         }
       } else if (mod === 'simple_users') {
         const updates = {
@@ -1416,22 +1360,10 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
     pendingCount: number;
   }> = [
     {
-      id: 'help_posts',
-      title: 'Help Posts Management',
-      titleHi: 'हेल्प पोस्ट्स मैनेजमेंट',
-      subtitle: 'Community help requests, radar broadcasts & urgent alerts',
-      icon: <MessageCircle className="w-5 h-5 text-white" />,
-      gradient: 'from-rose-600 to-orange-600',
-      border: 'border-rose-500/30 hover:border-rose-400',
-      badgeBg: 'bg-rose-500/15 text-rose-300 border-rose-500/30',
-      totalCount: intents.length,
-      pendingCount: countPending(intents, 'help_posts')
-    },
-    {
       id: 'helpers',
-      title: 'Browse Local Helpers / Helper Profiles',
-      titleHi: 'लोकल हेल्पर्स और कारीगर प्रोफाइल',
-      subtitle: 'Registered skilled workers, electricians, plumbers & service helpers',
+      title: 'Browse Local Service Experts / Service Expert Profiles',
+      titleHi: 'लोकल सर्विस एक्सपर्ट्स और कारीगर प्रोफाइल',
+      subtitle: 'Registered skilled workers, electricians, plumbers & service experts',
       icon: <Users className="w-5 h-5 text-white" />,
       gradient: 'from-emerald-600 to-teal-600',
       border: 'border-emerald-500/30 hover:border-emerald-400',
@@ -1506,7 +1438,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
   // ==========================================
   if (!isAdminAuthenticated) {
     return (
-      <div className="min-h-screen w-full bg-[#090D16] text-white flex flex-col items-center justify-center p-4 relative overflow-hidden">
+      <div className="min-h-screen w-full bg-[#090D16] text-white flex flex-col items-center justify-center p-4 relative overflow-y-auto">
         <div className="absolute -top-32 -left-32 w-96 h-96 bg-orange-500/15 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute -bottom-32 -right-32 w-96 h-96 bg-indigo-500/15 rounded-full blur-3xl pointer-events-none" />
 
@@ -1761,7 +1693,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
   const filteredModuleItems = getActiveModuleItems();
 
   return (
-    <div className="min-h-screen w-full bg-[#090D16] text-slate-100 flex flex-col">
+    <div className="min-h-screen w-full bg-[#090D16] text-slate-100 flex flex-col overflow-y-auto">
       {internalToast && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] px-5 py-3 rounded-2xl bg-slate-900/95 border border-orange-500/50 text-white text-xs sm:text-sm font-black shadow-2xl flex items-center gap-2.5 animate-bounce">
           <span>{internalToast}</span>
@@ -1926,7 +1858,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
       {/* ========================================== */}
       {/* MAIN BODY                                  */}
       {/* ========================================== */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 pb-20 overflow-y-auto">
         {/* ============================================================ */}
         {/* VIEW 1: ADMIN HOME DASHBOARD WITH CLICKABLE SMALL BANNERS    */}
         {/* ============================================================ */}
@@ -1948,7 +1880,14 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
 
               <div className="flex flex-wrap items-center gap-2 shrink-0">
                 <button
-                  onClick={() => openAdminCreateModal('businesses')}
+                  onClick={() => openModule('ads')}
+                  className="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-black flex items-center gap-1.5 cursor-pointer transition-all shadow-lg shadow-cyan-500/20"
+                >
+                  <Megaphone className="w-4 h-4" />
+                  <span>Advertisements &amp; Banners</span>
+                </button>
+                <button
+                  onClick={() => openAdminCreateModal('businesses', true)}
                   className="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white text-xs font-black flex items-center gap-1.5 cursor-pointer transition-all shadow-lg shadow-emerald-500/20"
                 >
                   <Plus className="w-4 h-4" />
@@ -2018,7 +1957,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                 </motion.button>
               ))}
 
-              {/* Bonus Card: Sponsored Ad Banners */}
+              {/* Dedicated Card: Advertisements & Banners */}
               <motion.button
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -2032,21 +1971,21 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                       <Megaphone className="w-5 h-5 text-white" />
                     </div>
                     <span className="px-2.5 py-1 rounded-xl bg-slate-800/90 border border-slate-700 text-[11px] font-black text-slate-200">
-                      Active Ads: {ads.length}
+                      Total Ads: {ads.length}
                     </span>
                   </div>
                   <h3 className="text-base font-black text-white group-hover:text-cyan-300 transition-colors leading-snug">
-                    Sponsored Ad Banners
+                    Advertisements &amp; Banners
                   </h3>
                   <p className="text-xs font-bold text-slate-400 mt-0.5">
-                    होमपेज विज्ञापन और स्पॉन्सर्ड बैनर
+                    होमपेज विज्ञापन और 16:9 बैनर (Upload / Active-Inactive / Delete)
                   </p>
                   <p className="text-[11px] text-slate-400/90 mt-2 line-clamp-2 leading-relaxed">
-                    Create, preview, and remove promotional homepage ad banners.
+                    Upload 16:9 banner images, add titles/links, toggle active/inactive status, and delete ads.
                   </p>
                 </div>
                 <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs font-black text-cyan-400 group-hover:text-cyan-300">
-                  <span>Manage Ad Banners</span>
+                  <span>Open Advertisements &amp; Banners</span>
                   <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                 </div>
               </motion.button>
@@ -2115,7 +2054,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                     AES-256-GCM लॉकर • एडमिन भी डिलीट नहीं कर सकता (सिर्फ़ देख सकते हैं)
                   </p>
                   <p className="text-[11px] text-slate-400/90 mt-2 line-clamp-2 leading-relaxed">
-                    Permanent police/fraud investigation archive. Even if a user or helper deletes their account, their Name, Phone, Address &amp; Watermarked Govt ID remain safely encrypted here forever.
+                    Permanent police/fraud investigation archive. Even if a user or service expert deletes their account, their Name, Phone, Address &amp; Watermarked Govt ID remain safely encrypted here forever.
                   </p>
                 </div>
                 <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs font-black text-emerald-400 group-hover:text-emerald-300">
@@ -2144,13 +2083,13 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                 </button>
 
                 <div className="flex flex-wrap items-center gap-2">
-                  {(['businesses', 'helpers', 'simple_users', 'job_seekers', 'employers', 'help_posts'] as const).includes(activeModule as any) && (
+                  {(['businesses', 'helpers', 'simple_users', 'job_seekers', 'employers'] as const).includes(activeModule as any) && (
                     <button
-                      onClick={() => openAdminCreateModal(activeModule as any)}
+                      onClick={() => openAdminCreateModal(activeModule as any, false)}
                       className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white text-xs font-black shadow-md shadow-emerald-500/20 cursor-pointer transition-all"
                     >
                       <Plus className="w-4 h-4" />
-                      <span>+ Add & Publish New (Optional Email/Phone)</span>
+                      <span>+ Add &amp; Publish New (Optional Email/Phone)</span>
                     </button>
                   )}
                   <span className="px-3 py-1 rounded-xl bg-slate-800 border border-slate-700 text-xs font-black text-slate-200">
@@ -2611,12 +2550,12 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         )}
 
         {/* ============================================================ */}
-        {/* BONUS VIEW: SPONSORED AD BANNERS                             */}
+        {/* DEDICATED VIEW: ADVERTISEMENTS & BANNERS (16:9 MANAGEMENT)   */}
         {/* ============================================================ */}
         {activeModule === 'ads' && (
           <div className="space-y-5">
-            <div className="rounded-3xl bg-[#111827] border border-slate-800 p-5 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
+            <div className="rounded-3xl bg-[#111827] border border-slate-800 p-5 sm:p-6 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3.5">
                 <button
                   onClick={() => openModule('home')}
                   className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-black border border-slate-700 cursor-pointer"
@@ -2624,48 +2563,149 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                   <ArrowLeft className="w-4 h-4 text-orange-400" />
                   <span>← Back to Admin Dashboard</span>
                 </button>
-                <h2 className="text-lg sm:text-xl font-black text-white">Sponsored Ad Banners ({ads.length})</h2>
+                <div>
+                  <h2 className="text-lg sm:text-xl font-black text-white flex items-center gap-2">
+                    <Megaphone className="w-5 h-5 text-cyan-400" />
+                    <span>Advertisements &amp; Banners ({ads.length})</span>
+                  </h2>
+                  <p className="text-xs text-slate-400 font-medium">
+                    Upload 16:9 banner images, add titles &amp; destination links, toggle active/inactive status, and delete ads.
+                  </p>
+                </div>
               </div>
               <button
-                onClick={() => setIsCreateAdModalOpen(true)}
-                className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-orange-500 to-amber-600 text-white text-xs font-black flex items-center gap-1.5 cursor-pointer"
+                onClick={() => {
+                  setAdBusinessName('');
+                  setAdOfferTitle('');
+                  setAdDescription('');
+                  setAdArea('Local Market');
+                  setAdDestinationUrl('');
+                  setAdPhotoUrl('/assets/aistudio/advertisement_30c9824f.png');
+                  setAdIsActive(true);
+                  setIsCreateAdModalOpen(true);
+                }}
+                className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white text-xs font-black flex items-center gap-1.5 shadow-lg cursor-pointer"
               >
-                <Plus className="w-4 h-4" /> Create New Ad Banner
+                <Plus className="w-4 h-4" /> + Upload New 16:9 Ad Banner
               </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {ads.map(ad => (
-                <div key={ad.id} className="rounded-2xl bg-[#111827] border border-slate-800 p-4 flex flex-col justify-between gap-3">
-                  <div className="flex items-start gap-3">
-                    <div className="w-12 h-12 rounded-xl bg-slate-800 flex items-center justify-center text-2xl shrink-0">
-                      {ad.logo}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-300">
-                        {ad.offerBadge}
-                      </span>
-                      <h3 className="text-base font-black text-white mt-1">{ad.businessName}</h3>
-                      <p className="text-xs font-bold text-amber-300">{ad.offerTitle}</p>
-                      <p className="text-xs text-slate-400 mt-1">{ad.description}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between pt-3 border-t border-slate-800">
-                    <span className="text-xs text-slate-400">{ad.area}</span>
-                    <button
-                      onClick={async () => {
-                        await deleteAdOnServer(ad.id);
-                        setAds(prev => prev.filter(a => a.id !== ad.id));
-                        showToast('🗑️ Ad Banner deleted');
-                      }}
-                      className="px-3 py-1.5 rounded-xl bg-red-500/20 text-red-300 text-xs font-bold cursor-pointer"
+            {ads.length === 0 ? (
+              <div className="rounded-3xl bg-[#111827] border border-slate-800 p-10 text-center space-y-3">
+                <Megaphone className="w-10 h-10 text-cyan-400 mx-auto" />
+                <p className="text-base font-black text-white">No Custom Ad Banners Uploaded Yet</p>
+                <p className="text-xs text-slate-400 max-w-md mx-auto">
+                  The default official 16:9 LocoHelp advertisement banner is active on the main website. Click &ldquo;+ Upload New 16:9 Ad Banner&rdquo; above to add custom 16:9 banners.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {ads.map(ad => {
+                  const isActive = ad.isActive !== false;
+                  return (
+                    <div
+                      key={ad.id}
+                      className={`rounded-2xl bg-[#111827] border overflow-hidden flex flex-col justify-between shadow-lg transition-all ${
+                        isActive ? 'border-slate-800 hover:border-cyan-500/40' : 'border-slate-800/60 opacity-75'
+                      }`}
                     >
-                      Delete Ad
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+                      {/* 16:9 Banner Preview */}
+                      <div className="w-full aspect-video bg-slate-950 relative overflow-hidden border-b border-slate-800">
+                        {ad.photoUrl ? (
+                          <img
+                            src={ad.photoUrl}
+                            alt={ad.businessName || 'Ad Banner'}
+                            loading="lazy"
+                            decoding="async"
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-slate-500 text-xs font-bold">
+                            16:9 Ad Banner
+                          </div>
+                        )}
+                        <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
+                          <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-black/75 text-orange-300 border border-orange-500/40">
+                            {ad.offerBadge || 'Sponsored 16:9'}
+                          </span>
+                        </div>
+                        <div className="absolute top-2.5 right-2.5">
+                          <span
+                            className={`text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full border ${
+                              isActive
+                                ? 'bg-emerald-500/90 text-white border-emerald-400'
+                                : 'bg-slate-900/90 text-slate-400 border-slate-700'
+                            }`}
+                          >
+                            {isActive ? '✓ Active on Website' : '⏸ Inactive (Hidden)'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="p-4 space-y-2 flex-1 flex flex-col justify-between">
+                        <div>
+                          <div className="flex items-center justify-between gap-2">
+                            <h3 className="text-base font-black text-white truncate">
+                              {ad.businessName}
+                            </h3>
+                            <span className="text-[11px] font-bold text-slate-400 shrink-0">
+                              {ad.area}
+                            </span>
+                          </div>
+                          <p className="text-xs font-bold text-amber-300 mt-0.5">{ad.offerTitle}</p>
+                          {ad.description && (
+                            <p className="text-xs text-slate-400 mt-1 line-clamp-2">{ad.description}</p>
+                          )}
+                          {ad.destinationUrl && (
+                            <p className="text-[11px] text-cyan-400 font-semibold mt-1.5 truncate flex items-center gap-1">
+                              <ExternalLink className="w-3 h-3 shrink-0" />
+                              <span className="truncate">{ad.destinationUrl}</span>
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="flex flex-wrap items-center justify-between gap-2 pt-3 mt-2 border-t border-slate-800">
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const nextActive = !isActive;
+                              const updatedAd = { ...ad, isActive: nextActive };
+                              await createAdOnServer(updatedAd);
+                              setAds(prev => prev.map(a => (a.id === ad.id ? updatedAd : a)));
+                              showToast(
+                                nextActive
+                                  ? '✅ Ad Banner activated on Main Website!'
+                                  : '⏸ Ad Banner set to Inactive (Hidden from Main Website).'
+                              );
+                            }}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-black border cursor-pointer transition-all ${
+                              isActive
+                                ? 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border-amber-500/30'
+                                : 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-500'
+                            }`}
+                          >
+                            {isActive ? 'Set Inactive' : 'Set Active'}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              await deleteAdOnServer(ad.id);
+                              setAds(prev => prev.filter(a => a.id !== ad.id));
+                              showToast('🗑️ Ad Banner deleted');
+                            }}
+                            className="px-3 py-1.5 rounded-xl bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/30 text-xs font-black flex items-center gap-1 cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Delete Ad</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 
@@ -2740,6 +2780,8 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                         <img
                           src={currentImg}
                           alt={cat.nameEn}
+                          loading="lazy"
+                          decoding="async"
                           className="w-full h-full object-cover"
                         />
                       ) : (
@@ -2886,7 +2928,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                     🛡️ Encrypted Security Vault (Read-Only / Non-Deletable)
                   </h2>
                   <p className="text-xs sm:text-sm font-bold text-emerald-400">
-                    अगर कोई यूज़र या हेल्पर धोखाधड़ी/चोरी करके अपना अकाउंट डिलीट भी कर दे, तब भी उसका पूरा रिकॉर्ड और वॉटरमार्क वाला सरकारी ID कार्ड यहाँ हमेशा के लिए सुरक्षित (Encrypted) रहेगा।
+                    अगर कोई यूज़र या सर्विस एक्सपर्ट धोखाधड़ी/चोरी करके अपना अकाउंट डिलीट भी कर दे, तब भी उसका पूरा रिकॉर्ड और वॉटरमार्क वाला सरकारी ID कार्ड यहाँ हमेशा के लिए सुरक्षित (Encrypted) रहेगा।
                   </p>
                   <p className="text-xs text-slate-400 mt-1">
                     <strong>Zero-Delete Lock:</strong> Neither the user nor Admin can delete any record from this vault. Files on disk (<code className="text-emerald-300">security_vault.enc</code>) are encrypted with AES-256-GCM so hackers cannot read raw files, and all uploaded ID cards carry an indelible watermark (<code className="text-amber-300">FOR LOCOHELP VERIFICATION ONLY • DO NOT SHARE OR REUSE</code>) so they can never be misused or made viral.
@@ -2915,8 +2957,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                     { id: 'helper', label: `Service Experts (${securityVaultRecords.filter(r => r.entityType === 'helper').length})` },
                     { id: 'user_profile', label: `User Accounts (${securityVaultRecords.filter(r => r.entityType === 'user_profile' || r.entityType === 'auth_user' || r.entityType === 'verification').length})` },
                     { id: 'business', label: `Businesses (${securityVaultRecords.filter(r => r.entityType === 'business').length})` },
-                    { id: 'job', label: `Job Portal (${securityVaultRecords.filter(r => r.entityType === 'job_seeker' || r.entityType === 'employer').length})` },
-                    { id: 'help_post', label: `Help Posts (${securityVaultRecords.filter(r => r.entityType === 'help_post').length})` }
+                    { id: 'job', label: `Job Portal (${securityVaultRecords.filter(r => r.entityType === 'job_seeker' || r.entityType === 'employer').length})` }
                   ].map((tab) => (
                     <button
                       key={tab.id}
@@ -2945,7 +2986,6 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                 if (vaultFilter === 'user_profile' && rec.entityType !== 'user_profile' && rec.entityType !== 'auth_user' && rec.entityType !== 'verification') return false;
                 if (vaultFilter === 'business' && rec.entityType !== 'business') return false;
                 if (vaultFilter === 'job' && rec.entityType !== 'job_seeker' && rec.entityType !== 'employer') return false;
-                if (vaultFilter === 'help_post' && rec.entityType !== 'help_post') return false;
 
                 if (!q) return true;
                 const haystack = `${rec.name} ${rec.phone} ${rec.email} ${rec.area} ${rec.category} ${rec.entityType} ${rec.recordId} ${rec.actionStatus}`.toLowerCase();
@@ -2957,7 +2997,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                   <div className="rounded-3xl bg-[#111827] border border-slate-800 p-10 text-center">
                     <Lock className="w-10 h-10 text-emerald-500/60 mx-auto mb-3" />
                     <p className="text-sm font-black text-white">No matching records in Security Vault</p>
-                    <p className="text-xs text-slate-400 mt-1">All registered users, helpers, businesses, and deleted accounts are automatically encrypted and preserved here.</p>
+                    <p className="text-xs text-slate-400 mt-1">All registered users, service experts, businesses, and deleted accounts are automatically encrypted and preserved here.</p>
                   </div>
                 );
               }
@@ -3005,6 +3045,8 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                               <img
                                 src={rec.photoUrl}
                                 alt={rec.name}
+                                loading="lazy"
+                                decoding="async"
                                 className="w-12 h-12 rounded-xl object-cover border border-slate-700 shrink-0"
                               />
                             ) : (
@@ -3153,6 +3195,8 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                     <img
                       src={editingCatImageUrl.url.trim()}
                       alt="Preview"
+                      loading="lazy"
+                      decoding="async"
                       className="w-full h-full object-cover"
                     />
                   </div>
@@ -3220,6 +3264,8 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                       <img
                         src={viewingItem.data.idDocumentWatermarked}
                         alt="Verification ID"
+                        loading="lazy"
+                        decoding="async"
                         onContextMenu={(e) => e.preventDefault()}
                         draggable={false}
                         className="max-h-80 w-auto mx-auto object-contain pointer-events-none"
@@ -3497,10 +3543,18 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                 <div>
                   <h3 className="text-base font-black text-white flex items-center gap-2">
                     <Plus className="w-4 h-4 text-emerald-400" />
-                    Admin Direct Registration (Instant Auto-Publish)
+                    {creatingItem.module === 'businesses'
+                      ? 'Register Shop / Business (Direct Publish)'
+                      : creatingItem.module === 'helpers'
+                      ? 'Register Service Expert Profile (Direct Publish)'
+                      : creatingItem.module === 'simple_users'
+                      ? 'Register Simple User Profile (Direct Publish)'
+                      : creatingItem.module === 'job_seekers'
+                      ? 'Register Job Seeker Profile (Direct Publish)'
+                      : 'Register Employer Job Vacancy (Direct Publish)'}
                   </h3>
                   <p className="text-[11px] text-emerald-400 font-bold mt-0.5">
-                    ✓ Email & Mobile Number are 100% Optional • No OTP Required • Auto-Approved Live
+                    ✓ Email &amp; Mobile Number are 100% Optional • No OTP Required • Auto-Approved Live
                   </p>
                 </div>
                 <button
@@ -3512,33 +3566,34 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
               </div>
 
               <form onSubmit={handleAdminDirectCreate} className="p-6 overflow-y-auto space-y-3.5 text-xs">
-                {/* Module Selector */}
-                <div>
-                  <label className="block font-black text-slate-300 mb-1.5">Select Entry Type to Add</label>
-                  <div className="grid grid-cols-2 sm:grid-cols-6 gap-1.5">
-                    {[
-                      { id: 'businesses', label: '🏪 Shop/Biz' },
-                      { id: 'helpers', label: '🛠️ Helper' },
-                      { id: 'simple_users', label: '👤 User Profile' },
-                      { id: 'job_seekers', label: '🎓 Job Seeker' },
-                      { id: 'employers', label: '💼 Employer' },
-                      { id: 'help_posts', label: '📢 Help Post' }
-                    ].map((tab) => (
-                      <button
-                        key={tab.id}
-                        type="button"
-                        onClick={() => openAdminCreateModal(tab.id as any)}
-                        className={`py-2 px-2 rounded-xl font-black text-[11px] border transition-all cursor-pointer ${
-                          creatingItem.module === tab.id
-                            ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
-                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
-                        }`}
-                      >
-                        {tab.label}
-                      </button>
-                    ))}
+                {/* Only show module selector when opened from Admin Home Dashboard (+ Add Entry) */}
+                {creatingItem.allowModuleSwitch && (
+                  <div>
+                    <label className="block font-black text-slate-300 mb-1.5">Select Registration Form Type</label>
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
+                      {[
+                        { id: 'businesses', label: '🏪 Shop/Biz' },
+                        { id: 'helpers', label: '🛠️ Service Expert' },
+                        { id: 'simple_users', label: '👤 User Profile' },
+                        { id: 'job_seekers', label: '🎓 Job Seeker' },
+                        { id: 'employers', label: '💼 Employer' }
+                      ].map((tab) => (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          onClick={() => openAdminCreateModal(tab.id as any, true)}
+                          className={`py-2 px-2 rounded-xl font-black text-[11px] border transition-all cursor-pointer ${
+                            creatingItem.module === tab.id
+                              ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
+                              : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          {tab.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
+                )}
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
@@ -3546,14 +3601,12 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                       {creatingItem.module === 'businesses'
                         ? 'Shop / Business Name *'
                         : creatingItem.module === 'helpers'
-                        ? 'Worker / Helper Name *'
+                        ? 'Service Expert Name *'
                         : creatingItem.module === 'simple_users'
                         ? 'User Full Name *'
                         : creatingItem.module === 'job_seekers'
                         ? 'Candidate Full Name *'
-                        : creatingItem.module === 'employers'
-                        ? 'Company / Shop Name *'
-                        : 'Help Post Title *'}
+                        : 'Company / Shop Name *'}
                     </label>
                     <input
                       type="text"
@@ -3573,9 +3626,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                         ? 'Primary Skill (e.g. Plumber, Electrician)'
                         : creatingItem.module === 'job_seekers'
                         ? 'Preferred Work Role'
-                        : creatingItem.module === 'employers'
-                        ? 'Hiring Job Role *'
-                        : 'Author Name'}
+                        : 'Hiring Job Role *'}
                     </label>
                     <input
                       type="text"
@@ -3665,55 +3716,53 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                   </div>
                 </div>
 
-                {creatingItem.module !== 'help_posts' && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block font-bold text-slate-300 mb-1">
-                        {creatingItem.module === 'businesses'
-                          ? 'Shop Timings'
-                          : creatingItem.module === 'helpers'
-                          ? 'Experience'
-                          : 'Experience / Details'}
-                      </label>
-                      <input
-                        type="text"
-                        value={creatingItem.timingsOrExperience}
-                        onChange={(e) => setCreatingItem({ ...creatingItem, timingsOrExperience: e.target.value })}
-                        placeholder={creatingItem.module === 'businesses' ? '9:00 AM - 9:00 PM' : 'e.g. 3 Years'}
-                        className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block font-bold text-slate-300 mb-1">
-                        {creatingItem.module === 'job_seekers'
-                          ? 'Education & Expected Salary'
-                          : creatingItem.module === 'employers'
-                          ? 'Salary Offered'
-                          : 'Full Address'}
-                      </label>
-                      <input
-                        type="text"
-                        value={
-                          creatingItem.module === 'businesses'
-                            ? creatingItem.address
-                            : creatingItem.salaryOrUrgency
-                        }
-                        onChange={(e) =>
-                          creatingItem.module === 'businesses'
-                            ? setCreatingItem({ ...creatingItem, address: e.target.value })
-                            : setCreatingItem({ ...creatingItem, salaryOrUrgency: e.target.value })
-                        }
-                        placeholder={
-                          creatingItem.module === 'businesses'
-                            ? 'Shop address / landmark'
-                            : 'e.g. ₹15,000/month'
-                        }
-                        className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
-                      />
-                    </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-300 mb-1">
+                      {creatingItem.module === 'businesses'
+                        ? 'Shop Timings'
+                        : creatingItem.module === 'helpers'
+                        ? 'Experience'
+                        : 'Experience / Details'}
+                    </label>
+                    <input
+                      type="text"
+                      value={creatingItem.timingsOrExperience}
+                      onChange={(e) => setCreatingItem({ ...creatingItem, timingsOrExperience: e.target.value })}
+                      placeholder={creatingItem.module === 'businesses' ? '9:00 AM - 9:00 PM' : 'e.g. 3 Years'}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
+                    />
                   </div>
-                )}
+
+                  <div>
+                    <label className="block font-bold text-slate-300 mb-1">
+                      {creatingItem.module === 'job_seekers'
+                        ? 'Education & Expected Salary'
+                        : creatingItem.module === 'employers'
+                        ? 'Salary Offered'
+                        : 'Full Address'}
+                    </label>
+                    <input
+                      type="text"
+                      value={
+                        creatingItem.module === 'businesses'
+                          ? creatingItem.address
+                          : creatingItem.salaryOrUrgency
+                      }
+                      onChange={(e) =>
+                        creatingItem.module === 'businesses'
+                          ? setCreatingItem({ ...creatingItem, address: e.target.value })
+                          : setCreatingItem({ ...creatingItem, salaryOrUrgency: e.target.value })
+                      }
+                      placeholder={
+                        creatingItem.module === 'businesses'
+                          ? 'Shop address / landmark'
+                          : 'e.g. ₹15,000/month'
+                      }
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
+                    />
+                  </div>
+                </div>
 
                 <div>
                   <label className="block font-bold text-slate-300 mb-1">Description / Bio / Skills</label>
@@ -3727,36 +3776,53 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                 </div>
 
                 {/* File Upload Support (Photos up to 2MB, or PDF Resume up to 5MB) */}
-                {creatingItem.module !== 'help_posts' && (
-                  <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800 space-y-2">
-                    <label className="block font-bold text-slate-300">
-                      {creatingItem.module === 'businesses'
-                        ? 'Upload Shop Photos (Up to 3 Images, Max 2MB each)'
-                        : creatingItem.module === 'job_seekers'
-                        ? 'Upload Candidate Photo (Max 2MB) or Resume PDF (Max 5MB)'
-                        : 'Upload Profile / Work Photo (JPG, PNG, WEBP Max 2MB)'}
-                    </label>
-                    <input
-                      type="file"
-                      accept={creatingItem.module === 'job_seekers' ? '.jpg,.jpeg,.png,.webp,.pdf' : '.jpg,.jpeg,.png,.webp'}
-                      multiple={creatingItem.module === 'businesses'}
-                      onChange={async (e) => {
-                        const files = Array.from(e.target.files || []) as File[];
-                        for (const file of files.slice(0, 3)) {
-                          const allowPdf = creatingItem.module === 'job_seekers';
-                          const check = await validateUploadedFile(file, { allowPdf });
-                          if (!check.valid) {
-                            showToast(check.error || 'Invalid file');
-                            continue;
-                          }
+                <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800 space-y-2">
+                  <label className="block font-bold text-slate-300">
+                    {creatingItem.module === 'businesses'
+                      ? 'Upload Shop Photos (Up to 3 Images, Max 2MB each)'
+                      : creatingItem.module === 'job_seekers'
+                      ? 'Upload Candidate Photo (Max 2MB) or Resume PDF (Max 5MB)'
+                      : 'Upload Profile / Work Photo (JPG, PNG, WEBP Max 2MB)'}
+                  </label>
+                  <input
+                    type="file"
+                    accept={creatingItem.module === 'job_seekers' ? '.jpg,.jpeg,.png,.webp,.pdf' : '.jpg,.jpeg,.png,.webp'}
+                    multiple={creatingItem.module === 'businesses'}
+                    onChange={async (e) => {
+                      const files = Array.from(e.target.files || []) as File[];
+                      for (const file of files.slice(0, 3)) {
+                        const allowPdf = creatingItem.module === 'job_seekers';
+                        const check = await validateUploadedFile(file, { allowPdf });
+                        if (!check.valid) {
+                          showToast(check.error || 'Invalid file');
+                          continue;
+                        }
+                        if (file.type === 'application/pdf') {
                           const reader = new FileReader();
                           reader.onloadend = () => {
                             const dataUrl = reader.result as string;
-                            if (file.type === 'application/pdf') {
-                              setCreatingItem((prev) =>
-                                prev ? { ...prev, resumeUrl: dataUrl, resumeFileName: file.name } : prev
-                              );
-                            } else {
+                            setCreatingItem((prev) =>
+                              prev ? { ...prev, resumeUrl: dataUrl, resumeFileName: file.name } : prev
+                            );
+                          };
+                          reader.readAsDataURL(file);
+                        } else {
+                          try {
+                            const dataUrl = await compressImageToWebP(file, { maxWidth: 1200, quality: 0.75 });
+                            setCreatingItem((prev) => {
+                              if (!prev) return prev;
+                              const nextPhotos = [...prev.photos, dataUrl].slice(0, 3);
+                              return {
+                                ...prev,
+                                photoUrl: nextPhotos[0] || dataUrl,
+                                photos: nextPhotos
+                              };
+                            });
+                          } catch {
+                            // Fallback
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                              const dataUrl = reader.result as string;
                               setCreatingItem((prev) => {
                                 if (!prev) return prev;
                                 const nextPhotos = [...prev.photos, dataUrl].slice(0, 3);
@@ -3766,32 +3832,34 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                                   photos: nextPhotos
                                 };
                               });
-                            }
-                          };
-                          reader.readAsDataURL(file);
+                            };
+                            reader.readAsDataURL(file);
+                          }
                         }
-                      }}
-                      className="text-xs text-slate-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-black file:bg-slate-800 file:text-orange-400 hover:file:bg-slate-700"
-                    />
-                    {creatingItem.photos.length > 0 && (
-                      <div className="flex items-center gap-2 pt-1">
-                        {creatingItem.photos.map((p, idx) => (
-                          <img
-                            key={idx}
-                            src={p}
-                            alt="Upload preview"
-                            className="w-12 h-12 rounded-xl object-cover border border-slate-700"
-                          />
-                        ))}
-                      </div>
-                    )}
-                    {creatingItem.resumeFileName && (
-                      <p className="text-[11px] text-emerald-400 font-bold">
-                        📄 Resume attached: {creatingItem.resumeFileName}
-                      </p>
-                    )}
-                  </div>
-                )}
+                      }
+                    }}
+                    className="text-xs text-slate-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-black file:bg-slate-800 file:text-orange-400 hover:file:bg-slate-700"
+                  />
+                  {creatingItem.photos.length > 0 && (
+                    <div className="flex items-center gap-2 pt-1">
+                      {creatingItem.photos.map((p, idx) => (
+                        <img
+                          key={idx}
+                          src={p}
+                          alt="Upload preview"
+                          loading="lazy"
+                          decoding="async"
+                          className="w-12 h-12 rounded-xl object-cover border border-slate-700"
+                        />
+                      ))}
+                    </div>
+                  )}
+                  {creatingItem.resumeFileName && (
+                    <p className="text-[11px] text-emerald-400 font-bold">
+                      📄 Resume attached: {creatingItem.resumeFileName}
+                    </p>
+                  )}
+                </div>
 
                 <div className="pt-2 flex items-center justify-end gap-2">
                   <button
@@ -3816,7 +3884,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
       </AnimatePresence>
 
       {/* ============================================================ */}
-      {/* MODAL 4: CREATE AD BANNER MODAL                              */}
+      {/* MODAL 4: CREATE 16:9 AD BANNER MODAL                         */}
       {/* ============================================================ */}
       <AnimatePresence>
         {isCreateAdModalOpen && (
@@ -3825,10 +3893,15 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="w-full max-w-lg bg-[#111827] border border-slate-700 rounded-3xl shadow-2xl overflow-hidden"
+              className="w-full max-w-lg max-h-[90vh] flex flex-col bg-[#111827] border border-slate-700 rounded-3xl shadow-2xl overflow-hidden"
             >
               <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
-                <h3 className="text-base font-black text-white">Create Sponsored Ad Banner</h3>
+                <div>
+                  <h3 className="text-base font-black text-white">Upload 16:9 Advertisement Banner</h3>
+                  <p className="text-[11px] text-cyan-400 font-bold">
+                    Upload a 16:9 banner image, add title/link, and set active status
+                  </p>
+                </div>
                 <button
                   onClick={() => setIsCreateAdModalOpen(false)}
                   className="w-8 h-8 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center cursor-pointer"
@@ -3839,7 +3912,10 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
               <form
                 onSubmit={async (e) => {
                   e.preventDefault();
-                  if (!adBusinessName.trim() || !adOfferTitle.trim()) return;
+                  if (!adBusinessName.trim()) {
+                    showToast('Please enter Ad / Business Title');
+                    return;
+                  }
                   setIsSubmittingAd(true);
                   const newAd: AdBannerItem = {
                     id: 'ad_' + Date.now(),
@@ -3847,9 +3923,10 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                     logo: adLogo,
                     category: adCategory,
                     offerBadge: adOfferBadge,
-                    offerTitle: adOfferTitle.trim(),
+                    offerTitle: adOfferTitle.trim() || adBusinessName.trim(),
                     description: adDescription.trim(),
                     photoUrl: adPhotoUrl,
+                    isActive: adIsActive,
                     distance: parseFloat(adDistance) || 0.5,
                     area: adArea.trim() || 'Local Market',
                     rating: 5.0,
@@ -3862,54 +3939,135 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                   setAds(prev => [newAd, ...prev]);
                   setIsSubmittingAd(false);
                   setIsCreateAdModalOpen(false);
-                  showToast('✅ Ad Banner published!');
+                  showToast('✅ 16:9 Ad Banner saved!');
                 }}
-                className="p-6 space-y-3 text-xs"
+                className="p-6 overflow-y-auto space-y-3.5 text-xs"
               >
-                <input
-                  type="text"
-                  required
-                  value={adBusinessName}
-                  onChange={(e) => setAdBusinessName(e.target.value)}
-                  placeholder="Business / Shop Name *"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
-                />
-                <input
-                  type="text"
-                  required
-                  value={adOfferTitle}
-                  onChange={(e) => setAdOfferTitle(e.target.value)}
-                  placeholder="Offer Headline *"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
-                />
-                <textarea
-                  rows={2}
-                  value={adDescription}
-                  onChange={(e) => setAdDescription(e.target.value)}
-                  placeholder="Offer Description"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
-                />
-                <input
-                  type="text"
-                  value={adArea}
-                  onChange={(e) => setAdArea(e.target.value)}
-                  placeholder="Market / Sector Area"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
-                />
+                {/* 16:9 Banner Image Upload + Live Preview */}
+                <div className="space-y-2 p-3 rounded-2xl bg-slate-900 border border-slate-800">
+                  <label className="block font-black text-slate-200">
+                    16:9 Banner Image (Upload from Device or Paste Image URL) *
+                  </label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-black text-xs flex items-center gap-1.5 cursor-pointer">
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>Upload 16:9 Image</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          try {
+                            const dataUrl = await processCategoryImageFileTo16x9(file);
+                            setAdPhotoUrl(dataUrl);
+                            showToast('✅ 16:9 Banner Image processed & ready!');
+                          } catch {
+                            showToast('⚠️ Failed to process image');
+                          }
+                          e.target.value = '';
+                        }}
+                      />
+                    </label>
+                    <input
+                      type="text"
+                      value={adPhotoUrl}
+                      onChange={(e) => setAdPhotoUrl(e.target.value)}
+                      placeholder="Or paste 16:9 image URL..."
+                      className="flex-1 min-w-[180px] px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs"
+                    />
+                  </div>
+                  {adPhotoUrl && (
+                    <div className="w-full aspect-video rounded-xl overflow-hidden bg-slate-950 border border-slate-700 mt-2">
+                      <img src={adPhotoUrl} alt="16:9 Ad Preview" loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-300 mb-1">Ad / Business Title *</label>
+                  <input
+                    type="text"
+                    required
+                    value={adBusinessName}
+                    onChange={(e) => setAdBusinessName(e.target.value)}
+                    placeholder="e.g. Sharma Electronics / Sponsored Offer *"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-300 mb-1">Offer Headline / Subtitle</label>
+                  <input
+                    type="text"
+                    value={adOfferTitle}
+                    onChange={(e) => setAdOfferTitle(e.target.value)}
+                    placeholder="e.g. Flat 20% Off on All Home Appliances"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-300 mb-1">Target Link / Website / WhatsApp URL (Optional)</label>
+                  <input
+                    type="text"
+                    value={adDestinationUrl}
+                    onChange={(e) => setAdDestinationUrl(e.target.value)}
+                    placeholder="https://example.com or https://wa.me/919876543210"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-300 mb-1">Market / Sector Area</label>
+                    <input
+                      type="text"
+                      value={adArea}
+                      onChange={(e) => setAdArea(e.target.value)}
+                      placeholder="e.g. Main Market"
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-300 mb-1">Status</label>
+                    <select
+                      value={adIsActive ? 'active' : 'inactive'}
+                      onChange={(e) => setAdIsActive(e.target.value === 'active')}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
+                    >
+                      <option value="active">Active (Visible on Website)</option>
+                      <option value="inactive">Inactive (Hidden)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-300 mb-1">Offer Description (Optional)</label>
+                  <textarea
+                    rows={2}
+                    value={adDescription}
+                    onChange={(e) => setAdDescription(e.target.value)}
+                    placeholder="Additional details..."
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
+                  />
+                </div>
+
                 <div className="flex justify-end gap-2 pt-2">
                   <button
                     type="button"
                     onClick={() => setIsCreateAdModalOpen(false)}
-                    className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-bold"
+                    className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-bold cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={isSubmittingAd}
-                    className="px-5 py-2 rounded-xl bg-orange-500 text-white font-black"
+                    className="px-5 py-2 rounded-xl bg-gradient-to-r from-orange-500 to-amber-600 text-white font-black cursor-pointer"
                   >
-                    Publish Ad
+                    {isSubmittingAd ? 'Saving...' : 'Save & Publish 16:9 Ad'}
                   </button>
                 </div>
               </form>

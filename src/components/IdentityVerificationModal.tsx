@@ -303,6 +303,8 @@ export default function IdentityVerificationModal({
                           <img
                             src={watermarkedPreview}
                             alt="Watermarked ID Document Preview"
+                            loading="lazy"
+                            decoding="async"
                             className="max-h-52 w-auto object-contain"
                           />
                         )}

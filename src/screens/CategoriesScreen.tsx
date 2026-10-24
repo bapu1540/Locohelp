@@ -123,7 +123,7 @@ export default function CategoriesScreen({
         id: String(item.id),
         userId: item.userId || item.owner_id || String(item.id),
         email: item.email || item.ownerEmail || '',
-        name: item.name || item.businessName || 'Community Helper',
+        name: item.name || item.businessName || 'Service Expert',
         categoryId: norm.categoryId,
         customCategoryName: item.customCategoryName || norm.customCategoryName || item.categoryLabel || '',
         masterCategory: item.masterCategory || (matchedCat ? matchedCat.masterCategory : 'utility_emergency'),
@@ -154,21 +154,32 @@ export default function CategoriesScreen({
     setHelpers(Array.from(mergedMap.values()));
   };
 
-  useEffect(() => {
-    loadApprovedHelpers();
+  const loadCategoryImages = () => {
+    const cached = getCachedCategoryImages();
+    if (cached && Object.keys(cached).length > 0) {
+      setCategoryImages(prev => ({ ...prev, ...cached }));
+    }
     fetchCategoryImages().then(imgs => {
       if (imgs && typeof imgs === 'object') {
         setCategoryImages(imgs);
       }
     }).catch(() => {});
+  };
+
+  useEffect(() => {
+    loadApprovedHelpers();
+    loadCategoryImages();
 
     const onProfileOrStorageUpdate = () => {
       loadApprovedHelpers();
+      loadCategoryImages();
     };
     window.addEventListener('locohelp_profile_updated', onProfileOrStorageUpdate);
+    window.addEventListener('locohelp_category_images_updated', loadCategoryImages);
     window.addEventListener('storage', onProfileOrStorageUpdate);
     return () => {
       window.removeEventListener('locohelp_profile_updated', onProfileOrStorageUpdate);
+      window.removeEventListener('locohelp_category_images_updated', loadCategoryImages);
       window.removeEventListener('storage', onProfileOrStorageUpdate);
     };
   }, [activeCategory, isRegisterOpen]);
@@ -355,7 +366,11 @@ export default function CategoriesScreen({
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {CATEGORIES.map(cat => {
                 const count = helpers.filter(h => isHelperMatchingCategory(h, cat.id)).length;
-                const customImg = categoryImages[cat.id];
+                const rawImg =
+                  categoryImages[cat.id] ||
+                  categoryImages[cat.id.toLowerCase()] ||
+                  (cat.nameEn ? categoryImages[cat.nameEn.toLowerCase()] : '');
+                const customImg = typeof rawImg === 'string' && rawImg.trim().length > 0 ? rawImg.trim() : '';
                 return (
                   <div
                     key={cat.id}
@@ -371,7 +386,8 @@ export default function CategoriesScreen({
                           src={customImg}
                           alt={getCategoryName(cat, language)}
                           loading="lazy"
-                          className="w-full h-full object-cover"
+                          decoding="async"
+                          className="w-full h-full aspect-video object-cover"
                         />
                       ) : (
                         <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-500 text-white flex items-center justify-center shadow-sm">
@@ -527,7 +543,7 @@ export default function CategoriesScreen({
                                 setIsRegisterOpen(true);
                               }}
                               className="flex-1 bg-amber-500 hover:bg-amber-600 text-white font-extrabold py-2 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-2xs active:scale-95 transition-all cursor-pointer"
-                              title={language === 'EN' ? 'Edit your helper profile' : 'अपनी प्रोफाइल एडिट करें'}
+                              title={language === 'EN' ? 'Edit your service expert profile' : 'अपनी प्रोफाइल एडिट करें'}
                             >
                               <Edit3 className="w-3.5 h-3.5" />
                               <span>{language === 'EN' ? 'Edit Profile' : 'प्रोफ़ाइल एडिट करें'}</span>
@@ -592,7 +608,7 @@ export default function CategoriesScreen({
       <UserProfileModal 
         isOpen={Boolean(selectedUserForProfile)}
         onClose={() => setSelectedUserForProfile(null)}
-        userName={selectedUserForProfile?.name || 'Helper'}
+        userName={selectedUserForProfile?.name || 'Service Expert'}
         distance={selectedUserForProfile?.distance || 0.5}
       />
 

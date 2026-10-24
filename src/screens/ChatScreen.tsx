@@ -9,6 +9,7 @@ import LoginPromptModal from '../components/LoginPromptModal';
 import { isGuestUser } from '../lib/authUtils';
 import { fetchChatMessages, sendChatMessage, logAuditRecord } from '../api';
 import { validateUploadedFile, sanitizeText } from '../lib/security';
+import { compressImageToWebP } from '../lib/imageCompression';
 
 interface ChatScreenProps {
   intent: Intent | null;
@@ -102,29 +103,31 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
     } catch (e) {}
   }, [messages, chatId]);
 
-  // Real-time server sync
+  // Real-time cross-device server sync with 3-second polling while chat is open
   useEffect(() => {
-    if (!intent?.id) return;
     let isMounted = true;
 
     const syncChat = async () => {
       try {
-        const activeUser = getCurrentUser();
-        if (!activeUser || activeUser.uid === 'guest_user') return;
-        
-        const serverMessages = await getMessages(activeUser.uid, intent.authorId);
+        const serverMessages = await fetchChatMessages(chatId);
         if (isMounted && Array.isArray(serverMessages)) {
           setMessages(prev => {
             const map = new Map<string, any>();
-            prev.forEach(m => map.set(m.id, m));
-            serverMessages.forEach(m => {
-              map.set(m.id, {
-                id: m.id,
-                text: m.content,
-                type: 'text',
-                authorId: m.sender_id,
-                createdAt: m.created_at
-              });
+            prev.forEach(m => {
+              if (m && m.id) map.set(m.id, m);
+            });
+            serverMessages.forEach((m: any) => {
+              if (m && m.id) {
+                map.set(m.id, {
+                  id: m.id,
+                  text: m.text || m.content || m.message || '',
+                  type: m.type || 'text',
+                  authorId: m.authorId || m.senderId || m.sender_id || 'peer',
+                  attachmentUrl: m.attachmentUrl || m.attachment_url || undefined,
+                  attachmentType: m.attachmentType || m.attachment_type || undefined,
+                  createdAt: m.createdAt || m.created_at || m.sent_at || new Date().toISOString()
+                });
+              }
             });
             const list = Array.from(map.values()) as any[];
             list.sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
@@ -135,11 +138,13 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
     };
 
     syncChat();
+    const pollInterval = setInterval(syncChat, 3000);
 
     return () => {
       isMounted = false;
+      clearInterval(pollInterval);
     };
-  }, [intent]);
+  }, [chatId]);
 
   const handleSend = async (textToSend: string, type: 'text' | 'pin' | 'attachment' | 'task_completed' = 'text', attachmentUrl?: string, attachmentType?: string) => {
     if (isGuestUser()) {
@@ -150,12 +155,17 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
     if (!trimmed && !attachmentUrl) return;
     setInput('');
 
-    const activeUid = getCurrentUser()?.uid || 'my_user';
+    const activeUser = getCurrentUser();
+    const activeUid = activeUser?.uid || 'my_user';
+    const activeName = activeUser?.displayName || localStorage.getItem('locohelp_profile_name') || 'Community Member';
     const messageData: any = {
       id: 'msg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+      conversationId: chatId,
+      authorId: activeUid,
+      authorName: activeName,
+      receiverId: intent?.authorId || chatId,
       text: trimmed,
       type,
-      authorId: activeUid,
       createdAt: new Date().toISOString()
     };
 
@@ -165,15 +175,10 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
     // Optimistic UI update
     setMessages(prev => [...prev, messageData]);
 
-    // Server & PostgreSQL sync
-    if (intent?.id) {
-      try {
-        // Also keep legacy sync for compatibility
-        sendChatMessage(intent.id, messageData).catch(() => {});
-        
-        await sendMessage(activeUid, intent.authorId, trimmed || "📸 Attachment");
-      } catch (e) {}
-    }
+    // Store in backend database (messages table via POST /api/messages)
+    try {
+      await sendChatMessage(chatId, messageData);
+    } catch (e) {}
 
     // Auto reply for simulated peer / broadcast poster
     const isSimulated = intent?.authorId?.startsWith('seed_') || intent?.authorId?.startsWith('user_') || intent?.authorId?.startsWith('ad_');
@@ -193,9 +198,7 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
           createdAt: new Date().toISOString()
         };
         setMessages(prev => [...prev, autoMsg]);
-        if (intent?.id) {
-          sendChatMessage(intent.id, autoMsg).catch(() => {});
-        }
+        sendChatMessage(chatId, autoMsg).catch(() => {});
       }, 1200);
     }
   };
@@ -221,13 +224,27 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
         return;
       }
       setCameraError('');
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64 = reader.result as string;
-        setPhotoCaptured(base64);
-        setIsCameraOpen(true);
-      };
-      reader.readAsDataURL(file);
+      if (file.type.startsWith('image/')) {
+        try {
+          const compressed = await compressImageToWebP(file, { maxWidth: 1200, quality: 0.75 });
+          setPhotoCaptured(compressed);
+          setIsCameraOpen(true);
+        } catch {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            setPhotoCaptured(reader.result as string);
+            setIsCameraOpen(true);
+          };
+          reader.readAsDataURL(file);
+        }
+      } else {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setPhotoCaptured(reader.result as string);
+          setIsCameraOpen(true);
+        };
+        reader.readAsDataURL(file);
+      }
     }
     if (e.target) e.target.value = '';
   };
@@ -516,7 +533,7 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
                   onClick={() => setZoomedImage(msg.attachmentUrl!)}
                   className="cursor-pointer overflow-hidden rounded-xl border border-white/20 mb-1"
                 >
-                  <img src={msg.attachmentUrl} alt="attachment" className="w-full max-h-56 object-cover hover:scale-102 transition-transform" />
+                  <img src={msg.attachmentUrl} alt="attachment" loading="lazy" decoding="async" className="w-full max-h-56 object-cover hover:scale-102 transition-transform" />
                 </div>
               )}
               <p className="text-xs font-medium leading-relaxed whitespace-pre-wrap">{msg.text}</p>
@@ -640,7 +657,7 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
                 {!photoCaptured ? (
                   <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
                 ) : (
-                  <img src={photoCaptured} alt="snapshot" className="w-full h-full object-cover" />
+                  <img src={photoCaptured} alt="snapshot" loading="lazy" decoding="async" className="w-full h-full object-cover" />
                 )}
 
                 {cameraError && !photoCaptured && (
@@ -730,7 +747,7 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
       <AnimatePresence>
         {zoomedImage && (
           <div onClick={() => setZoomedImage(null)} className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4">
-            <img src={zoomedImage} alt="Zoomed" className="max-h-[85vh] max-w-full rounded-2xl object-contain" />
+            <img src={zoomedImage} alt="Zoomed" loading="lazy" decoding="async" className="max-h-[85vh] max-w-full rounded-2xl object-contain" />
           </div>
         )}
       </AnimatePresence>

@@ -179,10 +179,10 @@ export default function AdBannerSection({ onOpenChat, onOpenPostAd }: AdBannerSe
     };
   }, []);
 
-  // Combine the Permanent Locked LocoHelp Official Banner + all added advertisements
+  // Combine the Permanent Locked LocoHelp Official Banner + all active advertisements
   const allScrollableBanners = React.useMemo(() => {
     const customAds = (ads || []).filter(
-      a => a && a.id && a.id !== PERMANENT_LOCOHELP_PROMO_AD.id
+      a => a && a.id && a.id !== PERMANENT_LOCOHELP_PROMO_AD.id && a.isActive !== false
     );
     return [PERMANENT_LOCOHELP_PROMO_AD, ...customAds];
   }, [ads]);
@@ -343,22 +343,21 @@ export default function AdBannerSection({ onOpenChat, onOpenPostAd }: AdBannerSe
         className="flex items-stretch gap-3 overflow-x-auto snap-x snap-mandatory scroll-smooth scrollbar-hide pb-1"
       >
         {allScrollableBanners.map((adItem) => {
-          // 1. PERMANENT LOCKED LOCOHELP OFFICIAL ADVERTISEMENT BANNER (Strict 16:9 Aspect Ratio)
+          // 1. PERMANENT LOCKED LOCOHELP OFFICIAL ADVERTISEMENT BANNER (Strict 16:9 Aspect Ratio, Read-Only Display)
           if (adItem.isPermanentOfficialBanner) {
             const bannerImg = adItem.photoUrl || '/assets/aistudio/advertisement_30c9824f.png';
             return (
               <div
                 key={adItem.id}
                 data-ad-slide="true"
-                onClick={onOpenPostAd}
-                className="w-full shrink-0 snap-center relative aspect-video bg-slate-900 border-2 border-amber-400/80 rounded-3xl shadow-lg overflow-hidden cursor-pointer group flex items-center justify-center"
-                title="Click to post your advertisement here"
+                className="w-full shrink-0 snap-center relative aspect-video bg-slate-900 border-2 border-amber-400/80 rounded-3xl shadow-lg overflow-hidden flex items-center justify-center"
               >
                 <img
                   src={bannerImg}
                   alt="LocoHelp Official Advertisement Banner"
-                  className="w-full h-full object-cover rounded-3xl transition-transform duration-300 group-hover:scale-[1.01]"
-                  loading="eager"
+                  className="w-full h-full object-cover rounded-3xl"
+                  loading="lazy"
+                  decoding="async"
                 />
               </div>
             );
@@ -439,6 +438,7 @@ export default function AdBannerSection({ onOpenChat, onOpenPostAd }: AdBannerSe
                       alt={adItem.businessName}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                       loading="lazy"
+                      decoding="async"
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent" />
                     <div className="absolute top-2.5 left-2.5">
@@ -555,6 +555,8 @@ export default function AdBannerSection({ onOpenChat, onOpenPostAd }: AdBannerSe
                     <img
                       src={selectedAdForDetails.photoUrl}
                       alt={selectedAdForDetails.businessName}
+                      loading="lazy"
+                      decoding="async"
                       className="w-full h-full object-cover"
                     />
                   </div>

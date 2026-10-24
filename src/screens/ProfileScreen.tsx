@@ -16,6 +16,7 @@ import { CATEGORIES, getCategoryName, saveFreeHelperProfile, getFreeHelperProfil
 import { RegisteredShop, SHOP_TYPES } from '../components/RegisterShopModal';
 import { applyIdWatermark } from '../lib/watermark';
 import { validateUploadedFile, sanitizeText } from '../lib/security';
+import { compressImageToWebP } from '../lib/imageCompression';
 import { Screen } from '../types';
 
 interface ProfileScreenProps {
@@ -51,7 +52,7 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
   const [isEditingUserProfile, setIsEditingUserProfile] = useState(false);
   const [isSavedNotice, setIsSavedNotice] = useState(false);
   const [isVerificationModalOpen, setIsVerificationModalOpen] = useState(false);
-  const [verificationStatus, setVerificationStatus] = useState<'none' | 'pending' | 'approved' | 'rejected'>('none');
+  const [verificationStatus, setVerificationStatus] = useState<'none' | 'pending' | 'approved' | 'rejected' | 'deletion_requested'>('none');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [closureReason, setClosureReason] = useState('');
@@ -301,7 +302,9 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
     const checkId = foundHelper?.id || (userKey !== 'guest' ? userKey : '');
     if (checkId) {
       getVerificationStatus(checkId).then(res => {
-        if (res.isVerified || res.status === 'approved') {
+        if (res.status === 'deletion_requested') {
+          setVerificationStatus('deletion_requested');
+        } else if (res.isVerified || res.status === 'approved') {
           setVerificationStatus('approved');
           setMyHelperProfile((prev: any) => prev ? { ...prev, isVerified: true, status: 'approved' } : prev);
         } else if (res.status === 'pending') {
@@ -378,9 +381,8 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
         e.target.value = '';
         return;
       }
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        const base64String = reader.result as string;
+      try {
+        const base64String = await compressImageToWebP(file, { maxWidth: 1200, quality: 0.75 });
         setProfilePhoto(base64String);
 
         const activeUser = getCurrentUser();
@@ -400,8 +402,14 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
             await saveUserProfile({ uid: userKey, avatar_url: base64String });
           }
         } catch (err) {}
-      };
-      reader.readAsDataURL(file);
+      } catch {
+        const reader = new FileReader();
+        reader.onloadend = async () => {
+          const base64String = reader.result as string;
+          setProfilePhoto(base64String);
+        };
+        reader.readAsDataURL(file);
+      }
     }
   };
 
@@ -416,10 +424,12 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
     const safeAddress = sanitizeText(userAddress, 300);
     const safeExp = sanitizeText(userExp, 120);
 
-    // Requirement 3: If an already approved user edits profile details, revert status to 'pending' so it requires Admin re-approval
-    const isEditOfExisting = hasExistingUserProfile;
-    const newStatus = isEditOfExisting ? 'pending' : (verificationStatus === 'approved' ? 'approved' : 'pending');
-    const newIsVerified = isEditOfExisting ? false : (verificationStatus === 'approved');
+    // Requirement 3: When an already approved user edits profile details, revert status to 'pending' so it requires Admin re-approval
+    const newStatus = 'pending';
+    const newIsVerified = false;
+    const updatedHelper = myHelperProfile
+      ? { ...myHelperProfile, isVerified: false, status: 'pending' }
+      : null;
 
     const profileData = {
       uid: userKey,
@@ -430,14 +440,15 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
       address: safeAddress,
       experience: safeExp,
       avatar_url: profilePhoto,
-      myHelperProfile,
+      myHelperProfile: updatedHelper,
       status: newStatus,
       isVerified: newIsVerified,
       updated_at: new Date().toISOString()
     };
 
-    if (isEditOfExisting) {
-      setVerificationStatus('pending');
+    setVerificationStatus('pending');
+    if (updatedHelper) {
+      setMyHelperProfile(updatedHelper);
     }
 
     try {
@@ -448,6 +459,9 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
       localStorage.setItem('locohelp_profile_exp', safeExp);
       if (profileData.email) localStorage.setItem('locohelp_last_logged_in_email', profileData.email);
       if (profilePhoto) localStorage.setItem('locohelp_profile_photo', profilePhoto);
+      if (updatedHelper) {
+        localStorage.setItem('locohelp_my_helper_profile', JSON.stringify(updatedHelper));
+      }
 
       const current = getCurrentUser();
       localStorage.setItem('locohelp_user', JSON.stringify({
@@ -457,13 +471,18 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
         email: profileData.email || current?.email,
         phone: userPhone || current?.phone
       }));
+      window.dispatchEvent(new Event('locohelp_profile_updated'));
+      window.dispatchEvent(new Event('storage'));
     } catch (e) {}
 
     try {
       await saveUserProfile(profileData);
+      if (updatedHelper && updatedHelper.id) {
+        await saveHelper({ ...updatedHelper, isVerified: false, status: 'pending' }).catch(() => {});
+      }
       await submitVerification({
         entityType: 'user_profile',
-        entityId: userKey,
+        entityId: updatedHelper?.id || userKey,
         userId: userKey,
         userName: profileData.full_name,
         userEmail: profileData.email || undefined,
@@ -477,7 +496,8 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
     setHasExistingUserProfile(true);
     setIsEditingUserProfile(false);
     setIsSavedNotice(true);
-    setTimeout(() => setIsSavedNotice(false), 3000);
+    setShowApprovalNoticeModal(true);
+    setTimeout(() => setIsSavedNotice(false), 4000);
   };
 
   // -------------------------------------------------------------
@@ -560,7 +580,7 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
         userName: newHelper.name,
         userEmail: cleanEmail || undefined,
         userPhone: newHelper.phone,
-        title: `Helper Profile (${finalCatName}) - ${finalDoc ? 'Government ID Card' : 'Profile Verification'} (Re-approval Request)`,
+        title: `Service Expert Profile (${finalCatName}) - ${finalDoc ? 'Government ID Card' : 'Profile Verification'} (Re-approval Request)`,
         idDocumentWatermarked: finalDoc || ''
       });
       setVerificationStatus('pending');
@@ -786,7 +806,11 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
                     <h1 className="text-lg font-black text-slate-900 dark:text-white tracking-tight truncate">
                       {userName || myHelperProfile?.name || "Community Member"}
                     </h1>
-                    {verificationStatus === 'approved' || isHelperApproved ? (
+                    {verificationStatus === 'deletion_requested' ? (
+                      <span className="text-[10px] bg-rose-600 text-white font-extrabold px-2 py-0.5 rounded-full flex items-center gap-1">
+                        <Clock className="w-3 h-3" /> Deletion Requested
+                      </span>
+                    ) : verificationStatus === 'approved' || isHelperApproved ? (
                       <span className="text-[10px] bg-emerald-600 text-white font-extrabold px-2 py-0.5 rounded-full flex items-center gap-1">
                         <CheckCircle2 className="w-3 h-3" /> Active & Approved
                       </span>
@@ -823,7 +847,7 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
                 <div className="relative shrink-0">
                   <div className="w-18 h-18 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center relative overflow-hidden border-2 border-indigo-500/80 shadow-md">
                     {profilePhoto ? (
-                      <img src={profilePhoto} alt="Profile" className="w-full h-full object-cover" />
+                      <img src={profilePhoto} alt="Profile" loading="lazy" decoding="async" className="w-full h-full object-cover" />
                     ) : (
                       <User className="w-8 h-8 text-slate-400" />
                     )}
@@ -955,8 +979,8 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
                 )}
 
                 {isSavedNotice && (
-                  <p className="text-xs font-bold text-emerald-600 flex items-center gap-1">
-                    <CheckCircle2 className="w-4 h-4" /> Profile Updated Successfully!
+                  <p className="text-xs font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                    <Clock className="w-4 h-4 shrink-0" /> {t('prof.reApprovalNotice')}
                   </p>
                 )}
               </div>
@@ -1055,7 +1079,7 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
                 className="text-xs text-rose-600 dark:text-rose-400 font-extrabold hover:underline cursor-pointer flex items-center justify-center gap-1.5 mx-auto"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                <span>{t('prof.closureBtn') || 'Request Account Closure / Deactivate'}</span>
+                <span>{t('pro.closureBtn')}</span>
               </button>
             </div>
 
@@ -1319,18 +1343,23 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
                           e.target.value = '';
                           return;
                         }
-                        const reader = new FileReader();
-                        reader.onloadend = () => {
-                          setHelperWorkPhoto(reader.result as string);
-                        };
-                        reader.readAsDataURL(file);
+                        try {
+                          const compressed = await compressImageToWebP(file, { maxWidth: 1200, quality: 0.75 });
+                          setHelperWorkPhoto(compressed);
+                        } catch {
+                          const reader = new FileReader();
+                          reader.onloadend = () => {
+                            setHelperWorkPhoto(reader.result as string);
+                          };
+                          reader.readAsDataURL(file);
+                        }
                       }
                     }}
                     className="w-full text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-emerald-50 file:text-emerald-700 dark:file:bg-emerald-950 dark:file:text-emerald-300 cursor-pointer bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-2 py-1.5"
                   />
                   {helperWorkPhoto && (
                     <div className="mt-2 relative w-20 h-20 rounded-xl overflow-hidden border-2 border-emerald-400">
-                      <img src={helperWorkPhoto} alt="Work Preview" className="w-full h-full object-cover" />
+                      <img src={helperWorkPhoto} alt="Work Preview" loading="lazy" decoding="async" className="w-full h-full object-cover" />
                       <button
                         type="button"
                         onClick={() => setHelperWorkPhoto(null)}
@@ -1380,8 +1409,8 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
                             } else {
                               try {
                                 const watermarked = await applyIdWatermark(file, {
-                                  userName: helperName.trim() || userName || 'Helper',
-                                  customText: 'FOR LOCOHELP VERIFICATION ONLY • HELPER ID FRONT'
+                                  userName: helperName.trim() || userName || 'Service Expert',
+                                  customText: 'FOR LOCOHELP VERIFICATION ONLY • SERVICE EXPERT ID FRONT'
                                 });
                                 setHelperIdFrontDoc(watermarked);
                               } catch {
@@ -1431,8 +1460,8 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
                             } else {
                               try {
                                 const watermarked = await applyIdWatermark(file, {
-                                  userName: helperName.trim() || userName || 'Helper',
-                                  customText: 'FOR LOCOHELP VERIFICATION ONLY • HELPER ID BACK'
+                                  userName: helperName.trim() || userName || 'Service Expert',
+                                  customText: 'FOR LOCOHELP VERIFICATION ONLY • SERVICE EXPERT ID BACK'
                                 });
                                 setHelperIdBackDoc(watermarked);
                               } catch {
@@ -1725,16 +1754,25 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
                           setUploadErrorMsg(check.error || 'Only safe JPEG, PNG, or WebP images up to 2MB are allowed.');
                           continue;
                         }
-                        const reader = new FileReader();
-                        reader.onloadend = () => {
-                          const dataUrl = reader.result as string;
+                        try {
+                          const dataUrl = await compressImageToWebP(file, { maxWidth: 1200, quality: 0.75 });
                           setShopPhotos((prev) => {
                             const updated = [...prev, dataUrl].slice(0, 3);
                             setShopPhoto(updated[0] || null);
                             return updated;
                           });
-                        };
-                        reader.readAsDataURL(file);
+                        } catch {
+                          const reader = new FileReader();
+                          reader.onloadend = () => {
+                            const dataUrl = reader.result as string;
+                            setShopPhotos((prev) => {
+                              const updated = [...prev, dataUrl].slice(0, 3);
+                              setShopPhoto(updated[0] || null);
+                              return updated;
+                            });
+                          };
+                          reader.readAsDataURL(file);
+                        }
                       }
                       e.target.value = '';
                     }}
@@ -1744,7 +1782,7 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
                     <div className="mt-2 flex flex-wrap gap-2">
                       {shopPhotos.map((photo, idx) => (
                         <div key={idx} className="relative w-24 h-20 rounded-xl overflow-hidden border-2 border-amber-400 shadow-xs">
-                          <img src={photo} alt={`Shop Preview ${idx + 1}`} className="w-full h-full object-cover" />
+                          <img src={photo} alt={`Shop Preview ${idx + 1}`} loading="lazy" decoding="async" className="w-full h-full object-cover" />
                           <button 
                             type="button" 
                             onClick={() => {
@@ -1988,13 +2026,39 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
                           userName: userName || activeUser?.displayName || 'User',
                           userEmail: userEmail || activeUser?.email || '',
                           userPhone: cleanPhone,
-                          status: 'pending',
+                          status: 'deletion_requested',
                           createdAt: new Date().toISOString()
                         })
                       }).catch(() => {});
 
-                      // Update user status locally to 'closure_requested'
-                      setVerificationStatus('pending');
+                      // Update profile status to deletion_requested so only Admin can review and permanently delete it
+                      const updatedClosureProfile = {
+                        uid: userKey,
+                        full_name: userName || activeUser?.displayName || 'User',
+                        email: userEmail || activeUser?.email || '',
+                        phone: userPhone || cleanPhone,
+                        skills: userSkills,
+                        address: userAddress,
+                        experience: userExp,
+                        avatar_url: profilePhoto,
+                        myHelperProfile: myHelperProfile ? { ...myHelperProfile, status: 'deletion_requested', isVerified: false } : null,
+                        status: 'deletion_requested',
+                        isVerified: false,
+                        updated_at: new Date().toISOString()
+                      };
+
+                      try {
+                        localStorage.setItem(`locohelp_user_profile_${userKey}`, JSON.stringify(updatedClosureProfile));
+                        if (myHelperProfile) {
+                          const updatedHelper = { ...myHelperProfile, status: 'deletion_requested', isVerified: false };
+                          setMyHelperProfile(updatedHelper);
+                          localStorage.setItem('locohelp_my_helper_profile', JSON.stringify(updatedHelper));
+                        }
+                      } catch (e) {}
+
+                      await saveUserProfile(updatedClosureProfile).catch(() => {});
+
+                      setVerificationStatus('deletion_requested');
                       setClosureSubmitted(true);
                       setIsDeleting(false);
                       setTimeout(() => {

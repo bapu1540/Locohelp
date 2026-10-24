@@ -1,16 +1,15 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Screen, Intent, Language } from '../types';
-import { Settings, Bell, Zap, Search, Globe, Clock, MapPin, Rocket, User, Trophy, Wrench, Filter, Star, UserCheck, MessageSquare, Plus, Check, X, Share2, MessageCircle, HelpCircle, Smartphone, RefreshCw, ChevronDown, Sparkles, Trash2, Shield, ShieldAlert } from 'lucide-react';
+import { Settings, Bell, Zap, Search, Globe, Clock, MapPin, Rocket, User, Trophy, Wrench, Filter, Star, UserCheck, MessageSquare, Plus, Check, X, Share2, MessageCircle, HelpCircle, Smartphone, RefreshCw, ChevronDown, ChevronRight, Sparkles, Trash2, Shield, ShieldAlert } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import PostIntentSheet from './PostIntentSheet';
 import { useLanguage, SUPPORTED_LANGUAGES } from '../i18n';
-import { getCurrentUser, onAuthStateChange } from '../auth';
+import { getCurrentUser, onAuthStateChange, getHelpers, getShops } from '../auth';
 import { CATEGORIES, MASTER_CATEGORIES, getCategoryName, getFreeHelperProfiles } from '../data/categories';
 import UserProfileModal from './UserProfileModal';
 import AppGuideModal from './AppGuideModal';
-import { fetchLiveIntents, deleteIntentOnServer } from '../api';
+import PostIntentSheet from './PostIntentSheet';
+import { fetchLiveIntents, deleteIntentOnServer, getCachedCategoryImages, fetchCategoryImages } from '../api';
 import AdBannerSection from '../components/AdBannerSection';
-import PostAdModal from '../components/PostAdModal';
 import LocoHelpLogo from '../components/LocoHelpLogo';
 import RegisterShopModal from '../components/RegisterShopModal';
 import LoginPromptModal from '../components/LoginPromptModal';
@@ -71,6 +70,31 @@ export default function HomeScreen({
   const [selectedIntentForResponses, setSelectedIntentForResponses] = useState<Intent | null>(null);
   const [isResponsesModalOpen, setIsResponsesModalOpen] = useState(false);
   const [isInstallAppModalOpen, setIsInstallAppModalOpen] = useState(false);
+  const [categoryImages, setCategoryImages] = useState<Record<string, string>>(() => getCachedCategoryImages());
+
+  useEffect(() => {
+    const syncCatImages = () => {
+      const cached = getCachedCategoryImages();
+      if (cached && Object.keys(cached).length > 0) {
+        setCategoryImages(prev => ({ ...prev, ...cached }));
+      }
+      fetchCategoryImages().then(imgs => {
+        if (imgs && typeof imgs === 'object') {
+          setCategoryImages(imgs);
+        }
+      }).catch(() => {});
+      // Also auto-sync & recover any local helper/shop profiles with backend server
+      getHelpers(false).catch(() => {});
+      getShops(false).catch(() => {});
+    };
+    syncCatImages();
+    window.addEventListener('locohelp_category_images_updated', syncCatImages);
+    window.addEventListener('storage', syncCatImages);
+    return () => {
+      window.removeEventListener('locohelp_category_images_updated', syncCatImages);
+      window.removeEventListener('storage', syncCatImages);
+    };
+  }, []);
 
   const handleInstallAppClick = async () => {
     const promptEvent = (window as any).__deferredPwaPrompt;
@@ -851,19 +875,19 @@ export default function HomeScreen({
     <div className="flex flex-col h-full min-h-0 bg-white dark:bg-slate-900 relative overflow-hidden transition-colors">
       
       {/* Fixed Top Sticky Header Bar (LocoHelp Logo, Language, Sign In, Notifications, Profile, Settings) */}
-      <header className="sticky top-0 z-30 shrink-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-100 dark:border-slate-800 shadow-sm px-2 sm:px-5 py-2 sm:py-3 flex items-center justify-between gap-1 w-full max-w-full">
+      <header className="sticky top-0 z-30 shrink-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-100 dark:border-slate-800 shadow-sm px-2 sm:px-5 py-2 sm:py-3 flex items-center justify-between gap-1.5 w-full max-w-full box-border">
         <div className="relative shrink-0">
           <button
             type="button"
             onClick={() => setIsLangModalOpen((prev) => !prev)}
-            className="flex items-center gap-1 px-2 sm:px-2.5 py-1 sm:py-1.5 bg-white dark:bg-slate-800 rounded-full hover:bg-violet-50 dark:hover:bg-slate-700 transition-colors border border-slate-200 dark:border-slate-700 shadow-2xs shrink-0 active:scale-95 cursor-pointer"
+            className="flex items-center gap-0.5 sm:gap-1 px-1.5 sm:px-2.5 py-1 sm:py-1.5 bg-white dark:bg-slate-800 rounded-full hover:bg-violet-50 dark:hover:bg-slate-700 transition-colors border border-slate-200 dark:border-slate-700 shadow-2xs shrink-0 active:scale-95 cursor-pointer"
             title="Select Language"
           >
-            <Globe className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
-            <span className="text-[11px] sm:text-xs font-black text-stone-800 dark:text-slate-200">
+            <Globe className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+            <span className="text-[10px] sm:text-xs font-black text-stone-800 dark:text-slate-200 whitespace-nowrap">
               {currentLangObj.nativeName}
             </span>
-            <ChevronDown className={`w-3.5 h-3.5 text-slate-500 dark:text-slate-400 transition-transform duration-200 shrink-0 ${isLangModalOpen ? 'rotate-180' : ''}`} />
+            <ChevronDown className={`w-3 h-3 sm:w-3.5 sm:h-3.5 text-slate-500 dark:text-slate-400 transition-transform duration-200 shrink-0 ${isLangModalOpen ? 'rotate-180' : ''}`} />
           </button>
 
           {/* Compact Dropdown Menu right below the button */}
@@ -913,21 +937,23 @@ export default function HomeScreen({
             onSelectCategory?.('all');
             onNavigate('home');
           }}
-          className="shrink-0 select-none cursor-pointer"
+          className="min-w-0 shrink flex items-center justify-center select-none cursor-pointer overflow-hidden"
           title="Home"
         >
-          <LocoHelpLogo size={42} showText={true} textSize="md" className="shrink-0" />
+          <div className="scale-90 sm:scale-100 origin-center">
+            <LocoHelpLogo size={36} showText={true} textSize="sm" className="shrink-0" />
+          </div>
         </div>
 
         <div className="flex items-center gap-1 sm:gap-2 shrink-0">
           {isGuestUser() ? (
             <button
               onClick={handleSafeProfileClick}
-              className="flex items-center gap-1 px-2 sm:px-3 py-1 sm:py-1.5 bg-white dark:bg-slate-800 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 transition-all border border-indigo-200 dark:border-indigo-900/60 shadow-xs active:scale-95 cursor-pointer text-slate-800 dark:text-white shrink-0"
+              className="flex items-center gap-0.5 sm:gap-1 px-1.5 sm:px-3 py-1 sm:py-1.5 bg-white dark:bg-slate-800 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 transition-all border border-indigo-200 dark:border-indigo-900/60 shadow-xs active:scale-95 cursor-pointer text-slate-800 dark:text-white shrink-0"
               title="Sign in with Email OTP or Password"
             >
-              <span className="text-[11px] sm:text-xs font-black">
-                {language === 'EN' ? 'Sign In' : language === 'GU' ? 'લોગિન કરો' : 'लॉगिन करें'}
+              <span className="text-[10px] sm:text-xs font-black whitespace-nowrap">
+                {language === 'EN' ? 'Sign In' : language === 'GU' ? 'લોગિન' : 'लॉगिन'}
               </span>
             </button>
           ) : null}
@@ -935,23 +961,23 @@ export default function HomeScreen({
           <button
             type="button"
             onClick={() => setIsLocationModalOpen(true)}
-            className="flex items-center gap-1 px-2 sm:px-3 py-1 sm:py-1.5 rounded-full bg-emerald-50 dark:bg-emerald-950/80 border border-emerald-300 dark:border-emerald-700 hover:bg-emerald-100 dark:hover:bg-emerald-900/80 text-emerald-800 dark:text-emerald-200 transition-all shadow-2xs active:scale-95 cursor-pointer max-w-[85px] xs:max-w-[110px] sm:max-w-[180px] shrink-0"
+            className="flex items-center gap-0.5 sm:gap-1 px-1.5 sm:px-3 py-1 sm:py-1.5 rounded-full bg-emerald-50 dark:bg-emerald-950/80 border border-emerald-300 dark:border-emerald-700 hover:bg-emerald-100 dark:hover:bg-emerald-900/80 text-emerald-800 dark:text-emerald-200 transition-all shadow-2xs active:scale-95 cursor-pointer max-w-[68px] sm:max-w-[160px] shrink-0"
             title="Select Location (Pan-India)"
           >
-            <span className="text-xs shrink-0">📍</span>
+            <span className="text-[10px] sm:text-xs shrink-0">📍</span>
             <span className="text-[10px] sm:text-xs font-black truncate">
               {userLocation.district || (language === 'EN' ? 'Location' : language === 'GU' ? 'લોકેશન' : 'लोकेशन')}
             </span>
           </button>
-          <button onClick={handleSafeProfileClick} className="p-1.5 sm:p-2 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-violet-100 dark:hover:bg-slate-700 transition-colors shadow-2xs cursor-pointer shrink-0" title="Profile">
+          <button onClick={handleSafeProfileClick} className="w-7 h-7 sm:w-9 sm:h-9 p-1 sm:p-2 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-violet-100 dark:hover:bg-slate-700 transition-colors shadow-2xs cursor-pointer shrink-0 flex items-center justify-center" title="Profile">
             {activeUser.photoURL || getCurrentUser()?.photoURL ? (
               <img src={activeUser.photoURL || getCurrentUser()?.photoURL} alt="" className="w-4 h-4 sm:w-5 sm:h-5 rounded-full object-cover" />
             ) : (
-              <User className="w-4 h-4 sm:w-5 sm:h-5 text-stone-700 dark:text-pink-400" />
+              <User className="w-3.5 h-3.5 sm:w-5 sm:h-5 text-stone-700 dark:text-pink-400 shrink-0" />
             )}
           </button>
-          <button onClick={() => onNavigate('settings')} className="p-1.5 sm:p-2 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-violet-100 dark:hover:bg-slate-700 transition-colors shadow-2xs cursor-pointer shrink-0" title="Settings">
-            <Settings className="w-4 h-4 sm:w-5 sm:h-5 text-stone-700 dark:text-pink-400" />
+          <button onClick={() => onNavigate('settings')} className="w-7 h-7 sm:w-9 sm:h-9 p-1 sm:p-2 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-violet-100 dark:hover:bg-slate-700 transition-colors shadow-2xs cursor-pointer shrink-0 flex items-center justify-center" title="Settings">
+            <Settings className="w-3.5 h-3.5 sm:w-5 sm:h-5 text-stone-700 dark:text-pink-400 shrink-0" />
           </button>
         </div>
       </header>
@@ -1032,6 +1058,7 @@ export default function HomeScreen({
 
 
 
+
               {/* Voice Search Button */}
               <button 
                 type="button"
@@ -1064,25 +1091,46 @@ export default function HomeScreen({
                     </button>
                   </div>
 
-                  {/* Broadcast Posts Matches */}
+                  {/* Live Broadcast Posts Matches */}
                   {globalSearchResults.posts.length > 0 && (
                     <div className="space-y-1.5">
                       <span className="text-[10px] font-extrabold uppercase text-indigo-600 dark:text-indigo-400 block">
-                        ⚡ Active Broadcast Posts ({globalSearchResults.posts.length})
+                        📢 Live Broadcast Posts ({globalSearchResults.posts.length})
                       </span>
                       <div className="space-y-1">
-                        {globalSearchResults.posts.slice(0, 3).map(post => (
-                          <div 
-                            key={post.id}
-                            onClick={() => {
-                              handleSafeOpenChat(post);
-                            }}
-                            className="p-2 rounded-xl bg-indigo-50/60 dark:bg-slate-800/80 hover:bg-indigo-100/80 dark:hover:bg-slate-800 border border-indigo-100 dark:border-slate-700 cursor-pointer transition-colors flex items-center justify-between text-xs"
-                          >
-                            <span className="font-bold text-slate-900 dark:text-white line-clamp-1">{post.description}</span>
-                            <span className="text-[10px] font-black text-indigo-600 shrink-0 ml-2">Chat &rarr;</span>
-                          </div>
-                        ))}
+                        {globalSearchResults.posts.slice(0, 4).map(post => {
+                          let myPostIds: string[] = [];
+                          try {
+                            myPostIds = JSON.parse(localStorage.getItem('locohelp_my_post_ids') || '[]');
+                          } catch (e) {}
+                          const currentUid = activeUser?.uid || getCurrentUser()?.uid;
+                          const isOwn = Boolean((currentUid && post.authorId === currentUid) || myPostIds.includes(post.id));
+                          return (
+                            <div
+                              key={post.id}
+                              onClick={() => {
+                                setHomeSearchQuery('');
+                                if (isOwn) {
+                                  setSelectedIntentForResponses(post);
+                                  setIsResponsesModalOpen(true);
+                                } else {
+                                  handleSafeOpenChat(post);
+                                }
+                              }}
+                              className="p-2 rounded-xl bg-indigo-50/60 dark:bg-slate-800/80 hover:bg-indigo-100/80 dark:hover:bg-slate-800 border border-indigo-100 dark:border-slate-700 cursor-pointer transition-colors flex items-center justify-between text-xs"
+                            >
+                              <div className="min-w-0 pr-2">
+                                <span className="font-bold text-slate-900 dark:text-white truncate block">{post.description}</span>
+                                <span className="text-[10px] text-indigo-700 dark:text-indigo-400 font-medium">
+                                  📍 {(post as any).resolvedLocationBadge || post.location || 'Nearby'} • {(post as any).computedKm || post.distance || 0.5} km
+                                </span>
+                              </div>
+                              <span className="text-[10px] font-black text-indigo-600 shrink-0">
+                                {isOwn ? 'Responses →' : 'Chat →'}
+                              </span>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -1145,32 +1193,58 @@ export default function HomeScreen({
                       <span className="text-[10px] font-extrabold uppercase text-blue-600 dark:text-blue-400 block">
                         📂 Service Categories ({globalSearchResults.categories.length})
                       </span>
-                      <div className="flex flex-wrap gap-1">
-                        {globalSearchResults.categories.map(cat => (
-                          <button 
-                            key={cat.id}
-                            onClick={() => {
-                              if (onSelectCategory) onSelectCategory(cat.id);
-                              setHomeSearchQuery('');
-                            }}
-                            className="text-xs font-extrabold px-2.5 py-1 rounded-xl bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-800 hover:bg-blue-200 transition-colors cursor-pointer"
-                          >
-                            {cat.icon} {getCategoryName(cat, language)}
-                          </button>
-                        ))}
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        {globalSearchResults.categories.map(cat => {
+                          const rawCatImg =
+                            categoryImages[cat.id] ||
+                            categoryImages[cat.id.toLowerCase()] ||
+                            (cat.nameEn ? categoryImages[cat.nameEn.toLowerCase()] : '');
+                          const customCatImg = typeof rawCatImg === 'string' && rawCatImg.trim().length > 0 ? rawCatImg.trim() : '';
+                          return (
+                            <button 
+                              key={cat.id}
+                              onClick={() => {
+                                if (onSelectCategory) onSelectCategory(cat.id);
+                                onNavigate('categories');
+                                setHomeSearchQuery('');
+                              }}
+                              className="text-left rounded-xl overflow-hidden bg-blue-50/70 dark:bg-slate-800 border border-blue-200 dark:border-slate-700 hover:border-blue-400 transition-all cursor-pointer flex flex-col"
+                            >
+                              {customCatImg ? (
+                                <img
+                                  src={customCatImg}
+                                  alt={getCategoryName(cat, language)}
+                                  loading="lazy"
+                                  decoding="async"
+                                  className="w-full aspect-video object-cover"
+                                />
+                              ) : null}
+                              <span className="text-xs font-extrabold px-2.5 py-1.5 text-blue-800 dark:text-blue-300 truncate block">
+                                {!customCatImg && '🛠️ '}{getCategoryName(cat, language)}
+                              </span>
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
 
                   {/* No matches fallback */}
                   {globalSearchResults.posts.length === 0 && globalSearchResults.helpers.length === 0 && globalSearchResults.shops.length === 0 && globalSearchResults.categories.length === 0 && (
-                    <div className="py-4 text-center space-y-1">
+                    <div className="py-4 text-center space-y-2">
                       <p className="text-xs font-bold text-slate-600 dark:text-slate-300">
                         No match found for "{homeSearchQuery}"
                       </p>
-                      <p className="text-[11px] text-slate-400">
-                        Search plumber, mechanic, job, or post a broadcast requirement directly!
-                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setHomeSearchQuery('');
+                          handleSafeOpenPostSheet();
+                        }}
+                        className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black shadow-xs cursor-pointer"
+                      >
+                        📢 Post Broadcast for "{homeSearchQuery}"
+                      </button>
                     </div>
                   )}
                 </motion.div>
@@ -1178,294 +1252,379 @@ export default function HomeScreen({
             </AnimatePresence>
           </div>
 
-          {/* 2. Main Intent Post Broadcast Banner (Clean Minimal) */}
-          <div 
+          {/* 2. Create Post Button (Orange #FF8800) */}
+          <div
             onClick={handleSafeOpenPostSheet}
-            className="w-full bg-gradient-to-r from-indigo-600 via-blue-600 to-indigo-700 hover:from-indigo-700 hover:to-blue-700 text-white p-3.5 rounded-2xl shadow-md shadow-indigo-600/20 flex items-center justify-between gap-3 active:scale-[0.98] transition-all cursor-pointer border border-indigo-400/40 group"
+            style={{ background: 'linear-gradient(135deg, #FF8800 0%, #FF6600 100%)' }}
+            className="w-full rounded-2xl p-3.5 text-white shadow-lg shadow-orange-500/25 cursor-pointer active:scale-[0.98] transition-all border-2 border-orange-300 dark:border-orange-400 hover:brightness-105 flex items-center justify-between gap-3"
+            title="Create Post"
           >
             <div className="flex items-center gap-2.5">
-              <span className="text-xl">⚡</span>
-              <span className="text-sm sm:text-base font-black tracking-wide">
-                {language === 'EN' ? 'Post Requirement' : language === 'GU' ? 'જરૂરિયાત પોસ્ટ કરો (મદદ માંગો)' : 'पोस्ट करें (मदद मांगें)'}
+              <span className="text-xl shrink-0">📢</span>
+              <span className="text-sm sm:text-base font-black tracking-wide text-white drop-shadow-xs">
+                Create Post
               </span>
             </div>
-            <div className="bg-white text-indigo-700 text-xs font-black px-3.5 py-1.5 rounded-xl shrink-0 shadow-xs flex items-center gap-1">
-              <span>{language === 'EN' ? 'Broadcast' : language === 'GU' ? 'પોસ્ટ કરો' : 'ब्रॉडकास्ट'}</span> &rarr;
+            <div className="w-8 h-8 rounded-xl bg-white text-slate-900 flex items-center justify-center shrink-0 shadow-xs">
+              <ChevronRight className="w-5 h-5 stroke-[2.5] text-slate-900" />
             </div>
           </div>
 
-          {/* 3. Orange Banner ("Browse Service Experts") */}
+          {/* 3. Browse Service Experts Banner (Blue #0066FF) */}
           <div 
             onClick={() => onNavigate('categories')}
-            className="w-full bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 rounded-2xl p-3.5 text-white shadow-md shadow-orange-500/20 cursor-pointer active:scale-[0.98] transition-all border-2 border-amber-300 hover:brightness-105 flex items-center justify-between gap-3"
+            style={{ background: 'linear-gradient(135deg, #0066FF 0%, #0044CC 100%)' }}
+            className="w-full rounded-2xl p-3.5 text-white shadow-lg shadow-blue-500/25 cursor-pointer active:scale-[0.98] transition-all border-2 border-blue-300 dark:border-blue-400 hover:brightness-105 flex items-center justify-between gap-3"
           >
             <div className="flex items-center gap-2.5">
-              <span className="text-xl">🔍</span>
-              <span className="text-sm sm:text-base font-black tracking-wide text-white">
+              <span className="text-xl shrink-0">🔍</span>
+              <span className="text-sm sm:text-base font-black tracking-wide text-white drop-shadow-xs">
                 {language === 'EN' ? 'Browse Service Experts' : language === 'GU' ? 'સર્વિસ એક્સપર્ટ્સ અને કારીગરો શોધો' : 'ब्राउज़ सर्विस एक्सपर्ट्स'}
               </span>
             </div>
-            <div className="text-amber-950 bg-white/90 text-xs font-black px-3.5 py-1.5 rounded-xl shrink-0 shadow-2xs">
-              &rarr;
+            <div className="w-8 h-8 rounded-xl bg-white text-slate-900 flex items-center justify-center shrink-0 shadow-xs">
+              <ChevronRight className="w-5 h-5 stroke-[2.5] text-slate-900" />
             </div>
           </div>
 
-          {/* 4. Colorful Business & Venue Register Banner (Clean & Same Size as Upper Banners) */}
+          {/* 4. Business & Shop Register Banner (Orange #FF8800 + Blue #0066FF Mix Gradient) */}
           <div
             onClick={handleSafeRegisterShop}
-            className="w-full bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 rounded-2xl p-3.5 text-white shadow-md shadow-emerald-600/20 cursor-pointer active:scale-[0.98] transition-all border-2 border-emerald-400 dark:border-emerald-500 hover:brightness-105 flex items-center justify-between gap-3"
+            style={{ background: 'linear-gradient(135deg, #FF8800 0%, #6633FF 50%, #0066FF 100%)' }}
+            className="w-full rounded-2xl p-3.5 text-white shadow-lg shadow-indigo-500/25 cursor-pointer active:scale-[0.98] transition-all border-2 border-amber-300 dark:border-blue-400 hover:brightness-105 flex items-center justify-between gap-3"
             title="Business & Shop Registration"
           >
             <div className="flex items-center gap-2.5">
               <span className="text-xl shrink-0">🏪</span>
-              <span className="text-sm sm:text-base font-black tracking-wide text-white">
+              <span className="text-sm sm:text-base font-black tracking-wide text-white drop-shadow-xs">
                 {language === 'EN' ? 'Business & Shop Register' : language === 'GU' ? 'દુકાન અને બિઝનેસ રજિસ્ટર કરો' : 'दुकान व बिजनेस रजिस्टर करें'}
               </span>
             </div>
-            <div className="text-emerald-900 bg-white/95 text-xs font-black px-3.5 py-1.5 rounded-xl shrink-0 shadow-2xs">
-              {language === 'EN' ? 'Register →' : language === 'GU' ? 'રજિસ્ટર કરો →' : 'रजिस्टर करें →'}
+            <div className="w-8 h-8 rounded-xl bg-white text-slate-900 flex items-center justify-center shrink-0 shadow-xs">
+              <ChevronRight className="w-5 h-5 stroke-[2.5] text-slate-900" />
             </div>
           </div>
 
-          {/* 5. ACTIVE NEARBY Live Posts Feed Section */}
-          <div className="relative bg-transparent dark:bg-transparent overflow-hidden">
-            <div className="relative z-10 p-3 pt-3 space-y-3">
-
-
-              
-              {/* Active Nearby Header Bar */}
-              <div className="bg-white dark:bg-slate-850 p-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs flex items-center justify-between gap-2 flex-wrap">
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                  <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-1.5">
-                    <span>{language === 'EN' ? '⚡ ACTIVE NEARBY' : language === 'GU' ? '⚡ આસપાસની લાઈવ પોસ્ટ્સ' : '⚡ आस-पास की लाइव पोस्ट्स'}</span>
-                  </h3>
-                </div>
-                
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 font-extrabold px-2 py-0.5 rounded-full border border-amber-300 dark:border-amber-800 flex items-center gap-1">
-                    ⏱️ {language === 'GU' ? '1 કલાકમાં આપોઆપ ડિલીટ' : 'Auto-Deletes in 1 Hour'}
-                  </span>
-                  <span className="text-[10px] bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-300 font-black px-2 py-0.5 rounded-full">
-                    {displayIntents.length} Live
-                  </span>
-                </div>
+          {/* 6. Live Community Broadcast Posts Feed (Active Nearby Radar) */}
+          <div className="bg-slate-50/90 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-3 sm:p-4 space-y-3 shadow-xs">
+            {/* Radar Feed Top Bar */}
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-200/80 dark:border-slate-700/80">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping shrink-0" />
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 -ml-4.5 shrink-0" />
+                <h2 className="text-xs sm:text-sm font-black text-slate-900 dark:text-white tracking-tight truncate">
+                  {language === 'EN'
+                    ? `Live Broadcast Radar (${searchedIntents.length})`
+                    : language === 'GU'
+                    ? `લાઈવ બ્રોડકાસ્ટ પોસ્ટ્સ (${searchedIntents.length})`
+                    : `लाइव ब्रॉडकास्ट पोस्ट (${searchedIntents.length})`}
+                </h2>
+                <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 shrink-0">
+                  📍 {userLocation.district || 'All India'}
+                </span>
               </div>
-              
-              {/* Empty State when no posts match */}
-              {searchedIntents.length === 0 && (
-                <div className="bg-white dark:bg-slate-850 border-2 border-dashed border-indigo-200 dark:border-slate-700 rounded-3xl p-6 text-center space-y-3 shadow-2xs">
-                  <div className="w-12 h-12 rounded-2xl bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 mx-auto flex items-center justify-center text-2xl">
-                    ⚡
-                  </div>
-                  <div>
-                    <h4 className="text-xs sm:text-sm font-black text-slate-900 dark:text-white">
-                      {homeSearchQuery.trim()
-                        ? `No matching requests for "${homeSearchQuery}"`
-                        : (language === 'EN' ? 'No Active Requests Nearby Right Now' : language === 'GU' ? 'હાલ આસપાસ કોઈ લાઈવ પોસ્ટ નથી' : 'आस-पास कोई लाइव रिक्वेस्ट नहीं है')}
-                    </h4>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 max-w-xs mx-auto font-medium">
-                      {language === 'EN' 
-                        ? 'Click the "+ Post / Broadcast" button above to publish your request. It will appear live here for everyone nearby for 1 hour!'
-                        : language === 'GU'
-                        ? 'ઉપર આપેલા "જરૂરિયાત પોસ્ટ કરો" બટન પર ક્લિક કરીને તમારી જરૂરિયાત લખો. તે 1 કલાક માટે અહીં બધાને લાઈવ દેખાશે!'
-                        : 'ऊपर दिये गये "+ पोस्ट / ब्रॉडकास्ट" बटन पर क्लिक करके अपनी जरूरत दर्ज करें। यह 1 घंटे के लिए यहाँ लाइव दिखेगी।'}
-                    </p>
-                  </div>
-                  <div className="pt-1">
-                    <button
-                      onClick={handleSafeOpenPostSheet}
-                      className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black px-4 py-2.5 rounded-xl shadow-md cursor-pointer inline-flex items-center gap-1.5 active:scale-95 transition-all"
-                    >
-                      <span>⚡ {language === 'GU' ? 'નવી પોસ્ટ મૂકો' : language === 'HI' ? 'नई पोस्ट डालें' : 'Post New Requirement'}</span> &rarr;
-                    </button>
-                  </div>
-                </div>
-              )}
 
-              {/* Active Intents Feed List */}
-              {(() => {
-                let userPostIds: string[] = [];
-                try {
-                  userPostIds = JSON.parse(localStorage.getItem('locohelp_my_post_ids') || '[]');
-                } catch (e) {}
-                const activeUid = getCurrentUser()?.uid;
-                const activeUidStr = String(activeUid || '');
-
-                return searchedIntents.map((intent, idx) => {
-                  const authorIdStr = String(intent?.authorId || '');
-                  const intentIdStr = String(intent?.id || '');
-                  
-                  const isUserPost = userPostIds.includes(intentIdStr) || 
-                                     intentIdStr === newlyCreatedId || 
-                                     (authorIdStr && activeUidStr && authorIdStr === activeUidStr) || 
-                                     authorIdStr === 'me' || 
-                                     intentIdStr.startsWith('local_') ||
-                                     Boolean(activeUidStr && authorIdStr && activeUidStr.replace(/\D/g, '') && authorIdStr.includes(activeUidStr.replace(/\D/g, '')));
-                
-                // Theme colors
-                const themes = [
-                  {
-                    bg: "bg-gradient-to-br from-indigo-50/90 via-blue-50/60 to-white dark:from-slate-800 dark:to-slate-850",
-                    border: "border-2 border-indigo-200 dark:border-indigo-700/80",
-                    shadow: "shadow-[0_8px_18px_rgba(99,102,241,0.12)]",
-                    badge: "bg-indigo-600 text-white",
-                    icon: "⚡",
-                    accent: "border-l-4 border-l-indigo-600"
-                  },
-                  {
-                    bg: "bg-gradient-to-br from-emerald-50/90 via-teal-50/60 to-white dark:from-slate-800 dark:to-slate-850",
-                    border: "border-2 border-emerald-200 dark:border-emerald-700/80",
-                    shadow: "shadow-[0_8px_18px_rgba(16,185,129,0.12)]",
-                    badge: "bg-emerald-600 text-white",
-                    icon: "🔧",
-                    accent: "border-l-4 border-l-emerald-600"
-                  },
-                  {
-                    bg: "bg-gradient-to-br from-amber-50/90 via-orange-50/60 to-white dark:from-slate-800 dark:to-slate-850",
-                    border: "border-2 border-amber-200 dark:border-amber-700/80",
-                    shadow: "shadow-[0_8px_18px_rgba(245,158,11,0.12)]",
-                    badge: "bg-amber-600 text-white",
-                    icon: "🏪",
-                    accent: "border-l-4 border-l-amber-600"
-                  },
-                  {
-                    bg: "bg-gradient-to-br from-rose-50/90 via-pink-50/60 to-white dark:from-slate-800 dark:to-slate-850",
-                    border: "border-2 border-rose-200 dark:border-rose-700/80",
-                    shadow: "shadow-[0_8px_18px_rgba(244,63,94,0.12)]",
-                    badge: "bg-rose-600 text-white",
-                    icon: "💬",
-                    accent: "border-l-4 border-l-rose-600"
-                  }
-                ];
-
-                const theme = themes[idx % themes.length];
-
-                return (
-                  <motion.div 
-                    initial={{ opacity: 0, y: 10 }} 
-                    animate={{ opacity: 1, y: 0 }}
-                    key={intent.id} 
-                    className={`p-4 rounded-2xl transition-all ${theme.accent} ${theme.bg} ${theme.border} ${theme.shadow} ${
-                      isUserPost 
-                        ? 'ring-2 ring-amber-400 dark:ring-amber-500 shadow-[0_10px_25px_rgba(245,158,11,0.25)]' 
-                        : ''
-                    }`}
+              <div className="flex items-center gap-1.5 shrink-0">
+                {/* Category Filter Dropdown */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setIsHomeCategoryDropdownOpen(prev => !prev)}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] font-extrabold text-slate-700 dark:text-slate-200 hover:border-indigo-400 transition-colors cursor-pointer shadow-2xs"
                   >
-                    {/* Post Author & Header Info */}
-                    <div className="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-slate-200/60 dark:border-slate-700/60 flex-wrap">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <div className="w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-2xs">
-                          {intent.authorName?.[0]?.toUpperCase() || 'U'}
-                        </div>
-                        <div className="min-w-0">
-                          <span className="text-xs font-black text-slate-900 dark:text-white block truncate">
-                            {intent.authorName || 'Community Member'}
-                          </span>
-                          <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
-                            {/* Clean Area & City Badge: 📍 [Area], [City] */}
-                            <span className="inline-flex items-center gap-0.5 text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/90 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 shadow-2xs">
-                              📍 {(intent as any).resolvedLocationBadge || `${intent.area || 'Kudasan'}, ${intent.city || 'Gandhinagar'}`}
-                            </span>
-                            <span className="text-[10px] text-slate-500 font-bold">
-                              • {intent.computedKm || intent.distance} km
-                            </span>
-                          </div>
-                        </div>
-                      </div>
+                    <Filter className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                    <span className="max-w-[95px] truncate">
+                      {selectedCategory === 'all'
+                        ? t('home.all')
+                        : currentCategoryObj
+                        ? getCategoryName(currentCategoryObj, language)
+                        : currentMasterObj
+                        ? (language === 'EN' ? currentMasterObj.nameEn : language === 'GU' ? currentMasterObj.nameGu : currentMasterObj.nameHi)
+                        : selectedCategory}
+                    </span>
+                    <ChevronDown className="w-3 h-3 text-slate-400" />
+                  </button>
 
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        {/* 1-Hour Expiry Countdown Badge */}
-                        <span className="text-[10px] font-black bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 px-2 py-0.5 rounded-full flex items-center gap-0.5">
-                          <Clock className="w-3 h-3 text-rose-500" />
-                          <span>⏳ {intent.minsRemaining || 60}m left</span>
-                        </span>
-
-                        {isUserPost && (
-                          <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-amber-500 text-white shadow-2xs animate-pulse">
-                            Your Post
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Post Content */}
-                    <p className="text-slate-900 dark:text-slate-100 text-xs sm:text-sm leading-relaxed font-extrabold my-2">
-                      {intent.description}
-                    </p>
-
-                    {/* Action Bar (Responses / Chats for Post Owner, Chat / Reply for Visitor, Share, and Delete) */}
-                    <div className="flex items-center justify-between pt-2.5 border-t border-slate-200/60 dark:border-slate-700/80 gap-2 flex-wrap">
-                      <div className="flex items-center gap-2">
-                        {isUserPost ? (
+                  <AnimatePresence>
+                    {isHomeCategoryDropdownOpen && (
+                      <>
+                        <div
+                          className="fixed inset-0 z-30"
+                          onClick={() => setIsHomeCategoryDropdownOpen(false)}
+                        />
+                        <motion.div
+                          initial={{ opacity: 0, y: -6, scale: 0.96 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: -6, scale: 0.96 }}
+                          className="absolute right-0 top-full mt-1.5 w-52 max-h-64 overflow-y-auto bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 p-1.5 z-40 space-y-1"
+                        >
                           <button
                             type="button"
                             onClick={() => {
-                              setSelectedIntentForResponses(intent);
-                              setIsResponsesModalOpen(true);
+                              onSelectCategory?.('all');
+                              setIsHomeCategoryDropdownOpen(false);
                             }}
-                            className="bg-amber-500 hover:bg-amber-600 text-white font-black text-xs px-3.5 py-1.5 rounded-xl shadow-md active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer"
+                            className={`w-full text-left px-3 py-1.5 rounded-xl text-xs font-extrabold transition-colors cursor-pointer ${
+                              selectedCategory === 'all'
+                                ? 'bg-indigo-600 text-white'
+                                : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+                            }`}
                           >
-                            <MessageSquare className="w-3.5 h-3.5" />
-                            <span>{language === 'EN' ? 'Responses / Chats' : language === 'GU' ? 'મળેલા જવાબો જુઓ (Inbox)' : 'प्राप्त जवाब देखें (Inbox)'}</span>
+                            🌐 {t('home.all')}
                           </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => handleSafeOpenChat(intent)}
-                            className="bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs px-3.5 py-1.5 rounded-xl shadow-md active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer"
-                          >
-                            <MessageSquare className="w-3.5 h-3.5" />
-                            <span>{language === 'EN' ? 'Chat / Reply' : language === 'GU' ? 'વાત કરો / જવાબ આપો' : 'बात करें / उत्तर दें'}</span>
-                          </button>
-                        )}
+                          {CATEGORIES.map(cat => (
+                            <button
+                              key={cat.id}
+                              type="button"
+                              onClick={() => {
+                                onSelectCategory?.(cat.id);
+                                setIsHomeCategoryDropdownOpen(false);
+                              }}
+                              className={`w-full text-left px-3 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5 ${
+                                selectedCategory === cat.id
+                                  ? 'bg-indigo-600 text-white'
+                                  : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+                              }`}
+                            >
+                              <span>🛠️</span>
+                              <span className="truncate">{getCategoryName(cat, language)}</span>
+                            </button>
+                          ))}
+                        </motion.div>
+                      </>
+                    )}
+                  </AnimatePresence>
+                </div>
 
-                        {/* Mohalla WhatsApp Share Button */}
-                        <button
-                          type="button"
-                          onClick={(e) => handleSharePostToWhatsAppGroup(intent, e)}
-                          className="flex items-center gap-1 text-[10px] font-extrabold text-emerald-800 dark:text-emerald-200 bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-950/80 px-2.5 py-1.5 rounded-xl border border-emerald-300 dark:border-emerald-800 cursor-pointer active:scale-95 transition-all shadow-2xs"
-                          title="Share post in Society / Mohalla WhatsApp group"
-                        >
-                          <Share2 className="w-3 h-3 text-emerald-600" />
-                          <span>Share</span>
-                        </button>
+                {/* Manual Refresh / Sync Button */}
+                <button
+                  type="button"
+                  onClick={() => syncServerBroadcasts(true)}
+                  className="p-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:text-indigo-600 hover:border-indigo-300 transition-colors cursor-pointer shadow-2xs"
+                  title="Sync Live Broadcasts"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-indigo-600' : ''}`} />
+                </button>
+
+                {/* Quick + Post Broadcast Button in Header */}
+                <button
+                  type="button"
+                  onClick={handleSafeOpenPostSheet}
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-black shadow-xs active:scale-95 transition-all cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                  <span>{language === 'EN' ? 'Post Broadcast' : language === 'GU' ? 'પોસ્ટ કરો' : 'पोस्ट करें'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Active Category Filter Pill if selected */}
+            {selectedCategory !== 'all' && (
+              <div className="flex items-center justify-between bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 px-3 py-1.5 rounded-xl text-xs">
+                <span className="font-bold text-indigo-800 dark:text-indigo-200">
+                  🔍 Filter: {currentCategoryObj ? getCategoryName(currentCategoryObj, language) : selectedCategory} ({categoryFilteredIntents.length} {t('home.found')})
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onSelectCategory?.('all')}
+                  className="text-[11px] font-black text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                >
+                  {t('home.clearFilter')} ✖
+                </button>
+              </div>
+            )}
+
+            {/* Broadcast Posts Feed List */}
+            {searchedIntents.length === 0 ? (
+              <div className="bg-white dark:bg-slate-900 border border-dashed border-slate-300 dark:border-slate-700 rounded-2xl p-6 text-center space-y-2.5">
+                <div className="w-11 h-11 rounded-2xl bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 mx-auto flex items-center justify-center text-xl">
+                  📢
+                </div>
+                <p className="text-xs sm:text-sm font-extrabold text-slate-700 dark:text-slate-200">
+                  {t('home.noRequests')}
+                </p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+                  {language === 'EN'
+                    ? 'Need a Plumber, Electrician, Mechanic, or Local Help right now? Broadcast your post to alert nearby people!'
+                    : language === 'GU'
+                    ? 'પ્લમ્બર, ઈલેક્ટ્રિશિયન, મિકેનિક કે કોઈ મદદ જોઈએ છે? અત્યારે જ બ્રોડકાસ્ટ પોસ્ટ કરો!'
+                    : 'प्लंबर, इलेक्ट्रीशियन, मैकेनिक या किसी भी मदद के लिए अभी अपनी ब्रॉडकास्ट पोस्ट डालें!'}
+                </p>
+                <button
+                  type="button"
+                  onClick={handleSafeOpenPostSheet}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black shadow-sm active:scale-95 transition-all cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>{language === 'EN' ? 'Post Broadcast Now' : language === 'GU' ? 'બ્રોડકાસ્ટ પોસ્ટ કરો' : 'अभी ब्रॉडकास्ट पोस्ट करें'}</span>
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2.5 max-h-[540px] overflow-y-auto pr-0.5 scrollbar-hide">
+                {searchedIntents.map((intent) => {
+                  let myPostIds: string[] = [];
+                  try {
+                    myPostIds = JSON.parse(localStorage.getItem('locohelp_my_post_ids') || '[]');
+                  } catch (e) {}
+                  const currentUid = activeUser?.uid || getCurrentUser()?.uid;
+                  const isMyOwnPost = Boolean(
+                    (currentUid && intent.authorId === currentUid) ||
+                    myPostIds.includes(intent.id) ||
+                    intent.id === newlyCreatedId
+                  );
+
+                  return (
+                    <motion.div
+                      key={intent.id}
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className={`rounded-2xl p-3.5 border transition-all shadow-2xs ${
+                        isMyOwnPost
+                          ? 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-700/80 ring-1 ring-emerald-400/30'
+                          : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700/90 hover:border-indigo-300 dark:hover:border-indigo-700'
+                      }`}
+                    >
+                      {/* Top Meta Row */}
+                      <div className="flex flex-wrap items-center justify-between gap-1.5 mb-2">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {isMyOwnPost && (
+                            <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-600 text-white shadow-2xs">
+                              ⚡ {t('post.yourPost')}
+                            </span>
+                          )}
+                          <span className="text-xs font-black text-slate-800 dark:text-slate-100 flex items-center gap-1">
+                            <UserCheck className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                            <span>{intent.authorName || 'Community Member'}</span>
+                          </span>
+                          <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-slate-800 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-slate-700">
+                            📍 {(intent as any).resolvedLocationBadge || intent.location || 'Local Area'}
+                          </span>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                            {(intent as any).computedKm || intent.distance || 0.5} km
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full">
+                            <Clock className="w-3 h-3 text-amber-500 shrink-0" />
+                            <span>{t('home.expiresIn')} {(intent as any).minsRemaining || 55}m</span>
+                          </span>
+                          {isMyOwnPost && (
+                            <button
+                              type="button"
+                              onClick={(e) => handleDeletePost(intent.id, e)}
+                              className="p-1 rounded-lg bg-rose-50 dark:bg-rose-950/70 hover:bg-rose-100 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800/70 transition-colors cursor-pointer"
+                              title={t('home.deletePost')}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
                       </div>
 
-                      {/* Owner-Only Delete Button */}
-                      {isUserPost && (
-                        <button
-                          onClick={(e) => handleDeletePost(intent.id, e)}
-                          title="Delete your post"
-                          className="px-2.5 py-1.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-black text-[10px] uppercase shadow-sm active:scale-95 transition-all flex items-center gap-1 cursor-pointer ml-auto"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                          <span>{language === 'EN' ? 'Delete' : language === 'GU' ? 'દૂર કરો' : 'हटाएं'}</span>
-                        </button>
-                      )}
-                    </div>
-                  </motion.div>
-                );
-              });
-            })()}
+                      {/* Broadcast Requirement Text */}
+                      <p className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-white leading-snug break-words mb-2.5">
+                        {intent.description}
+                      </p>
 
-            </div>
+                      {/* Tags + Bottom Actions Row */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                        <div className="flex flex-wrap items-center gap-1">
+                          {(intent.tags || ['#General']).map((tag, idx) => (
+                            <span
+                              key={`${intent.id}_tag_${idx}`}
+                              className="text-[10px] font-extrabold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                          {intent.hasLocationPin && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                              📍 {t('post.pinDropped')}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Action Buttons: Own Post vs Other User's Post */}
+                        <div className="flex items-center gap-1.5 ml-auto">
+                          {/* WhatsApp Group Share Button */}
+                          <button
+                            type="button"
+                            onClick={(e) => handleSharePostToWhatsAppGroup(intent, e)}
+                            className="px-2.5 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/70 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[11px] font-extrabold flex items-center gap-1 transition-all cursor-pointer active:scale-95"
+                            title="Share Post on WhatsApp"
+                          >
+                            <Share2 className="w-3 h-3 shrink-0" />
+                            <span>WhatsApp</span>
+                          </button>
+
+                          {isMyOwnPost ? (
+                            /* Owner Controls: View Responses Inbox & Delete (No self-chat button!) */
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedIntentForResponses(intent);
+                                  setIsResponsesModalOpen(true);
+                                }}
+                                className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-black flex items-center gap-1 shadow-xs transition-all cursor-pointer active:scale-95"
+                              >
+                                <MessageSquare className="w-3.5 h-3.5 shrink-0" />
+                                <span>
+                                  {language === 'EN'
+                                    ? 'View Responses'
+                                    : language === 'GU'
+                                    ? 'રિસ્પોન્સ જુઓ'
+                                    : 'रिस्पॉन्स देखें'}
+                                </span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => handleDeletePost(intent.id, e)}
+                                className="px-2.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-extrabold flex items-center gap-1 shadow-2xs transition-all cursor-pointer active:scale-95"
+                              >
+                                <Trash2 className="w-3 h-3 shrink-0" />
+                                <span>{t('home.deletePost')}</span>
+                              </button>
+                            </>
+                          ) : (
+                            /* Visitor Controls: View Author Profile & Direct Chat */
+                            <>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setSelectedUserForProfile({
+                                    name: intent.authorName || 'Community Member',
+                                    distance: (intent as any).computedKm || intent.distance || 0.5
+                                  })
+                                }
+                                className="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-[11px] font-extrabold flex items-center gap-1 transition-all cursor-pointer active:scale-95"
+                              >
+                                <User className="w-3 h-3 shrink-0" />
+                                <span>{t('home.viewProfile')}</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleSafeOpenChat(intent)}
+                                className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-black flex items-center gap-1 shadow-xs transition-all cursor-pointer active:scale-95"
+                              >
+                                <MessageCircle className="w-3.5 h-3.5 shrink-0" />
+                                <span>{t('home.directChat')}</span>
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
-          {/* 6. Sponsored Ad Banners Section (Moved below Active Broadcast Posts Feed) */}
+          {/* 6. Sponsored Ad Banners Section (Admin-Managed 16:9 Banners Only) */}
           <AdBannerSection 
             onOpenChat={handleSafeOpenChat}
-            onOpenPostAd={() => {
-              if (isGuestUser()) {
-                setLoginPromptTitle({
-                  en: 'Sign In Required to Post Ad',
-                  hi: 'विज्ञापन पोस्ट करने के लिए लॉगिन करें'
-                });
-                setIsLoginPromptOpen(true);
-                return;
-              }
-              setIsPostAdModalOpen(true);
-            }}
           />
 
           {/* 7. Dedicated Job Portal Section (Side-by-side interactive banners: Job Seeker & For Employer) */}
@@ -1605,16 +1764,6 @@ export default function HomeScreen({
 
       {/* Language dropdown is now anchored directly below the header button */}
 
-      {/* Post Intent Sheet Overlay */}
-      <AnimatePresence>
-        {isPostSheetOpen && (
-          <PostIntentSheet 
-            onClose={() => setIsPostSheetOpen(false)} 
-            onPostCreated={handlePostCreated}
-          />
-        )}
-      </AnimatePresence>
-
       {/* App Guide & 20 Examples Modal */}
       <AnimatePresence>
         {isGuideOpen && (
@@ -1625,10 +1774,11 @@ export default function HomeScreen({
         )}
       </AnimatePresence>
 
-      {/* Register Shop, Showroom or Mall Modal */}
+      {/* Register Shop, Showroom or Mall Modal (Opens ONLY Shop Registration Form) */}
       <RegisterShopModal 
         isOpen={isRegisterShopModalOpen}
         onClose={() => setIsRegisterShopModalOpen(false)}
+        initialTab="new"
         onSuccess={() => {
           setCreatedToast("⏳ " + (language === 'EN' ? 'Business / Shop submitted for Admin approval!' : 'दुकान/बिज़नेस एडमिन अप्रूवल के लिए सबमिट हो गया!'));
           setTimeout(() => setCreatedToast(null), 4000);
@@ -1643,12 +1793,6 @@ export default function HomeScreen({
           setCreatedToast("⏳ " + (language === 'EN' ? 'Service Expert profile submitted for Admin approval!' : 'सर्विस एक्सपर्ट प्रोफाइल एडमिन अप्रूवल के लिए सबमिट हो गई!'));
           setTimeout(() => setCreatedToast(null), 4000);
         }}
-      />
-
-      {/* Post Sponsored Ad Banner Modal */}
-      <PostAdModal 
-        isOpen={isPostAdModalOpen}
-        onClose={() => setIsPostAdModalOpen(false)}
       />
 
       {/* Job Seeker Profile Modal */}
@@ -1792,6 +1936,16 @@ export default function HomeScreen({
         isOpen={isInstallAppModalOpen}
         onClose={() => setIsInstallAppModalOpen(false)}
       />
+
+      {/* Post Broadcast Sheet Modal */}
+      <AnimatePresence>
+        {isPostSheetOpen && (
+          <PostIntentSheet
+            onClose={() => setIsPostSheetOpen(false)}
+            onPostCreated={handlePostCreated}
+          />
+        )}
+      </AnimatePresence>
 
     </div>
   );

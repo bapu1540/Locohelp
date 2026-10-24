@@ -4,6 +4,7 @@ import { motion } from 'motion/react';
 import { useLanguage } from '../i18n';
 import { AdBannerItem } from './AdBannerSection';
 import { validateUploadedFile, sanitizeText, checkSystemSecurityBlock } from '../lib/security';
+import { compressImageToWebP } from '../lib/imageCompression';
 
 interface PostAdModalProps {
   isOpen: boolean;
@@ -51,13 +52,18 @@ export default function PostAdModal({ isOpen, onClose, onAdCreated }: PostAdModa
         e.target.value = '';
         return;
       }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (reader.result) {
-          setPhotoUrl(reader.result as string);
-        }
-      };
-      reader.readAsDataURL(file);
+      try {
+        const compressed = await compressImageToWebP(file, { maxWidth: 1200, maxHeight: 675, quality: 0.75 });
+        setPhotoUrl(compressed);
+      } catch {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          if (reader.result) {
+            setPhotoUrl(reader.result as string);
+          }
+        };
+        reader.readAsDataURL(file);
+      }
     }
   };
 
@@ -286,7 +292,7 @@ export default function PostAdModal({ isOpen, onClose, onAdCreated }: PostAdModa
 
               {photoUrl && (
                 <div className="mt-2 h-28 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 relative">
-                  <img src={photoUrl} alt="Ad Preview" className="w-full h-full object-cover" />
+                  <img src={photoUrl} alt="Ad Preview" loading="lazy" decoding="async" className="w-full h-full object-cover" />
                 </div>
               )}
             </div>

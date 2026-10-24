@@ -37,7 +37,7 @@ export type ServiceProvider = {
   hourlyRate?: number;
 };
 
-export type Screen = 'login' | 'home' | 'chat' | 'notifications' | 'pro' | 'settings' | 'guidelines' | 'roadmap' | 'report' | 'directory' | 'profile' | 'support' | 'mesh' | 'leaderboard' | 'professionals' | 'categories' | 'admin';
+export type Screen = 'login' | 'home' | 'chat' | 'notifications' | 'pro' | 'settings' | 'guidelines' | 'roadmap' | 'report' | 'directory' | 'profile' | 'support' | 'mesh' | 'leaderboard' | 'professionals' | 'categories' | 'admin' | 'not_found';
 
 export type Language = 'EN' | 'HI' | 'GU';
 
@@ -71,6 +71,7 @@ export interface JobPortalItem {
   address?: string;
   description: string;
   photoOrLogoUrl?: string;
+  website_url_hp?: string;
   createdAt: string;
   reviewedAt?: string;
   adminNotes?: string;

@@ -299,6 +299,8 @@ export default function JobPortalBrowseModal({
                           <img
                             src={item.photoOrLogoUrl}
                             alt={item.fullName || item.companyOrShopName}
+                            loading="lazy"
+                            decoding="async"
                             className="w-full h-full object-cover"
                           />
                         ) : (

@@ -28,6 +28,7 @@ import { JobPortalItem } from '../types';
 import { validateUploadedFile, checkSystemSecurityBlock } from '../lib/security';
 import { getCurrentUser } from '../auth';
 import { isEntityOwner } from '../lib/ownership';
+import { compressImageToWebP } from '../lib/imageCompression';
 
 interface JobSeekerModalProps {
   isOpen: boolean;
@@ -105,6 +106,7 @@ export default function JobSeekerModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitSuccessMessage, setSubmitSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [hpWebsiteUrl, setHpWebsiteUrl] = useState('');
 
   const handleStartEditSeeker = (seeker: JobPortalItem) => {
     setEditingSeekerId(seeker.id);
@@ -178,11 +180,16 @@ export default function JobSeekerModal({
         return;
       }
       setErrorMessage(null);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setPhotoUrl(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      try {
+        const compressed = await compressImageToWebP(file, { maxWidth: 1200, quality: 0.75 });
+        setPhotoUrl(compressed);
+      } catch {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setPhotoUrl(reader.result as string);
+        };
+        reader.readAsDataURL(file);
+      }
     }
   };
 
@@ -233,6 +240,7 @@ export default function JobSeekerModal({
 
       const res = await submitJobPortalItem({
         type: 'job_seeker',
+        website_url_hp: hpWebsiteUrl,
         fullName: fullName.trim(),
         headline: headline.trim() || `${category} Specialist`,
         category,
@@ -435,7 +443,7 @@ export default function JobSeekerModal({
                       <div className="flex items-start gap-3">
                         <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white font-black text-lg flex items-center justify-center shadow-xs shrink-0 overflow-hidden">
                           {seeker.photoOrLogoUrl ? (
-                            <img src={seeker.photoOrLogoUrl} alt={seeker.fullName} className="w-full h-full object-cover" />
+                            <img src={seeker.photoOrLogoUrl} alt={seeker.fullName} loading="lazy" decoding="async" className="w-full h-full object-cover" />
                           ) : (
                             <span>{seeker.fullName ? seeker.fullName.charAt(0).toUpperCase() : '👤'}</span>
                           )}
@@ -587,6 +595,17 @@ export default function JobSeekerModal({
               </div>
             ) : (
               <form onSubmit={handleSubmit} className="space-y-4">
+                {/* Hidden Trap Field for Bot Submissions */}
+                <input
+                  type="text"
+                  name="website_url_hp"
+                  tabIndex={-1}
+                  autoComplete="off"
+                  value={hpWebsiteUrl}
+                  onChange={(e) => setHpWebsiteUrl(e.target.value)}
+                  className="hidden opacity-0 pointer-events-none absolute -left-[9999px]"
+                />
+
                 {errorMessage && (
                   <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded-xl text-xs font-bold text-rose-700 dark:text-rose-300">
                     ⚠️ {errorMessage}

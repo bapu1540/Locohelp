@@ -19,6 +19,7 @@ import LeaderboardScreen from './screens/LeaderboardScreen';
 import ProfessionalsScreen from './screens/ProfessionalsScreen';
 import CategoriesScreen from './screens/CategoriesScreen';
 import AdminDashboard from './screens/AdminDashboard';
+import NotFoundScreen from './screens/NotFoundScreen';
 import { 
   Smartphone, 
   Monitor, 
@@ -69,9 +70,42 @@ function AppContent() {
     }
   };
 
-  // Directly open main page (home) or '/bapu-admin' route if navigated to directly
+  const getScreenFromRoute = (): Screen => {
+    try {
+      const path = window.location.pathname.toLowerCase().replace(/\/+$/, '');
+      const hash = window.location.hash.toLowerCase().replace(/\/+$/, '');
+
+      // Check admin route
+      if (checkAdminRoute()) {
+        return 'admin';
+      }
+
+      // If root path
+      if (!path || path === '') {
+        if (hash) {
+          const cleanHash = hash.replace(/^#\/?/, '');
+          const validScreens: Screen[] = [
+            'home', 'categories', 'directory', 'chat', 'notifications',
+            'pro', 'settings', 'guidelines', 'roadmap', 'profile',
+            'support', 'mesh', 'leaderboard', 'professionals'
+          ];
+          if (validScreens.includes(cleanHash as Screen)) {
+            return cleanHash as Screen;
+          }
+          return 'not_found';
+        }
+        return 'home';
+      }
+
+      // Unknown pathname (e.g. /unknown-page, /404, etc.)
+      return 'not_found';
+    } catch (e) {
+      return 'home';
+    }
+  };
+
   const [currentScreen, setCurrentScreen] = useState<Screen>(() => {
-    return checkAdminRoute() ? 'admin' : 'home';
+    return getScreenFromRoute();
   });
 
   const [activeIntent, setActiveIntent] = useState<Intent | null>(null);
@@ -84,11 +118,12 @@ function AppContent() {
     trackSpaPageView(currentScreen, selectedCategory);
   }, [currentScreen, selectedCategory]);
 
-  // Listen to URL changes for '/bapu-admin' route
+  // Listen to URL changes for '/bapu-admin' and invalid routes
   useEffect(() => {
     const handleRouteChange = () => {
-      if (checkAdminRoute()) {
-        setCurrentScreen('admin');
+      const targetScreen = getScreenFromRoute();
+      if (targetScreen === 'admin' || targetScreen === 'not_found') {
+        setCurrentScreen(targetScreen);
       }
     };
     window.addEventListener('hashchange', handleRouteChange);
@@ -238,10 +273,22 @@ function AppContent() {
   };
 
   return (
-    <div className="h-dvh w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-sans antialiased flex flex-col overflow-hidden">
+    <div
+      className={
+        currentScreen === 'admin'
+          ? 'min-h-screen w-full bg-[#090D16] text-slate-100 font-sans antialiased flex flex-col overflow-y-auto overflow-x-hidden'
+          : 'h-dvh w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-sans antialiased flex flex-col overflow-hidden overflow-x-hidden'
+      }
+    >
 
       {/* Main Page Content Area - Full Page */}
-      <main className="flex-1 w-full h-full min-h-0 relative flex flex-col overflow-hidden">
+      <main
+        className={
+          currentScreen === 'admin'
+            ? 'flex-1 w-full min-h-screen relative flex flex-col overflow-y-auto overflow-x-hidden'
+            : 'flex-1 w-full h-full min-h-0 relative flex flex-col overflow-hidden overflow-x-hidden'
+        }
+      >
         {currentScreen === 'home' && (
           <HomeScreen 
             onNavigate={navigate} 
@@ -282,6 +329,16 @@ function AppContent() {
                 window.history.pushState({ locohelpScreen: 'home' }, '', '/');
               } catch (e) {}
               setCurrentScreen('home');
+            }}
+          />
+        )}
+        {currentScreen === 'not_found' && (
+          <NotFoundScreen
+            onBackToHome={() => {
+              try {
+                window.history.pushState({ locohelpScreen: 'home' }, '', '/');
+              } catch (e) {}
+              navigate('home');
             }}
           />
         )}

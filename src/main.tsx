@@ -17,6 +17,8 @@ if (typeof window !== 'undefined' && window.opener && (window.name === 'google-s
   }, 1000);
 }
 
+import ErrorBoundary from './components/ErrorBoundary';
+
 const rootElement = document.getElementById('root');
 if (rootElement) {
   try {
@@ -24,7 +26,9 @@ if (rootElement) {
     const root = createRoot(rootElement);
     root.render(
       <StrictMode>
-        <App />
+        <ErrorBoundary>
+          <App />
+        </ErrorBoundary>
       </StrictMode>
     );
   } catch (err) {
