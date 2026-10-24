@@ -50,12 +50,18 @@ export default function GuidelinesScreen({ onBack, onReport }: { onBack: () => v
               </div>
               <div>
                 <h4 className="text-sm font-black text-slate-900 dark:text-white">
-                  {language === 'HI' ? 'गलत पोस्ट या यूज़र की शिकायत करें' : 'Report Wrong Post or User to Admin'}
+                  {language === 'EN'
+                    ? 'Report Wrong Post or User to Admin'
+                    : language === 'GU'
+                    ? 'ખોટી પોસ્ટ કે યુઝરની ફરિયાદ કરો'
+                    : 'गलत पोस्ट या यूज़र की शिकायत करें'}
                 </h4>
                 <p className="text-xs text-slate-600 dark:text-slate-300 font-medium mt-1 leading-relaxed">
-                  {language === 'HI'
-                    ? 'अगर आपको कोई फर्जी प्रोफाइल, गलत दुकान/विज्ञापन, या अनुचित पोस्ट दिखे, तो तुरंत एडमिन को रिपोर्ट करें।'
-                    : 'If you see any fake profile, misleading shop/ad, or inappropriate post, report it directly to Admin for immediate action.'}
+                  {language === 'EN'
+                    ? 'If you see any fake profile, misleading shop/ad, or inappropriate post, report it directly to Admin for immediate action.'
+                    : language === 'GU'
+                    ? 'જો તમને કોઈ ખોટી પ્રોફાઇલ, ભ્રામક દુકાન/જાહેરાત કે અયોગ્ય પોસ્ટ દેખાય, તો તાત્કાલિક એડમિનને રિપોર્ટ કરો.'
+                    : 'अगर आपको कोई फर्जी प्रोफाइल, गलत दुकान/विज्ञापन, या अनुचित पोस्ट दिखे, तो तुरंत एडमिन को रिपोर्ट करें।'}
                 </p>
               </div>
             </div>
@@ -65,7 +71,11 @@ export default function GuidelinesScreen({ onBack, onReport }: { onBack: () => v
             >
               <ShieldAlert className="w-4 h-4" />
               <span>
-                {language === 'HI' ? 'एडमिन को रिपोर्ट भेजें (Report to Admin)' : 'Report Issue to Admin'}
+                {language === 'EN'
+                  ? 'Report Issue to Admin'
+                  : language === 'GU'
+                  ? 'એડમિનને રિપોર્ટ મોકલો (Report to Admin)'
+                  : 'एडमिन को रिपोर्ट भेजें (Report to Admin)'}
               </span>
             </button>
           </div>

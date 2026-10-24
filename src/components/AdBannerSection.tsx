@@ -291,23 +291,23 @@ export default function AdBannerSection({ onOpenChat, onOpenPostAd }: AdBannerSe
 
   return (
     <div
-      className="space-y-2 select-none"
+      className="space-y-2 select-none w-full max-w-4xl mx-auto"
       onMouseEnter={() => setIsAutoPlaying(false)}
       onMouseLeave={() => setIsAutoPlaying(true)}
       onTouchStart={() => setIsAutoPlaying(false)}
       onTouchEnd={() => setTimeout(() => setIsAutoPlaying(true), 4000)}
     >
       {/* Header with Title, Badge & Scroll Controls */}
-      <div className="flex items-center justify-between px-1">
-        <div className="flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span>
-          <span className="text-[11px] font-black uppercase tracking-wider text-slate-800 dark:text-slate-200 flex items-center gap-1">
-            <Sparkles className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
-            {text.sectionTitle}
+      <div className="flex items-center justify-between px-1 gap-2">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping shrink-0"></span>
+          <span className="text-[11px] sm:text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-200 flex items-center gap-1 leading-snug break-words">
+            <Sparkles className="w-3.5 h-3.5 text-amber-500 fill-amber-500 shrink-0" />
+            <span>{text.sectionTitle}</span>
           </span>
         </div>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 shrink-0">
           {/* Dots Indicator */}
           <div className="flex items-center gap-1 mr-1">
             {allScrollableBanners.map((item, idx) => (
@@ -357,7 +357,7 @@ export default function AdBannerSection({ onOpenChat, onOpenPostAd }: AdBannerSe
       <div
         ref={scrollTrackRef}
         onScroll={handleTrackScroll}
-        className="flex items-stretch gap-3 overflow-x-auto snap-x snap-mandatory scroll-smooth scrollbar-hide pb-1"
+        className="flex items-center gap-3 overflow-x-auto snap-x snap-mandatory scroll-smooth scrollbar-hide pb-1"
       >
         {allScrollableBanners.map((adItem) => {
           // 1. PERMANENT LOCKED LOCOHELP OFFICIAL ADVERTISEMENT BANNER (Strict 16:9 Aspect Ratio, Read-Only Display)
@@ -367,12 +367,12 @@ export default function AdBannerSection({ onOpenChat, onOpenPostAd }: AdBannerSe
               <div
                 key={adItem.id}
                 data-ad-slide="true"
-                className="w-full shrink-0 snap-center relative aspect-video bg-slate-900 border-2 border-amber-400/80 rounded-3xl shadow-lg overflow-hidden flex items-center justify-center"
+                className="w-full shrink-0 snap-center relative aspect-video overflow-hidden rounded-xl bg-slate-900 border-2 border-amber-400/80 shadow-lg flex items-center justify-center"
               >
                 <img
                   src={bannerImg}
                   alt="LocoHelp Official Advertisement Banner"
-                  className="w-full h-full object-cover rounded-3xl"
+                  className="w-full h-full object-contain sm:object-cover object-center"
                   loading="lazy"
                   decoding="async"
                 />
@@ -380,172 +380,36 @@ export default function AdBannerSection({ onOpenChat, onOpenPostAd }: AdBannerSe
             );
           }
 
-          // 2. USER / ADMIN ADDED ADVERTISEMENT BANNERS (Scroll one after another)
+          // 2. USER / ADMIN ADDED ADVERTISEMENT BANNERS (Displayed in the exact same clean 16:9 full-photo banner layout as the main banner)
+          const activeSlidePhoto =
+            adItem.photoUrl ||
+            (Array.isArray(adItem.photos) && adItem.photos.length > 0 ? adItem.photos[0] : '');
+
           return (
             <div
               key={adItem.id}
               data-ad-slide="true"
               onClick={() => setSelectedAdForDetails(adItem)}
-              className="w-full shrink-0 snap-center relative bg-white dark:bg-slate-800/95 border-2 border-amber-300/80 dark:border-slate-700 rounded-3xl shadow-md overflow-hidden transition-all hover:shadow-xl hover:border-amber-400 cursor-pointer group flex flex-col justify-between"
-              title="Click to view full ad details and offers"
+              className="w-full shrink-0 snap-center relative aspect-video overflow-hidden rounded-xl bg-slate-900 border-2 border-amber-400/80 shadow-lg flex items-center justify-center cursor-pointer group"
+              title={adItem.businessName || 'Click to view full ad details'}
             >
-              {/* Top Accent Ribbon */}
-              <div className="h-1.5 bg-gradient-to-r from-amber-400 via-orange-500 to-indigo-600" />
-
-              <div className="p-3.5 sm:p-4 space-y-3">
-                {/* Top Bar: Sponsored Badge, Shop Name, Logo, Distance & Rating */}
-                <div className="flex items-start justify-between gap-2.5">
-                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                    <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 text-white flex items-center justify-center text-xl shrink-0 shadow-md shadow-orange-500/20 border border-white/50 dark:border-slate-700 group-hover:scale-105 transition-transform">
-                      {adItem.logo || '🏪'}
-                    </div>
-
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-500 text-white shadow-2xs flex items-center gap-1">
-                          <span>★</span>
-                          <span>{text.sponsored}</span>
-                          <span>•</span>
-                          <span>{text.ad}</span>
-                        </span>
-
-                        {adItem.isVerified && (
-                          <span className="text-[9px] font-bold text-emerald-800 dark:text-emerald-200 bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-200 dark:border-emerald-800 px-1.5 py-0.2 rounded-md flex items-center gap-0.5">
-                            <ShieldCheck className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400" />
-                            <span>{text.verifiedMerchant}</span>
-                          </span>
-                        )}
-
-                        {adItem.destinationUrl && (
-                          <span className="text-[9px] font-black text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/70 border border-indigo-200 dark:border-indigo-800 px-1.5 py-0.2 rounded-md flex items-center gap-0.5">
-                            <ExternalLink className="w-2.5 h-2.5 text-indigo-600 dark:text-indigo-400" />
-                            <span>{getDestinationBadgeLabel(adItem.destinationUrl)}</span>
-                          </span>
-                        )}
-                      </div>
-
-                      <h3 className="text-sm sm:text-base font-black text-slate-900 dark:text-white truncate mt-1 leading-tight group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
-                        {adItem.businessName}
-                      </h3>
-
-                      <p className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1 mt-0.5 truncate">
-                        <MapPin className="w-3 h-3 text-indigo-500 shrink-0" />
-                        <span className="truncate">{adItem.area}</span>
-                        <span className="shrink-0 font-bold text-indigo-600 dark:text-indigo-400">
-                          • {adItem.distance || 0.5} km {text.away}
-                        </span>
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Rating & Review Counter */}
-                  <div className="shrink-0 flex flex-col items-end gap-1">
-                    <div className="flex items-center gap-1 bg-amber-50 dark:bg-amber-950/70 border border-amber-200 dark:border-emerald-800 px-2 py-0.5 rounded-lg shadow-2xs">
-                      <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
-                      <span className="text-xs font-black text-amber-900 dark:text-amber-200">{adItem.rating || 5.0}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Product / Shop Photo with Overlay Tag (16:9 Aspect Ratio) */}
-                {(() => {
-                  const adGallery = Array.isArray(adItem.photos) && adItem.photos.length > 0 ? adItem.photos : (adItem.photoUrl ? [adItem.photoUrl] : []);
-                  if (!adGallery.length) return null;
-
-                  if (adGallery.length === 1) {
-                    return (
-                      <div className="relative rounded-2xl overflow-hidden aspect-video bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-700 shadow-inner group">
-                        <img
-                          src={adGallery[0]}
-                          alt={adItem.businessName}
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                          loading="lazy"
-                          decoding="async"
-                        />
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent" />
-                        <div className="absolute top-2.5 left-2.5">
-                          <span className="bg-gradient-to-r from-red-600 to-amber-600 text-white font-black text-[10px] sm:text-[11px] px-2.5 py-1 rounded-xl shadow-md flex items-center gap-1 border border-white/20">
-                            <Tag className="w-3 h-3 shrink-0" />
-                            <span>{adItem.offerBadge}</span>
-                          </span>
-                        </div>
-                        <div className="absolute bottom-2 left-3 right-3 text-white">
-                          <p className="text-xs sm:text-sm font-black drop-shadow-md leading-tight line-clamp-1">
-                            {adItem.offerTitle}
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  }
-
-                  return (
-                    <div className="space-y-1">
-                      <div className="flex gap-2 overflow-x-auto snap-x snap-mandatory scrollbar-hide rounded-2xl pb-0.5">
-                        {adGallery.map((pUrl, pIdx) => (
-                          <div
-                            key={pIdx}
-                            className="min-w-[90%] sm:min-w-[80%] snap-start relative aspect-video bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-2xl overflow-hidden shadow-inner group shrink-0"
-                          >
-                            <img
-                              src={pUrl}
-                              alt={`${adItem.businessName} ${pIdx + 1}`}
-                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                              loading="lazy"
-                              decoding="async"
-                            />
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent" />
-                            <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
-                              <span className="bg-gradient-to-r from-red-600 to-amber-600 text-white font-black text-[10px] sm:text-[11px] px-2.5 py-1 rounded-xl shadow-md flex items-center gap-1 border border-white/20">
-                                <Tag className="w-3 h-3 shrink-0" />
-                                <span>{adItem.offerBadge}</span>
-                              </span>
-                              <span className="bg-black/60 backdrop-blur-xs text-white font-black text-[9px] px-2 py-0.5 rounded-lg border border-white/20">
-                                {pIdx + 1}/{adGallery.length} 📸
-                              </span>
-                            </div>
-                            <div className="absolute bottom-2 left-3 right-3 text-white">
-                              <p className="text-xs sm:text-sm font-black drop-shadow-md leading-tight line-clamp-1">
-                                {adItem.offerTitle}
-                              </p>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {/* Offer Description */}
-                <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 leading-snug line-clamp-2">
-                  {adItem.description}
-                </p>
-
-                {/* Action Bar */}
-                <div className="flex items-center gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSelectedAdForDetails(adItem);
-                    }}
-                    className="flex-1 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-600 hover:to-orange-600 text-white py-2 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 shadow-md shadow-orange-500/20 active:scale-[0.98] transition-all cursor-pointer"
-                  >
-                    <Info className="w-3.5 h-3.5 shrink-0 text-white" />
-                    <span className="truncate">{text.inquireNow} • {text.viewDetails}</span>
-                  </button>
-
-                  {adItem.destinationUrl && (
-                    <button
-                      type="button"
-                      onClick={(e) => handleRedirect(adItem, e)}
-                      className="bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1 active:scale-[0.98] transition-all cursor-pointer shrink-0 border border-indigo-200 dark:border-indigo-800"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">Link</span>
-                    </button>
+              {activeSlidePhoto ? (
+                <img
+                  src={activeSlidePhoto}
+                  alt={adItem.businessName || 'Sponsored Advertisement'}
+                  className="w-full h-full object-contain sm:object-cover object-center transition-transform duration-300"
+                  loading="lazy"
+                  decoding="async"
+                />
+              ) : (
+                <div className="w-full h-full flex flex-col items-center justify-center p-4 text-center bg-gradient-to-br from-amber-500 via-orange-500 to-indigo-600 text-white">
+                  <span className="text-3xl mb-1">{adItem.logo || '🏪'}</span>
+                  <h3 className="text-base sm:text-lg font-black line-clamp-2">{adItem.businessName}</h3>
+                  {adItem.offerTitle && (
+                    <p className="text-xs sm:text-sm font-bold text-amber-100 mt-1 line-clamp-2">{adItem.offerTitle}</p>
                   )}
                 </div>
-              </div>
+              )}
             </div>
           );
         })}
@@ -561,7 +425,7 @@ export default function AdBannerSection({ onOpenChat, onOpenPostAd }: AdBannerSe
               initial={{ opacity: 0, y: 80, scale: 0.96 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 80, scale: 0.96 }}
-              className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-t-[32px] sm:rounded-3xl shadow-2xl border border-amber-200 dark:border-slate-800 max-h-[90vh] flex flex-col overflow-hidden"
+              className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-t-[32px] sm:rounded-3xl shadow-2xl border border-amber-200 dark:border-slate-800 max-h-[90vh] flex flex-col overflow-hidden"
             >
               <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800 bg-amber-50/60 dark:bg-slate-850">
                 <div className="flex items-center gap-2">
@@ -591,10 +455,10 @@ export default function AdBannerSection({ onOpenChat, onOpenPostAd }: AdBannerSe
                       {selectedAdForDetails.logo}
                     </div>
                     <div>
-                      <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white leading-tight">
+                      <h3 className="text-base sm:text-lg md:text-xl font-bold text-slate-900 dark:text-white leading-snug break-words">
                         {selectedAdForDetails.businessName}
                       </h3>
-                      <div className="flex items-center gap-2 mt-1">
+                      <div className="flex flex-wrap items-center gap-2 mt-1">
                         {selectedAdForDetails.isVerified && (
                           <span className="text-[10px] font-bold text-emerald-800 dark:text-emerald-200 bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-200 dark:border-emerald-800 px-2 py-0.5 rounded-md flex items-center gap-1">
                             <ShieldCheck className="w-3 h-3 text-emerald-600" />
@@ -618,31 +482,31 @@ export default function AdBannerSection({ onOpenChat, onOpenPostAd }: AdBannerSe
 
                   if (modalGallery.length === 1) {
                     return (
-                      <div className="relative rounded-2xl overflow-hidden aspect-[16/9] bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-md">
+                      <div className="w-full aspect-video overflow-hidden rounded-xl bg-gray-900/5 relative border border-slate-200 dark:border-slate-700 shadow-md">
                         <img
                           src={modalGallery[0]}
                           alt={selectedAdForDetails.businessName}
                           loading="lazy"
                           decoding="async"
-                          className="w-full h-full object-cover"
+                          className="w-full h-full object-cover object-center"
                         />
                       </div>
                     );
                   }
 
                   return (
-                    <div className="flex gap-2 overflow-x-auto snap-x snap-mandatory scrollbar-hide rounded-2xl pb-1">
+                    <div className="flex gap-2 overflow-x-auto snap-x snap-mandatory scrollbar-hide rounded-xl pb-1">
                       {modalGallery.map((mUrl, mIdx) => (
                         <div
                           key={mIdx}
-                          className="min-w-[85%] sm:min-w-[75%] snap-start relative aspect-[16/9] bg-slate-100 dark:bg-slate-800 border-2 border-amber-300 dark:border-slate-700 rounded-2xl overflow-hidden shadow-md shrink-0"
+                          className="min-w-[85%] sm:min-w-[75%] snap-start w-full aspect-video overflow-hidden rounded-xl bg-gray-900/5 relative border-2 border-amber-300 dark:border-slate-700 shadow-md shrink-0"
                         >
                           <img
                             src={mUrl}
                             alt={`${selectedAdForDetails.businessName} ${mIdx + 1}`}
                             loading="lazy"
                             decoding="async"
-                            className="w-full h-full object-cover"
+                            className="w-full h-full object-cover object-center"
                           />
                           <span className="absolute bottom-2 right-2 bg-black/70 backdrop-blur-xs text-white text-[10px] font-black px-2 py-0.5 rounded-lg border border-white/20">
                             Photo {mIdx + 1} of {modalGallery.length}

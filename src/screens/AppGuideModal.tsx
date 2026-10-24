@@ -666,11 +666,17 @@ export default function AppGuideModal({ onClose, onExplore }: AppGuideModalProps
               <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/40 dark:to-indigo-950/40 border border-blue-200/80 dark:border-blue-900 rounded-2xl">
                 <h3 className="text-sm font-extrabold text-blue-950 dark:text-blue-100 flex items-center gap-2">
                   <ShieldCheck className="w-4 h-4 text-blue-600" />
-                  {language === 'EN' ? 'Complete Website Modules • Tap Any Card to Explore' : 'वेबसाइट के मुख्य सेक्शन • विस्तार से देखने के लिए टैप करें'}
+                  {language === 'EN'
+                    ? 'Complete Website Modules • Tap Any Card to Explore'
+                    : language === 'GU'
+                    ? 'વેબસાઈટના મુખ્ય વિભાગો • વિગતવાર જોવા માટે ટેપ કરો'
+                    : 'वेबसाइट के मुख्य सेक्शन • विस्तार से देखने के लिए टैप करें'}
                 </h3>
                 <p className="text-xs text-blue-800 dark:text-blue-200 mt-1 leading-relaxed">
                   {language === 'EN'
                     ? 'Click any module below to see what you can do and how it works:'
+                    : language === 'GU'
+                    ? 'નીચેના કોઈપણ વિભાગ પર ટેપ કરો અને જુઓ કે તે કેવી રીતે કામ કરે છે:'
                     : 'नीचे किसी भी सेक्शन पर टैप करें और देखें कि यह कैसे काम करता है:'}
                 </p>
               </div>
@@ -691,17 +697,17 @@ export default function AppGuideModal({ onClose, onExplore }: AppGuideModalProps
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5">
                           <span className="text-xs font-black text-slate-900 dark:text-white group-hover:text-blue-600 transition-colors truncate">
-                            {language === 'EN' ? banner.titleEn : banner.titleHi}
+                            {language === 'EN' ? banner.titleEn : language === 'GU' ? banner.titleGu : banner.titleHi}
                           </span>
                         </div>
                         <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium truncate mt-0.5">
-                          {language === 'EN' ? banner.shortDescEn : banner.shortDescHi}
+                          {language === 'EN' ? banner.shortDescEn : language === 'GU' ? banner.shortDescGu : banner.shortDescHi}
                         </p>
                       </div>
                     </div>
 
                     <div className="shrink-0 ml-2 pl-2 border-l border-slate-100 dark:border-slate-700 flex items-center gap-1 text-[11px] font-black text-blue-600 dark:text-blue-400 group-hover:translate-x-0.5 transition-transform">
-                      <span>{language === 'EN' ? 'View' : 'देखें'}</span>
+                      <span>{language === 'EN' ? 'View' : language === 'GU' ? 'જુઓ' : 'देखें'}</span>
                       <span>→</span>
                     </div>
                   </button>
@@ -934,7 +940,11 @@ export default function AppGuideModal({ onClose, onExplore }: AppGuideModalProps
                         {selectedBannerDetail.badge}
                       </span>
                       <h3 className="text-sm font-black text-slate-900 dark:text-white mt-0.5 truncate">
-                        {language === 'EN' ? selectedBannerDetail.titleEn : selectedBannerDetail.titleHi}
+                        {language === 'EN'
+                          ? selectedBannerDetail.titleEn
+                          : language === 'GU'
+                          ? selectedBannerDetail.titleGu
+                          : selectedBannerDetail.titleHi}
                       </h3>
                     </div>
                   </div>
@@ -953,10 +963,21 @@ export default function AppGuideModal({ onClose, onExplore }: AppGuideModalProps
                   <div>
                     <h4 className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2 flex items-center gap-1.5">
                       <span>📌</span>
-                      <span>{language === 'EN' ? 'What You Can Post & Do' : 'आप क्या पोस्ट व देख सकते हैं'}</span>
+                      <span>
+                        {language === 'EN'
+                          ? 'What You Can Post & Do'
+                          : language === 'GU'
+                          ? 'તમે શું પોસ્ટ અને જોઈ શકો છો'
+                          : 'आप क्या पोस्ट व देख सकते हैं'}
+                      </span>
                     </h4>
                     <div className="space-y-2">
-                      {(language === 'EN' ? selectedBannerDetail.whatYouCanPostEn : selectedBannerDetail.whatYouCanPostHi).map((item, idx) => (
+                      {(language === 'EN'
+                        ? selectedBannerDetail.whatYouCanPostEn
+                        : language === 'GU'
+                        ? selectedBannerDetail.whatYouCanPostGu
+                        : selectedBannerDetail.whatYouCanPostHi
+                      ).map((item, idx) => (
                         <div key={idx} className="p-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-100">
                           {item}
                         </div>
@@ -967,10 +988,21 @@ export default function AppGuideModal({ onClose, onExplore }: AppGuideModalProps
                   <div>
                     <h4 className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2 flex items-center gap-1.5">
                       <span>⚙️</span>
-                      <span>{language === 'EN' ? 'How It Works' : 'यह कैसे काम करता है'}</span>
+                      <span>
+                        {language === 'EN'
+                          ? 'How It Works'
+                          : language === 'GU'
+                          ? 'આ કેવી રીતે કામ કરે છે'
+                          : 'यह कैसे काम करता है'}
+                      </span>
                     </h4>
                     <div className="space-y-2">
-                      {(language === 'EN' ? selectedBannerDetail.howItWorksEn : selectedBannerDetail.howItWorksHi).map((step, idx) => (
+                      {(language === 'EN'
+                        ? selectedBannerDetail.howItWorksEn
+                        : language === 'GU'
+                        ? selectedBannerDetail.howItWorksGu
+                        : selectedBannerDetail.howItWorksHi
+                      ).map((step, idx) => (
                         <div key={idx} className="flex items-start gap-2.5 p-2.5 bg-blue-50/60 dark:bg-blue-950/40 border border-blue-100 dark:border-blue-900/60 rounded-xl">
                           <span className="w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px] font-black shrink-0 mt-0.5">
                             {idx + 1}
@@ -991,7 +1023,7 @@ export default function AppGuideModal({ onClose, onExplore }: AppGuideModalProps
                     onClick={() => setSelectedBannerDetail(null)}
                     className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs rounded-xl transition-all cursor-pointer shadow-sm"
                   >
-                    {language === 'EN' ? 'Got It, Close' : 'समझ आ गया (हटाइए)'}
+                    {language === 'EN' ? 'Got It, Close' : language === 'GU' ? 'સમજાઈ ગયું, બંધ કરો' : 'समझ आ गया (हटाइए)'}
                   </button>
                 </div>
               </motion.div>

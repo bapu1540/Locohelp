@@ -324,7 +324,13 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <label className="text-[11px] font-black text-emerald-800 dark:text-emerald-300 uppercase tracking-wider flex items-center gap-1">
                 <MapPin className="w-3.5 h-3.5 text-emerald-600" />
-                <span>{language === 'EN' ? 'Location (State, District & Local Area)' : 'लोकेशन (राज्य, जिला और लोकल एरिया/गाँव)'}</span>
+                <span>
+                  {language === 'EN'
+                    ? 'Location (State, District & Local Area)'
+                    : language === 'GU'
+                    ? 'લોકેશન (રાજ્ય, જિલ્લો અને લોકલ વિસ્તાર/ગામ)'
+                    : 'लोकेशन (राज्य, जिला और लोकल एरिया/गाँव)'}
+                </span>
               </label>
               <span className="text-[10px] font-black bg-emerald-600 text-white px-2.5 py-0.5 rounded-full shadow-2xs">
                 📍 {(localArea.trim() || 'Area')}, {(selectedCity === 'Other' ? (customCity.trim() || 'District') : selectedCity)}
@@ -335,7 +341,7 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <div className="space-y-1">
                 <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 block">
-                  {language === 'EN' ? '1. State (All India):' : '1. राज्य चुनें:'}
+                  {language === 'EN' ? '1. State (All India):' : language === 'GU' ? '1. રાજ્ય પસંદ કરો:' : '1. राज्य चुनें:'}
                 </span>
                 <select
                   value={selectedState}
@@ -360,7 +366,7 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
 
               <div className="space-y-1">
                 <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 block">
-                  {language === 'EN' ? '2. District / City:' : '2. जिला / शहर चुनें:'}
+                  {language === 'EN' ? '2. District / City:' : language === 'GU' ? '2. જિલ્લો / શહેર પસંદ કરો:' : '2. जिला / शहर चुनें:'}
                 </span>
                 <select
                   value={selectedCity}
@@ -387,7 +393,7 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
                 type="text"
                 value={customCity}
                 onChange={(e) => setCustomCity(e.target.value)}
-                placeholder={language === 'EN' ? 'Type your District or City name...' : 'अपने जिले या शहर का नाम लिखें...'}
+                placeholder={language === 'EN' ? 'Type your District or City name...' : language === 'GU' ? 'તમારા જિલ્લા કે શહેરનું નામ લખો...' : 'अपने जिले या शहर का नाम लिखें...'}
                 className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-900 dark:text-white outline-none focus:border-emerald-500"
               />
             )}
@@ -395,7 +401,7 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
             {/* 3. Local Area / Village / Sector Quick Chips + Type Input */}
             <div className="space-y-1.5">
               <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 block">
-                {language === 'EN' ? '3. Select or Type Local Area / Village / Sector:' : '3. लोकल एरिया / गाँव / सेक्टर चुनें या टाइप करें:'}
+                {language === 'EN' ? '3. Select or Type Local Area / Village / Sector:' : language === 'GU' ? '3. લોકલ વિસ્તાર / ગામ / સેક્ટર પસંદ કરો અથવા લખો:' : '3. लोकल एरिया / गाँव / सेक्टर चुनें या टाइप करें:'}
               </span>
               <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide">
                 {popularAreasForCity.map((areaOption) => {
@@ -420,7 +426,7 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
                 type="text"
                 value={localArea}
                 onChange={(e) => setLocalArea(e.target.value)}
-                placeholder={language === 'EN' ? 'Type Area / Village / Sector (e.g., Kudasan, Sector 21, Chandkheda)' : 'एरिया / गाँव / सेक्टर लिखें (जैसे: Kudasan, Sector 21, Chandkheda)'}
+                placeholder={language === 'EN' ? 'Type Area / Village / Sector (e.g., Kudasan, Sector 21, Chandkheda)' : language === 'GU' ? 'વિસ્તાર / ગામ / સેક્ટર લખો (દા.ત. કુડાસણ, સેક્ટર 21, ચાંદખેડા)' : 'एरिया / गाँव / सेक्टर लिखें (जैसे: Kudasan, Sector 21, Chandkheda)'}
                 className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 dark:text-white placeholder:text-slate-400 outline-none focus:border-emerald-500 transition-all"
               />
             </div>
@@ -443,7 +449,7 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
 
             <div className="py-2.5 px-3 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl flex items-center justify-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 font-bold">
               <Clock className="w-3.5 h-3.5 text-amber-500" />
-              <span>{language === 'EN' ? 'Auto-expires: 1 hr' : '1 घंटे में ऑटो-डिलीट'}</span>
+              <span>{language === 'EN' ? 'Auto-expires: 1 hr' : language === 'GU' ? '1 કલાકમાં ઓટો-ડિલીટ' : '1 घंटे में ऑटो-डिलीट'}</span>
             </div>
           </div>
 
@@ -451,7 +457,7 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
           <div className="space-y-1.5 pt-1">
             <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
               <span>{t('post.selectCategory') || "Select Category / Work Type"}</span>
-              <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-normal">Tap to select</span>
+              <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-normal">{language === 'EN' ? 'Tap to select' : language === 'GU' ? 'પસંદ કરવા ટેપ કરો' : 'चुनने के लिए टैप करें'}</span>
             </label>
             <div className="flex flex-wrap gap-1.5">
               {QUICK_TAGS.map(tag => {
@@ -508,7 +514,7 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
             {isPosting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
             <span>
               {cooldownRemaining > 0
-                ? (language === 'EN' ? `Wait ${cooldownRemaining}s to Post Again` : `अगली पोस्ट के लिए ${cooldownRemaining}s रुकें`)
+                ? (language === 'EN' ? `Wait ${cooldownRemaining}s to Post Again` : language === 'GU' ? `ફરીથી પોસ્ટ કરવા ${cooldownRemaining}s રાહ જુઓ` : `अगली पोस्ट के लिए ${cooldownRemaining}s रुकें`)
                 : (t('post.btn') || "Broadcast Now")}
             </span>
           </button>

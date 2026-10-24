@@ -136,7 +136,7 @@ export default function PostResponsesModal({
               </div>
               <div className="min-w-0">
                 <span className="text-[10px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-950/80 px-2.5 py-0.5 rounded-full border border-amber-200 dark:border-amber-900">
-                  ⚡ {language === 'EN' ? 'Owner Responses Inbox' : 'आपकी पोस्ट का जवाब इनबॉक्स'}
+                  ⚡ {language === 'EN' ? 'Owner Responses Inbox' : language === 'GU' ? 'તમારી પોસ્ટના જવાબો (Inbox)' : 'आपकी पोस्ट का जवाब इनबॉक्स'}
                 </span>
                 <h3 className="text-sm font-black text-slate-900 dark:text-white truncate mt-1">
                   {intent.description}
@@ -157,7 +157,7 @@ export default function PostResponsesModal({
               <div className="py-12 flex flex-col items-center justify-center text-center space-y-2">
                 <RefreshCw className="w-6 h-6 text-amber-500 animate-spin" />
                 <span className="text-xs font-bold text-slate-500">
-                  {language === 'EN' ? 'Loading responses...' : 'जवाब लोड हो रहे हैं...'}
+                  {language === 'EN' ? 'Loading responses...' : language === 'GU' ? 'જવાબો લોડ થઈ રહ્યા છે...' : 'जवाब लोड हो रहे हैं...'}
                 </span>
               </div>
             ) : repliers.length === 0 ? (
@@ -167,11 +167,13 @@ export default function PostResponsesModal({
                 </div>
                 <div>
                   <h4 className="text-sm font-black text-slate-900 dark:text-white">
-                    {language === 'EN' ? 'No Replies Yet' : 'अभी तक कोई जवाब नहीं आया'}
+                    {language === 'EN' ? 'No Replies Yet' : language === 'GU' ? 'હજુ સુધી કોઈ જવાબ આવ્યો નથી' : 'अभी तक कोई जवाब नहीं आया'}
                   </h4>
                   <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mt-1 max-w-xs mx-auto">
                     {language === 'EN'
                       ? 'When nearby neighbors or helpers click "Chat / Reply" on your post, their messages will appear live right here!'
+                      : language === 'GU'
+                      ? 'જ્યારે આસપાસના લોકો કે સર્વિસ એક્સપર્ટ્સ તમારી પોસ્ટ પર "સીધી ચેટ" પર ક્લિક કરશે, ત્યારે તેમના મેસેજ અહીં લાઈવ દેખાશે!'
                       : 'जब आस-पास के लोग या हेल्पर्स आपकी पोस्ट पर "बात करें" पर क्लिक करेंगे, तब उनके संदेश यहाँ लाइव दिखाई देंगे।'}
                   </p>
                 </div>
@@ -184,13 +186,13 @@ export default function PostResponsesModal({
                   className="bg-amber-500 hover:bg-amber-600 text-white text-xs font-black px-4 py-2 rounded-xl shadow-md cursor-pointer inline-flex items-center gap-1.5 active:scale-95 transition-all mt-2"
                 >
                   <Send className="w-3.5 h-3.5" />
-                  <span>{language === 'EN' ? 'Open Chat Room' : 'चैट रूम खोलें'}</span>
+                  <span>{language === 'EN' ? 'Open Chat Room' : language === 'GU' ? 'ચેટ રૂમ ખોલો' : 'चैट रूम खोलें'}</span>
                 </button>
               </div>
             ) : (
               <div className="space-y-2.5">
                 <span className="text-[11px] font-black uppercase text-slate-500 dark:text-slate-400 block px-1">
-                  💬 {language === 'EN' ? `Received Responses (${repliers.length})` : `प्राप्त जवाब (${repliers.length})`}
+                  💬 {language === 'EN' ? `Received Responses (${repliers.length})` : language === 'GU' ? `મળેલા જવાબો (${repliers.length})` : `प्राप्त जवाब (${repliers.length})`}
                 </span>
                 {repliers.map((rep) => (
                   <div
@@ -236,7 +238,7 @@ export default function PostResponsesModal({
               onClick={onClose}
               className="bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 text-xs font-bold px-4 py-2 rounded-xl cursor-pointer"
             >
-              {language === 'EN' ? 'Close' : 'बंद करें'}
+              {language === 'EN' ? 'Close' : language === 'GU' ? 'બંધ કરો' : 'बंद करें'}
             </button>
           </div>
         </motion.div>

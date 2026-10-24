@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Screen, Intent, Language } from '../types';
-import { Settings, Bell, Zap, Search, Globe, Clock, MapPin, Rocket, User, Trophy, Wrench, Filter, Star, UserCheck, MessageSquare, Plus, Check, X, Share2, MessageCircle, HelpCircle, Smartphone, RefreshCw, ChevronDown, ChevronRight, Sparkles, Trash2, Shield, ShieldAlert } from 'lucide-react';
+import { Settings, Bell, Zap, Search, Globe, Clock, MapPin, Rocket, User, Trophy, Wrench, Filter, Star, UserCheck, MessageSquare, Plus, Check, X, Share2, MessageCircle, HelpCircle, Smartphone, RefreshCw, ChevronDown, ChevronRight, Sparkles, Trash2, Shield, ShieldAlert, MoreVertical, LogIn, LogOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useLanguage, SUPPORTED_LANGUAGES } from '../i18n';
-import { getCurrentUser, onAuthStateChange, getHelpers, getShops } from '../auth';
+import { getCurrentUser, onAuthStateChange, getHelpers, getShops, logoutUser } from '../auth';
 import { CATEGORIES, MASTER_CATEGORIES, getCategoryName, getFreeHelperProfiles } from '../data/categories';
 import UserProfileModal from './UserProfileModal';
 import AppGuideModal from './AppGuideModal';
@@ -43,6 +43,7 @@ export default function HomeScreen({
   const [isHomeCategoryDropdownOpen, setIsHomeCategoryDropdownOpen] = useState(false);
   const [isPostSheetOpen, setIsPostSheetOpen] = useState(false);
   const [isLangModalOpen, setIsLangModalOpen] = useState(false);
+  const [isHeaderMenuOpen, setIsHeaderMenuOpen] = useState(false);
   const [isLoginPromptOpen, setIsLoginPromptOpen] = useState(false);
   const [loginPromptTitle, setLoginPromptTitle] = useState({ en: 'Sign In Required', hi: 'लॉगिन आवश्यक है' });
   const [loginPromptDesc, setLoginPromptDesc] = useState<{ en?: string; hi?: string }>({});
@@ -183,7 +184,8 @@ export default function HomeScreen({
     isJobSeekerModalOpen ||
     isEmployerVacancyModalOpen ||
     isJobBrowseModalOpen ||
-    isHomeCategoryDropdownOpen
+    isHomeCategoryDropdownOpen ||
+    isHeaderMenuOpen
   );
 
   const prevModalOpenRef = useRef(false);
@@ -212,6 +214,7 @@ export default function HomeScreen({
       if (selectedUserForProfile) { e.preventDefault(); setSelectedUserForProfile(null); return; }
       if (isGuideOpen) { e.preventDefault(); setIsGuideOpen(false); return; }
       if (isLangModalOpen) { e.preventDefault(); setIsLangModalOpen(false); return; }
+      if (isHeaderMenuOpen) { e.preventDefault(); setIsHeaderMenuOpen(false); return; }
       if (isHomeCategoryDropdownOpen) { e.preventDefault(); setIsHomeCategoryDropdownOpen(false); return; }
       if (homeSearchQuery.trim()) { e.preventDefault(); setHomeSearchQuery(''); return; }
     };
@@ -232,6 +235,7 @@ export default function HomeScreen({
     selectedUserForProfile,
     isGuideOpen,
     isLangModalOpen,
+    isHeaderMenuOpen,
     isHomeCategoryDropdownOpen,
     homeSearchQuery
   ]);
@@ -803,7 +807,13 @@ export default function HomeScreen({
   const handlePostCreated = (newIntent: Intent) => {
     mergeAndDeduplicateIntents([newIntent]);
     setNewlyCreatedId(newIntent.id);
-    setCreatedToast("⚡ Post Uploaded! Aapki post sabhi phones par live hai.");
+    setCreatedToast(
+      language === 'EN'
+        ? "⚡ Post Uploaded! Your post is now live on all phones."
+        : language === 'GU'
+        ? "⚡ પોસ્ટ અપલોડ થઈ ગઈ! તમારી પોસ્ટ બધા ફોન પર લાઈવ છે."
+        : "⚡ Post Uploaded! Aapki post sabhi phones par live hai."
+    );
     setTimeout(() => setCreatedToast(null), 5000);
     // Smoothly scroll to top so user sees their newly created post immediately
     setTimeout(() => {
@@ -827,7 +837,13 @@ export default function HomeScreen({
 
     // 2. CLOSE DELETE MODAL IMMEDIATELY! Zero UI delay
     setPostToDelete(null);
-    setCreatedToast(language === 'EN' ? "🗑️ Post successfully deleted!" : "🗑️ पोस्ट सफलतापूर्वक हटा दी गई!");
+    setCreatedToast(
+      language === 'EN'
+        ? "🗑️ Post successfully deleted!"
+        : language === 'GU'
+        ? "🗑️ પોસ્ટ સફળતાપૂર્વક ડિલીટ થઈ ગઈ!"
+        : "🗑️ पोस्ट सफलतापूर्वक हटा दी गई!"
+    );
     setTimeout(() => setCreatedToast(null), 3500);
 
     // 3. Add to local deleted lists
@@ -874,20 +890,27 @@ export default function HomeScreen({
   return (
     <div className="flex flex-col h-full min-h-0 bg-white dark:bg-slate-900 relative overflow-hidden transition-colors">
       
-      {/* Fixed Top Sticky Header Bar (LocoHelp Logo, Language, Sign In, Notifications, Profile, Settings) */}
-      <header className="sticky top-0 z-30 shrink-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-100 dark:border-slate-800 shadow-sm px-2 sm:px-5 py-2 sm:py-3 flex items-center justify-between gap-1.5 w-full max-w-full box-border">
-        <div className="relative shrink-0">
+      {/* Fixed Top Sticky Header Bar: [Compact 🌐 ગુજ ▾ / 🌐 EN ▾ Dropdown] -> [LocoHelp Logo] -> [Compact Location Badge] -> [3-Dot Menu ⋮] */}
+      <header className="sticky top-0 z-30 shrink-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-100 dark:border-slate-800 shadow-sm px-2 md:px-5 py-2 md:py-2.5 flex items-center justify-between gap-1.5 md:gap-3 lg:gap-4 w-full max-w-full box-border">
+        {/* 1. Compact Language Selector Dropdown (<768px: 🌐 ગુજ ▾ / 🌐 EN ▾, >=768px: full language label) */}
+        <div className="relative flex-shrink-0">
           <button
             type="button"
-            onClick={() => setIsLangModalOpen((prev) => !prev)}
-            className="flex items-center gap-0.5 sm:gap-1 px-1.5 sm:px-2.5 py-1 sm:py-1.5 bg-white dark:bg-slate-800 rounded-full hover:bg-violet-50 dark:hover:bg-slate-700 transition-colors border border-slate-200 dark:border-slate-700 shadow-2xs shrink-0 active:scale-95 cursor-pointer"
+            onClick={() => {
+              setIsHeaderMenuOpen(false);
+              setIsLangModalOpen((prev) => !prev);
+            }}
+            className="flex items-center gap-1 px-2 md:px-3 py-1 md:py-1.5 bg-white dark:bg-slate-800 rounded-full hover:bg-violet-50 dark:hover:bg-slate-700 transition-colors border border-slate-200 dark:border-slate-700 shadow-2xs shrink-0 active:scale-95 cursor-pointer text-xs"
             title="Select Language"
           >
-            <Globe className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
-            <span className="text-[10px] sm:text-xs font-black text-stone-800 dark:text-slate-200 whitespace-nowrap">
+            <span className="text-xs leading-none shrink-0">🌐</span>
+            <span className="text-xs font-black text-stone-800 dark:text-slate-200 whitespace-nowrap md:hidden">
+              {language === 'GU' ? 'ગુજ' : language === 'HI' ? 'हिं' : 'EN'}
+            </span>
+            <span className="hidden md:inline text-xs font-black text-stone-800 dark:text-slate-200 whitespace-nowrap">
               {currentLangObj.nativeName}
             </span>
-            <ChevronDown className={`w-3 h-3 sm:w-3.5 sm:h-3.5 text-slate-500 dark:text-slate-400 transition-transform duration-200 shrink-0 ${isLangModalOpen ? 'rotate-180' : ''}`} />
+            <span className="text-[10px] md:text-xs text-slate-500 dark:text-slate-400 leading-none shrink-0">▾</span>
           </button>
 
           {/* Compact Dropdown Menu right below the button */}
@@ -931,54 +954,157 @@ export default function HomeScreen({
             )}
           </AnimatePresence>
         </div>
-        
+
+        {/* 2. LocoHelp Logo (flex-shrink-0 h-7 on mobile, md:h-9 on tablet/laptop/desktop) */}
         <div
           onClick={() => {
             onSelectCategory?.('all');
             onNavigate('home');
           }}
-          className="min-w-0 shrink flex items-center justify-center select-none cursor-pointer overflow-hidden"
+          className="flex-shrink-0 h-7 md:h-9 flex items-center justify-center select-none cursor-pointer"
           title="Home"
         >
-          <div className="scale-90 sm:scale-100 origin-center">
-            <LocoHelpLogo size={36} showText={true} textSize="sm" className="shrink-0" />
-          </div>
+          <LocoHelpLogo size={28} showText={true} textSize="sm" className="flex-shrink-0" />
         </div>
 
-        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-          {isGuestUser() ? (
-            <button
-              onClick={handleSafeProfileClick}
-              className="flex items-center gap-0.5 sm:gap-1 px-1.5 sm:px-3 py-1 sm:py-1.5 bg-white dark:bg-slate-800 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 transition-all border border-indigo-200 dark:border-indigo-900/60 shadow-xs active:scale-95 cursor-pointer text-slate-800 dark:text-white shrink-0"
-              title="Sign in with Email OTP or Password"
-            >
-              <span className="text-[10px] sm:text-xs font-black whitespace-nowrap">
-                {language === 'EN' ? 'Sign In' : language === 'GU' ? 'લોગિન' : 'लॉगिन'}
-              </span>
-            </button>
-          ) : null}
-
+        {/* 3. Right Side: [Compact Location Badge] -> [3-Dot Menu ⋮] */}
+        <div className="flex items-center gap-1.5 md:gap-3 lg:gap-4 flex-shrink-0">
           <button
             type="button"
-            onClick={() => setIsLocationModalOpen(true)}
-            className="flex items-center gap-0.5 sm:gap-1 px-1.5 sm:px-3 py-1 sm:py-1.5 rounded-full bg-emerald-50 dark:bg-emerald-950/80 border border-emerald-300 dark:border-emerald-700 hover:bg-emerald-100 dark:hover:bg-emerald-900/80 text-emerald-800 dark:text-emerald-200 transition-all shadow-2xs active:scale-95 cursor-pointer max-w-[68px] sm:max-w-[160px] shrink-0"
+            onClick={() => {
+              setIsHeaderMenuOpen(false);
+              setIsLocationModalOpen(true);
+            }}
+            className="flex items-center gap-1 px-2 md:px-3.5 py-1 md:py-1.5 rounded-full bg-emerald-50 dark:bg-emerald-950/80 border border-emerald-300 dark:border-emerald-700 hover:bg-emerald-100 dark:hover:bg-emerald-900/80 text-emerald-800 dark:text-emerald-200 transition-all shadow-2xs active:scale-95 cursor-pointer max-w-[90px] md:max-w-none shrink-0 text-xs"
             title="Select Location (Pan-India)"
           >
-            <span className="text-[10px] sm:text-xs shrink-0">📍</span>
-            <span className="text-[10px] sm:text-xs font-black truncate">
+            <span className="text-xs shrink-0">📍</span>
+            <span className="text-xs font-black truncate md:overflow-visible md:whitespace-nowrap">
               {userLocation.district || (language === 'EN' ? 'Location' : language === 'GU' ? 'લોકેશન' : 'लोकेशन')}
             </span>
           </button>
-          <button onClick={handleSafeProfileClick} className="w-7 h-7 sm:w-9 sm:h-9 p-1 sm:p-2 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-violet-100 dark:hover:bg-slate-700 transition-colors shadow-2xs cursor-pointer shrink-0 flex items-center justify-center" title="Profile">
-            {activeUser.photoURL || getCurrentUser()?.photoURL ? (
-              <img src={activeUser.photoURL || getCurrentUser()?.photoURL} alt="" className="w-4 h-4 sm:w-5 sm:h-5 rounded-full object-cover" />
-            ) : (
-              <User className="w-3.5 h-3.5 sm:w-5 sm:h-5 text-stone-700 dark:text-pink-400 shrink-0" />
-            )}
-          </button>
-          <button onClick={() => onNavigate('settings')} className="w-7 h-7 sm:w-9 sm:h-9 p-1 sm:p-2 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-violet-100 dark:hover:bg-slate-700 transition-colors shadow-2xs cursor-pointer shrink-0 flex items-center justify-center" title="Settings">
-            <Settings className="w-3.5 h-3.5 sm:w-5 sm:h-5 text-stone-700 dark:text-pink-400 shrink-0" />
-          </button>
+
+          {/* Single Stylish Vertical 3-Dot Menu Button (⋮) combining Profile, Settings, and Sign In / Log Out */}
+          <div className="relative flex-shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                setIsLangModalOpen(false);
+                setIsHeaderMenuOpen((prev) => !prev);
+              }}
+              className="w-7 h-7 sm:w-9 sm:h-9 p-1 sm:p-1.5 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-violet-50 dark:hover:bg-slate-700 transition-colors shadow-2xs cursor-pointer shrink-0 flex items-center justify-center active:scale-95"
+              title="Menu (Profile, Settings, Sign In)"
+              aria-label="Open menu"
+            >
+              <MoreVertical className="w-4 h-4 sm:w-5 sm:h-5 text-slate-800 dark:text-slate-200 shrink-0" />
+            </button>
+
+            <AnimatePresence>
+              {isHeaderMenuOpen && (
+                <>
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setIsHeaderMenuOpen(false)}
+                  />
+                  <motion.div
+                    initial={{ opacity: 0, y: -6, scale: 0.96 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -6, scale: 0.96 }}
+                    transition={{ duration: 0.15 }}
+                    className="absolute right-0 top-full mt-1.5 w-48 bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 p-1.5 z-50 space-y-1"
+                  >
+                    {/* Option 1: Profile */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsHeaderMenuOpen(false);
+                        handleSafeProfileClick();
+                      }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-extrabold text-slate-800 dark:text-slate-200 hover:bg-violet-50 dark:hover:bg-slate-800 transition-colors cursor-pointer text-left"
+                    >
+                      <User className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                      <span>
+                        {language === 'GU'
+                          ? 'પ્રોફાઇલ'
+                          : language === 'HI'
+                          ? 'प्रोफ़ाइल'
+                          : 'Profile'}
+                      </span>
+                    </button>
+
+                    {/* Option 2: Settings */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsHeaderMenuOpen(false);
+                        onNavigate('settings');
+                      }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-extrabold text-slate-800 dark:text-slate-200 hover:bg-violet-50 dark:hover:bg-slate-800 transition-colors cursor-pointer text-left"
+                    >
+                      <Settings className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                      <span>
+                        {language === 'GU'
+                          ? 'સેટિંગ્સ'
+                          : language === 'HI'
+                          ? 'सेटिंग्स'
+                          : 'Settings'}
+                      </span>
+                    </button>
+
+                    <div className="h-px bg-slate-100 dark:bg-slate-800 my-0.5" />
+
+                    {/* Option 3: Sign In / Login or Log Out */}
+                    {isGuestUser() ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsHeaderMenuOpen(false);
+                          handleSafeProfileClick();
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-extrabold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-800 transition-colors cursor-pointer text-left"
+                      >
+                        <LogIn className="w-4 h-4 shrink-0" />
+                        <span>
+                          {language === 'GU'
+                            ? 'લોગિન / સાઇન ઇન'
+                            : language === 'HI'
+                            ? 'लॉगिन / साइन इन'
+                            : 'Sign In / Login'}
+                        </span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          setIsHeaderMenuOpen(false);
+                          await logoutUser();
+                          setActiveUser(getCurrentUser());
+                          setCreatedToast(
+                            language === 'GU'
+                              ? '✅ સફળતાપૂર્વક લોગ આઉટ થઈ ગયું!'
+                              : language === 'HI'
+                              ? '✅ सफलतापूर्वक लॉग आउट हो गया!'
+                              : '✅ Logged out successfully!'
+                          );
+                          setTimeout(() => setCreatedToast(null), 3000);
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-extrabold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-slate-800 transition-colors cursor-pointer text-left"
+                      >
+                        <LogOut className="w-4 h-4 shrink-0" />
+                        <span>
+                          {language === 'GU'
+                            ? 'લોગ આઉટ'
+                            : language === 'HI'
+                            ? 'लॉग आउट'
+                            : 'Log Out'}
+                        </span>
+                      </button>
+                    )}
+                  </motion.div>
+                </>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
       </header>
 
@@ -1071,7 +1197,7 @@ export default function HomeScreen({
                 title="Voice Search (Speak to Search)"
               >
                 <span className="text-xs">{isVoiceListening ? '🎙️' : '🎙️'}</span>
-                <span>{isVoiceListening ? (language === 'EN' ? 'Listening...' : language === 'GU' ? 'સાંભળી રહ્યા છીએ...' : 'सुन रहे हैं...') : (language === 'GU' ? 'વોઈસ સર્ચ' : 'Voice Search')}</span>
+                <span>{isVoiceListening ? (language === 'EN' ? 'Listening...' : language === 'GU' ? 'સાંભળી રહ્યા છીએ...' : 'सुन रहे हैं...') : (language === 'GU' ? 'વોઈસ સર્ચ' : language === 'HI' ? 'वॉइस सर्च' : 'Voice Search')}</span>
               </button>
             </div>
 
@@ -1257,12 +1383,12 @@ export default function HomeScreen({
             onClick={handleSafeOpenPostSheet}
             style={{ background: 'linear-gradient(135deg, #FF8800 0%, #FF6600 100%)' }}
             className="w-full rounded-2xl p-3.5 text-white shadow-lg shadow-orange-500/25 cursor-pointer active:scale-[0.98] transition-all border-2 border-orange-300 dark:border-orange-400 hover:brightness-105 flex items-center justify-between gap-3"
-            title="Create Post"
+            title={language === 'EN' ? 'Create Post' : language === 'GU' ? 'પોસ્ટ કરો' : 'पोस्ट करें'}
           >
             <div className="flex items-center gap-2.5">
               <span className="text-xl shrink-0">📢</span>
               <span className="text-sm sm:text-base font-black tracking-wide text-white drop-shadow-xs">
-                Create Post
+                {language === 'EN' ? 'Create Post' : language === 'GU' ? 'પોસ્ટ કરો' : 'पोस्ट करें'}
               </span>
             </div>
             <div className="w-8 h-8 rounded-xl bg-white text-slate-900 flex items-center justify-center shrink-0 shadow-xs">
@@ -1671,7 +1797,7 @@ export default function HomeScreen({
           <div className="bg-white/90 dark:bg-slate-800/90 border border-violet-200/70 dark:border-slate-700/70 rounded-2xl p-2.5 shadow-xs space-y-2">
             <div className="flex items-center justify-between px-1">
               <span className="text-[10px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                {t('home.community')} & Quick Tools
+                {t('home.community')}
               </span>
             </div>
 
@@ -1723,12 +1849,12 @@ export default function HomeScreen({
         </div>
 
         {/* Footer at the bottom of the scrollable page */}
-        <footer className="bg-slate-900 border-t border-slate-800/80 py-4 px-4 mt-6 text-center text-xs text-slate-400">
-          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2.5">
-            <span className="font-semibold text-slate-300">
-              🇮🇳 {t('footer.copyright').replace('{year}', new Date().getFullYear().toString())}
+        <footer className="bg-slate-900 border-t border-slate-800/80 py-4 px-3 sm:px-4 mt-6 text-center text-xs sm:text-sm text-slate-400">
+          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-center sm:justify-between gap-2.5 text-center">
+            <span className="font-semibold text-xs sm:text-sm text-slate-200 text-center">
+              LocoHelp © 2026
             </span>
-            <div className="flex items-center gap-3 text-[11px] font-bold">
+            <div className="flex items-center justify-center gap-3 text-[11px] font-bold">
               <button
                 onClick={() => onNavigate('guidelines')}
                 className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700/80 transition-colors cursor-pointer flex items-center gap-1.5"
@@ -1780,7 +1906,7 @@ export default function HomeScreen({
         onClose={() => setIsRegisterShopModalOpen(false)}
         initialTab="new"
         onSuccess={() => {
-          setCreatedToast("⏳ " + (language === 'EN' ? 'Business / Shop submitted for Admin approval!' : 'दुकान/बिज़नेस एडमिन अप्रूवल के लिए सबमिट हो गया!'));
+          setCreatedToast("⏳ " + (language === 'EN' ? 'Business / Shop submitted for Admin approval!' : language === 'GU' ? 'દુકાન/બિઝનેસ એડમિન અપ્રૂવલ માટે સબમિટ થઈ ગયું!' : 'दुकान/बिज़नेस एडमिन अप्रूवल के लिए सबमिट हो गया!'));
           setTimeout(() => setCreatedToast(null), 4000);
         }}
       />
@@ -1790,7 +1916,7 @@ export default function HomeScreen({
         isOpen={isFreeHelperModalOpen}
         onClose={() => setIsFreeHelperModalOpen(false)}
         onSuccess={() => {
-          setCreatedToast("⏳ " + (language === 'EN' ? 'Service Expert profile submitted for Admin approval!' : 'सर्विस एक्सपर्ट प्रोफाइल एडमिन अप्रूवल के लिए सबमिट हो गई!'));
+          setCreatedToast("⏳ " + (language === 'EN' ? 'Service Expert profile submitted for Admin approval!' : language === 'GU' ? 'સર્વિસ એક્સપર્ટ પ્રોફાઇલ એડમિન અપ્રૂવલ માટે સબમિટ થઈ ગઈ!' : 'सर्विस एक्सपर्ट प्रोफाइल एडमिन अप्रूवल के लिए सबमिट हो गई!'));
           setTimeout(() => setCreatedToast(null), 4000);
         }}
       />
@@ -1801,7 +1927,7 @@ export default function HomeScreen({
         onClose={() => setIsJobSeekerModalOpen(false)}
         initialTab={seekerModalInitialTab}
         onSuccess={() => {
-          setCreatedToast("💼 " + (language === 'EN' ? 'Job Seeker profile submitted for Admin approval!' : 'नौकरी प्रोफाइल एडमिन सत्यापन के लिए सबमिट हो गई!'));
+          setCreatedToast("💼 " + (language === 'EN' ? 'Job Seeker profile submitted for Admin approval!' : language === 'GU' ? 'નોકરી પ્રોફાઇલ એડમિન ચકાસણી માટે સબમિટ થઈ ગઈ!' : 'नौकरी प्रोफाइल एडमिन सत्यापन के लिए सबमिट हो गई!'));
           setTimeout(() => setCreatedToast(null), 4500);
         }}
       />
@@ -1812,7 +1938,7 @@ export default function HomeScreen({
         onClose={() => setIsEmployerVacancyModalOpen(false)}
         initialTab={employerModalInitialTab}
         onSuccess={() => {
-          setCreatedToast("🏢 " + (language === 'EN' ? 'Job Vacancy submitted for Admin approval!' : 'स्टाफ वेकेंसी एडमिन सत्यापन के लिए सबमिट हो गई!'));
+          setCreatedToast("🏢 " + (language === 'EN' ? 'Job Vacancy submitted for Admin approval!' : language === 'GU' ? 'સ્ટાફ વેકેન્સી એડમિન ચકાસણી માટે સબમિટ થઈ ગઈ!' : 'स्टाफ वेकेंसी एडमिन सत्यापन के लिए सबमिट हो गई!'));
           setTimeout(() => setCreatedToast(null), 4500);
         }}
       />
@@ -1861,11 +1987,13 @@ export default function HomeScreen({
               </div>
               <div>
                 <h3 className="text-base font-black text-slate-900 dark:text-white">
-                  {language === 'EN' ? 'Delete Broadcast Post?' : 'पोस्ट डिलीट करें?'}
+                  {language === 'EN' ? 'Delete Broadcast Post?' : language === 'GU' ? 'પોસ્ટ ડિલીટ કરવી છે?' : 'पोस्ट डिलीट करें?'}
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                   {language === 'EN' 
                     ? 'This post will be permanently deleted from the radar.' 
+                    : language === 'GU'
+                    ? 'આ પોસ્ટ લોકલ રડારમાંથી કાયમ માટે દૂર કરવામાં આવશે.'
                     : 'यह पोस्ट लोकल रडार से हमेशा के लिए हटा दी जाएगी।'}
                 </p>
               </div>
@@ -1875,14 +2003,14 @@ export default function HomeScreen({
                   onClick={() => setPostToDelete(null)}
                   className="flex-1 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                 >
-                  {language === 'EN' ? 'Cancel' : 'रद्द करें'}
+                  {language === 'EN' ? 'Cancel' : language === 'GU' ? 'રદ કરો' : 'रद्द करें'}
                 </button>
                 <button
                   type="button"
                   onClick={() => confirmDeletePost(postToDelete)}
                   className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs shadow-md shadow-rose-600/25 active:scale-95 transition-all cursor-pointer"
                 >
-                  {language === 'EN' ? 'Yes, Delete' : 'हाँ, हटाएं'}
+                  {language === 'EN' ? 'Yes, Delete' : language === 'GU' ? 'હા, ડિલીટ કરો' : 'हाँ, हटाएं'}
                 </button>
               </div>
             </motion.div>
@@ -1925,6 +2053,8 @@ export default function HomeScreen({
           setCreatedToast(
             language === 'EN'
               ? `📍 Location saved: ${newLoc.area ? newLoc.area + ', ' : ''}${newLoc.district} (${newLoc.state})`
+              : language === 'GU'
+              ? `📍 લોકેશન સેવ થઈ ગયું: ${newLoc.area ? newLoc.area + ', ' : ''}${newLoc.district} (${newLoc.state})`
               : `📍 लोकेशन सेव हो गई: ${newLoc.area ? newLoc.area + ', ' : ''}${newLoc.district} (${newLoc.state})`
           );
           setTimeout(() => setCreatedToast(null), 4000);

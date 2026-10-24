@@ -110,11 +110,17 @@ export default function PanIndiaLocationModal({
               </div>
               <div>
                 <h3 className="text-sm sm:text-base font-black leading-tight">
-                  {language === 'EN' ? 'Select Your Location (Pan-India)' : 'अपनी लोकेशन चुनें (Pan-India)'}
+                  {language === 'EN'
+                    ? 'Select Your Location (Pan-India)'
+                    : language === 'GU'
+                    ? 'તમારું લોકેશન પસંદ કરો (Pan-India)'
+                    : 'अपनी लोकेशन चुनें (Pan-India)'}
                 </h3>
                 <p className="text-[11px] text-indigo-100 font-medium">
                   {language === 'EN'
                     ? 'Manual selection • Saved permanently until you change it'
+                    : language === 'GU'
+                    ? 'મેન્યુઅલ લોકેશન • જ્યાં સુધી તમે બદલશો નહીં ત્યાં સુધી સેવ રહેશે'
                     : 'मैनुअल लोकेशन • जब तक आप बदलेंगे नहीं, यही सेव रहेगी'}
                 </p>
               </div>
@@ -141,6 +147,8 @@ export default function PanIndiaLocationModal({
                   placeholder={
                     language === 'EN'
                       ? 'Quick search any District or City in India...'
+                      : language === 'GU'
+                      ? 'ભારતનો કોઈપણ જિલ્લો કે શહેર અહીં શોધો...'
                       : 'भारत का कोई भी जिला या शहर यहाँ खोजें...'
                   }
                   className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl py-2.5 pl-10 pr-4 text-xs font-bold text-slate-900 dark:text-white outline-none focus:border-indigo-500"
@@ -159,7 +167,7 @@ export default function PanIndiaLocationModal({
               {matchingSearchDistricts.length > 0 && (
                 <div className="bg-indigo-50/70 dark:bg-slate-800/90 border border-indigo-200 dark:border-slate-700 rounded-2xl p-2.5 space-y-1">
                   <span className="text-[10px] font-black uppercase text-indigo-600 dark:text-indigo-400 block px-1">
-                    {language === 'EN' ? 'Matching Districts / Cities:' : 'मिलते-जुलते शहर / जिले:'}
+                    {language === 'EN' ? 'Matching Districts / Cities:' : language === 'GU' ? 'મળતા આવતા શહેરો / જિલ્લાઓ:' : 'मिलते-जुलते शहर / जिले:'}
                   </span>
                   <div className="flex flex-wrap gap-1.5">
                     {matchingSearchDistricts.map((item) => (
@@ -191,7 +199,7 @@ export default function PanIndiaLocationModal({
             <div className="space-y-1.5">
               <label className="text-[11px] font-black uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
                 <Globe className="w-3.5 h-3.5 text-indigo-600" />
-                <span>{language === 'EN' ? '1. Select State (All India):' : '1. राज्य चुनें (Pan-India):'}</span>
+                <span>{language === 'EN' ? '1. Select State (All India):' : language === 'GU' ? '1. રાજ્ય પસંદ કરો (Pan-India):' : '1. राज्य चुनें (Pan-India):'}</span>
               </label>
               <select
                 value={selectedState}
@@ -218,7 +226,7 @@ export default function PanIndiaLocationModal({
             <div className="space-y-1.5">
               <label className="text-[11px] font-black uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
                 <Building2 className="w-3.5 h-3.5 text-emerald-600" />
-                <span>{language === 'EN' ? '2. Select District / City:' : '2. जिला / शहर चुनें:'}</span>
+                <span>{language === 'EN' ? '2. Select District / City:' : language === 'GU' ? '2. જિલ્લો / શહેર પસંદ કરો:' : '2. जिला / शहर चुनें:'}</span>
               </label>
               <select
                 value={selectedDistrict}
@@ -243,7 +251,7 @@ export default function PanIndiaLocationModal({
                   type="text"
                   value={customDistrict}
                   onChange={(e) => setCustomDistrict(e.target.value)}
-                  placeholder={language === 'EN' ? 'Enter your District or City name...' : 'अपने जिले या शहर का नाम लिखें...'}
+                  placeholder={language === 'EN' ? 'Enter your District or City name...' : language === 'GU' ? 'તમારા જિલ્લા કે શહેરનું નામ લખો...' : 'अपने जिले या शहर का नाम लिखें...'}
                   className="mt-2 w-full bg-white dark:bg-slate-800 border-2 border-emerald-400 rounded-2xl px-3.5 py-2 text-xs font-bold text-slate-900 dark:text-white outline-none"
                 />
               )}
@@ -252,7 +260,7 @@ export default function PanIndiaLocationModal({
             {/* 3. Optional Local Area / Village / Sector */}
             <div className="space-y-1.5">
               <label className="text-[11px] font-black uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center justify-between">
-                <span>{language === 'EN' ? '3. Local Area / Village / Sector (Optional):' : '3. लोकल एरिया / गाँव / सेक्टर:'}</span>
+                <span>{language === 'EN' ? '3. Local Area / Village / Sector (Optional):' : language === 'GU' ? '3. લોકલ વિસ્તાર / ગામ / સેક્ટર:' : '3. लोकल एरिया / गाँव / सेक्टर:'}</span>
               </label>
 
               {popularAreasForDistrict.length > 0 && (
@@ -284,6 +292,8 @@ export default function PanIndiaLocationModal({
                 placeholder={
                   language === 'EN'
                     ? 'Type Area / Village / Sector (e.g., Kudasan, Sector 21, Chandkheda)'
+                    : language === 'GU'
+                    ? 'વિસ્તાર / ગામ / સેક્ટર લખો (દા.ત. કુડાસણ, સેક્ટર 21, ચાંદખેડા)'
                     : 'एरिया / गाँव / सेक्टर लिखें (जैसे: Kudasan, Sector 21, Chandkheda)'
                 }
                 className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl px-3.5 py-2.5 text-xs font-bold text-slate-900 dark:text-white outline-none focus:border-indigo-500"
@@ -302,7 +312,7 @@ export default function PanIndiaLocationModal({
               </div>
               {connectedTwinList.length > 1 && (
                 <p className="text-[11px] text-emerald-700 dark:text-emerald-300/90 font-semibold leading-snug">
-                  🔗 {language === 'EN' ? 'Twin-City Connected Feed:' : 'Twin-City कनेक्टेड फ़ीड:'}{' '}
+                  🔗 {language === 'EN' ? 'Twin-City Connected Feed:' : language === 'GU' ? 'ટ્વિન-સિટી કનેક્ટેડ ફીડ:' : 'Twin-City कनेक्टेड फ़ीड:'}{' '}
                   <span className="font-black">
                     {connectedTwinList.slice(0, 3).map(d => d.charAt(0).toUpperCase() + d.slice(1)).join(' + ')}
                   </span>
@@ -318,7 +328,7 @@ export default function PanIndiaLocationModal({
               onClick={onClose}
               className="px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
             >
-              {language === 'EN' ? 'Cancel' : 'रद्द करें'}
+              {language === 'EN' ? 'Cancel' : language === 'GU' ? 'રદ કરો' : 'रद्द करें'}
             </button>
             <button
               type="button"
@@ -329,6 +339,8 @@ export default function PanIndiaLocationModal({
               <span>
                 {language === 'EN'
                   ? `Save Location (${activeDistrictName})`
+                  : language === 'GU'
+                  ? `લોકેશન સેવ કરો (${activeDistrictName})`
                   : `लोकेशन सेव करें (${activeDistrictName})`}
               </span>
             </button>

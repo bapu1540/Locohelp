@@ -14,12 +14,12 @@ export default function LocoHelpLogo({
   textSize = 'md'
 }: LocoHelpLogoProps) {
   return (
-    <div className={`flex items-center justify-center gap-1.5 sm:gap-2.5 shrink-0 ${className}`}>
+    <div className={`flex items-center justify-center gap-1 md:gap-2 flex-shrink-0 ${className}`}>
       <svg 
         width={size} 
         height={size} 
         viewBox="0 0 100 100" 
-        className="drop-shadow-md shrink-0 overflow-visible"
+        className="drop-shadow-md flex-shrink-0 overflow-visible h-7 w-7 md:h-9 md:w-9"
       >
         {/* 1. Supporting Bottom Arc / Curve (Aakar - Loco Orange #FF8800) */}
         {/* Smooth, symmetrical smile cradle centered around the pin tip */}
@@ -41,8 +41,8 @@ export default function LocoHelpLogo({
       </svg>
 
       {showText && (
-        <div className={`font-black tracking-tight shrink-0 flex items-center justify-center gap-0.5 text-center ${
-          textSize === 'sm' ? 'text-xl sm:text-2xl' :
+        <div className={`font-black tracking-tight flex-shrink-0 flex items-center justify-center gap-0.5 text-center leading-none ${
+          textSize === 'sm' ? 'text-base md:text-2xl' :
           textSize === 'lg' ? 'text-4xl sm:text-6xl' :
           textSize === 'xl' ? 'text-5xl sm:text-7xl' :
           'text-2xl sm:text-3xl md:text-4xl'

@@ -182,7 +182,7 @@ export default function SupportScreen({ onBack }: { onBack: () => void }) {
         </button>
         <div>
           <h2 className="text-base font-extrabold text-slate-900 dark:text-white tracking-tight">
-            {language === 'EN' ? 'Help & Support' : 'सहायता और संपर्क'}
+            {language === 'EN' ? 'Help & Support' : language === 'GU' ? 'મદદ અને સપોર્ટ' : 'सहायता और संपर्क'}
           </h2>
           <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
             LocoHelp Official Support Center
@@ -205,11 +205,17 @@ export default function SupportScreen({ onBack }: { onBack: () => void }) {
             </span>
           </div>
           <h3 className="text-lg sm:text-xl font-black mb-1">
-            {language === 'EN' ? 'How can we help you today?' : 'हम आपकी किस प्रकार सहायता कर सकते हैं?'}
+            {language === 'EN'
+              ? 'How can we help you today?'
+              : language === 'GU'
+              ? 'આજે અમે તમારી કેવી રીતે મદદ કરી શકીએ?'
+              : 'हम आपकी किस प्रकार सहायता कर सकते हैं?'}
           </h3>
           <p className="text-indigo-100 text-xs font-medium max-w-sm">
             {language === 'EN'
               ? 'Find quick answers in FAQs below or send an inquiry to our dedicated business support email.'
+              : language === 'GU'
+              ? 'નીચે વારંવાર પૂછાતા પ્રશ્નો (FAQs) ના જવાબ જુઓ અથવા અમારા ઓફિશિયલ ઈમેલ પર સંપર્ક કરો.'
               : 'नीचे अक्सर पूछे जाने वाले सवालों के उत्तर देखें या सीधे हमारे ऑफिशियल ईमेल पर संपर्क करें।'}
           </p>
         </div>
@@ -225,10 +231,10 @@ export default function SupportScreen({ onBack }: { onBack: () => void }) {
               </div>
               <div>
                 <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">
-                  {language === 'EN' ? 'Official Email Support' : 'ऑफिशियल ईमेल सहायता'}
+                  {language === 'EN' ? 'Official Email Support' : language === 'GU' ? 'ઓફિશિયલ ઈમેલ સપોર્ટ' : 'ऑफिशियल ईमेल सहायता'}
                 </h4>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  {language === 'EN' ? 'Verified Business Helpdesk' : 'सत्यापित बिजनेस सहायता केंद्र'}
+                  {language === 'EN' ? 'Verified Business Helpdesk' : language === 'GU' ? 'વેરિફાઈડ બિઝનેસ સહાયતા કેન્દ્ર' : 'सत्यापित बिजनेस सहायता केंद्र'}
                 </p>
               </div>
             </div>
@@ -276,12 +282,12 @@ export default function SupportScreen({ onBack }: { onBack: () => void }) {
             className="w-full py-2.5 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98]"
           >
             <Mail className="w-4 h-4" />
-            <span>{language === 'EN' ? 'Write to support@locohelp.com' : 'ईमेल भेजें (support@locohelp.com)'}</span>
+            <span>{language === 'EN' ? 'Write to support@locohelp.com' : language === 'GU' ? 'ઈમેલ મોકલો (support@locohelp.com)' : 'ईमेल भेजें (support@locohelp.com)'}</span>
             <ExternalLink className="w-3.5 h-3.5 opacity-70" />
           </button>
 
           <p className="text-[11px] text-center text-slate-400 font-medium">
-            {language === 'EN' ? '⚡ Typical response time within 24 hours' : '⚡ सामान्यतः 24 घंटे के भीतर प्रतिक्रिया'}
+            {language === 'EN' ? '⚡ Typical response time within 24 hours' : language === 'GU' ? '⚡ સામાન્ય રીતે 24 કલાકની અંદર પ્રતિસાદ' : '⚡ सामान्यतः 24 घंटे के भीतर प्रतिक्रिया'}
           </p>
         </div>
 
@@ -295,10 +301,10 @@ export default function SupportScreen({ onBack }: { onBack: () => void }) {
             </div>
             <div>
               <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">
-                {language === 'EN' ? 'Frequently Asked Questions (FAQs)' : 'अक्सर पूछे जाने वाले सवाल (FAQs)'}
+                {language === 'EN' ? 'Frequently Asked Questions (FAQs)' : language === 'GU' ? 'વારંવાર પૂછાતા પ્રશ્નો (FAQs)' : 'अक्सर पूछे जाने वाले सवाल (FAQs)'}
               </h4>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                {language === 'EN' ? 'Instant solutions to common queries' : 'सामान्य प्रश्नों के त्वरित समाधान'}
+                {language === 'EN' ? 'Instant solutions to common queries' : language === 'GU' ? 'સામાન્ય પ્રશ્નોના ત્વરિત ઉકેલો' : 'सामान्य प्रश्नों के त्वरित समाधान'}
               </p>
             </div>
           </div>
@@ -342,6 +348,8 @@ export default function SupportScreen({ onBack }: { onBack: () => void }) {
           <span className="font-medium text-[11px]">
             {language === 'EN'
               ? 'LocoHelp will never ask for your bank passwords or OTPs via email.'
+              : language === 'GU'
+              ? 'LocoHelp ક્યારેય ઈમેલ પર તમારો બેંક પાસવર્ડ કે OTP માંગતું નથી.'
               : 'LocoHelp कभी भी ईमेल पर आपका बैंक पासवर्ड या OTP नहीं मांगता।'}
           </span>
         </div>

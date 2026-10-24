@@ -2233,37 +2233,78 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                   </button>
                 </form>
 
-                <div className="flex flex-wrap gap-2 max-h-36 overflow-y-auto pr-1">
-                  {CATEGORIES.map(c => (
-                    <span
-                      key={c.id}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-[11px] text-slate-300 font-semibold"
-                    >
-                      <span>{(c as any).icon || (c as any).emoji || '🛠️'}</span>
-                      <span>{c.nameEn}</span>
-                    </span>
-                  ))}
-                  {customCategories.map(c => (
-                    <span
-                      key={c.id}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-pink-500/15 border border-pink-500/30 text-[11px] text-pink-300 font-bold"
-                    >
-                      <span>{c.icon}</span>
-                      <span>{c.name}</span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const updated = customCategories.filter(x => x.id !== c.id);
-                          setCustomCategories(updated);
-                          try {
-                            localStorage.setItem('locohelp_custom_categories', JSON.stringify(updated));
-                          } catch {}
-                        }}
-                        className="ml-1 text-pink-400 hover:text-white cursor-pointer"
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 max-h-96 overflow-y-auto pr-1">
+                  {CATEGORIES.map(c => {
+                    const catRegCount = helpers.filter(
+                      h => (h.categoryId || h.category) === c.id
+                    ).length;
+                    const hasImg = Boolean(categoryImages[c.id]);
+                    return (
+                      <div
+                        key={c.id}
+                        className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-xl bg-slate-900 border border-slate-800 hover:border-slate-700 transition-all"
                       >
-                        ×
-                      </button>
-                    </span>
+                        <div className="w-full sm:w-auto min-w-0">
+                          <div className="text-sm sm:text-base font-bold text-white leading-snug break-words">
+                            {(c as any).icon || (c as any).emoji || '🛠️'} {c.nameEn}
+                          </div>
+                          {c.nameHi && (
+                            <div className="text-xs font-semibold text-amber-400/90 leading-snug break-words mt-0.5">
+                              {c.nameHi}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex flex-wrap items-center justify-between gap-2 w-full sm:w-auto shrink-0 pt-1.5 sm:pt-0 border-t sm:border-t-0 border-slate-800/80">
+                          <span className="px-2 py-0.5 rounded-lg bg-slate-800 text-slate-300 text-[11px] font-bold">
+                            {catRegCount} Experts
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => openModule('category_images')}
+                            className="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[11px] font-bold cursor-pointer"
+                          >
+                            {hasImg ? 'Edit 16:9 Image' : 'Upload Image'}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {customCategories.map(c => (
+                    <div
+                      key={c.id}
+                      className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-xl bg-pink-500/10 border border-pink-500/30"
+                    >
+                      <div className="w-full sm:w-auto min-w-0">
+                        <div className="text-sm sm:text-base font-bold text-pink-200 leading-snug break-words">
+                          {c.icon} {c.name}
+                        </div>
+                        {c.nameHi && (
+                          <div className="text-xs font-semibold text-pink-300/90 leading-snug break-words mt-0.5">
+                            {c.nameHi}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-between gap-2 w-full sm:w-auto shrink-0 pt-1.5 sm:pt-0 border-t sm:border-t-0 border-pink-500/20">
+                        <span className="px-2 py-0.5 rounded-lg bg-pink-500/20 text-pink-200 text-[11px] font-bold">
+                          Custom Category
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const updated = customCategories.filter(x => x.id !== c.id);
+                            setCustomCategories(updated);
+                            try {
+                              localStorage.setItem('locohelp_custom_categories', JSON.stringify(updated));
+                            } catch {}
+                          }}
+                          className="px-2.5 py-1 rounded-lg bg-red-600/20 hover:bg-red-600/35 border border-red-500/30 text-red-300 text-[11px] font-bold cursor-pointer"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -2306,11 +2347,15 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                 ).map(([catName, catItems]) => {
                   const itemsList = catItems as any[];
                   return (
-                    <div key={catName} className="rounded-2xl bg-[#111827] border border-slate-800 p-4.5 space-y-3">
-                      <div className="flex items-center justify-between pb-2.5 border-b border-slate-800">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-black text-amber-400">🏷️ Category: {catName}</span>
-                          <span className="text-[10px] bg-slate-800 text-slate-300 font-extrabold px-2 py-0.5 rounded-full">
+                    <div key={catName} className="rounded-2xl bg-[#111827] border border-slate-800 p-4 sm:p-5 space-y-3">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-xl bg-slate-900/80 border border-slate-800">
+                        <div className="w-full sm:w-auto min-w-0">
+                          <span className="text-sm sm:text-base font-bold text-amber-400 leading-snug break-words block">
+                            🏷️ Category: {catName}
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap items-center justify-between gap-2 w-full sm:w-auto shrink-0">
+                          <span className="text-[11px] bg-slate-800 text-slate-300 font-extrabold px-2.5 py-1 rounded-full">
                             {itemsList.length} Approved Profiles
                           </span>
                         </div>
@@ -2328,53 +2373,58 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                         return (
                           <div
                             key={item.id}
-                            className="p-3.5 rounded-xl bg-slate-950/90 border border-slate-800/90 hover:border-emerald-500/40 transition-all flex items-start justify-between gap-2"
+                            className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-xl bg-slate-950/90 border border-slate-800/90 hover:border-emerald-500/40 transition-all"
                           >
                             <div className="min-w-0 flex-1 space-y-1">
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <span className="text-xs font-black text-white">{title}</span>
-                                <span className="text-[9px] bg-emerald-500/20 text-emerald-400 font-extrabold px-1.5 py-0.2 rounded-full border border-emerald-500/30">
-                                  ✓ Verified
-                                </span>
+                              <div className="text-sm sm:text-base font-bold text-white leading-snug break-words">
+                                {title}
+                              </div>
+                              <div className="text-xs font-bold text-amber-400 leading-snug break-words">
+                                {catName}
                               </div>
                               {phone && (
-                                <p className="text-[11px] font-bold text-slate-300 flex items-center gap-1">
+                                <p className="text-[11px] font-bold text-slate-300 flex items-center gap-1 break-words">
                                   <Phone className="w-3 h-3 text-emerald-400 shrink-0" /> +91 {phone}
                                 </p>
                               )}
                               {area && (
-                                <p className="text-[10px] text-slate-400 flex items-center gap-1">
+                                <p className="text-[10px] text-slate-400 flex items-center gap-1 break-words">
                                   <MapPin className="w-3 h-3 text-orange-400 shrink-0" /> {area}
                                 </p>
                               )}
                               {desc && (
-                                <p className="text-[11px] text-slate-400 line-clamp-2">{desc}</p>
+                                <p className="text-[11px] text-slate-400 line-clamp-2 break-words">{desc}</p>
                               )}
                             </div>
 
-                            <div className="flex flex-col gap-1 shrink-0">
-                              <button
-                                onClick={() => setViewingItem({ module: activeModule, data: { ...item, idDocumentWatermarked: idDoc } })}
-                                className="p-1.5 rounded-lg bg-slate-800 text-cyan-400 text-xs font-bold hover:bg-slate-700 cursor-pointer"
-                                title="View Details"
-                              >
-                                <Eye className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                onClick={() => openEditModal(activeModule, item)}
-                                className="p-1.5 rounded-lg bg-slate-800 text-amber-400 text-xs font-bold hover:bg-slate-700 cursor-pointer"
-                                title="Edit Profile"
-                              >
-                                <Edit3 className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                onClick={() => handleStatusAction(activeModule, item, 'rejected')}
-                                disabled={isBusy}
-                                className="p-1.5 rounded-lg bg-red-500/15 text-red-400 text-xs font-bold hover:bg-red-500/25 cursor-pointer disabled:opacity-50"
-                                title="Revoke Approval (Revert to Rejected)"
-                              >
-                                <X className="w-3.5 h-3.5" />
-                              </button>
+                            <div className="flex flex-wrap items-center justify-between gap-2 w-full sm:w-auto shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-800/80">
+                              <span className="text-[10px] bg-emerald-500/20 text-emerald-400 font-extrabold px-2 py-0.5 rounded-full border border-emerald-500/30">
+                                ✓ Verified
+                              </span>
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  onClick={() => setViewingItem({ module: activeModule, data: { ...item, idDocumentWatermarked: idDoc } })}
+                                  className="p-1.5 rounded-lg bg-slate-800 text-cyan-400 text-xs font-bold hover:bg-slate-700 cursor-pointer"
+                                  title="View Details"
+                                >
+                                  <Eye className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => openEditModal(activeModule, item)}
+                                  className="p-1.5 rounded-lg bg-slate-800 text-amber-400 text-xs font-bold hover:bg-slate-700 cursor-pointer"
+                                  title="Edit Profile"
+                                >
+                                  <Edit3 className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => handleStatusAction(activeModule, item, 'rejected')}
+                                  disabled={isBusy}
+                                  className="p-1.5 rounded-lg bg-red-500/15 text-red-400 text-xs font-bold hover:bg-red-500/25 cursor-pointer disabled:opacity-50"
+                                  title="Revoke Approval (Revert to Rejected)"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
                             </div>
                           </div>
                         );
@@ -2403,6 +2453,8 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                     'Entry #' + String(item.id).slice(-5);
 
                   const subtitle =
+                    item.customCategoryName ||
+                    item.categoryLabel ||
                     item.jobRole ||
                     item.category ||
                     item.headline ||
@@ -2436,43 +2488,48 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                     >
                       {/* Left Content */}
                       <div className="space-y-2 flex-1 min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span
-                            className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border ${
-                              status === 'approved'
-                                ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                                : status === 'rejected'
-                                ? 'bg-red-500/15 text-red-400 border-red-500/30'
-                                : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                            }`}
-                          >
-                            {status === 'approved' ? '✓ Approved' : status === 'rejected' ? '✕ Rejected' : '⏳ Pending Approval'}
-                          </span>
-
-                          <span className="px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 text-[11px] font-bold">
-                            {subtitle}
-                          </span>
-
-                          {extraBadge && (
-                            <span className="px-2.5 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 text-[11px] font-bold">
-                              {extraBadge}
+                        {/* Top Row: Full Category Name & Status Badges */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-900/70 border border-slate-800/80">
+                          <div className="w-full sm:w-auto min-w-0">
+                            <span className="text-sm sm:text-base font-bold text-amber-400 leading-snug break-words block">
+                              🏷️ {subtitle}
                             </span>
-                          )}
+                          </div>
 
-                          {item.linkedBusinessId && (
-                            <span className="px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[10px] font-black">
-                              🔗 Linked Registered Business
+                          <div className="flex flex-wrap items-center justify-between gap-2 w-full sm:w-auto">
+                            <span
+                              className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border ${
+                                status === 'approved'
+                                  ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                                  : status === 'rejected'
+                                  ? 'bg-red-500/15 text-red-400 border-red-500/30'
+                                  : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                              }`}
+                            >
+                              {status === 'approved' ? '✓ Approved' : status === 'rejected' ? '✕ Rejected' : '⏳ Pending Approval'}
                             </span>
-                          )}
 
-                          {idDoc && (
-                            <span className="px-2.5 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 text-[10px] font-black">
-                              🪪 ID Document Attached
-                            </span>
-                          )}
+                            {extraBadge && (
+                              <span className="px-2.5 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 text-[11px] font-bold break-words">
+                                {extraBadge}
+                              </span>
+                            )}
+
+                            {item.linkedBusinessId && (
+                              <span className="px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[10px] font-black">
+                                🔗 Linked Registered Business
+                              </span>
+                            )}
+
+                            {idDoc && (
+                              <span className="px-2.5 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 text-[10px] font-black">
+                                🪪 ID Document Attached
+                              </span>
+                            )}
+                          </div>
                         </div>
 
-                        <h3 className="text-base sm:text-lg font-black text-white break-words">
+                        <h3 className="text-base sm:text-lg font-black text-white leading-snug break-words">
                           {title}
                         </h3>
 
@@ -2658,22 +2715,22 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
 
                       <div className="p-4 space-y-2 flex-1 flex flex-col justify-between">
                         <div>
-                          <div className="flex items-center justify-between gap-2">
-                            <h3 className="text-base font-black text-white truncate">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                            <h3 className="text-sm sm:text-base font-bold text-white leading-snug break-words">
                               {ad.businessName}
                             </h3>
                             <span className="text-[11px] font-bold text-slate-400 shrink-0">
                               {ad.area}
                             </span>
                           </div>
-                          <p className="text-xs font-bold text-amber-300 mt-0.5">{ad.offerTitle}</p>
+                          <p className="text-xs font-bold text-amber-300 mt-0.5 leading-snug break-words">{ad.offerTitle}</p>
                           {ad.description && (
-                            <p className="text-xs text-slate-400 mt-1 line-clamp-2">{ad.description}</p>
+                            <p className="text-xs text-slate-400 mt-1 line-clamp-2 break-words">{ad.description}</p>
                           )}
                           {ad.destinationUrl && (
-                            <p className="text-[11px] text-cyan-400 font-semibold mt-1.5 truncate flex items-center gap-1">
+                            <p className="text-[11px] text-cyan-400 font-semibold mt-1.5 flex items-center gap-1 break-all">
                               <ExternalLink className="w-3 h-3 shrink-0" />
-                              <span className="truncate">{ad.destinationUrl}</span>
+                              <span>{ad.destinationUrl}</span>
                             </p>
                           )}
                         </div>
@@ -2854,27 +2911,34 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                       </span>
                     </div>
 
-                    {/* Category Title & Add / Edit / Delete Controls */}
-                    <div className="p-4 space-y-3">
-                      <div>
-                        <h3 className="text-sm sm:text-base font-black text-white leading-tight">
-                          {cat.nameEn}
-                        </h3>
-                        <p className="text-xs font-bold text-amber-400/90 mt-0.5">
-                          {cat.nameHi}
-                        </p>
+                    {/* Category Title & Add / Edit / Delete Controls (Responsive 2-Row Layout, Zero Truncation) */}
+                    <div className="flex flex-col justify-between gap-2 p-3 sm:p-4">
+                      {/* Top Row / Full Width: Complete Category Name */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div className="w-full sm:w-auto min-w-0">
+                          <h3 className="text-sm sm:text-base font-bold text-white leading-snug break-words">
+                            {cat.nameEn}
+                          </h3>
+                          <p className="text-xs font-bold text-amber-400/90 mt-0.5 leading-snug break-words">
+                            {cat.nameHi}
+                          </p>
+                        </div>
+                        <span className="self-start sm:self-center px-2.5 py-0.5 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-slate-300 shrink-0">
+                          {helpers.filter(h => (h.categoryId || h.category) === cat.id).length} Registered
+                        </span>
                       </div>
 
-                      <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-800/80">
+                      {/* Bottom Row: Action Buttons neatly aligned below title */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 w-full pt-2 border-t border-slate-800/80">
                         {/* Direct Device File Upload Button (Add or Edit/Replace) */}
                         <label
-                          className={`flex-1 min-w-[120px] px-3 py-2 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
+                          className={`flex-1 min-w-[130px] px-3 py-2 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
                             currentImg
                               ? 'bg-blue-600 hover:bg-blue-500 text-white'
                               : 'bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white shadow-sm'
                           } ${isBusy ? 'opacity-50 pointer-events-none' : ''}`}
                         >
-                          <Upload className="w-3.5 h-3.5" />
+                          <Upload className="w-3.5 h-3.5 shrink-0" />
                           <span>
                             {isBusy
                               ? 'Saving...'
@@ -3102,15 +3166,15 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                               </div>
                             )}
                             <div className="min-w-0 flex-1">
-                              <h3 className="text-sm sm:text-base font-black text-white truncate">
+                              <h3 className="text-sm sm:text-base font-bold text-white leading-snug break-words">
                                 {rec.name || 'Unnamed Record'}
                               </h3>
                               {rec.category && (
-                                <p className="text-xs font-bold text-amber-400 truncate">
+                                <p className="text-xs font-bold text-amber-400 leading-snug break-words mt-0.5">
                                   Category / Role: {rec.category}
                                 </p>
                               )}
-                              <p className="text-[11px] text-slate-400 font-mono truncate">
+                              <p className="text-[11px] text-slate-400 font-mono break-all mt-0.5">
                                 Vault ID: {rec.recordId}
                               </p>
                             </div>

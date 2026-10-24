@@ -292,7 +292,13 @@ export default function CategoriesScreen({
           >
             <div className="flex items-center gap-2">
               <CheckCircle2 className="w-5 h-5 shrink-0" />
-              <span>{language === 'EN' ? 'Profile submitted for Admin review!' : 'प्रोफाइल एडमिन समीक्षा के लिए सबमिट हो गई!'}</span>
+              <span>
+                {language === 'EN'
+                  ? 'Profile submitted for Admin review!'
+                  : language === 'GU'
+                  ? 'પ્રોફાઇલ એડમિન સમીક્ષા માટે સબમિટ થઈ ગઈ!'
+                  : 'प्रोफाइल एडमिन समीक्षा के लिए सबमिट हो गई!'}
+              </span>
             </div>
             <button onClick={() => setShowSuccessToast(false)}>
               <X className="w-4 h-4" />
@@ -334,7 +340,11 @@ export default function CategoriesScreen({
               <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
                 {activeCategory === 'all' 
                   ? t('cat.headerSubtitleAll')
-                  : `Total ${categoryHelpers.length} approved profiles`}
+                  : language === 'EN'
+                  ? `Total ${categoryHelpers.length} approved profiles`
+                  : language === 'GU'
+                  ? `કુલ ${categoryHelpers.length} મંજૂર પ્રોફાઇલ્સ`
+                  : `कुल ${categoryHelpers.length} अप्रूव्ड प्रोफाइल्स`}
               </p>
             </div>
           </div>
@@ -397,12 +407,12 @@ export default function CategoriesScreen({
                     </div>
 
                     <div className="flex items-center justify-between gap-2 p-2.5 sm:p-3 border-t border-[#EAE6DC] dark:border-slate-700/80">
-                      <h4 className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white leading-tight truncate">
+                      <h4 className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white leading-snug break-words">
                         {getCategoryName(cat, language)}
                       </h4>
                       <div className="flex items-center gap-1 shrink-0">
-                        <span className="text-[10px] font-extrabold bg-amber-100 dark:bg-amber-950/80 text-amber-900 dark:text-amber-300 px-2 py-0.5 rounded-full whitespace-nowrap">
-                          {count} Registered
+                        <span className="text-[11px] font-black bg-amber-100 dark:bg-amber-950/80 text-amber-900 dark:text-amber-300 px-2 py-0.5 rounded-full whitespace-nowrap">
+                          {count}
                         </span>
                         <ChevronRight className="w-4 h-4 text-amber-600 shrink-0" />
                       </div>
@@ -459,8 +469,16 @@ export default function CategoriesScreen({
               <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-6 text-center space-y-3">
                 <p className="text-xs font-bold text-slate-600 dark:text-slate-300">
                   {citySearchQuery 
-                    ? `"${citySearchQuery}" me abhi tak koi ${getCategoryName(activeCategoryObj, language)} register nahi hua hai.`
-                    : `Abhi tak is category me koi approved profile nahi hai.`}
+                    ? language === 'EN'
+                      ? `No ${getCategoryName(activeCategoryObj, language)} registered in "${citySearchQuery}" yet.`
+                      : language === 'GU'
+                      ? `"${citySearchQuery}" માં હજુ સુધી કોઈ ${getCategoryName(activeCategoryObj, language)} રજિસ્ટર થયેલ નથી.`
+                      : `"${citySearchQuery}" में अभी तक कोई ${getCategoryName(activeCategoryObj, language)} रजिस्टर नहीं हुआ है।`
+                    : language === 'EN'
+                    ? 'No approved profile in this category yet.'
+                    : language === 'GU'
+                    ? 'હજુ સુધી આ કેટેગરીમાં કોઈ મંજૂર પ્રોફાઇલ નથી.'
+                    : 'अभी तक इस कैटेगरी में कोई अप्रूव्ड प्रोफाइल नहीं है।'}
                 </p>
                 <button
                   onClick={() => {
@@ -472,7 +490,7 @@ export default function CategoriesScreen({
                   }}
                   className="bg-emerald-600 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl shadow-sm hover:bg-emerald-700 transition-colors cursor-pointer"
                 >
-                  + {getCategoryName(activeCategoryObj, language)} Profile Banayein
+                  + {getCategoryName(activeCategoryObj, language)} {language === 'EN' ? 'Create Profile' : language === 'GU' ? 'પ્રોફાઇલ બનાવો' : 'प्रोफाइल बनाएं'}
                 </button>
               </div>
             ) : (
@@ -543,10 +561,10 @@ export default function CategoriesScreen({
                                 setIsRegisterOpen(true);
                               }}
                               className="flex-1 bg-amber-500 hover:bg-amber-600 text-white font-extrabold py-2 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-2xs active:scale-95 transition-all cursor-pointer"
-                              title={language === 'EN' ? 'Edit your service expert profile' : 'अपनी प्रोफाइल एडिट करें'}
+                              title={language === 'EN' ? 'Edit your service expert profile' : language === 'GU' ? 'તમારી પ્રોફાઇલ એડિટ કરો' : 'अपनी प्रोफाइल एडिट करें'}
                             >
                               <Edit3 className="w-3.5 h-3.5" />
-                              <span>{language === 'EN' ? 'Edit Profile' : 'प्रोफ़ाइल एडिट करें'}</span>
+                              <span>{language === 'EN' ? 'Edit Profile' : language === 'GU' ? 'પ્રોફાઇલ એડિટ કરો' : 'प्रोफ़ाइल एडिट करें'}</span>
                             </button>
                           ) : (
                             <button 
@@ -569,7 +587,7 @@ export default function CategoriesScreen({
                               className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold py-2 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-2xs active:scale-95 transition-all cursor-pointer"
                             >
                               <MessageSquare className="w-3.5 h-3.5" />
-                              <span>{language === 'EN' ? 'Chat on Website App' : 'वेबसाइट पर चैट करें'}</span>
+                              <span>{language === 'EN' ? 'Chat on Website App' : language === 'GU' ? 'વેબસાઈટ પર ચેટ કરો' : 'वेबसाइट पर चैट करें'}</span>
                             </button>
                           )}
 
