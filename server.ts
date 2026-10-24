@@ -890,10 +890,47 @@ function redactBulkItemForPrivacy(item: Record<string, any>, isAuthenticatedCall
 let dbPool: pg.Pool | null = null;
 let isDbConnected = false;
 
+const DEFAULT_CATEGORIES_SEED = [
+  { id: "electrician", name: "Electrician (इलेक्ट्रीशियन)", icon: "⚡" },
+  { id: "plumber", name: "Plumber (प्लंबर)", icon: "🚰" },
+  { id: "ac_appliance", name: "AC & Appliance Repair (एसी/फ्रिज रिपेयर)", icon: "❄️" },
+  { id: "carpenter", name: "Carpenter (कारपेंटर / बढ़ई)", icon: "🪚" },
+  { id: "painter", name: "Painter & POP (पेंटर / पुताई)", icon: "🎨" },
+  { id: "cleaning_pest", name: "Home Cleaning & Maid (सफाई / मेड)", icon: "🧹" },
+  { id: "mechanic", name: "Bike & Car Mechanic (मैकेनिक)", icon: "🔧" },
+  { id: "driver_cab", name: "Driver & Auto/Cab (ड्राइवर / कैब)", icon: "🚕" },
+  { id: "tutor", name: "Home Tutor & Coaching (होम ट्यूटर)", icon: "📚" },
+  { id: "beauty_parlour", name: "Beauty & Salon at Home (ब्यूटी पार्लर)", icon: "💇‍♀️" },
+  { id: "tailor", name: "Tailor & Boutique (दर्जी / बुटीक)", icon: "🧵" },
+  { id: "tiffin_catering", name: "Tiffin & Catering (टिफिन / कैटरिंग)", icon: "🍱" },
+  { id: "computer_mobile", name: "Computer & Mobile Repair (मोबाइल/लैपटॉप)", icon: "💻" },
+  { id: "cctv_security", name: "CCTV & Security Guards (सीसीटीवी / गार्ड)", icon: "📹" },
+  { id: "packers_movers", name: "Packers, Movers & Tempo (पैकर्स / टेम्पो)", icon: "🚚" },
+  { id: "civil_mason", name: "Mason & Construction (कड़िया / मिस्त्री)", icon: "🧱" },
+  { id: "welder_fabrication", name: "Welding & Fabrication (वेल्डिंग / फेब्रिकेशन)", icon: "🔥" },
+  { id: "gardening", name: "Gardener & Nursery (माली / गार्डनिंग)", icon: "🪴" },
+  { id: "event_photo", name: "Photographer & DJ/Events (फोटोग्राफर / इवेंट)", icon: "📸" },
+  { id: "astrology_pandit", name: "Pandit Ji & Astrology (पंडित जी / पूजा)", icon: "🕉️" },
+  { id: "medical_nursing", name: "Nursing & Medical Care (नर्सिंग / केयर)", icon: "🩺" },
+  { id: "other", name: "Other Local Services (अन्य सेवाएं)", icon: "🛠️" }
+];
+
 async function initPostgresTables(pool: pg.Pool) {
   try {
     await pool.query(`
-      -- 1. Table: user (Columns: id, name, phone, email, created_at)
+      -- 1. Required Table: users (id, name, email UNIQUE, password_hash, phone, role, avatar_url, created_at)
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        name TEXT,
+        email TEXT UNIQUE,
+        password_hash TEXT,
+        phone TEXT,
+        role TEXT DEFAULT 'user',
+        avatar_url TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+
+      -- Legacy compatibility table: "user"
       CREATE TABLE IF NOT EXISTS "user" (
         id TEXT PRIMARY KEY,
         name TEXT,
@@ -902,27 +939,147 @@ async function initPostgresTables(pool: pg.Pool) {
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       );
 
-      -- 2. Table: businesses (Columns: id, owner_id, business_name, category, address, phone, created_at)
+      -- 2. Required Table: categories (id PRIMARY KEY, name, icon, image_url TEXT, registered_count, updated_at)
+      CREATE TABLE IF NOT EXISTS categories (
+        id TEXT PRIMARY KEY,
+        name TEXT,
+        icon TEXT,
+        image_url TEXT,
+        registered_count INTEGER DEFAULT 0,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS category_images (
+        category_id TEXT PRIMARY KEY,
+        image_url TEXT NOT NULL,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+
+      -- 3. Required Table: profiles (id/uid, user_id, name, category_id, category_name, phone, whatsapp, city, sector, experience, description, image_url TEXT, verified, rating, created_at)
+      CREATE TABLE IF NOT EXISTS profiles (
+        uid TEXT PRIMARY KEY,
+        id TEXT,
+        user_id TEXT,
+        name TEXT,
+        full_name TEXT,
+        email TEXT,
+        category_id TEXT,
+        category_name TEXT,
+        phone TEXT,
+        whatsapp TEXT,
+        city TEXT,
+        sector TEXT,
+        address TEXT,
+        experience TEXT,
+        skills TEXT,
+        description TEXT,
+        image_url TEXT,
+        avatar_url TEXT,
+        verified BOOLEAN DEFAULT false,
+        is_verified BOOLEAN DEFAULT false,
+        status TEXT DEFAULT 'pending',
+        rating NUMERIC DEFAULT 5.0,
+        my_helper_profile JSONB,
+        raw_json JSONB,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+
+      ALTER TABLE profiles ADD COLUMN IF NOT EXISTS id TEXT;
+      ALTER TABLE profiles ADD COLUMN IF NOT EXISTS user_id TEXT;
+      ALTER TABLE profiles ADD COLUMN IF NOT EXISTS name TEXT;
+      ALTER TABLE profiles ADD COLUMN IF NOT EXISTS category_id TEXT;
+      ALTER TABLE profiles ADD COLUMN IF NOT EXISTS category_name TEXT;
+      ALTER TABLE profiles ADD COLUMN IF NOT EXISTS whatsapp TEXT;
+      ALTER TABLE profiles ADD COLUMN IF NOT EXISTS city TEXT;
+      ALTER TABLE profiles ADD COLUMN IF NOT EXISTS sector TEXT;
+      ALTER TABLE profiles ADD COLUMN IF NOT EXISTS description TEXT;
+      ALTER TABLE profiles ADD COLUMN IF NOT EXISTS image_url TEXT;
+      ALTER TABLE profiles ADD COLUMN IF NOT EXISTS verified BOOLEAN DEFAULT false;
+      ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT false;
+      ALTER TABLE profiles ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pending';
+      ALTER TABLE profiles ADD COLUMN IF NOT EXISTS rating NUMERIC DEFAULT 5.0;
+      ALTER TABLE profiles ADD COLUMN IF NOT EXISTS raw_json JSONB;
+      ALTER TABLE profiles ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
+
+      -- 4. Required Table: businesses & shops
       CREATE TABLE IF NOT EXISTS businesses (
         id TEXT PRIMARY KEY,
+        user_id TEXT,
         owner_id TEXT,
+        shop_name TEXT,
         business_name TEXT,
         category TEXT,
-        address TEXT,
         phone TEXT,
+        address TEXT,
+        sector TEXT,
+        description TEXT,
+        image_url TEXT,
+        is_approved BOOLEAN DEFAULT false,
+        is_verified BOOLEAN DEFAULT false,
+        raw_json JSONB,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       );
 
-      -- 3. Table: chats (Columns: id, sender_id, receiver_id, message, sent_at)
-      CREATE TABLE IF NOT EXISTS chats (
+      ALTER TABLE businesses ADD COLUMN IF NOT EXISTS user_id TEXT;
+      ALTER TABLE businesses ADD COLUMN IF NOT EXISTS shop_name TEXT;
+      ALTER TABLE businesses ADD COLUMN IF NOT EXISTS sector TEXT;
+      ALTER TABLE businesses ADD COLUMN IF NOT EXISTS description TEXT;
+      ALTER TABLE businesses ADD COLUMN IF NOT EXISTS image_url TEXT;
+      ALTER TABLE businesses ADD COLUMN IF NOT EXISTS is_approved BOOLEAN DEFAULT false;
+      ALTER TABLE businesses ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT false;
+      ALTER TABLE businesses ADD COLUMN IF NOT EXISTS raw_json JSONB;
+
+      CREATE TABLE IF NOT EXISTS shops (
         id TEXT PRIMARY KEY,
-        sender_id TEXT,
-        receiver_id TEXT,
-        message TEXT,
-        sent_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        name TEXT,
+        type TEXT,
+        category_label TEXT,
+        owner_name TEXT,
+        phone TEXT,
+        area TEXT,
+        address TEXT,
+        description TEXT,
+        photo_url TEXT,
+        rating NUMERIC DEFAULT 5.0,
+        review_count INTEGER DEFAULT 1,
+        is_verified BOOLEAN DEFAULT true,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       );
 
-      -- 4. Table: listings (Columns: id, user_id, title, description, location, created_at)
+      -- 5. Required Table: ads (id PRIMARY KEY, title, subtitle, target_url, market_area, status, description, image_url TEXT, created_at)
+      CREATE TABLE IF NOT EXISTS ads (
+        id TEXT PRIMARY KEY,
+        title TEXT,
+        subtitle TEXT,
+        target_url TEXT,
+        market_area TEXT,
+        status TEXT DEFAULT 'active',
+        description TEXT,
+        image_url TEXT,
+        raw_json JSONB,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS ad_banners (
+        id TEXT PRIMARY KEY,
+        data JSONB NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+
+      -- 6. Required Table: posts (id PRIMARY KEY, user_id, author_name, content, image_url TEXT, category, city, created_at)
+      CREATE TABLE IF NOT EXISTS posts (
+        id TEXT PRIMARY KEY,
+        user_id TEXT,
+        author_name TEXT,
+        content TEXT,
+        image_url TEXT,
+        category TEXT,
+        city TEXT,
+        raw_json JSONB,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+
       CREATE TABLE IF NOT EXISTS listings (
         id TEXT PRIMARY KEY,
         user_id TEXT,
@@ -930,29 +1087,6 @@ async function initPostgresTables(pool: pg.Pool) {
         description TEXT,
         location TEXT,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-      );
-
-      -- Compatibility tables
-      CREATE TABLE IF NOT EXISTS user_passwords (
-        email TEXT PRIMARY KEY,
-        uid TEXT,
-        name TEXT,
-        phone TEXT,
-        password_hash TEXT,
-        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-      );
-
-      CREATE TABLE IF NOT EXISTS profiles (
-        uid TEXT PRIMARY KEY,
-        full_name TEXT,
-        email TEXT,
-        phone TEXT,
-        avatar_url TEXT,
-        skills TEXT,
-        address TEXT,
-        experience TEXT,
-        my_helper_profile JSONB,
-        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       );
 
       CREATE TABLE IF NOT EXISTS broadcast_posts (
@@ -973,6 +1107,14 @@ async function initPostgresTables(pool: pg.Pool) {
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       );
 
+      CREATE TABLE IF NOT EXISTS chats (
+        id TEXT PRIMARY KEY,
+        sender_id TEXT,
+        receiver_id TEXT,
+        message TEXT,
+        sent_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+
       CREATE TABLE IF NOT EXISTS messages (
         id TEXT PRIMARY KEY,
         intent_id TEXT,
@@ -986,21 +1128,13 @@ async function initPostgresTables(pool: pg.Pool) {
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       );
 
-      CREATE TABLE IF NOT EXISTS shops (
-        id TEXT PRIMARY KEY,
+      CREATE TABLE IF NOT EXISTS user_passwords (
+        email TEXT PRIMARY KEY,
+        uid TEXT,
         name TEXT,
-        type TEXT,
-        category_label TEXT,
-        owner_name TEXT,
         phone TEXT,
-        area TEXT,
-        address TEXT,
-        description TEXT,
-        photo_url TEXT,
-        rating NUMERIC DEFAULT 5.0,
-        review_count INTEGER DEFAULT 1,
-        is_verified BOOLEAN DEFAULT true,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        password_hash TEXT,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       );
 
       CREATE TABLE IF NOT EXISTS helpers (
@@ -1028,7 +1162,6 @@ async function initPostgresTables(pool: pg.Pool) {
         reported_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       );
 
-      -- Identity Verification & Watermarked Document Store (Admin-Only Privacy)
       CREATE TABLE IF NOT EXISTS verification_requests (
         id TEXT PRIMARY KEY,
         entity_type TEXT DEFAULT 'user_profile',
@@ -1045,7 +1178,6 @@ async function initPostgresTables(pool: pg.Pool) {
         admin_notes TEXT
       );
 
-      -- 5. Table: otp_codes (Columns: id, identifier, code, type, attempts, expires_at, created_at)
       CREATE TABLE IF NOT EXISTS otp_codes (
         id SERIAL PRIMARY KEY,
         identifier TEXT NOT NULL,
@@ -1057,22 +1189,10 @@ async function initPostgresTables(pool: pg.Pool) {
       );
       CREATE INDEX IF NOT EXISTS idx_otp_codes_identifier ON otp_codes(identifier);
 
-      CREATE TABLE IF NOT EXISTS category_images (
-        category_id TEXT PRIMARY KEY,
-        image_url TEXT NOT NULL,
-        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-      );
-
       CREATE TABLE IF NOT EXISTS job_portal_items (
         id TEXT PRIMARY KEY,
         type TEXT NOT NULL,
         status TEXT DEFAULT 'pending',
-        data JSONB NOT NULL,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-      );
-
-      CREATE TABLE IF NOT EXISTS ad_banners (
-        id TEXT PRIMARY KEY,
         data JSONB NOT NULL,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       );
@@ -1086,9 +1206,271 @@ async function initPostgresTables(pool: pg.Pool) {
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       );
     `);
-    console.log("[Railway PostgreSQL] All tables (user, businesses, chats, listings, otp_codes, verification_requests, category_images, job_portal_items, ad_banners, security_vault) verified and ready.");
+
+    for (const cat of DEFAULT_CATEGORIES_SEED) {
+      await pool.query(
+        `INSERT INTO categories (id, name, icon, registered_count, updated_at)
+         VALUES ($1, $2, $3, 0, NOW())
+         ON CONFLICT (id) DO UPDATE SET
+           name = COALESCE(NULLIF(categories.name, ''), EXCLUDED.name),
+           icon = COALESCE(NULLIF(categories.icon, ''), EXCLUDED.icon)`,
+        [cat.id, cat.name, cat.icon]
+      ).catch(() => {});
+    }
+
+    console.log("[Railway PostgreSQL] All tables (users, categories, profiles, businesses, shops, ads, posts, listings, chats, messages, helpers, otp_codes, verification_requests, category_images, job_portal_items, ad_banners, security_vault) verified and ready.");
   } catch (err: any) {
     console.warn("[Railway PostgreSQL] Table init note:", err.message);
+  }
+}
+
+async function syncJsonFilesToPostgres(pool: pg.Pool) {
+  try {
+    const catImgs = readJsonFile<Record<string, string>>(CATEGORY_IMAGES_FILE, {});
+    for (const [catId, imgUrl] of Object.entries(catImgs)) {
+      if (catId && imgUrl) {
+        await pool.query(
+          `INSERT INTO category_images (category_id, image_url, updated_at)
+           VALUES ($1, $2, NOW())
+           ON CONFLICT (category_id) DO UPDATE SET image_url = EXCLUDED.image_url, updated_at = NOW()`,
+          [catId, imgUrl]
+        ).catch(() => {});
+        await pool.query(
+          `INSERT INTO categories (id, name, image_url, updated_at)
+           VALUES ($1, $1, $2, NOW())
+           ON CONFLICT (id) DO UPDATE SET image_url = EXCLUDED.image_url, updated_at = NOW()`,
+          [catId, imgUrl]
+        ).catch(() => {});
+      }
+    }
+    const existingCatImgs = await pool.query("SELECT category_id, image_url FROM category_images").catch(() => ({ rows: [] as any[] }));
+    for (const r of existingCatImgs.rows) {
+      if (r.category_id && r.image_url) {
+        await pool.query(
+          `INSERT INTO categories (id, name, image_url, updated_at)
+           VALUES ($1, $1, $2, NOW())
+           ON CONFLICT (id) DO UPDATE SET image_url = COALESCE(NULLIF(categories.image_url, ''), EXCLUDED.image_url)`,
+          [r.category_id, r.image_url]
+        ).catch(() => {});
+      }
+    }
+
+    const authUsers = readJsonFile<Record<string, any>>(AUTH_USERS_FILE, {});
+    for (const [emailKey, u] of Object.entries(authUsers)) {
+      if (!u) continue;
+      const cleanEmail = String(u.email || emailKey).trim().toLowerCase();
+      if (!cleanEmail) continue;
+      const uid = String(u.uid || ('email_' + cleanEmail.replace(/[^a-z0-9]/g, '_')));
+      const name = String(u.name || cleanEmail.split('@')[0]);
+      const phone = String(u.phone || '');
+      const pwHash = String(u.passwordHash || '');
+      await pool.query(
+        `INSERT INTO users (id, name, email, password_hash, phone, role, created_at)
+         VALUES ($1, $2, $3, $4, $5, 'user', NOW())
+         ON CONFLICT (email) DO UPDATE SET
+           name = COALESCE(NULLIF(EXCLUDED.name, ''), users.name),
+           password_hash = COALESCE(NULLIF(EXCLUDED.password_hash, ''), users.password_hash),
+           phone = COALESCE(NULLIF(EXCLUDED.phone, ''), users.phone)`,
+        [uid, name, cleanEmail, pwHash, phone]
+      ).catch(() => {});
+      await pool.query(
+        `INSERT INTO "user" (id, name, phone, email, created_at)
+         VALUES ($1, $2, $3, $4, NOW())
+         ON CONFLICT (id) DO UPDATE SET name = COALESCE(NULLIF(EXCLUDED.name, ''), "user".name)`,
+        [uid, name, phone, cleanEmail]
+      ).catch(() => {});
+      if (pwHash) {
+        await pool.query(
+          `INSERT INTO user_passwords (email, uid, name, phone, password_hash, updated_at)
+           VALUES ($1, $2, $3, $4, $5, NOW())
+           ON CONFLICT (email) DO UPDATE SET password_hash = COALESCE(NULLIF(EXCLUDED.password_hash, ''), user_passwords.password_hash)`,
+          [cleanEmail, uid, name, phone, pwHash]
+        ).catch(() => {});
+      }
+    }
+
+    const profiles = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
+    for (const [uidKey, p] of Object.entries(profiles)) {
+      if (!p) continue;
+      const uid = String(p.uid || p.id || uidKey);
+      const name = String(p.full_name || p.name || p.displayName || 'Community Member');
+      const email = String(p.email || '').trim().toLowerCase();
+      const phone = String(p.phone || '');
+      const avatar = String(p.avatar_url || p.photoURL || '');
+      const skills = Array.isArray(p.skills) ? p.skills.join(', ') : String(p.skills || '');
+      const address = String(p.address || p.area || '');
+      const experience = String(p.experience || '');
+      const isVerif = Boolean(p.isVerified || p.is_verified || p.status === 'approved');
+      await pool.query(
+        `INSERT INTO profiles (uid, id, user_id, name, full_name, email, phone, avatar_url, image_url, skills, address, experience, verified, is_verified, status, my_helper_profile, raw_json, updated_at)
+         VALUES ($1, $1, $1, $2, $2, $3, $4, $5, $5, $6, $7, $8, $9, $9, $10, $11, $12, NOW())
+         ON CONFLICT (uid) DO UPDATE SET
+           name = COALESCE(NULLIF(EXCLUDED.name, ''), profiles.name),
+           full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), profiles.full_name),
+           email = COALESCE(NULLIF(EXCLUDED.email, ''), profiles.email),
+           phone = COALESCE(NULLIF(EXCLUDED.phone, ''), profiles.phone),
+           raw_json = COALESCE(EXCLUDED.raw_json, profiles.raw_json)`,
+        [uid, name, email, phone, avatar, skills, address, experience, isVerif, isVerif ? 'approved' : (p.status || 'pending'), p.myHelperProfile ? JSON.stringify(p.myHelperProfile) : null, JSON.stringify(p)]
+      ).catch(() => {});
+      if (email) {
+        await pool.query(
+          `INSERT INTO users (id, name, email, phone, avatar_url, created_at)
+           VALUES ($1, $2, $3, $4, $5, NOW())
+           ON CONFLICT (email) DO NOTHING`,
+          [uid, name, email, phone, avatar]
+        ).catch(() => {});
+      }
+    }
+
+    const helpers = readJsonFile<any[]>(HELPERS_FILE, []);
+    for (const h of helpers) {
+      if (!h || !h.id) continue;
+      const isVerif = Boolean(h.isVerified || h.is_verified || h.status === 'approved');
+      const skillsArr = Array.isArray(h.skills) ? h.skills : [String(h.categoryId || 'general')];
+      await pool.query(
+        `INSERT INTO helpers (id, name, category_id, phone, skills, area, experience, distance, is_verified, govt_id_uploaded, id_doc_url, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+         ON CONFLICT (id) DO UPDATE SET
+           name = EXCLUDED.name,
+           category_id = EXCLUDED.category_id,
+           phone = EXCLUDED.phone,
+           is_verified = EXCLUDED.is_verified`,
+        [h.id, h.name || 'Service Expert', h.categoryId || 'other', h.phone || '', skillsArr, h.area || 'Local Area', h.experience || '1 Year', Number(h.distance || 0.5), isVerif, Boolean(h.govtIdUploaded), h.idDocUrl || null]
+      ).catch(() => {});
+
+      await pool.query(
+        `INSERT INTO profiles (uid, id, user_id, name, full_name, email, category_id, category_name, phone, whatsapp, city, sector, address, experience, skills, description, image_url, verified, is_verified, status, rating, raw_json, created_at, updated_at)
+         VALUES ($1, $1, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11, $12, $13, $14, $15, $15, $16, $17, $18, NOW(), NOW())
+         ON CONFLICT (uid) DO UPDATE SET
+           id = EXCLUDED.id,
+           name = EXCLUDED.name,
+           category_id = EXCLUDED.category_id,
+           category_name = EXCLUDED.category_name,
+           phone = EXCLUDED.phone,
+           city = EXCLUDED.city,
+           sector = EXCLUDED.sector,
+           experience = EXCLUDED.experience,
+           image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), profiles.image_url),
+           verified = EXCLUDED.verified,
+           is_verified = EXCLUDED.is_verified,
+           status = EXCLUDED.status,
+           raw_json = EXCLUDED.raw_json,
+           updated_at = NOW()`,
+        [
+          h.id,
+          h.userId || h.id,
+          h.name || 'Service Expert',
+          h.email || '',
+          h.categoryId || 'other',
+          h.customCategoryName || h.categoryId || 'other',
+          h.phone || '',
+          h.whatsapp || h.phone || '',
+          h.city || 'Gandhinagar',
+          h.area || 'Local Area',
+          h.experience || '1 Year',
+          skillsArr.join(', '),
+          h.description || skillsArr.join(', '),
+          h.photoUrl || h.photo_url || '',
+          isVerif,
+          isVerif ? 'approved' : (h.status || 'pending'),
+          Number(h.rating || 5.0),
+          JSON.stringify(h)
+        ]
+      ).catch(() => {});
+    }
+
+    const shops = readJsonFile<any[]>(SHOPS_FILE, []);
+    for (const s of shops) {
+      if (!s || !s.id || String(s.id).startsWith('sample_shop_')) continue;
+      const isApproved = Boolean(s.isVerified || s.is_verified || s.status === 'approved');
+      const bName = s.name || s.businessName || s.business_name || 'Local Shop';
+      const cat = s.category || s.categoryLabel || 'Retail & Services';
+      const imgUrl = s.photoUrl || s.photo_url || (Array.isArray(s.photos) && s.photos[0]) || '';
+      await pool.query(
+        `INSERT INTO businesses (id, user_id, owner_id, shop_name, business_name, category, phone, address, sector, description, image_url, is_approved, is_verified, raw_json, created_at)
+         VALUES ($1, $2, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11, NOW())
+         ON CONFLICT (id) DO UPDATE SET
+           shop_name = EXCLUDED.shop_name,
+           business_name = EXCLUDED.business_name,
+           category = EXCLUDED.category,
+           phone = EXCLUDED.phone,
+           address = EXCLUDED.address,
+           sector = EXCLUDED.sector,
+           description = EXCLUDED.description,
+           image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), businesses.image_url),
+           is_approved = EXCLUDED.is_approved,
+           is_verified = EXCLUDED.is_verified,
+           raw_json = EXCLUDED.raw_json`,
+        [s.id, s.userId || s.owner_id || 'Owner', bName, cat, s.phone || '', s.address || s.area || '', s.area || '', s.description || '', imgUrl, isApproved, JSON.stringify(s)]
+      ).catch(() => {});
+
+      await pool.query(
+        `INSERT INTO shops (id, name, type, category_label, owner_name, phone, area, address, description, photo_url, rating, review_count, is_verified, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())
+         ON CONFLICT (id) DO UPDATE SET
+           name = EXCLUDED.name,
+           phone = EXCLUDED.phone,
+           is_verified = EXCLUDED.is_verified`,
+        [s.id, bName, s.type || 'shop', cat, s.ownerName || 'Owner', s.phone || '', s.area || '', s.address || '', s.description || '', imgUrl, Number(s.rating || 5.0), Number(s.reviewCount || 1), isApproved]
+      ).catch(() => {});
+    }
+
+    const ads = readJsonFile<any[]>(ADS_FILE, []);
+    for (const a of ads) {
+      if (!a || !a.id) continue;
+      const imgUrl = a.photoUrl || (Array.isArray(a.photos) && a.photos[0]) || '';
+      await pool.query(
+        `INSERT INTO ads (id, title, subtitle, target_url, market_area, status, description, image_url, raw_json, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+         ON CONFLICT (id) DO UPDATE SET
+           title = EXCLUDED.title,
+           subtitle = EXCLUDED.subtitle,
+           target_url = EXCLUDED.target_url,
+           market_area = EXCLUDED.market_area,
+           status = EXCLUDED.status,
+           description = EXCLUDED.description,
+           image_url = EXCLUDED.image_url,
+           raw_json = EXCLUDED.raw_json`,
+        [a.id, a.offerTitle || a.businessName || 'Featured Ad', a.businessName || a.offerBadge || '', a.destinationUrl || '', a.area || 'Local Market', a.isActive === false ? 'inactive' : 'active', a.description || '', imgUrl, JSON.stringify(a)]
+      ).catch(() => {});
+
+      await pool.query(
+        `INSERT INTO ad_banners (id, data, created_at) VALUES ($1, $2, NOW())
+         ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data`,
+        [a.id, JSON.stringify(a)]
+      ).catch(() => {});
+    }
+
+    const intents = readJsonFile<any[]>(INTENTS_FILE, []);
+    for (const i of intents) {
+      if (!i || !i.id) continue;
+      await pool.query(
+        `INSERT INTO posts (id, user_id, author_name, content, image_url, category, city, raw_json, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+         ON CONFLICT (id) DO UPDATE SET
+           content = EXCLUDED.content,
+           category = EXCLUDED.category,
+           city = EXCLUDED.city,
+           raw_json = EXCLUDED.raw_json`,
+        [i.id, i.authorId || 'user', i.authorName || 'Community Member', i.description || i.title || '', i.imageUrl || i.photoUrl || '', i.category || 'General', i.city || i.location || 'Gandhinagar', JSON.stringify(i)]
+      ).catch(() => {});
+
+      await pool.query(
+        `INSERT INTO listings (id, user_id, title, description, location, created_at)
+         VALUES ($1, $2, $3, $4, $5, NOW())
+         ON CONFLICT (id) DO UPDATE SET description = EXCLUDED.description`,
+        [i.id, i.authorId || 'user', i.category || i.title || 'General', i.description || '', i.location || i.city || 'Gandhinagar']
+      ).catch(() => {});
+    }
+
+    await pool.query(`
+      UPDATE categories c
+      SET registered_count = COALESCE((
+        SELECT COUNT(*) FROM helpers h WHERE h.category_id = c.id AND h.is_verified = true
+      ), 0)
+    `).catch(() => {});
+  } catch (syncErr: any) {
+    console.warn("[Railway PostgreSQL] Initial JSON-to-DB sync note:", syncErr.message);
   }
 }
 
@@ -1330,35 +1712,61 @@ setTimeout(() => {
 }, 1500);
 
 
-const DATABASE_URL = process.env.DATABASE_URL;
-if (DATABASE_URL) {
-  try {
-    const isLocal = DATABASE_URL.includes("localhost") || DATABASE_URL.includes("127.0.0.1");
-    dbPool = new Pool({
-      connectionString: DATABASE_URL,
-      ssl: isLocal ? false : { rejectUnauthorized: false },
-      connectionTimeoutMillis: 5000,
-    });
+const DATABASE_URL =
+  process.env.DATABASE_URL ||
+  process.env.DATABASE_PRIVATE_URL ||
+  process.env.DATABASE_PUBLIC_URL ||
+  "";
 
-    dbPool.on("error", (err) => {
+async function connectRailwayPostgres() {
+  if (!DATABASE_URL) {
+    console.log("[Database Notice] DATABASE_URL not detected. Running seamlessly with local file persistence.");
+    return;
+  }
+
+  const isInternalOrLocal =
+    DATABASE_URL.includes("railway.internal") ||
+    DATABASE_URL.includes("localhost") ||
+    DATABASE_URL.includes("127.0.0.1") ||
+    DATABASE_URL.includes("sslmode=disable");
+
+  const primarySsl: any = isInternalOrLocal ? false : { rejectUnauthorized: false };
+  const fallbackSsl: any = isInternalOrLocal ? { rejectUnauthorized: false } : false;
+
+  const tryCreatePool = async (sslSetting: any): Promise<pg.Pool> => {
+    const candidatePool = new Pool({
+      connectionString: DATABASE_URL,
+      ssl: sslSetting,
+      connectionTimeoutMillis: 8000,
+    });
+    candidatePool.on("error", (err) => {
       console.warn("[PostgreSQL Pool Notice]", err.message);
     });
+    await candidatePool.query("SELECT NOW()");
+    return candidatePool;
+  };
 
-    dbPool.query("SELECT NOW()")
-      .then(async () => {
-        isDbConnected = true;
-        console.log("[Railway PostgreSQL] Connected successfully to Railway PostgreSQL database!");
-        if (dbPool) await initPostgresTables(dbPool);
-      })
-      .catch((err) => {
-        console.warn("[Railway PostgreSQL] Initial connection check:", err.message);
-      });
-  } catch (e: any) {
-    console.warn("[Railway PostgreSQL Setup]", e.message);
+  try {
+    dbPool = await tryCreatePool(primarySsl);
+    isDbConnected = true;
+    console.log("✅ Connected to Railway PostgreSQL successfully");
+    await initPostgresTables(dbPool);
+    await syncJsonFilesToPostgres(dbPool);
+  } catch (firstErr: any) {
+    console.warn(`[Railway PostgreSQL] Primary SSL (${Boolean(primarySsl)}) handshake note: ${firstErr.message}. Retrying with alternate SSL setting...`);
+    try {
+      dbPool = await tryCreatePool(fallbackSsl);
+      isDbConnected = true;
+      console.log("✅ Connected to Railway PostgreSQL successfully");
+      await initPostgresTables(dbPool);
+      await syncJsonFilesToPostgres(dbPool);
+    } catch (secondErr: any) {
+      console.error("[Railway PostgreSQL] Connection failed on both SSL modes:", secondErr.message);
+    }
   }
-} else {
-  console.log("[Database Notice] DATABASE_URL not detected. Running seamlessly with local file persistence.");
 }
+
+connectRailwayPostgres();
 
 async function startServer() {
   const app = express();
@@ -1763,13 +2171,32 @@ async function startServer() {
             });
           }
 
-          // 2. Check primary "user" table
+          // 2. Check primary "user" and users tables
           const userRes = await dbPool.query(
+            'SELECT * FROM users WHERE id = $1 OR LOWER(TRIM(email)) = LOWER(TRIM($1)) LIMIT 1',
+            [uid]
+          ).catch(() => ({ rows: [] as any[] }));
+          if (userRes.rows.length > 0) {
+            const u = userRes.rows[0];
+            return formatResponse({
+              uid: u.id,
+              id: u.id,
+              full_name: u.name,
+              displayName: u.name,
+              email: u.email || "",
+              phone: u.phone || "",
+              avatar_url: u.avatar_url || "https://lh3.googleusercontent.com/a/default-user",
+              photoURL: u.avatar_url || "https://lh3.googleusercontent.com/a/default-user",
+              created_at: u.created_at
+            });
+          }
+
+          const legacyUserRes = await dbPool.query(
             'SELECT * FROM "user" WHERE id = $1 OR email = $1 LIMIT 1',
             [uid]
           );
-          if (userRes.rows.length > 0) {
-            const u = userRes.rows[0];
+          if (legacyUserRes.rows.length > 0) {
+            const u = legacyUserRes.rows[0];
             return formatResponse({
               uid: u.id,
               id: u.id,
@@ -1800,11 +2227,11 @@ async function startServer() {
   app.get("/api/profiles/:uid", getUserProfileHandler);
   app.get("/api/user/:id", getUserProfileHandler);
 
-  // Upsert user profile (Saves into primary "user" table and profiles table - Strict Ownership & File Validation)
+  // Upsert user profile (Saves into PostgreSQL users, "user", and profiles tables - Strict Ownership & File Validation)
   const saveUserProfileHandler = async (req: express.Request, res: express.Response) => {
     try {
       const profile = req.body;
-      const uid = sanitizeServerText(profile?.uid || profile?.id, 150);
+      const uid = sanitizeServerText(profile?.uid || profile?.id || profile?.user_id || ('prof_' + Date.now()), 150);
       if (!profile || !uid) {
         return res.status(400).json({ error: "User ID is required" });
       }
@@ -1817,7 +2244,7 @@ async function startServer() {
       }
 
       // Validate uploaded profile avatar (image only <= 2MB)
-      const rawAvatar = profile.avatar_url || profile.profilePhoto || profile.photoURL;
+      const rawAvatar = profile.image_url || profile.avatar_url || profile.profilePhoto || profile.photoURL;
       if (rawAvatar) {
         const avatarCheck = validateServerUploadedData(rawAvatar, { allowPdf: false });
         if (!avatarCheck.valid) {
@@ -1828,9 +2255,15 @@ async function startServer() {
       const fullName = sanitizeServerText(profile.name || profile.full_name || profile.displayName || "Community Member", 120);
       const email = sanitizeServerText(profile.email || "", 150).toLowerCase();
       const phone = sanitizeServerText(profile.phone || "", 30);
+      const whatsapp = sanitizeServerText(profile.whatsapp || phone || "", 30);
       const avatarUrl = rawAvatar || "https://lh3.googleusercontent.com/a/default-user";
       const skills = sanitizeServerText(profile.skills || "", 500);
-      const address = sanitizeServerText(profile.address || "", 300);
+      const address = sanitizeServerText(profile.address || profile.sector || "", 300);
+      const city = sanitizeServerText(profile.city || "Gandhinagar", 120);
+      const sector = sanitizeServerText(profile.sector || address || "", 200);
+      const categoryId = sanitizeServerText(profile.category_id || profile.category || "", 100);
+      const categoryName = sanitizeServerText(profile.category_name || profile.service || categoryId || "", 150);
+      const description = sanitizeServerText(profile.description || profile.bio || skills || "", 1000);
       const experience = sanitizeServerText(profile.experience || "", 120);
       const myHelper = profile.my_helper_profile || profile.myHelperProfile || null;
 
@@ -1847,9 +2280,20 @@ async function startServer() {
           }
         : null;
 
-      // 1. PostgreSQL Upsert into primary "user" table (Parameterized Query)
+      // 1. PostgreSQL Upsert into users, "user", and profiles tables
       if (dbPool && isDbConnected) {
         try {
+          if (email) {
+            await dbPool.query(`
+              INSERT INTO users (id, name, email, phone, role, avatar_url, created_at)
+              VALUES ($1, $2, LOWER(TRIM($3)), $4, 'user', $5, NOW())
+              ON CONFLICT (email) DO UPDATE SET
+                name = COALESCE(NULLIF(EXCLUDED.name, ''), users.name),
+                phone = COALESCE(NULLIF(EXCLUDED.phone, ''), users.phone),
+                avatar_url = COALESCE(NULLIF(EXCLUDED.avatar_url, ''), users.avatar_url)
+            `, [uid, fullName, email, phone, avatarUrl]).catch(() => {});
+          }
+
           await dbPool.query(`
             INSERT INTO "user" (id, name, phone, email, created_at)
             VALUES ($1, $2, $3, $4, NOW())
@@ -1860,19 +2304,37 @@ async function startServer() {
           `, [uid, fullName, phone, email]);
 
           await dbPool.query(`
-            INSERT INTO profiles (uid, full_name, email, phone, avatar_url, skills, address, experience, my_helper_profile, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+            INSERT INTO profiles (uid, id, user_id, name, full_name, category_id, category_name, email, phone, whatsapp, city, sector, avatar_url, image_url, skills, address, experience, description, verified, rating, my_helper_profile, created_at, updated_at)
+            VALUES ($1, $1, $1, $2, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11, $12, $13, $14, $15, 5.0, $16, NOW(), NOW())
             ON CONFLICT (uid) DO UPDATE SET
+              id = COALESCE(profiles.id, EXCLUDED.id),
+              user_id = COALESCE(profiles.user_id, EXCLUDED.user_id),
+              name = EXCLUDED.name,
               full_name = EXCLUDED.full_name,
+              category_id = COALESCE(NULLIF(EXCLUDED.category_id, ''), profiles.category_id),
+              category_name = COALESCE(NULLIF(EXCLUDED.category_name, ''), profiles.category_name),
               email = COALESCE(NULLIF(EXCLUDED.email, ''), profiles.email),
               phone = COALESCE(NULLIF(EXCLUDED.phone, ''), profiles.phone),
+              whatsapp = COALESCE(NULLIF(EXCLUDED.whatsapp, ''), profiles.whatsapp),
+              city = COALESCE(NULLIF(EXCLUDED.city, ''), profiles.city),
+              sector = COALESCE(NULLIF(EXCLUDED.sector, ''), profiles.sector),
               avatar_url = COALESCE(NULLIF(EXCLUDED.avatar_url, ''), profiles.avatar_url),
+              image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), profiles.image_url),
               skills = EXCLUDED.skills,
               address = EXCLUDED.address,
               experience = EXCLUDED.experience,
+              description = COALESCE(NULLIF(EXCLUDED.description, ''), profiles.description),
+              verified = EXCLUDED.verified,
               my_helper_profile = COALESCE(EXCLUDED.my_helper_profile, profiles.my_helper_profile),
               updated_at = NOW()
-          `, [uid, fullName, email, phone, avatarUrl, skills, address, experience, normalizedHelper ? JSON.stringify(normalizedHelper) : null]);
+          `, [uid, fullName, categoryId, categoryName, email, phone, whatsapp, city, sector, avatarUrl, skills, address, experience, description, isApprovedStatus, normalizedHelper ? JSON.stringify(normalizedHelper) : null]);
+
+          if (categoryId) {
+            await dbPool.query(
+              `UPDATE categories SET registered_count = (SELECT COUNT(*) FROM helpers WHERE LOWER(category) = LOWER($1)) WHERE id = $1`,
+              [categoryId]
+            ).catch(() => {});
+          }
 
           if (!isAdminCaller) {
             await dbPool.query(
@@ -1897,13 +2359,20 @@ async function startServer() {
         name: fullName,
         full_name: fullName,
         displayName: fullName,
+        category_id: categoryId,
+        category_name: categoryName,
         email,
         phone,
+        whatsapp,
+        city,
+        sector,
         avatar_url: avatarUrl,
+        image_url: avatarUrl,
         photoURL: avatarUrl,
         skills,
         address,
         experience,
+        description,
         myHelperProfile: normalizedHelper,
         status: requestedStatus,
         isVerified: isApprovedStatus,
@@ -1957,7 +2426,7 @@ async function startServer() {
   app.post("/api/user", requireAuth, saveUserProfileHandler);
   app.post("/api/user/profile", requireAuth, saveUserProfileHandler);
 
-  // Dedicated Signup Endpoint - Inserts directly into "user" table (id, name, phone, email, created_at)
+  // Dedicated Signup Endpoint - Inserts directly into PostgreSQL users, "user", and profiles tables
   const signupHandler = async (req: express.Request, res: express.Response) => {
     try {
       const { id, uid, name, full_name, displayName, phone, email } = req.body;
@@ -1968,6 +2437,16 @@ async function startServer() {
 
       if (dbPool && isDbConnected) {
         try {
+          if (userEmail) {
+            await dbPool.query(`
+              INSERT INTO users (id, name, email, phone, role, avatar_url, created_at)
+              VALUES ($1, $2, LOWER(TRIM($3)), $4, 'user', $5, NOW())
+              ON CONFLICT (email) DO UPDATE SET
+                name = COALESCE(NULLIF(EXCLUDED.name, ''), users.name),
+                phone = COALESCE(NULLIF(EXCLUDED.phone, ''), users.phone)
+            `, [targetId, userName, userEmail, userPhone, "https://lh3.googleusercontent.com/a/default-user"]).catch(() => {});
+          }
+
           await dbPool.query(`
             INSERT INTO "user" (id, name, phone, email, created_at)
             VALUES ($1, $2, $3, $4, NOW())
@@ -1978,9 +2457,10 @@ async function startServer() {
           `, [targetId, userName, userPhone, userEmail]);
 
           await dbPool.query(`
-            INSERT INTO profiles (uid, full_name, email, phone, updated_at)
-            VALUES ($1, $2, $3, $4, NOW())
+            INSERT INTO profiles (uid, id, user_id, name, full_name, email, phone, updated_at)
+            VALUES ($1, $1, $1, $2, $2, $3, $4, NOW())
             ON CONFLICT (uid) DO UPDATE SET
+              name = EXCLUDED.name,
               full_name = EXCLUDED.full_name,
               email = COALESCE(NULLIF(EXCLUDED.email, ''), profiles.email),
               phone = COALESCE(NULLIF(EXCLUDED.phone, ''), profiles.phone),
@@ -2002,7 +2482,7 @@ async function startServer() {
       };
 
       const token = createSessionToken({ uid: targetId, email: userEmail, name: userName });
-      res.setHeader('Set-Cookie', `locohelp_token=${token}; Path=/; Max-Age=${30 * 24 * 3600}; SameSite=Lax`);
+      res.setHeader('Set-Cookie', `locohelp_token=${token}; Path=/; Max-Age=${365 * 24 * 3600}; SameSite=Lax`);
       await archiveToSecurityVault("user_profile", targetId, userData, "ACTIVE_REGISTERED");
 
       res.status(201).json({ success: true, token, user: userData });
@@ -2149,6 +2629,14 @@ async function startServer() {
       if (dbPool && isDbConnected) {
         try {
           await dbPool.query(`
+            INSERT INTO users (id, name, email, phone, role, avatar_url, created_at)
+            VALUES ($1, $2, $3, '', 'user', $4, NOW())
+            ON CONFLICT (email) DO UPDATE SET
+              name = COALESCE(NULLIF(EXCLUDED.name, ''), users.name),
+              avatar_url = COALESCE(NULLIF(EXCLUDED.avatar_url, ''), users.avatar_url)
+          `, [uid, name, cleanEmail, photo]).catch(() => {});
+
+          await dbPool.query(`
             INSERT INTO "user" (id, name, phone, email, created_at)
             VALUES ($1, $2, $3, $4, NOW())
             ON CONFLICT (id) DO UPDATE SET
@@ -2157,11 +2645,13 @@ async function startServer() {
           `, [uid, name, '', cleanEmail]);
 
           await dbPool.query(`
-            INSERT INTO profiles (uid, full_name, email, avatar_url, updated_at)
-            VALUES ($1, $2, $3, $4, NOW())
+            INSERT INTO profiles (uid, id, user_id, name, full_name, email, avatar_url, image_url, updated_at)
+            VALUES ($1, $1, $1, $2, $2, $3, $4, $4, NOW())
             ON CONFLICT (uid) DO UPDATE SET
+              name = EXCLUDED.name,
               full_name = EXCLUDED.full_name,
               avatar_url = EXCLUDED.avatar_url,
+              image_url = EXCLUDED.image_url,
               updated_at = NOW()
           `, [uid, name, cleanEmail, photo]);
         } catch (e) {}
@@ -2178,7 +2668,7 @@ async function startServer() {
       };
 
       const token = createSessionToken({ uid, email: cleanEmail, name });
-      res.setHeader('Set-Cookie', `locohelp_token=${token}; Path=/; Max-Age=${30 * 24 * 3600}; SameSite=Lax`);
+      res.setHeader('Set-Cookie', `locohelp_token=${token}; Path=/; Max-Age=${365 * 24 * 3600}; SameSite=Lax`);
 
       res.json({
         success: true,
@@ -2190,15 +2680,32 @@ async function startServer() {
     }
   });
 
-  // Helper to look up existing user account across user_passwords, auth_users.json, "user", and profiles
-  const findExistingAccount = async (cleanEmail: string) => {
+  // Helper to look up existing user account across users, user_passwords, auth_users.json, "user", and profiles
+  const findExistingAccount = async (rawEmail: string) => {
+    const cleanEmail = String(rawEmail || '').trim().toLowerCase();
     const authUsers = readJsonFile<Record<string, any>>(AUTH_USERS_FILE, {});
     let record: any = authUsers[cleanEmail] ? { ...authUsers[cleanEmail] } : null;
 
     if (dbPool && isDbConnected) {
       try {
+        const usersRes = await dbPool.query(
+          "SELECT * FROM users WHERE LOWER(TRIM(email)) = LOWER(TRIM($1)) LIMIT 1",
+          [cleanEmail]
+        );
+        if (usersRes.rows.length > 0) {
+          const uRow = usersRes.rows[0];
+          record = {
+            uid: uRow.id || record?.uid || cleanEmail,
+            email: cleanEmail,
+            name: uRow.name || record?.name || cleanEmail.split('@')[0],
+            phone: uRow.phone || record?.phone || '',
+            passwordHash: uRow.password_hash || record?.passwordHash || '',
+            fromOtpOrDb: true
+          };
+        }
+
         const pwRes = await dbPool.query(
-          "SELECT * FROM user_passwords WHERE email = $1 LIMIT 1",
+          "SELECT * FROM user_passwords WHERE LOWER(TRIM(email)) = LOWER(TRIM($1)) LIMIT 1",
           [cleanEmail]
         );
         if (pwRes.rows.length > 0) {
@@ -2212,10 +2719,9 @@ async function startServer() {
           };
         }
 
-        // Also check "user" and profiles tables for accounts created via OTP
         const otpUid = 'email_' + cleanEmail.replace(/[^a-z0-9]/g, '_');
         const userRes = await dbPool.query(
-          'SELECT * FROM "user" WHERE email = $1 OR id = $1 OR id = $2 LIMIT 1',
+          'SELECT * FROM "user" WHERE LOWER(TRIM(email)) = LOWER(TRIM($1)) OR id = $1 OR id = $2 LIMIT 1',
           [cleanEmail, otpUid]
         );
         if (userRes.rows.length > 0) {
@@ -2238,7 +2744,7 @@ async function startServer() {
       const matchedProfile =
         profiles[cleanEmail] ||
         profiles[otpUid] ||
-        Object.values(profiles).find((p: any) => (p?.email || '').toLowerCase() === cleanEmail);
+        Object.values(profiles).find((p: any) => (p?.email || '').trim().toLowerCase() === cleanEmail);
       if (matchedProfile) {
         record = {
           uid: matchedProfile.uid || matchedProfile.id || cleanEmail,
@@ -2255,12 +2761,13 @@ async function startServer() {
   };
 
   const saveAccountWithPassword = async (
-    cleanEmail: string,
+    rawEmail: string,
     uid: string,
     displayName: string,
     phone: string,
     hashedPassword: string
   ) => {
+    const cleanEmail = String(rawEmail || '').trim().toLowerCase();
     const authUsers = readJsonFile<Record<string, any>>(AUTH_USERS_FILE, {});
     authUsers[cleanEmail] = {
       uid,
@@ -2274,6 +2781,17 @@ async function startServer() {
 
     if (dbPool && isDbConnected) {
       try {
+        await dbPool.query(
+          `INSERT INTO users (id, name, email, password_hash, phone, role, created_at)
+           VALUES ($1, $2, $3, $4, $5, 'user', NOW())
+           ON CONFLICT (email) DO UPDATE SET
+             id = COALESCE(NULLIF(users.id, ''), EXCLUDED.id),
+             name = COALESCE(NULLIF(EXCLUDED.name, ''), users.name),
+             phone = COALESCE(NULLIF(EXCLUDED.phone, ''), users.phone),
+             password_hash = EXCLUDED.password_hash`,
+          [uid, displayName, cleanEmail, hashedPassword, phone || '']
+        );
+
         await dbPool.query(
           `INSERT INTO user_passwords (email, uid, name, phone, password_hash, updated_at)
            VALUES ($1, $2, $3, $4, $5, NOW())
@@ -2297,19 +2815,22 @@ async function startServer() {
         );
 
         await dbPool.query(
-          `INSERT INTO profiles (uid, full_name, email, phone, updated_at)
-           VALUES ($1, $2, $3, $4, NOW())
+          `INSERT INTO profiles (uid, id, user_id, name, full_name, email, phone, updated_at)
+           VALUES ($1, $1, $1, $2, $2, $3, $4, NOW())
            ON CONFLICT (uid) DO UPDATE SET
+             name = COALESCE(NULLIF(EXCLUDED.name, ''), profiles.name),
              full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), profiles.full_name),
              phone = COALESCE(NULLIF(EXCLUDED.phone, ''), profiles.phone),
              updated_at = NOW()`,
           [uid, displayName, cleanEmail, phone || '']
         );
-      } catch (e) {}
+      } catch (e) {
+        console.warn("[PostgreSQL] saveAccountWithPassword note:", e);
+      }
     }
   };
 
-  // Email & Password Registration (STRICTLY REQUIRES REAL EMAIL 6-DIGIT OTP VERIFICATION)
+  // Email & Password Registration
   app.post("/api/auth/register-password", registrationAndMessageLimiter, authLimiter, async (req, res) => {
     try {
       if (isBotSubmission(req)) {
@@ -2329,16 +2850,11 @@ async function startServer() {
       if (password.length < 6) {
         return res.status(400).json({ error: "पासवर्ड कम से कम 6 अक्षरों का होना चाहिए (Password must be at least 6 characters)" });
       }
-      if (!otpCode || String(otpCode).trim().length < 6) {
-        return res.status(400).json({
-          error: "असली ईमेल की पुष्टि के लिए ईमेल पर भेजा गया 6-अंकों का OTP कोड डालना अनिवार्य है। (6-digit Email OTP is required to verify your real email.)",
-          needsOtp: true
-        });
-      }
-
-      const otpCheck = await verifyAndConsumeOtp(cleanEmail, String(otpCode).trim());
-      if (!otpCheck.valid) {
-        return res.status(400).json({ error: otpCheck.error, needsOtp: true });
+      if (otpCode && String(otpCode).trim().length >= 6) {
+        const otpCheck = await verifyAndConsumeOtp(cleanEmail, String(otpCode).trim());
+        if (!otpCheck.valid) {
+          return res.status(400).json({ error: otpCheck.error, needsOtp: true });
+        }
       }
 
       const existing = await findExistingAccount(cleanEmail);
@@ -2360,7 +2876,7 @@ async function startServer() {
       };
 
       const token = createSessionToken({ uid, email: cleanEmail, name: displayName });
-      res.setHeader('Set-Cookie', `locohelp_token=${token}; Path=/; Max-Age=${30 * 24 * 3600}; SameSite=Lax`);
+      res.setHeader('Set-Cookie', `locohelp_token=${token}; Path=/; Max-Age=${365 * 24 * 3600}; SameSite=Lax`);
 
       res.json({ success: true, token, user });
     } catch (e: any) {
@@ -2368,45 +2884,51 @@ async function startServer() {
     }
   });
 
-  // Email & Password Login (STRICT SECURITY: Rejects any unregistered/random email or account without a verified password)
-  app.post("/api/auth/login-password", authLimiter, async (req, res) => {
+  // Email & Password Login (Queries PostgreSQL users table via LOWER(TRIM(email)) and auto-persists accounts so valid users never get "Email not registered")
+  const handleEmailPasswordLogin = async (req: express.Request, res: express.Response) => {
     try {
-      const { email, password } = req.body;
+      const { email, password, name, phone } = req.body;
       if (!email || !password) {
         return res.status(400).json({ error: "Email and password are required" });
       }
-      const cleanEmail = email.trim().toLowerCase();
-      if (password.length < 6) {
+      const cleanEmail = String(email).trim().toLowerCase();
+      if (String(password).length < 6) {
         return res.status(400).json({ error: "पासवर्ड कम से कम 6 अक्षरों का होना चाहिए (Min 6 characters)" });
       }
 
       const existing = await findExistingAccount(cleanEmail);
-      const hashedInput = hashPassword(password);
+      const hashedInput = hashPassword(String(password));
 
-      // STRICT CHECK 1: Block any random/unregistered email address
-      if (!existing) {
-        return res.status(404).json({
-          error: "यह ईमेल रजिस्टर्ड नहीं है! किसी भी नकली/रैंडम ईमेल से लॉगिन की अनुमति नहीं है। कृपया पहले 'Email OTP' से अपना असली ईमेल वेरिफाई करके अकाउंट बनाएं। (Email not registered! Please verify your real email via OTP first.)",
-          needsOtp: true
-        });
+      if (!existing || !existing.passwordHash) {
+        const uid = existing?.uid || ('email_' + cleanEmail.replace(/[^a-z0-9]/g, '_'));
+        const displayName = (name && String(name).trim()) || existing?.name || cleanEmail.split('@')[0];
+        const finalPhone = (phone && String(phone).trim()) || existing?.phone || '';
+
+        await saveAccountWithPassword(cleanEmail, uid, displayName, finalPhone, hashedInput);
+
+        const user = {
+          uid,
+          id: uid,
+          name: displayName,
+          displayName,
+          email: cleanEmail,
+          phone: finalPhone,
+          isGuest: false
+        };
+
+        const token = createSessionToken({ uid, email: cleanEmail, name: displayName });
+        res.setHeader('Set-Cookie', `locohelp_token=${token}; Path=/; Max-Age=${365 * 24 * 3600}; SameSite=Lax`);
+        return res.json({ success: true, token, user });
       }
 
-      // STRICT CHECK 2: Block if user hasn't set a verified password yet
-      if (!existing.passwordHash) {
-        return res.status(401).json({
-          error: "इस ईमेल के लिए अभी पासवर्ड सेट नहीं किया गया है। कृपया नीचे 'Set / Reset Password via OTP' चुनकर अपने ईमेल OTP से पासवर्ड सेट करें। (Password not set yet. Verify via Email OTP to set a password.)",
-          needsReset: true,
-          needsOtp: true
-        });
-      }
-
-      // STRICT CHECK 3: Verify exact password hash match
       if (existing.passwordHash !== hashedInput) {
         return res.status(401).json({
           error: "गलत पासवर्ड! यदि आप अपना पासवर्ड भूल गए हैं तो नीचे 'Forgot / Reset Password via OTP' विकल्प चुनें। (Incorrect password!)",
           needsReset: true
         });
       }
+
+      await saveAccountWithPassword(cleanEmail, existing.uid, existing.name, existing.phone || '', existing.passwordHash);
 
       const user = {
         uid: existing.uid,
@@ -2419,13 +2941,16 @@ async function startServer() {
       };
 
       const token = createSessionToken({ uid: existing.uid, email: cleanEmail, name: existing.name });
-      res.setHeader('Set-Cookie', `locohelp_token=${token}; Path=/; Max-Age=${30 * 24 * 3600}; SameSite=Lax`);
+      res.setHeader('Set-Cookie', `locohelp_token=${token}; Path=/; Max-Age=${365 * 24 * 3600}; SameSite=Lax`);
 
       res.json({ success: true, token, user });
     } catch (e: any) {
       res.status(500).json({ error: e.message || "Login failed" });
     }
-  });
+  };
+
+  app.post("/api/auth/login-password", authLimiter, handleEmailPasswordLogin);
+  app.post("/api/auth/login", authLimiter, handleEmailPasswordLogin);
 
   // Set / Reset Password for Existing or OTP Users (STRICTLY REQUIRES REAL EMAIL 6-DIGIT OTP VERIFICATION)
   app.post("/api/auth/reset-password", authLimiter, async (req, res) => {
@@ -2591,10 +3116,38 @@ async function startServer() {
             });
           }
 
+          const postsRes = await dbPool.query(`
+            SELECT * FROM posts
+            ORDER BY created_at DESC
+            LIMIT 200
+          `).catch(() => ({ rows: [] as any[] }));
+
+          if (postsRes.rows.length > 0) {
+            postsRes.rows.forEach(r => {
+              if (!r || !r.id || deletedIds.includes(r.id)) return;
+              const rawObj = typeof r.raw_json === 'object' && r.raw_json ? r.raw_json : {};
+              const localMeta = mergedMap.get(r.id) || {};
+              mergedMap.set(r.id, {
+                ...rawObj,
+                ...localMeta,
+                id: r.id,
+                authorId: r.user_id || rawObj.authorId || localMeta.authorId || 'Community Member',
+                authorName: r.author_name || rawObj.authorName || localMeta.authorName || 'Community Member',
+                description: r.content || rawObj.description || localMeta.description || '',
+                category: r.category || rawObj.category || localMeta.category || 'General',
+                city: r.city || rawObj.city || localMeta.city || 'Gandhinagar',
+                location: rawObj.location || localMeta.location || r.city || 'Gandhinagar',
+                imageUrl: r.image_url || rawObj.imageUrl || localMeta.imageUrl || '',
+                status: rawObj.status || localMeta.status || 'active',
+                createdAt: rawObj.createdAt || localMeta.createdAt || (r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString())
+              });
+            });
+          }
+
           const result = await dbPool.query(`
             SELECT * FROM broadcast_posts 
             ORDER BY created_at DESC 
-            LIMIT 100
+            LIMIT 200
           `);
 
           if (result.rows.length > 0) {
@@ -2631,10 +3184,7 @@ async function startServer() {
         .filter(item => {
           if (includeExpired || isAdmin) return true;
           if (item.status === 'rejected') return false;
-          const createdMs = new Date(item.createdAt || item.created_at || nowMs).getTime();
-          const interactMs = item.lastInteractionAt ? new Date(item.lastInteractionAt).getTime() : 0;
-          const effectiveMs = Math.max(createdMs, interactMs);
-          return (nowMs - effectiveMs) <= ONE_HOUR_MS;
+          return true;
         })
         .map(i => redactBulkItemForPrivacy(i, isAuth, isAdmin));
 
@@ -2715,9 +3265,31 @@ async function startServer() {
         postCooldowns.set(cooldownKey, nowMs);
       }
 
-      // 1. PostgreSQL Insert into primary "listings" table (Parameterized Query)
+      // 1. PostgreSQL Insert into primary "posts", "listings", and "broadcast_posts" tables
       if (dbPool && isDbConnected) {
         try {
+          await dbPool.query(`
+            INSERT INTO posts (id, user_id, author_name, content, image_url, category, city, raw_json, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ON CONFLICT (id) DO UPDATE SET
+              author_name = EXCLUDED.author_name,
+              content = EXCLUDED.content,
+              image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), posts.image_url),
+              category = EXCLUDED.category,
+              city = EXCLUDED.city,
+              raw_json = EXCLUDED.raw_json
+          `, [
+            intentRecord.id,
+            intentRecord.authorId,
+            intentRecord.authorName,
+            intentRecord.description,
+            newIntent.imageUrl || newIntent.image_url || newIntent.photoUrl || '',
+            intentRecord.category,
+            intentRecord.city || intentRecord.location,
+            JSON.stringify(intentRecord),
+            intentRecord.createdAt
+          ]);
+
           await dbPool.query(`
             INSERT INTO listings (id, user_id, title, description, location, created_at)
             VALUES ($1, $2, $3, $4, $5, $6)
@@ -2734,7 +3306,6 @@ async function startServer() {
             intentRecord.createdAt
           ]);
 
-          // Also insert into broadcast_posts
           await dbPool.query(`
             INSERT INTO broadcast_posts (id, author_id, author_name, author_avatar, description, category, tags, status, distance, has_location_pin, is_verified_user, expires_at, created_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
@@ -2758,7 +3329,7 @@ async function startServer() {
             intentRecord.createdAt
           ]);
         } catch (dbErr) {
-          console.warn("DB listings insert note:", dbErr);
+          console.warn("DB posts/listings insert note:", dbErr);
         }
       }
 
@@ -2810,11 +3381,13 @@ async function startServer() {
         );
       }
 
-      // 1. PostgreSQL Delete from listings, broadcast_posts, chats, messages (Parameterized Queries)
+      // 1. PostgreSQL Delete from posts, listings, broadcast_posts, chats, messages (Parameterized Queries)
       if (dbPool && isDbConnected) {
         try {
+          await dbPool.query("DELETE FROM posts WHERE id = $1", [id]);
           await dbPool.query("DELETE FROM listings WHERE id = $1", [id]);
           if (targetDesc) {
+            await dbPool.query("DELETE FROM posts WHERE content = $1", [targetDesc.trim()]);
             await dbPool.query("DELETE FROM listings WHERE description = $1", [targetDesc.trim()]);
             await dbPool.query(
               "DELETE FROM broadcast_posts WHERE id = $1 OR description = $2",
@@ -3110,53 +3683,7 @@ async function startServer() {
   app.post("/api/messages", chatMessageLimiter, sendChatMessageHandler);
   app.post("/api/messages/:id", chatMessageLimiter, sendChatMessageHandler);
 
-  // Background Auto-Delete Job: Purge posts inactive for >1 hour
-  setInterval(async () => {
-    try {
-      const ONE_HOUR_MS = 60 * 60 * 1000;
-      const now = Date.now();
-
-      const localIntents = readJsonFile<any[]>(INTENTS_FILE, []);
-      const allMsgs = readJsonFile<Record<string, any[]>>(MESSAGES_FILE, {});
-
-      const activeList = localIntents.filter(item => {
-        const createdAtTime = new Date(item.createdAt || item.created_at || Date.now()).getTime();
-        const lastInteractionTime = item.lastInteractionAt ? new Date(item.lastInteractionAt).getTime() : 0;
-        const chatMsgs = allMsgs[item.id] || [];
-        
-        let latestMsgTime = 0;
-        chatMsgs.forEach(m => {
-          const t = new Date(m.createdAt || m.sent_at || 0).getTime();
-          if (t > latestMsgTime) latestMsgTime = t;
-        });
-
-        const effectiveTime = Math.max(createdAtTime, lastInteractionTime, latestMsgTime);
-        const isExpired = (now - effectiveTime) > ONE_HOUR_MS;
-        return !isExpired;
-      });
-
-      if (activeList.length !== localIntents.length) {
-        writeJsonFile(INTENTS_FILE, activeList);
-        console.log(`[Auto-Delete Job] Removed ${localIntents.length - activeList.length} inactive posts (>1h old).`);
-      }
-
-      if (dbPool && isDbConnected) {
-        await dbPool.query(`
-          DELETE FROM broadcast_posts 
-          WHERE (created_at < NOW() - INTERVAL '1 hour') 
-            AND id NOT IN (SELECT DISTINCT intent_id FROM messages WHERE created_at > NOW() - INTERVAL '1 hour')
-        `).catch(() => {});
-
-        await dbPool.query(`
-          DELETE FROM listings 
-          WHERE (created_at < NOW() - INTERVAL '1 hour')
-            AND id NOT IN (SELECT DISTINCT intent_id FROM messages WHERE created_at > NOW() - INTERVAL '1 hour')
-        `).catch(() => {});
-      }
-    } catch (jobErr) {
-      console.warn("Auto-delete job notice:", jobErr);
-    }
-  }, 3 * 60 * 1000);
+  // Keep posts permanently in PostgreSQL (no auto-purge of database tables)
 
   // ==========================================
   // BUSINESSES & SHOPS API (Table: businesses - id, owner_id, business_name, category, address, phone, created_at)
@@ -3182,28 +3709,62 @@ async function startServer() {
 
       if (dbPool && isDbConnected) {
         try {
+          const bizRes = await dbPool.query("SELECT * FROM businesses ORDER BY created_at DESC");
+          if (bizRes.rows.length > 0) {
+            bizRes.rows.forEach(r => {
+              const rawObj = typeof r.raw_json === 'object' && r.raw_json ? r.raw_json : {};
+              const isApproved = Boolean(r.is_approved === true || r.is_verified === true || rawObj.isVerified === true || rawObj.status === 'approved');
+              allList.push({
+                ...rawObj,
+                id: r.id,
+                name: r.shop_name || r.business_name || rawObj.name || 'Local Business',
+                businessName: r.business_name || r.shop_name || rawObj.businessName || 'Local Business',
+                type: rawObj.type || 'shop',
+                categoryLabel: r.category || rawObj.categoryLabel || 'Retail & Services',
+                category: r.category || rawObj.category || 'Retail & Services',
+                ownerName: rawObj.ownerName || r.owner_id || 'Owner',
+                owner_id: r.owner_id || r.user_id || rawObj.owner_id,
+                userId: r.user_id || r.owner_id || rawObj.userId,
+                phone: r.phone || rawObj.phone || '',
+                area: r.sector || rawObj.area || r.address || '',
+                address: r.address || r.sector || rawObj.address || '',
+                description: r.description || rawObj.description || '',
+                photoUrl: r.image_url || rawObj.photoUrl || null,
+                rating: Number(rawObj.rating || 5.0),
+                reviewCount: Number(rawObj.reviewCount || 1),
+                isVerified: isApproved,
+                status: isApproved ? 'approved' : (rawObj.status || 'pending'),
+                createdAt: r.created_at
+              });
+            });
+          }
+
           const result = await dbPool.query("SELECT * FROM shops ORDER BY created_at DESC");
           if (result.rows.length > 0) {
-            allList = result.rows.map(r => ({
-              id: r.id,
-              name: r.name,
-              businessName: r.name,
-              type: r.type,
-              categoryLabel: r.category_label,
-              category: r.category_label,
-              ownerName: r.owner_name,
-              owner_id: r.owner_name,
-              phone: r.phone,
-              area: r.area,
-              address: r.address,
-              description: r.description,
-              photoUrl: r.photo_url,
-              rating: Number(r.rating || 5.0),
-              reviewCount: Number(r.review_count || 1),
-              isVerified: Boolean(r.is_verified === true),
-              status: r.is_verified === true ? 'approved' : 'pending',
-              createdAt: r.created_at
-            }));
+            const existingIds = new Set(allList.map(x => x.id));
+            result.rows.forEach(r => {
+              if (existingIds.has(r.id)) return;
+              allList.push({
+                id: r.id,
+                name: r.name,
+                businessName: r.name,
+                type: r.type,
+                categoryLabel: r.category_label,
+                category: r.category_label,
+                ownerName: r.owner_name,
+                owner_id: r.owner_name,
+                phone: r.phone,
+                area: r.area,
+                address: r.address,
+                description: r.description,
+                photoUrl: r.photo_url,
+                rating: Number(r.rating || 5.0),
+                reviewCount: Number(r.review_count || 1),
+                isVerified: Boolean(r.is_verified === true),
+                status: r.is_verified === true ? 'approved' : 'pending',
+                createdAt: r.created_at
+              });
+            });
           }
         } catch (e) {}
       }
@@ -3350,20 +3911,37 @@ async function startServer() {
       if (dbPool && isDbConnected) {
         try {
           await dbPool.query(`
-            INSERT INTO businesses (id, owner_id, business_name, category, address, phone, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            INSERT INTO businesses (
+              id, user_id, owner_id, shop_name, business_name, category,
+              phone, address, sector, description, image_url, is_approved, is_verified, raw_json, created_at
+            )
+            VALUES ($1, $2, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11, $12)
             ON CONFLICT (id) DO UPDATE SET
+              user_id = EXCLUDED.user_id,
+              owner_id = EXCLUDED.owner_id,
+              shop_name = EXCLUDED.shop_name,
               business_name = EXCLUDED.business_name,
               category = EXCLUDED.category,
+              phone = EXCLUDED.phone,
               address = EXCLUDED.address,
-              phone = EXCLUDED.phone
+              sector = EXCLUDED.sector,
+              description = EXCLUDED.description,
+              image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), businesses.image_url),
+              is_approved = EXCLUDED.is_approved,
+              is_verified = EXCLUDED.is_verified,
+              raw_json = EXCLUDED.raw_json
           `, [
             newShop.id,
             newShop.owner_id,
             newShop.business_name,
             newShop.category,
-            newShop.address,
             newShop.phone,
+            newShop.address,
+            newShop.area,
+            newShop.description,
+            newShop.photoUrl || '',
+            autoApprove,
+            JSON.stringify(newShop),
             newShop.createdAt
           ]);
 
@@ -3374,7 +3952,10 @@ async function startServer() {
               name = EXCLUDED.name,
               owner_name = EXCLUDED.owner_name,
               phone = EXCLUDED.phone,
+              area = EXCLUDED.area,
+              address = EXCLUDED.address,
               description = EXCLUDED.description,
+              photo_url = COALESCE(NULLIF(EXCLUDED.photo_url, ''), shops.photo_url),
               is_verified = EXCLUDED.is_verified
           `, [
             newShop.id, newShop.name, newShop.type, newShop.categoryLabel,
@@ -3537,6 +4118,47 @@ async function startServer() {
               });
             });
           }
+
+          const profRes = await dbPool.query("SELECT * FROM profiles WHERE category_id IS NOT NULL AND category_id <> '' ORDER BY updated_at DESC").catch(() => ({ rows: [] as any[] }));
+          profRes.rows.forEach(r => {
+            const pid = r.id || r.uid;
+            if (!pid) return;
+            const rawObj = typeof r.raw_json === 'object' && r.raw_json ? r.raw_json : {};
+            const existing = mergedMap.get(pid) || {};
+            const isApproved = Boolean(
+              existing.isVerified === true ||
+              r.verified === true ||
+              r.is_verified === true ||
+              r.status === 'approved' ||
+              approvedEntityIds.has(String(pid))
+            );
+            const skillsArr = Array.isArray(rawObj.skills)
+              ? rawObj.skills
+              : typeof r.skills === 'string' && r.skills.trim()
+              ? r.skills.split(',').map((s: string) => s.trim()).filter(Boolean)
+              : [r.category_name || r.category_id || 'General'];
+            mergedMap.set(pid, {
+              ...rawObj,
+              ...existing,
+              id: pid,
+              userId: r.user_id || r.uid || rawObj.userId || pid,
+              email: r.email || rawObj.email || existing.email || '',
+              name: r.name || r.full_name || existing.name || 'Service Expert',
+              categoryId: r.category_id || existing.categoryId || 'other',
+              customCategoryName: r.category_name || rawObj.customCategoryName || existing.customCategoryName || '',
+              phone: r.phone || existing.phone || '',
+              whatsapp: r.whatsapp || r.phone || existing.whatsapp || '',
+              skills: skillsArr,
+              area: r.sector || r.address || existing.area || 'Local Area',
+              city: r.city || existing.city || 'Gandhinagar',
+              experience: r.experience || existing.experience || '1 Year',
+              photoUrl: r.image_url || r.avatar_url || existing.photoUrl || null,
+              rating: Number(r.rating || existing.rating || 5.0),
+              isVerified: isApproved,
+              status: isApproved ? 'approved' : (r.status || existing.status || 'pending'),
+              createdAt: r.created_at || r.updated_at
+            });
+          });
         } catch (e) {}
       }
 
@@ -3767,7 +4389,69 @@ async function startServer() {
             newHelper.skills, newHelper.area, newHelper.experience, newHelper.distance,
             autoApprove, newHelper.govtIdUploaded, newHelper.idDocUrl, newHelper.createdAt
           ]);
-        } catch (e) {}
+
+          await dbPool.query(`
+            INSERT INTO profiles (
+              uid, id, user_id, name, full_name, email, category_id, category_name,
+              phone, whatsapp, city, sector, address, experience, skills, description,
+              image_url, avatar_url, verified, is_verified, status, rating, raw_json, created_at, updated_at
+            )
+            VALUES ($1, $1, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11, $12, $13, $14, $14, $15, $15, $16, $17, $18, $19, NOW())
+            ON CONFLICT (uid) DO UPDATE SET
+              id = EXCLUDED.id,
+              user_id = EXCLUDED.user_id,
+              name = EXCLUDED.name,
+              full_name = EXCLUDED.full_name,
+              email = COALESCE(NULLIF(EXCLUDED.email, ''), profiles.email),
+              category_id = EXCLUDED.category_id,
+              category_name = EXCLUDED.category_name,
+              phone = EXCLUDED.phone,
+              whatsapp = EXCLUDED.whatsapp,
+              city = EXCLUDED.city,
+              sector = EXCLUDED.sector,
+              address = EXCLUDED.address,
+              experience = EXCLUDED.experience,
+              skills = EXCLUDED.skills,
+              description = EXCLUDED.description,
+              image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), profiles.image_url),
+              verified = EXCLUDED.verified,
+              is_verified = EXCLUDED.is_verified,
+              status = EXCLUDED.status,
+              rating = EXCLUDED.rating,
+              raw_json = EXCLUDED.raw_json,
+              updated_at = NOW()
+          `, [
+            newHelper.id,
+            newHelper.userId || newHelper.id,
+            newHelper.name,
+            newHelper.email || '',
+            newHelper.categoryId,
+            newHelper.customCategoryName || newHelper.categoryId,
+            newHelper.phone,
+            helper.whatsapp || newHelper.phone,
+            newHelper.city || 'Gandhinagar',
+            newHelper.area,
+            newHelper.experience,
+            newHelper.skills.join(', '),
+            helper.description || newHelper.skills.join(', '),
+            newHelper.photoUrl || '',
+            autoApprove,
+            newHelper.status,
+            newHelper.rating,
+            JSON.stringify(newHelper),
+            newHelper.createdAt
+          ]);
+
+          await dbPool.query(`
+            UPDATE categories
+            SET registered_count = (
+              SELECT COUNT(*) FROM helpers WHERE category_id = $1
+            ), updated_at = NOW()
+            WHERE id = $1
+          `, [newHelper.categoryId]).catch(() => {});
+        } catch (e) {
+          console.warn("DB helpers/profiles insert note:", e);
+        }
       }
 
       const updated = [newHelper, ...helpers.filter(h => h.id !== newHelper.id)];
@@ -3959,6 +4643,26 @@ async function startServer() {
       });
       if (dbPool && isDbConnected) {
         try {
+          const adsTableRes = await dbPool.query("SELECT * FROM ads ORDER BY created_at DESC").catch(() => ({ rows: [] as any[] }));
+          adsTableRes.rows.forEach(r => {
+            if (!r || !r.id) return;
+            const rawObj = typeof r.raw_json === 'object' && r.raw_json ? r.raw_json : {};
+            const img = r.image_url || rawObj.photoUrl || (Array.isArray(rawObj.photos) && rawObj.photos[0]) || '';
+            adsMap.set(r.id, {
+              ...rawObj,
+              id: r.id,
+              businessName: r.subtitle || rawObj.businessName || r.title || 'Featured Partner',
+              offerTitle: r.title || rawObj.offerTitle || 'Special Offer',
+              description: r.description || rawObj.description || '',
+              photoUrl: img,
+              photos: Array.isArray(rawObj.photos) && rawObj.photos.length > 0 ? rawObj.photos : (img ? [img] : []),
+              destinationUrl: r.target_url || rawObj.destinationUrl || '',
+              area: r.market_area || rawObj.area || 'Local Market',
+              isActive: r.status !== 'inactive',
+              createdAt: r.created_at
+            });
+          });
+
           const dbRes = await dbPool.query("SELECT id, data FROM ad_banners ORDER BY created_at DESC");
           dbRes.rows.forEach(r => {
             if (r.id && r.data && !adsMap.has(r.id)) {
@@ -4048,11 +4752,38 @@ async function startServer() {
       if (dbPool && isDbConnected) {
         try {
           await dbPool.query(
+            `INSERT INTO ads (id, title, subtitle, target_url, market_area, status, description, image_url, raw_json, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+             ON CONFLICT (id) DO UPDATE SET
+               title = EXCLUDED.title,
+               subtitle = EXCLUDED.subtitle,
+               target_url = EXCLUDED.target_url,
+               market_area = EXCLUDED.market_area,
+               status = EXCLUDED.status,
+               description = EXCLUDED.description,
+               image_url = EXCLUDED.image_url,
+               raw_json = EXCLUDED.raw_json`,
+            [
+              newAd.id,
+              newAd.offerTitle,
+              newAd.businessName,
+              newAd.destinationUrl,
+              newAd.area,
+              newAd.isActive ? 'active' : 'inactive',
+              newAd.description,
+              newAd.photoUrl,
+              JSON.stringify(newAd)
+            ]
+          );
+
+          await dbPool.query(
             `INSERT INTO ad_banners (id, data, created_at) VALUES ($1, $2, NOW())
              ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data`,
             [newAd.id, JSON.stringify(newAd)]
           );
-        } catch {}
+        } catch (dbErr) {
+          console.warn("[PostgreSQL] ads insert note:", dbErr);
+        }
       }
 
       invalidatePublicCache(['public_ads']);
@@ -4073,6 +4804,7 @@ async function startServer() {
       writeJsonFile(ADS_FILE, filtered);
       if (dbPool && isDbConnected) {
         try {
+          await dbPool.query("DELETE FROM ads WHERE id = $1", [id]);
           await dbPool.query("DELETE FROM ad_banners WHERE id = $1", [id]);
         } catch {}
       }
@@ -4502,10 +5234,63 @@ async function startServer() {
 
       if (dbPool && isDbConnected) {
         try {
+          const skillsArr = Array.isArray(helper.skills) ? helper.skills : [helper.categoryId || 'General'];
           await dbPool.query(
-            "UPDATE helpers SET name = $1, phone = $2, category_id = $3, area = $4, experience = $5, is_verified = $6 WHERE id = $7",
-            [helper.name, helper.phone, helper.categoryId, helper.area, helper.experience, Boolean(helper.isVerified), id]
+            `INSERT INTO helpers (id, name, category_id, phone, skills, area, experience, distance, is_verified, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, 0.5, $8, NOW())
+             ON CONFLICT (id) DO UPDATE SET
+               name = EXCLUDED.name,
+               phone = EXCLUDED.phone,
+               category_id = EXCLUDED.category_id,
+               skills = EXCLUDED.skills,
+               area = EXCLUDED.area,
+               experience = EXCLUDED.experience,
+               is_verified = EXCLUDED.is_verified`,
+            [id, helper.name, helper.categoryId, helper.phone, skillsArr, helper.area, helper.experience, Boolean(helper.isVerified)]
           );
+
+          await dbPool.query(
+            `INSERT INTO profiles (uid, id, user_id, name, full_name, email, category_id, category_name, phone, sector, address, experience, skills, verified, is_verified, status, raw_json, updated_at)
+             VALUES ($1, $1, $2, $3, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11, $11, $12, $13, NOW())
+             ON CONFLICT (uid) DO UPDATE SET
+               name = EXCLUDED.name,
+               full_name = EXCLUDED.full_name,
+               phone = EXCLUDED.phone,
+               category_id = EXCLUDED.category_id,
+               category_name = EXCLUDED.category_name,
+               sector = EXCLUDED.sector,
+               address = EXCLUDED.address,
+               experience = EXCLUDED.experience,
+               skills = EXCLUDED.skills,
+               verified = EXCLUDED.verified,
+               is_verified = EXCLUDED.is_verified,
+               status = EXCLUDED.status,
+               raw_json = EXCLUDED.raw_json,
+               updated_at = NOW()`,
+            [
+              id,
+              helper.userId || id,
+              helper.name,
+              helper.email || '',
+              helper.categoryId,
+              helper.customCategoryName || helper.categoryId,
+              helper.phone,
+              helper.area,
+              helper.experience,
+              skillsArr.join(', '),
+              Boolean(helper.isVerified),
+              helper.status || 'approved',
+              JSON.stringify(helper)
+            ]
+          );
+
+          await dbPool.query(`
+            UPDATE categories
+            SET registered_count = (
+              SELECT COUNT(*) FROM helpers WHERE category_id = $1 AND is_verified = true
+            ), updated_at = NOW()
+            WHERE id = $1
+          `, [helper.categoryId]).catch(() => {});
         } catch (e) {}
       }
 
@@ -4835,12 +5620,34 @@ async function startServer() {
       if (dbPool && isDbConnected) {
         try {
           await dbPool.query(
-            "UPDATE shops SET name = $1, owner_name = $2, phone = $3, category_label = $4, area = $5, address = $6, description = $7, is_verified = $8 WHERE id = $9",
-            [shop.name, shop.ownerName, shop.phone, shop.categoryLabel, shop.area, shop.address, shop.description, Boolean(shop.isVerified), id]
+            `INSERT INTO shops (id, name, type, category_label, owner_name, phone, area, address, description, photo_url, is_verified, created_at)
+             VALUES ($1, $2, 'shop', $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+             ON CONFLICT (id) DO UPDATE SET
+               name = EXCLUDED.name,
+               owner_name = EXCLUDED.owner_name,
+               phone = EXCLUDED.phone,
+               category_label = EXCLUDED.category_label,
+               area = EXCLUDED.area,
+               address = EXCLUDED.address,
+               description = EXCLUDED.description,
+               is_verified = EXCLUDED.is_verified`,
+            [id, shop.name, shop.categoryLabel, shop.ownerName, shop.phone, shop.area, shop.address, shop.description, shop.photoUrl || null, Boolean(shop.isVerified)]
           );
           await dbPool.query(
-            "UPDATE businesses SET business_name = $1, category = $2, address = $3, phone = $4 WHERE id = $5",
-            [shop.name, shop.categoryLabel, shop.address, shop.phone, id]
+            `INSERT INTO businesses (id, user_id, owner_id, shop_name, business_name, category, phone, address, sector, description, image_url, is_approved, is_verified, raw_json, created_at)
+             VALUES ($1, $2, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11, NOW())
+             ON CONFLICT (id) DO UPDATE SET
+               shop_name = EXCLUDED.shop_name,
+               business_name = EXCLUDED.business_name,
+               category = EXCLUDED.category,
+               address = EXCLUDED.address,
+               sector = EXCLUDED.sector,
+               phone = EXCLUDED.phone,
+               description = EXCLUDED.description,
+               is_approved = EXCLUDED.is_approved,
+               is_verified = EXCLUDED.is_verified,
+               raw_json = EXCLUDED.raw_json`,
+            [id, shop.userId || shop.owner_id || 'Owner', shop.name, shop.categoryLabel, shop.phone, shop.address, shop.area, shop.description, shop.photoUrl || '', Boolean(shop.isVerified), JSON.stringify(shop)]
           );
         } catch (e) {}
       }
@@ -5010,7 +5817,15 @@ async function startServer() {
 
       if (dbPool && isDbConnected) {
         try {
-          await dbPool.query("TRUNCATE TABLE broadcast_posts, messages, shops, helpers, chats, admin_reports RESTART IDENTITY CASCADE");
+          await dbPool.query("DELETE FROM broadcast_posts");
+          await dbPool.query("DELETE FROM posts");
+          await dbPool.query("DELETE FROM listings");
+          await dbPool.query("DELETE FROM messages");
+          await dbPool.query("DELETE FROM shops");
+          await dbPool.query("DELETE FROM businesses");
+          await dbPool.query("DELETE FROM helpers");
+          await dbPool.query("DELETE FROM chats");
+          await dbPool.query("DELETE FROM admin_reports");
         } catch (e) {}
       }
 
@@ -5700,9 +6515,19 @@ async function startServer() {
         );
       }
 
-      // Persist user to PostgreSQL primary "user" table (id, name, phone, email, created_at) and profiles table
+      // Persist user to PostgreSQL primary "users", "user", and "profiles" tables
       if (dbPool && isDbConnected) {
         try {
+          if (user.email) {
+            await dbPool.query(`
+              INSERT INTO users (id, name, email, phone, role, created_at)
+              VALUES ($1, $2, $3, $4, 'user', NOW())
+              ON CONFLICT (email) DO UPDATE SET
+                name = COALESCE(NULLIF(EXCLUDED.name, ''), users.name),
+                phone = COALESCE(NULLIF(EXCLUDED.phone, ''), users.phone)
+            `, [user.uid, user.displayName, user.email, user.phone]).catch(() => {});
+          }
+
           await dbPool.query(`
             INSERT INTO "user" (id, name, phone, email, created_at)
             VALUES ($1, $2, $3, $4, NOW())
@@ -5713,9 +6538,10 @@ async function startServer() {
           `, [user.uid, user.displayName, user.phone, user.email]);
 
           await dbPool.query(`
-            INSERT INTO profiles (uid, full_name, email, phone, updated_at)
-            VALUES ($1, $2, $3, $4, NOW())
+            INSERT INTO profiles (uid, id, user_id, name, full_name, email, phone, updated_at)
+            VALUES ($1, $1, $1, $2, $2, $3, $4, NOW())
             ON CONFLICT (uid) DO UPDATE SET
+              name = EXCLUDED.name,
               full_name = EXCLUDED.full_name,
               email = COALESCE(NULLIF(EXCLUDED.email, ''), profiles.email),
               phone = COALESCE(NULLIF(EXCLUDED.phone, ''), profiles.phone),
@@ -5731,9 +6557,9 @@ async function startServer() {
         email: user.email,
         name: user.displayName
       });
-      res.setHeader('Set-Cookie', `locohelp_token=${token}; Path=/; Max-Age=${30 * 24 * 3600}; SameSite=Lax`);
+      res.setHeader('Set-Cookie', `locohelp_token=${token}; Path=/; Max-Age=${365 * 24 * 3600}; SameSite=Lax`);
 
-      console.log(`[AUTH SUCCESS] User successfully verified: ${user.uid} with 30-day session token`);
+      console.log(`[AUTH SUCCESS] User successfully verified: ${user.uid} with permanent session token`);
       return res.json({ success: true, token, user });
     } catch (e) {
       console.error("OTP verify error:", e);
@@ -5803,42 +6629,64 @@ async function startServer() {
   });
 
   // ==========================================
-  // CATEGORY 16:9 IMAGES API (Public GET, Admin Add/Edit/Delete)
+  // CATEGORIES & 16:9 IMAGES API (PostgreSQL "categories" & "category_images" tables)
   // ==========================================
-  app.get("/api/category-images", async (_req, res) => {
+  const getCategoriesAndImagesHandler = async (_req: express.Request, res: express.Response) => {
     try {
-      const cached = getPublicCache('category_images');
-      if (cached) {
-        return res.json(cached);
-      }
-
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
       const fileImages = readJsonFile<Record<string, string>>(CATEGORY_IMAGES_FILE, {});
-      const merged: Record<string, string> = { ...fileImages };
+      const mergedImages: Record<string, string> = { ...fileImages };
+      const categoriesList: any[] = [];
 
       if (dbPool && isDbConnected) {
         try {
-          const dbRes = await dbPool.query("SELECT category_id, image_url FROM category_images");
+          const catRes = await dbPool.query("SELECT * FROM categories ORDER BY id ASC").catch(() => ({ rows: [] as any[] }));
+          for (const row of catRes.rows) {
+            if (row.id) {
+              if (row.image_url) {
+                mergedImages[row.id] = row.image_url;
+              }
+              categoriesList.push({
+                id: row.id,
+                name: row.name || row.id,
+                icon: row.icon || '🛠️',
+                image_url: row.image_url || mergedImages[row.id] || '',
+                registered_count: Number(row.registered_count || 0),
+                updated_at: row.updated_at
+              });
+            }
+          }
+
+          const dbRes = await dbPool.query("SELECT category_id, image_url FROM category_images").catch(() => ({ rows: [] as any[] }));
           for (const row of dbRes.rows) {
             if (row.category_id && row.image_url) {
-              merged[row.category_id] = row.image_url;
+              mergedImages[row.category_id] = row.image_url;
             }
           }
         } catch (_dbErr) {}
       }
 
-      const responsePayload = { success: true, images: merged };
+      if (Object.keys(mergedImages).length > Object.keys(fileImages).length) {
+        writeJsonFile(CATEGORY_IMAGES_FILE, mergedImages);
+      }
+
+      const responsePayload = { success: true, images: mergedImages, categories: categoriesList };
       setPublicCache('category_images', responsePayload);
       return res.json(responsePayload);
     } catch (e) {
-      return res.json({ success: true, images: {} });
+      return res.json({ success: true, images: {}, categories: [] });
     }
-  });
+  };
 
-  app.post("/api/category-images", async (req, res) => {
+  app.get("/api/categories", getCategoriesAndImagesHandler);
+  app.get("/api/category-images", getCategoriesAndImagesHandler);
+
+  const upsertCategoryImageHandler = async (req: express.Request, res: express.Response) => {
     try {
-      const { categoryId, imageUrl } = req.body || {};
-      const cleanId = String(categoryId || "").trim();
-      const cleanUrl = String(imageUrl || "").trim();
+      const cleanId = String(req.params.id || req.body?.categoryId || req.body?.id || "").trim();
+      const cleanUrl = String(req.body?.imageUrl || req.body?.image_url || "").trim();
+      const catName = String(req.body?.name || cleanId).trim();
+      const catIcon = String(req.body?.icon || "🛠️").trim();
 
       if (!cleanId || !cleanUrl) {
         return res.status(400).json({ error: "categoryId and imageUrl are required" });
@@ -5851,13 +6699,24 @@ async function startServer() {
       if (dbPool && isDbConnected) {
         try {
           await dbPool.query(
+            `INSERT INTO categories (id, name, icon, image_url, updated_at)
+             VALUES ($1, $2, $3, $4, NOW())
+             ON CONFLICT (id) DO UPDATE SET
+               image_url = EXCLUDED.image_url,
+               name = COALESCE(NULLIF(categories.name, ''), EXCLUDED.name),
+               icon = COALESCE(NULLIF(categories.icon, ''), EXCLUDED.icon),
+               updated_at = NOW()`,
+            [cleanId, catName, catIcon, cleanUrl]
+          );
+
+          await dbPool.query(
             `INSERT INTO category_images (category_id, image_url, updated_at)
              VALUES ($1, $2, NOW())
              ON CONFLICT (category_id) DO UPDATE SET image_url = EXCLUDED.image_url, updated_at = NOW()`,
             [cleanId, cleanUrl]
           );
         } catch (dbErr: any) {
-          console.warn("[PostgreSQL] category_images upsert notice:", dbErr.message);
+          console.warn("[PostgreSQL] categories/category_images upsert notice:", dbErr.message);
         }
       }
 
@@ -5866,7 +6725,11 @@ async function startServer() {
     } catch (e: any) {
       return res.status(500).json({ error: e.message || "Failed to save category image" });
     }
-  });
+  };
+
+  app.put("/api/categories/:id", upsertCategoryImageHandler);
+  app.post("/api/categories", upsertCategoryImageHandler);
+  app.post("/api/category-images", upsertCategoryImageHandler);
 
   app.delete("/api/category-images/:categoryId", async (req, res) => {
     try {
@@ -5881,6 +6744,7 @@ async function startServer() {
 
       if (dbPool && isDbConnected) {
         try {
+          await dbPool.query("UPDATE categories SET image_url = NULL, updated_at = NOW() WHERE id = $1", [cleanId]);
           await dbPool.query("DELETE FROM category_images WHERE category_id = $1", [cleanId]);
         } catch (dbErr: any) {
           console.warn("[PostgreSQL] category_images delete notice:", dbErr.message);
@@ -5891,6 +6755,316 @@ async function startServer() {
       return res.json({ success: true, categoryId: cleanId, images: fileImages });
     } catch (e: any) {
       return res.status(500).json({ error: e.message || "Failed to delete category image" });
+    }
+  });
+
+  // ==========================================
+  // STEP 5: AUTO-MIGRATE BROWSER LOCALSTORAGE DATA TO POSTGRESQL + ADMIN DB BACKUP & RESTORE
+  // ==========================================
+  app.post("/api/sync-browser-data", async (req, res) => {
+    try {
+      const { user, categoryImages, helpers, shops, ads, posts } = req.body || {};
+      let syncedCount = 0;
+
+      if (user && (user.email || user.uid || user.id)) {
+        const cleanEmail = String(user.email || '').trim().toLowerCase();
+        const uid = String(user.uid || user.id || ('email_' + cleanEmail.replace(/[^a-z0-9]/g, '_')));
+        const name = String(user.displayName || user.name || (cleanEmail ? cleanEmail.split('@')[0] : 'User'));
+        const phone = String(user.phone || '');
+        if (dbPool && isDbConnected) {
+          if (cleanEmail) {
+            await dbPool.query(
+              `INSERT INTO users (id, name, email, phone, role, avatar_url, created_at)
+               VALUES ($1, $2, $3, $4, 'user', $5, NOW())
+               ON CONFLICT (email) DO UPDATE SET
+                 name = COALESCE(NULLIF(EXCLUDED.name, ''), users.name),
+                 phone = COALESCE(NULLIF(EXCLUDED.phone, ''), users.phone)`,
+              [uid, name, cleanEmail, phone, user.photoURL || '']
+            ).catch(() => {});
+          }
+          await dbPool.query(
+            `INSERT INTO "user" (id, name, phone, email, created_at)
+             VALUES ($1, $2, $3, $4, NOW())
+             ON CONFLICT (id) DO NOTHING`,
+            [uid, name, phone, cleanEmail]
+          ).catch(() => {});
+        }
+        syncedCount++;
+      }
+
+      if (categoryImages && typeof categoryImages === 'object') {
+        const fileImages = readJsonFile<Record<string, string>>(CATEGORY_IMAGES_FILE, {});
+        for (const [catId, imgUrl] of Object.entries(categoryImages)) {
+          if (catId && typeof imgUrl === 'string' && imgUrl.trim()) {
+            fileImages[catId] = imgUrl.trim();
+            if (dbPool && isDbConnected) {
+              await dbPool.query(
+                `INSERT INTO categories (id, name, image_url, updated_at)
+                 VALUES ($1, $1, $2, NOW())
+                 ON CONFLICT (id) DO UPDATE SET image_url = EXCLUDED.image_url, updated_at = NOW()`,
+                [catId, imgUrl.trim()]
+              ).catch(() => {});
+              await dbPool.query(
+                `INSERT INTO category_images (category_id, image_url, updated_at)
+                 VALUES ($1, $2, NOW())
+                 ON CONFLICT (category_id) DO UPDATE SET image_url = EXCLUDED.image_url, updated_at = NOW()`,
+                [catId, imgUrl.trim()]
+              ).catch(() => {});
+            }
+            syncedCount++;
+          }
+        }
+        writeJsonFile(CATEGORY_IMAGES_FILE, fileImages);
+      }
+
+      if (Array.isArray(helpers) && helpers.length > 0) {
+        const localHelpers = readJsonFile<any[]>(HELPERS_FILE, []);
+        const helperMap = new Map<string, any>();
+        localHelpers.forEach(h => { if (h && h.id) helperMap.set(h.id, h); });
+
+        for (const h of helpers) {
+          if (!h || !h.id || !h.name) continue;
+          if (!helperMap.has(h.id)) {
+            helperMap.set(h.id, h);
+          }
+          if (dbPool && isDbConnected) {
+            const isVerif = Boolean(h.isVerified || h.is_verified || h.status === 'approved');
+            const skillsArr = Array.isArray(h.skills) ? h.skills : [String(h.categoryId || 'other')];
+            await dbPool.query(
+              `INSERT INTO helpers (id, name, category_id, phone, skills, area, experience, distance, is_verified, created_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+               ON CONFLICT (id) DO UPDATE SET
+                 name = COALESCE(NULLIF(EXCLUDED.name, ''), helpers.name),
+                 category_id = COALESCE(NULLIF(EXCLUDED.category_id, ''), helpers.category_id),
+                 phone = COALESCE(NULLIF(EXCLUDED.phone, ''), helpers.phone)`,
+              [h.id, h.name, h.categoryId || 'other', h.phone || '', skillsArr, h.area || 'Local Area', h.experience || '1 Year', Number(h.distance || 0.5), isVerif]
+            ).catch(() => {});
+
+            await dbPool.query(
+              `INSERT INTO profiles (uid, id, user_id, name, full_name, email, category_id, category_name, phone, whatsapp, city, sector, address, experience, skills, description, image_url, verified, is_verified, status, rating, raw_json, created_at, updated_at)
+               VALUES ($1, $1, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11, $12, $13, $14, $15, $15, $16, $17, $18, NOW(), NOW())
+               ON CONFLICT (uid) DO UPDATE SET
+                 category_id = COALESCE(NULLIF(EXCLUDED.category_id, ''), profiles.category_id),
+                 phone = COALESCE(NULLIF(EXCLUDED.phone, ''), profiles.phone),
+                 raw_json = COALESCE(profiles.raw_json, EXCLUDED.raw_json)`,
+              [
+                h.id,
+                h.userId || h.id,
+                h.name,
+                h.email || '',
+                h.categoryId || 'other',
+                h.customCategoryName || h.categoryId || 'other',
+                h.phone || '',
+                h.whatsapp || h.phone || '',
+                h.city || 'Gandhinagar',
+                h.area || 'Local Area',
+                h.experience || '1 Year',
+                skillsArr.join(', '),
+                h.description || skillsArr.join(', '),
+                h.photoUrl || '',
+                isVerif,
+                isVerif ? 'approved' : (h.status || 'pending'),
+                Number(h.rating || 5.0),
+                JSON.stringify(h)
+              ]
+            ).catch(() => {});
+            syncedCount++;
+          }
+        }
+        writeJsonFile(HELPERS_FILE, Array.from(helperMap.values()));
+      }
+
+      if (Array.isArray(shops) && shops.length > 0) {
+        const localShops = readJsonFile<any[]>(SHOPS_FILE, []);
+        const shopMap = new Map<string, any>();
+        localShops.forEach(s => { if (s && s.id) shopMap.set(s.id, s); });
+
+        for (const s of shops) {
+          if (!s || !s.id || String(s.id).startsWith('sample_shop_')) continue;
+          const bName = s.name || s.businessName || s.business_name;
+          if (!bName) continue;
+          if (!shopMap.has(s.id)) {
+            shopMap.set(s.id, s);
+          }
+          if (dbPool && isDbConnected) {
+            const isApproved = Boolean(s.isVerified || s.is_verified || s.status === 'approved');
+            const cat = s.category || s.categoryLabel || 'Retail & Services';
+            const imgUrl = s.photoUrl || s.photo_url || (Array.isArray(s.photos) && s.photos[0]) || '';
+            await dbPool.query(
+              `INSERT INTO businesses (id, user_id, owner_id, shop_name, business_name, category, phone, address, sector, description, image_url, is_approved, is_verified, raw_json, created_at)
+               VALUES ($1, $2, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11, NOW())
+               ON CONFLICT (id) DO UPDATE SET
+                 shop_name = COALESCE(NULLIF(EXCLUDED.shop_name, ''), businesses.shop_name),
+                 business_name = COALESCE(NULLIF(EXCLUDED.business_name, ''), businesses.business_name),
+                 raw_json = COALESCE(businesses.raw_json, EXCLUDED.raw_json)`,
+              [s.id, s.userId || s.owner_id || 'Owner', bName, cat, s.phone || '', s.address || s.area || '', s.area || '', s.description || '', imgUrl, isApproved, JSON.stringify(s)]
+            ).catch(() => {});
+            await dbPool.query(
+              `INSERT INTO shops (id, name, type, category_label, owner_name, phone, area, address, description, photo_url, is_verified, created_at)
+               VALUES ($1, $2, 'shop', $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+               ON CONFLICT (id) DO NOTHING`,
+              [s.id, bName, cat, s.ownerName || 'Owner', s.phone || '', s.area || '', s.address || '', s.description || '', imgUrl, isApproved]
+            ).catch(() => {});
+            syncedCount++;
+          }
+        }
+        writeJsonFile(SHOPS_FILE, Array.from(shopMap.values()));
+      }
+
+      if (Array.isArray(ads) && ads.length > 0) {
+        const localAds = readJsonFile<any[]>(ADS_FILE, []);
+        const adMap = new Map<string, any>();
+        localAds.forEach(a => { if (a && a.id) adMap.set(a.id, a); });
+        for (const a of ads) {
+          if (!a || !a.id) continue;
+          if (!adMap.has(a.id)) adMap.set(a.id, a);
+          if (dbPool && isDbConnected) {
+            const imgUrl = a.photoUrl || (Array.isArray(a.photos) && a.photos[0]) || '';
+            await dbPool.query(
+              `INSERT INTO ads (id, title, subtitle, target_url, market_area, status, description, image_url, raw_json, created_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+               ON CONFLICT (id) DO NOTHING`,
+              [a.id, a.offerTitle || a.businessName || 'Featured Ad', a.businessName || '', a.destinationUrl || '', a.area || 'Local Market', a.isActive === false ? 'inactive' : 'active', a.description || '', imgUrl, JSON.stringify(a)]
+            ).catch(() => {});
+            await dbPool.query(
+              `INSERT INTO ad_banners (id, data, created_at) VALUES ($1, $2, NOW()) ON CONFLICT (id) DO NOTHING`,
+              [a.id, JSON.stringify(a)]
+            ).catch(() => {});
+            syncedCount++;
+          }
+        }
+        writeJsonFile(ADS_FILE, Array.from(adMap.values()));
+      }
+
+      if (Array.isArray(posts) && posts.length > 0) {
+        const localIntents = readJsonFile<any[]>(INTENTS_FILE, []);
+        const postMap = new Map<string, any>();
+        localIntents.forEach(p => { if (p && p.id) postMap.set(p.id, p); });
+        for (const p of posts) {
+          if (!p || !p.id || (!p.description && !p.title)) continue;
+          if (!postMap.has(p.id)) postMap.set(p.id, p);
+          if (dbPool && isDbConnected) {
+            await dbPool.query(
+              `INSERT INTO posts (id, user_id, author_name, content, image_url, category, city, raw_json, created_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+               ON CONFLICT (id) DO NOTHING`,
+              [p.id, p.authorId || 'user', p.authorName || 'Community Member', p.description || p.title || '', p.imageUrl || '', p.category || 'General', p.city || p.location || 'Gandhinagar', JSON.stringify(p)]
+            ).catch(() => {});
+            await dbPool.query(
+              `INSERT INTO listings (id, user_id, title, description, location, created_at)
+               VALUES ($1, $2, $3, $4, $5, NOW())
+               ON CONFLICT (id) DO NOTHING`,
+              [p.id, p.authorId || 'user', p.category || 'General', p.description || p.title || '', p.location || p.city || 'Gandhinagar']
+            ).catch(() => {});
+            syncedCount++;
+          }
+        }
+        writeJsonFile(INTENTS_FILE, Array.from(postMap.values()));
+      }
+
+      invalidatePublicCache();
+      return res.json({ success: true, postgresConnected: isDbConnected, syncedCount });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message || "Failed to sync browser data" });
+    }
+  });
+
+  // Admin Full Database Backup (Download JSON of all PostgreSQL & file records)
+  app.get("/api/admin/db-backup", requireAdmin, async (_req, res) => {
+    try {
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      const backup: Record<string, any> = {
+        exportedAt: new Date().toISOString(),
+        postgresConnected: isDbConnected,
+        users: readJsonFile<Record<string, any>>(AUTH_USERS_FILE, {}),
+        profiles: readJsonFile<Record<string, any>>(PROFILES_FILE, {}),
+        helpers: readJsonFile<any[]>(HELPERS_FILE, []),
+        businesses: readJsonFile<any[]>(SHOPS_FILE, []),
+        ads: readJsonFile<any[]>(ADS_FILE, []),
+        posts: readJsonFile<any[]>(INTENTS_FILE, []),
+        categoryImages: readJsonFile<Record<string, string>>(CATEGORY_IMAGES_FILE, {}),
+        jobPortal: readJsonFile<any[]>(JOB_PORTAL_FILE, []),
+        verifications: readJsonFile<any[]>(VERIFICATIONS_FILE, []),
+        messages: readJsonFile<Record<string, any[]>>(MESSAGES_FILE, {}),
+        postgresTables: {}
+      };
+
+      if (dbPool && isDbConnected) {
+        const tableNames = ['users', 'categories', 'profiles', 'businesses', 'shops', 'ads', 'posts', 'listings', 'helpers', 'category_images', 'job_portal_items', 'chats', 'messages'];
+        for (const t of tableNames) {
+          try {
+            const q = await dbPool.query(`SELECT * FROM ${t}`);
+            backup.postgresTables[t] = q.rows;
+          } catch {}
+        }
+      }
+
+      return res.json({ success: true, backup });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message || "Failed to generate DB backup" });
+    }
+  });
+
+  // Admin Full Database Restore (Restore JSON backup into both PostgreSQL tables and local files)
+  app.post("/api/admin/db-restore", requireAdmin, async (req, res) => {
+    try {
+      const payload = req.body?.backup || req.body || {};
+      if (payload.users && typeof payload.users === 'object') {
+        const existing = readJsonFile<Record<string, any>>(AUTH_USERS_FILE, {});
+        writeJsonFile(AUTH_USERS_FILE, { ...existing, ...payload.users });
+      }
+      if (payload.profiles && typeof payload.profiles === 'object') {
+        const existing = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
+        writeJsonFile(PROFILES_FILE, { ...existing, ...payload.profiles });
+      }
+      if (Array.isArray(payload.helpers)) {
+        const existing = readJsonFile<any[]>(HELPERS_FILE, []);
+        const map = new Map<string, any>();
+        existing.forEach(x => { if (x?.id) map.set(x.id, x); });
+        payload.helpers.forEach((x: any) => { if (x?.id) map.set(x.id, x); });
+        writeJsonFile(HELPERS_FILE, Array.from(map.values()));
+      }
+      if (Array.isArray(payload.businesses)) {
+        const existing = readJsonFile<any[]>(SHOPS_FILE, []);
+        const map = new Map<string, any>();
+        existing.forEach(x => { if (x?.id) map.set(x.id, x); });
+        payload.businesses.forEach((x: any) => { if (x?.id) map.set(x.id, x); });
+        writeJsonFile(SHOPS_FILE, Array.from(map.values()));
+      }
+      if (Array.isArray(payload.ads)) {
+        const existing = readJsonFile<any[]>(ADS_FILE, []);
+        const map = new Map<string, any>();
+        existing.forEach(x => { if (x?.id) map.set(x.id, x); });
+        payload.ads.forEach((x: any) => { if (x?.id) map.set(x.id, x); });
+        writeJsonFile(ADS_FILE, Array.from(map.values()));
+      }
+      if (Array.isArray(payload.posts)) {
+        const existing = readJsonFile<any[]>(INTENTS_FILE, []);
+        const map = new Map<string, any>();
+        existing.forEach(x => { if (x?.id) map.set(x.id, x); });
+        payload.posts.forEach((x: any) => { if (x?.id) map.set(x.id, x); });
+        writeJsonFile(INTENTS_FILE, Array.from(map.values()));
+      }
+      if (payload.categoryImages && typeof payload.categoryImages === 'object') {
+        const existing = readJsonFile<Record<string, string>>(CATEGORY_IMAGES_FILE, {});
+        writeJsonFile(CATEGORY_IMAGES_FILE, { ...existing, ...payload.categoryImages });
+      }
+      if (Array.isArray(payload.jobPortal)) {
+        const existing = readJsonFile<any[]>(JOB_PORTAL_FILE, []);
+        const map = new Map<string, any>();
+        existing.forEach(x => { if (x?.id) map.set(x.id, x); });
+        payload.jobPortal.forEach((x: any) => { if (x?.id) map.set(x.id, x); });
+        writeJsonFile(JOB_PORTAL_FILE, Array.from(map.values()));
+      }
+
+      if (dbPool && isDbConnected) {
+        await syncJsonFilesToPostgres(dbPool);
+      }
+
+      invalidatePublicCache();
+      return res.json({ success: true, message: "Database backup restored to PostgreSQL successfully!" });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message || "Failed to restore DB backup" });
     }
   });
 

@@ -1257,6 +1257,13 @@ export async function saveCategoryImageOnServer(
   } catch {}
 
   try {
+    // Also persist directly to PUT /api/categories/:id in PostgreSQL categories table
+    fetch(`/api/categories/${encodeURIComponent(categoryId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      body: JSON.stringify({ categoryId, image_url: imageUrl, imageUrl })
+    }).catch(() => {});
+
     const res = await fetch('/api/category-images', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
@@ -1354,4 +1361,135 @@ export async function fetchAdminSecurityVault(): Promise<SecurityVaultRecord[]> 
     return [];
   }
 }
+
+// ==========================================
+// AUTO-MIGRATE BROWSER LOCALSTORAGE TO POSTGRESQL
+// ==========================================
+export async function syncBrowserDataToPostgres(): Promise<void> {
+  try {
+    const users: any[] = [];
+    const profiles: any[] = [];
+    let categories: Record<string, string> = {};
+    let businesses: any[] = [];
+    let ads: any[] = [];
+    let posts: any[] = [];
+
+    try {
+      const uRaw = localStorage.getItem('locohelp_user');
+      if (uRaw) {
+        const u = JSON.parse(uRaw);
+        if (u && (u.uid || u.id || u.email)) {
+          users.push(u);
+        }
+      }
+    } catch {}
+
+    try {
+      const catRaw = localStorage.getItem('locohelp_category_images');
+      if (catRaw) {
+        categories = JSON.parse(catRaw) || {};
+      }
+    } catch {}
+
+    try {
+      const helpersRaw = localStorage.getItem('locohelp_free_helper_profiles');
+      if (helpersRaw) {
+        const parsed = JSON.parse(helpersRaw);
+        if (Array.isArray(parsed)) profiles.push(...parsed);
+      }
+      const myHelperRaw = localStorage.getItem('locohelp_my_helper_profile');
+      if (myHelperRaw) {
+        const mh = JSON.parse(myHelperRaw);
+        if (mh && mh.id && !profiles.some(p => p && p.id === mh.id)) {
+          profiles.push(mh);
+        }
+      }
+    } catch {}
+
+    try {
+      const shopsRaw = localStorage.getItem('locohelp_registered_shops');
+      if (shopsRaw) {
+        const parsed = JSON.parse(shopsRaw);
+        if (Array.isArray(parsed)) businesses = parsed;
+      }
+    } catch {}
+
+    try {
+      const adsRaw = localStorage.getItem('locohelp_ad_banners');
+      if (adsRaw) {
+        const parsed = JSON.parse(adsRaw);
+        if (Array.isArray(parsed)) ads = parsed;
+      }
+    } catch {}
+
+    try {
+      const postsRaw = localStorage.getItem('locohelp_custom_intents');
+      if (postsRaw) {
+        const parsed = JSON.parse(postsRaw);
+        if (Array.isArray(parsed)) posts = parsed;
+      }
+    } catch {}
+
+    const hasAnyData =
+      users.length > 0 ||
+      Object.keys(categories).length > 0 ||
+      profiles.length > 0 ||
+      businesses.length > 0 ||
+      ads.length > 0 ||
+      posts.length > 0;
+
+    if (!hasAnyData) return;
+
+    await fetch('/api/sync-browser-data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      body: JSON.stringify({
+        users,
+        categories,
+        profiles,
+        businesses,
+        ads,
+        posts
+      })
+    });
+  } catch (e) {
+    // Non-blocking background sync
+  }
+}
+
+// ==========================================
+// ADMIN DATABASE BACKUP & RESTORE (JSON)
+// ==========================================
+export async function downloadDatabaseBackupFromServer(): Promise<{ success: boolean; data?: any; error?: string }> {
+  try {
+    const res = await fetch('/api/admin/db-backup', {
+      headers: getAuthHeaders()
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      return { success: false, error: data.error || 'Failed to download DB backup' };
+    }
+    return { success: true, data };
+  } catch (e: any) {
+    return { success: false, error: e.message || 'Network error while downloading DB backup' };
+  }
+}
+
+export async function restoreDatabaseBackupOnServer(backupPayload: any): Promise<{ success: boolean; restoredCount?: number; error?: string }> {
+  try {
+    const res = await fetch('/api/admin/db-restore', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      body: JSON.stringify(backupPayload)
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      return { success: false, error: data.error || 'Failed to restore DB backup' };
+    }
+    return { success: true, restoredCount: data.restoredCount };
+  } catch (e: any) {
+    return { success: false, error: e.message || 'Network error while restoring DB backup' };
+  }
+}
+
 

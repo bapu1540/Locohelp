@@ -80,7 +80,10 @@ import {
   saveCategoryImageOnServer,
   deleteCategoryImageOnServer,
   fetchAdminSecurityVault,
-  SecurityVaultRecord
+  SecurityVaultRecord,
+  downloadDatabaseBackupFromServer,
+  restoreDatabaseBackupOnServer,
+  syncBrowserDataToPostgres
 } from '../api';
 import { validateUploadedFile } from '../lib/security';
 import { compressImageToWebP } from '../lib/imageCompression';
@@ -1750,8 +1753,66 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
             </div>
           </div>
 
-          {/* Right: Prominent Change Admin Password Button, Refresh & Logout */}
-          <div className="flex items-center gap-2 sm:gap-3">
+          {/* Right: Prominent DB Backup & Restore, Change Admin Password Button, Refresh & Logout */}
+          <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
+            <button
+              type="button"
+              onClick={async () => {
+                showToast('⏳ Preparing PostgreSQL DB Backup...');
+                await syncBrowserDataToPostgres();
+                const res = await downloadDatabaseBackupFromServer();
+                if (!res.success || !res.data) {
+                  showToast(`❌ ${res.error || 'Failed to download DB backup'}`);
+                  return;
+                }
+                const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `locohelp-postgres-backup-${new Date().toISOString().slice(0, 10)}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                showToast('✅ PostgreSQL DB Backup downloaded!');
+              }}
+              className="px-3 py-2 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer"
+              title="Download full PostgreSQL Database Backup as JSON"
+            >
+              <span>📥 Download DB Backup (JSON)</span>
+            </button>
+
+            <label
+              className="px-3 py-2 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/40 text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer"
+              title="Restore PostgreSQL Database from JSON Backup"
+            >
+              <span>📤 Restore DB Backup (JSON)</span>
+              <input
+                type="file"
+                accept="application/json,.json"
+                className="hidden"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = '';
+                  if (!file) return;
+                  try {
+                    showToast('⏳ Restoring PostgreSQL DB Backup...');
+                    const text = await file.text();
+                    const parsed = JSON.parse(text);
+                    const res = await restoreDatabaseBackupOnServer(parsed);
+                    if (res.success) {
+                      showToast(`✅ Restored ${res.restoredCount || 0} records to PostgreSQL!`);
+                      await loadAllData();
+                    } else {
+                      showToast(`❌ ${res.error || 'Restore failed'}`);
+                    }
+                  } catch (err: any) {
+                    showToast(`❌ Invalid backup JSON file`);
+                  }
+                }}
+              />
+            </label>
+
             <button
               onClick={loadAllData}
               disabled={isRefreshing}
