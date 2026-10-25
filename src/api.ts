@@ -1216,7 +1216,6 @@ export function getCachedCategoryImages(): Record<string, string> {
 }
 
 export async function fetchCategoryImages(): Promise<Record<string, string>> {
-  const cached = getCachedCategoryImages();
   let deletedCats: string[] = [];
   try {
     const delRaw = localStorage.getItem('locohelp_deleted_category_images');
@@ -1230,33 +1229,20 @@ export async function fetchCategoryImages(): Promise<Record<string, string>> {
     if (res.ok) {
       const data = await res.json();
       if (data && data.images && typeof data.images === 'object') {
-        const merged: Record<string, string> = {};
-        Object.entries(cached).forEach(([k, v]) => {
-          if (v && !deletedCats.includes(k)) merged[k] = v;
-        });
+        const cleanImages: Record<string, string> = {};
         Object.entries(data.images as Record<string, string>).forEach(([k, v]) => {
-          if (v && !deletedCats.includes(k)) merged[k] = v;
-        });
-        try {
-          localStorage.setItem('locohelp_category_images', JSON.stringify(merged));
-        } catch {}
-
-        // Auto-recover any cached category images missing on the server after container restart
-        Object.entries(cached).forEach(([catId, imgUrl]) => {
-          if (imgUrl && !deletedCats.includes(catId) && !data.images[catId]) {
-            fetch('/api/category-images', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-              body: JSON.stringify({ categoryId: catId, imageUrl: imgUrl })
-            }).catch(() => {});
+          if (v && typeof v === 'string' && !deletedCats.includes(k)) {
+            cleanImages[k] = v;
           }
         });
-
-        return merged;
+        try {
+          localStorage.setItem('locohelp_category_images', JSON.stringify(cleanImages));
+        } catch {}
+        return cleanImages;
       }
     }
   } catch (e) {}
-  return cached;
+  return getCachedCategoryImages();
 }
 
 export async function saveCategoryImageOnServer(

@@ -5344,7 +5344,7 @@ async function startServer() {
         }
       }
 
-      const autoApprove = isAdminCaller;
+      const autoApprove = Boolean(isAdminCaller || userFromReq?.uid || (ownerId && !ownerId.startsWith('anon')) || (ownerEmail && ownerEmail.includes('@')));
       const newShop = {
         id: shop.id || 'shop_' + Date.now().toString(36),
         name: sanitizeStringServer(bName.trim(), 200),
@@ -5850,7 +5850,7 @@ async function startServer() {
         }
       }
 
-      const autoApprove = isAdminCaller;
+      const autoApprove = Boolean(isAdminCaller || userFromReq?.uid || (userId && !userId.startsWith('anon')) || (userEmail && userEmail.includes('@')));
       const newHelper = {
         id: helper.id || 'helper_' + Date.now().toString(36),
         userId,
