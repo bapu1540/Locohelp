@@ -8,12 +8,7 @@ import {
   CheckCircle2, 
   ExternalLink, 
   Copy, 
-  Check, 
-  Share2, 
-  ShieldCheck, 
-  Layers, 
-  HelpCircle,
-  ArrowRight
+  Check 
 } from 'lucide-react';
 import { useLanguage } from '../i18n';
 
@@ -23,26 +18,17 @@ interface InstallAppModalProps {
 }
 
 export default function InstallAppModal({ isOpen, onClose }: InstallAppModalProps) {
-  const { t, language } = useLanguage();
+  const { language } = useLanguage();
   const [deferredPrompt, setDeferredPrompt] = useState<any>(() => (typeof window !== 'undefined' ? (window as any).__deferredPwaPrompt : null));
   const [isInstalled, setIsInstalled] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
   const [installNotice, setInstallNotice] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'direct' | 'apk' | 'ios'>('direct');
 
   const appUrl = typeof window !== 'undefined' ? window.location.href.split('#')[0] : 'https://www.locohelp.com';
 
-  // Detect in-app browsers (WhatsApp, Instagram, Facebook, Telegram, LinkedIn, etc.)
   const ua = typeof navigator !== 'undefined' ? navigator.userAgent || '' : '';
   const isInAppBrowser = /FBAN|FBAV|Instagram|WhatsApp|Line|Telegram|LinkedInApp|MicroMessenger|Snapchat|WV/i.test(ua);
-  const isIOS = /iPhone|iPad|iPod/i.test(ua);
   const isAndroid = /Android/i.test(ua);
-
-  useEffect(() => {
-    if (isIOS) {
-      setActiveTab('ios');
-    }
-  }, [isIOS]);
 
   useEffect(() => {
     const syncPrompt = () => {
@@ -99,19 +85,21 @@ export default function InstallAppModal({ isOpen, onClose }: InstallAppModalProp
         }
       } catch (err) {
         setInstallNotice(
-          language === 'HI'
-            ? "Apne browser ke 3-dots (⋮) menu par click karein aur 'Install app' ya 'Add to Home screen' chunein."
+          language === 'GU'
+            ? "બ્રાઉઝરના ૩-ડૉટ્સ (⋮) મેનૂ પર ક્લિક કરો અને 'Install app' અથવા 'Add to Home screen' પસંદ કરો."
+            : language === 'HI'
+            ? "अपने ब्राउज़र के 3-डॉट्स (⋮) मेनू पर क्लिक करें और 'Install app' या 'Add to Home screen' चुनें।"
             : "Tap your browser's 3-dot (⋮) menu and select 'Install app' or 'Add to Home screen'."
         );
       }
     } else if (isInAppBrowser && isAndroid) {
       handleOpenInChrome();
-    } else if (isIOS) {
-      setActiveTab('ios');
     } else {
       setInstallNotice(
-        language === 'HI'
-          ? "Apne Chrome browser ke upar right side me 3-dots (⋮) par tap karein aur 'Install app' ya 'Add to Home screen' par click karein."
+        language === 'GU'
+          ? "Chrome બ્રાઉઝરમાં ઉપર જમણી બાજુ ૩-ડૉટ્સ (⋮) પર ટેપ કરો અને 'Install app' અથવા 'Add to Home screen' પસંદ કરો."
+          : language === 'HI'
+          ? "Chrome ब्राउज़र में ऊपर राइट साइड 3-डॉट्स (⋮) पर टैप करें और 'Install app' या 'Add to Home screen' चुनें।"
           : "Tap the 3-dot menu (⋮) in the top-right corner of Chrome and select 'Install app' or 'Add to Home screen'."
       );
     }
@@ -127,88 +115,53 @@ export default function InstallAppModal({ isOpen, onClose }: InstallAppModalProp
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs">
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-xs">
         <motion.div 
           initial={{ opacity: 0, scale: 0.92, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.92, y: 20 }}
-          className="bg-white dark:bg-slate-850 rounded-3xl w-full max-w-md shadow-2xl border border-slate-200 dark:border-slate-700 flex flex-col max-h-[90vh] overflow-hidden"
+          className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-md shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col max-h-[90vh] overflow-hidden relative z-50"
         >
           {/* Modal Header */}
-          <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-gradient-to-r from-indigo-50 to-violet-50 dark:from-slate-800 dark:to-slate-800/80">
+          <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-gradient-to-r from-indigo-50 to-violet-50 dark:from-slate-800 dark:to-slate-800/80">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-600/30">
-                <Smartphone className="w-5 h-5" />
+              <div className="w-11 h-11 rounded-2xl bg-indigo-600 text-white flex items-center justify-center font-black shadow-md shadow-indigo-600/30 shrink-0">
+                <Smartphone className="w-6 h-6" />
               </div>
               <div>
-                <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-1.5">
-                  <span>Install LocoHelp App</span>
-                  <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">
-                    APK / PWA
-                  </span>
+                <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-1.5">
+                  <span>{language === 'GU' ? 'એપ ઇન્સ્ટોલ કરો (Install LocoHelp App)' : language === 'HI' ? 'ऐप इंस्टॉल करें (Install LocoHelp App)' : 'Install LocoHelp App'}</span>
                 </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Android & iPhone par ek click me chalayein
+                <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                  {language === 'GU' ? '૨ સરળ સ્ટેપ્સમાં ફોનમાં ઇન્સ્ટોલ કરો' : language === 'HI' ? '2 आसान स्टेप्स में फोन में इंस्टॉल करें' : 'Fast & Easy 2-Step Phone Installation'}
                 </p>
               </div>
             </div>
             <button 
               onClick={onClose}
-              className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/10 text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors"
+              className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/10 text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
 
-          {/* Navigation Tabs */}
-          <div className="flex border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 p-1.5 gap-1">
-            <button
-              onClick={() => setActiveTab('direct')}
-              className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer ${
-                activeTab === 'direct' 
-                  ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-xs' 
-                  : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-              }`}
-            >
-              📱 1-Tap Install
-            </button>
-            <button
-              onClick={() => setActiveTab('apk')}
-              className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer ${
-                activeTab === 'apk' 
-                  ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-xs' 
-                  : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-              }`}
-            >
-              📦 Generate .APK
-            </button>
-            <button
-              onClick={() => setActiveTab('ios')}
-              className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer ${
-                activeTab === 'ios' 
-                  ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-xs' 
-                  : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-              }`}
-            >
-              🍎 iPhone (iOS)
-            </button>
-          </div>
-
-          {/* Tab Content */}
+          {/* Body Content - 2 Simple Steps */}
           <div className="p-5 overflow-y-auto space-y-4 text-xs">
-            {/* In-App Browser Smart Fallback Banner (WhatsApp / Instagram / Facebook) */}
+            {/* In-App Browser Warning Banner if applicable */}
             {isInAppBrowser && (
-              <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/60 border-2 border-amber-400 dark:border-amber-700 space-y-2.5">
+              <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/60 border-2 border-amber-400 dark:border-amber-700 space-y-2">
                 <div className="flex items-start gap-2.5">
                   <span className="text-lg shrink-0">🌐</span>
                   <div>
                     <h4 className="font-extrabold text-amber-950 dark:text-amber-200 text-xs">
-                      {language === 'HI' ? 'In-App Browser Detected (WhatsApp / Instagram)' : 'Opened Inside In-App Browser'}
+                      {language === 'GU' ? 'Chrome બ્રાઉઝરમાં ખોલો' : language === 'HI' ? 'Chrome ब्राउज़र में खोलें' : 'Open in Chrome to Install'}
                     </h4>
                     <p className="text-[11px] text-amber-900 dark:text-amber-300 mt-0.5 leading-relaxed">
-                      {language === 'HI'
-                        ? 'App ko phone me install karne ke liye ise Google Chrome me kholein:'
-                        : 'To install the LocoHelp app smoothly on your phone, open it in Google Chrome:'}
+                      {language === 'GU'
+                        ? 'સરળતાથી ઇન્સ્ટોલ કરવા માટે નીચે આપેલા બટનથી આ લિંકને Google Chrome માં ખોલો:'
+                        : language === 'HI'
+                        ? 'आसानी से इंस्टॉल करने के लिए इस लिंक को Google Chrome में खोलें:'
+                        : 'To install smoothly, open this app in Google Chrome browser:'}
                     </p>
                   </div>
                 </div>
@@ -216,169 +169,83 @@ export default function InstallAppModal({ isOpen, onClose }: InstallAppModalProp
                   <button
                     type="button"
                     onClick={handleOpenInChrome}
-                    className="w-full py-2.5 px-3 bg-amber-600 hover:bg-amber-700 text-white font-black rounded-xl text-xs flex items-center justify-center gap-2 shadow-sm active:scale-95 transition-all cursor-pointer"
+                    className="w-full py-2.5 px-3 bg-amber-600 hover:bg-amber-700 text-white font-black rounded-xl text-xs flex items-center justify-center gap-2 shadow-sm cursor-pointer"
                   >
                     <ExternalLink className="w-4 h-4" />
-                    <span>{language === 'HI' ? 'Open in Chrome to Install' : 'Open in Chrome to Install'}</span>
+                    <span>{language === 'GU' ? 'Chrome માં ખોલો (Open in Chrome)' : 'Open in Chrome to Install'}</span>
                   </button>
                 )}
               </div>
             )}
 
-            {/* TAB 1: 1-Tap Direct Install (WebAPK) */}
-            {activeTab === 'direct' && (
-              <div className="space-y-3.5">
-                <div className="p-4 rounded-2xl bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900 flex items-start gap-3">
-                  <div className="p-2 rounded-xl bg-indigo-600 text-white shrink-0 mt-0.5">
-                    <Sparkles className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h4 className="font-extrabold text-indigo-950 dark:text-indigo-200 text-xs mb-1">
-                      Direct Phone Installation (No Play Store Needed)
-                    </h4>
-                    <p className="text-slate-600 dark:text-slate-300 leading-relaxed text-[11px]">
-                      Ye app WebAPK standard par bani hai. Install karne par ye seedhe aapke Android phone me normal APK ki tarah app drawer aur home screen me add ho jati hai.
-                    </p>
-                  </div>
+            {/* 2 Simple Steps Section */}
+            <div className="space-y-3">
+              {/* STEP 1 */}
+              <div className="p-3.5 rounded-2xl bg-indigo-50/80 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800 space-y-2">
+                <div className="flex items-center gap-2.5">
+                  <span className="w-6 h-6 rounded-full bg-indigo-600 text-white font-black text-xs flex items-center justify-center shrink-0">1</span>
+                  <h4 className="font-extrabold text-slate-900 dark:text-white text-xs">
+                    {language === 'GU'
+                      ? 'સ્ટેપ ૧: "Install App" બટન પર ટેપ કરો'
+                      : language === 'HI'
+                      ? 'स्टेप 1: "Install App" बटन पर टैप करें'
+                      : 'Step 1: Tap the "Install App" button below'}
+                  </h4>
                 </div>
+                <p className="text-slate-600 dark:text-slate-300 text-[11px] leading-relaxed pl-8">
+                  {language === 'GU'
+                    ? 'નીચે આપેલા "Install App" બટન પર સીધા ટેપ કરો (અથવા બ્રાઉઝરમાં ઉપર જમણી બાજુએ આપેલા ૩-ડૉટ્સ મેનૂ ⋮ પર ક્લિક કરો).'
+                    : language === 'HI'
+                    ? 'नीचे दिए गए "Install App" बटन पर टैप करें (या अपने Chrome के 3-डॉट्स मेनू ⋮ पर क्लिक करें)।'
+                    : 'Tap the "Install App" button directly below (OR tap the 3-dots menu ⋮ in the top-right corner of Chrome).'}
+                </p>
+              </div>
 
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300 font-medium">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                    <span>Real app icon aur full-screen experience (No address bar)</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300 font-medium">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                    <span>Halka aur fast (Sirf 1-2 MB storage)</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300 font-medium">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                    <span>Automatic updates (Baar-baar naya APK download nahi karna padega)</span>
-                  </div>
+              {/* STEP 2 */}
+              <div className="p-3.5 rounded-2xl bg-indigo-50/80 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800 space-y-2">
+                <div className="flex items-center gap-2.5">
+                  <span className="w-6 h-6 rounded-full bg-indigo-600 text-white font-black text-xs flex items-center justify-center shrink-0">2</span>
+                  <h4 className="font-extrabold text-slate-900 dark:text-white text-xs">
+                    {language === 'GU'
+                      ? 'સ્ટેપ ૨: "Install App" અથવા "Add to Home Screen" સિલેક્ટ કરો'
+                      : language === 'HI'
+                      ? 'स्टेप 2: "Install App" या "Add to Home Screen" चुनें'
+                      : 'Step 2: Select "Install App" or "Add to Home Screen"'}
+                  </h4>
                 </div>
+                <p className="text-slate-600 dark:text-slate-300 text-[11px] leading-relaxed pl-8">
+                  {language === 'GU'
+                    ? '"Install App" અથવા "Add to Home Screen" વિકલ્પ પસંદ કરો. લોકોહેલ્પ એપ તમારા ફોન સ્ક્રીન પર ઇન્સ્ટોલ થઈ જશે!'
+                    : language === 'HI'
+                    ? '"Install App" या "Add to Home Screen" विकल्प चुनें। लोकोहेल्प ऐप आपके फोन स्क्रीन पर तुरंत इंस्टॉल हो जाएगी!'
+                    : 'Select "Install App" or "Add to Home Screen" to install LocoHelp directly on your phone.'}
+                </p>
+              </div>
+            </div>
 
-                <button 
-                  type="button"
-                  onClick={handleInstallClick}
-                  className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold rounded-2xl text-xs flex items-center justify-center gap-2 shadow-md shadow-indigo-600/25 active:scale-95 transition-all cursor-pointer"
-                >
-                  <Download className="w-4 h-4" />
-                  {isInstalled
-                    ? (language === 'HI' ? "App Pehle Se Installed Hai ✓" : "App Already Installed ✓")
-                    : (deferredPrompt
-                        ? (language === 'HI' ? "Install App Now (1-Click)" : "Install App On This Phone Now")
-                        : (language === 'HI' ? "Install App / Add to Home Screen" : "Install App On This Phone Now"))}
-                </button>
+            {/* Direct Prominent Install Action Button */}
+            <button 
+              type="button"
+              onClick={handleInstallClick}
+              className="w-full py-3.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-black rounded-2xl text-xs flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/25 active:scale-95 transition-all cursor-pointer mt-2"
+            >
+              <Download className="w-4 h-4" />
+              <span>
+                {isInstalled
+                  ? (language === 'GU' ? "એપ ઇન્સ્ટોલ થયેલ છે ✓" : language === 'HI' ? "ऐप पहले से इंस्टॉल है ✓" : "App Already Installed ✓")
+                  : (language === 'GU' ? "અત્યારે જ ઇન્સ્ટોલ કરો (Install App Now)" : language === 'HI' ? "अभी इंस्टॉल करें (Install App Now)" : "Install App On Your Phone Now")}
+              </span>
+            </button>
 
-                {isAndroid && !deferredPrompt && !isInstalled && (
-                  <button
-                    type="button"
-                    onClick={handleOpenInChrome}
-                    className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl text-xs flex items-center justify-center gap-2 shadow-xs active:scale-95 transition-all cursor-pointer"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                    <span>{language === 'HI' ? 'Open in Chrome to Install' : 'Open in Chrome to Install'}</span>
-                  </button>
-                )}
-
-                {installNotice && (
-                  <div className="p-3 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-300 dark:border-indigo-700 rounded-xl text-[11px] font-bold text-indigo-900 dark:text-indigo-200">
-                    📲 {installNotice}
-                  </div>
-                )}
-
-                <div className="p-3 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 text-[11px] text-slate-500">
-                  💡 <strong>Chrome Tip:</strong> Agar button se prompt na aaye, toh browser ke right side me <strong>3 dots (⋮)</strong> par click karke <strong>"Install app"</strong> ya <strong>"Add to Home screen"</strong> chunein.
-                </div>
+            {installNotice && (
+              <div className="p-3 bg-indigo-50 dark:bg-indigo-950/80 border border-indigo-300 dark:border-indigo-700 rounded-xl text-[11px] font-extrabold text-indigo-900 dark:text-indigo-200 text-center">
+                📲 {installNotice}
               </div>
             )}
 
-            {/* TAB 2: Generate Official .APK File */}
-            {activeTab === 'apk' && (
-              <div className="space-y-3.5">
-                <div className="p-4 rounded-2xl bg-amber-50/70 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-900/60 flex items-start gap-3">
-                  <div className="p-2 rounded-xl bg-amber-600 text-white shrink-0 mt-0.5">
-                    <Layers className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h4 className="font-extrabold text-amber-950 dark:text-amber-200 text-xs mb-1">
-                      Android .APK Download Karne ke Tareeqe
-                    </h4>
-                    <p className="text-slate-600 dark:text-slate-300 leading-relaxed text-[11px]">
-                      Google Cloud Run ka firewall automated bot tools (jaise PWABuilder servers) ko security reasons se block kar deta hai ("403 Web Host Blocking"). Isliye niche diye 2 aasan tareeqe use karein:
-                    </p>
-                  </div>
-                </div>
-
-                {/* Method 1: Chrome WebAPK Direct (No server needed) */}
-                <div className="p-3.5 bg-indigo-50/60 dark:bg-indigo-950/40 rounded-2xl border border-indigo-200/60 dark:border-indigo-900/40 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <span className="w-5 h-5 rounded-full bg-indigo-600 text-white font-black text-[10px] flex items-center justify-center">1</span>
-                    <span className="font-extrabold text-indigo-900 dark:text-indigo-200 text-xs">Sabse Aasan: Chrome Se Direct Install (Real App)</span>
-                  </div>
-                  <p className="text-slate-600 dark:text-slate-400 text-[11px] leading-relaxed">
-                    Aapko kisi website ki zaroorat nahi hai. Apne phone me Chrome ke <strong>3-dots (⋮)</strong> dabakar <strong>"Install app"</strong> karein. Android khud iska official <strong>WebAPK</strong> generate karke phone ke app drawer me daal deta hai!
-                  </p>
-                </div>
-
-                {/* Method 2: Extract APK to send on WhatsApp */}
-                <div className="p-3.5 bg-slate-50 dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <span className="w-5 h-5 rounded-full bg-slate-700 text-white font-black text-[10px] flex items-center justify-center">2</span>
-                    <span className="font-extrabold text-slate-800 dark:text-slate-200 text-xs">Dosto ko WhatsApp bhejne ke liye APK Extract karein</span>
-                  </div>
-                  <p className="text-slate-600 dark:text-slate-400 text-[11px] leading-relaxed">
-                    Ek baar jab aap Chrome se app install kar lein, toh Play Store se koi bhi free <strong>"APK Extractor"</strong> ya <strong>"App Share"</strong> app kholein, <strong>LOCOHELP</strong> select karein aur 1-second me <strong>.apk file</strong> WhatsApp par dosto ko bhej dein!
-                  </p>
-                </div>
-
-                {/* Method 3: WebIntoApp Alternative */}
-                <div className="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-[11px] space-y-1.5">
-                  <p className="font-bold text-slate-700 dark:text-slate-300">Option 3: Online APK Converter</p>
-                  <p className="text-slate-500">
-                    Aap <a href="https://www.webintoapp.com" target="_blank" rel="noreferrer" className="text-indigo-600 dark:text-indigo-400 underline font-bold">WebIntoApp.com</a> par ja kar app ka URL paste karke bhi direct ready-made APK bana sakte hain.
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* TAB 3: iOS iPhone Guide */}
-            {activeTab === 'ios' && (
-              <div className="space-y-3.5">
-                <div className="p-4 rounded-2xl bg-slate-100 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 flex items-start gap-3">
-                  <div className="p-2 rounded-xl bg-slate-800 dark:bg-slate-700 text-white shrink-0 mt-0.5">
-                    <Smartphone className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h4 className="font-extrabold text-slate-900 dark:text-white text-xs mb-1">
-                      iPhone & iPad par Install Kaise Karein
-                    </h4>
-                    <p className="text-slate-600 dark:text-slate-300 leading-relaxed text-[11px]">
-                      Apple iOS me direct APK nahi hota, par ye 2 simple clicks me native app ban jati hai:
-                    </p>
-                  </div>
-                </div>
-
-                <div className="space-y-3 text-slate-700 dark:text-slate-300">
-                  <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center gap-3">
-                    <span className="w-6 h-6 rounded-full bg-indigo-600 text-white font-black text-xs flex items-center justify-center shrink-0">1</span>
-                    <span>Safari browser me niche <strong>Share button (📤)</strong> par tap karein.</span>
-                  </div>
-                  <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center gap-3">
-                    <span className="w-6 h-6 rounded-full bg-indigo-600 text-white font-black text-xs flex items-center justify-center shrink-0">2</span>
-                    <span>Menu ko scroll karke <strong>"Add to Home Screen" (+)</strong> chunein.</span>
-                  </div>
-                  <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center gap-3">
-                    <span className="w-6 h-6 rounded-full bg-indigo-600 text-white font-black text-xs flex items-center justify-center shrink-0">3</span>
-                    <span>Upar <strong>"Add"</strong> dabayein — LocoHelp iPhone home screen par install ho jayegi!</span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Quick Share Link */}
-            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center gap-2">
-              <div className="flex-1 bg-slate-50 dark:bg-slate-900 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 truncate font-mono text-[10px]">
+            {/* Quick Share / Copy App Link */}
+            <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex items-center gap-2">
+              <div className="flex-1 bg-slate-50 dark:bg-slate-800/80 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 truncate font-mono text-[10px]">
                 {appUrl}
               </div>
               <button
@@ -392,12 +259,12 @@ export default function InstallAppModal({ isOpen, onClose }: InstallAppModalProp
           </div>
 
           {/* Footer Action */}
-          <div className="p-3 bg-slate-50 dark:bg-slate-900/80 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end">
+          <div className="p-3 bg-slate-50 dark:bg-slate-800/80 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end">
             <button
               onClick={onClose}
-              className="px-4 py-2 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 text-slate-800 dark:text-slate-200 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+              className="px-4 py-2 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 font-bold rounded-xl text-xs transition-colors cursor-pointer"
             >
-              Close
+              {language === 'GU' ? 'બંધ કરો' : language === 'HI' ? 'बंद करें' : 'Close'}
             </button>
           </div>
         </motion.div>

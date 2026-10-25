@@ -2,12 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Intent } from '../types';
 import { ArrowLeft, ShieldAlert, CheckCircle2, Send, MapPin, UserCheck, Paperclip, Navigation, Mic, Star, Sparkles, Trash2, Home, ShieldCheck, Check, Camera, Image as ImageIcon, X, Share2, Video, PhoneOff, MicOff, RefreshCw, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { getCurrentUser, sendMessage, getMessages } from '../auth';
+import { getCurrentUser, isMessageSentByUser } from '../auth';
 import { useLanguage } from '../i18n';
 import UserProfileModal from './UserProfileModal';
 import LoginPromptModal from '../components/LoginPromptModal';
 import { isGuestUser } from '../lib/authUtils';
-import { fetchChatMessages, sendChatMessage, logAuditRecord } from '../api';
+import { fetchChatMessages, sendChatMessage } from '../api';
 import { validateUploadedFile, sanitizeText } from '../lib/security';
 import { compressImageToWebP } from '../lib/imageCompression';
 import { uploadFileToFirebaseStorage } from '../lib/firebase';
@@ -26,7 +26,13 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
     id: string;
     text: string;
     authorId: string;
+    sender_id?: string;
+    user_id?: string;
     authorName?: string;
+    sender_name?: string;
+    senderEmail?: string;
+    sender_email?: string;
+    senderAvatar?: string;
     receiverId?: string;
     isCollaborator?: boolean;
     type?: 'text' | 'pin' | 'attachment' | 'task_completed';
@@ -88,6 +94,14 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const initialLoadRef = useRef(true);
 
+  // Sync selected replier if intent prop changes (e.g., opened from Inbox modal)
+  useEffect(() => {
+    if ((intent as any)?.selectedReplierId) {
+      setSelectedReplierId((intent as any).selectedReplierId);
+      setSelectedReplierName((intent as any).selectedReplierName || null);
+    }
+  }, [(intent as any)?.selectedReplierId, (intent as any)?.selectedReplierName]);
+
   // Auto scroll message list
   useEffect(() => {
     if (initialLoadRef.current) {
@@ -130,12 +144,30 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
             serverMessages.forEach((m: any) => {
               if (m && m.id) {
                 const existing = map.get(m.id);
+                const resolvedAuthorId = String(
+                  m.sender_id || m.senderId || m.authorId || m.user_id || existing?.sender_id || existing?.authorId || 'peer'
+                ).trim();
+                const resolvedAuthorName = String(
+                  m.sender_name || m.senderName || m.authorName || existing?.authorName || 'Community Peer'
+                ).trim();
+                const resolvedEmail = String(
+                  m.sender_email || m.senderEmail || m.authorEmail || existing?.senderEmail || ''
+                ).trim().toLowerCase();
+                const resolvedAvatar = String(
+                  m.sender_avatar || m.senderAvatar || m.authorAvatar || existing?.senderAvatar || ''
+                ).trim();
                 map.set(m.id, {
                   id: m.id,
                   text: m.text || m.content || m.message || (existing?.text || ''),
                   type: m.type || existing?.type || 'text',
-                  authorId: m.authorId || m.senderId || m.sender_id || existing?.authorId || 'peer',
-                  authorName: m.authorName || m.senderName || m.sender_name || existing?.authorName || 'Community Peer',
+                  authorId: resolvedAuthorId,
+                  sender_id: resolvedAuthorId,
+                  user_id: resolvedAuthorId,
+                  authorName: resolvedAuthorName,
+                  sender_name: resolvedAuthorName,
+                  senderEmail: resolvedEmail,
+                  sender_email: resolvedEmail,
+                  senderAvatar: resolvedAvatar,
                   receiverId: m.receiverId || m.receiver_id || existing?.receiverId || undefined,
                   isCollaborator: Boolean(m.isCollaborator || m.is_collaborator || existing?.isCollaborator),
                   attachmentUrl: m.attachmentUrl || m.attachment_url || existing?.attachmentUrl || undefined,
@@ -172,13 +204,27 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
 
     const activeUser = getCurrentUser();
     const activeUid = activeUser?.uid || 'my_user';
-    const activeName = activeUser?.displayName || localStorage.getItem('locohelp_profile_name') || 'Community Member';
+    const activeEmail = (activeUser?.email || localStorage.getItem('locohelp_last_logged_in_email') || '').trim().toLowerCase();
+    const activeName =
+      activeUser?.displayName ||
+      localStorage.getItem('locohelp_profile_name') ||
+      (activeEmail ? activeEmail.split('@')[0] : 'Community Member');
+    const activeAvatar = activeUser?.photoURL || localStorage.getItem('locohelp_profile_photo') || '';
+
     const messageData: any = {
       id: 'msg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
       conversationId: chatId,
+      intent_id: chatId,
       authorId: activeUid,
+      sender_id: activeUid,
+      user_id: activeUid,
       authorName: activeName,
+      sender_name: activeName,
+      senderEmail: activeEmail,
+      sender_email: activeEmail,
+      senderAvatar: activeAvatar,
       receiverId: selectedReplierId || intent?.authorId || chatId,
+      receiver_id: selectedReplierId || intent?.authorId || chatId,
       text: trimmed,
       type,
       createdAt: new Date().toISOString()
@@ -373,16 +419,18 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
     : "Local Area";
   const topicDesc = intent?.description || (intent as any)?.title || "LocoHelp Direct Broadcast & Service Inquiry";
 
-  const myActiveUid = currentUser?.uid || 'my_user';
   const distinctRepliers = React.useMemo(() => {
     const map = new Map<string, { id: string; name: string; count: number; isCollaborator?: boolean }>();
     messages.forEach(m => {
-      if (m.authorId && m.authorId !== myActiveUid && m.authorId !== 'my_user' && m.authorId !== 'system') {
-        const existing = map.get(m.authorId);
+      const sId = String(m.sender_id || m.authorId || '').trim();
+      if (!sId || sId === 'system' || m.type === 'task_completed') return;
+      const sentByMe = isMessageSentByUser(m, currentUser);
+      if (!sentByMe) {
+        const existing = map.get(sId);
         if (!existing) {
-          map.set(m.authorId, {
-            id: m.authorId,
-            name: m.authorName || 'Community Helper',
+          map.set(sId, {
+            id: sId,
+            name: m.authorName || m.sender_name || 'Community Helper',
             count: 1,
             isCollaborator: Boolean(m.isCollaborator)
           });
@@ -393,18 +441,23 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
       }
     });
     return Array.from(map.values());
-  }, [messages, myActiveUid]);
+  }, [messages, currentUser]);
 
   const visibleMessages = React.useMemo(() => {
     if (!selectedReplierId) return messages;
-    return messages.filter(
-      m =>
-        m.authorId === selectedReplierId ||
-        m.receiverId === selectedReplierId ||
-        (m.authorId === myActiveUid && (!m.receiverId || m.receiverId === chatId)) ||
-        m.type === 'task_completed'
-    );
-  }, [messages, selectedReplierId, myActiveUid, chatId]);
+    const targetLower = String(selectedReplierId).toLowerCase();
+    return messages.filter(m => {
+      if (m.type === 'task_completed' || m.authorId === 'system') return true;
+      const sId = String(m.sender_id || m.authorId || '').toLowerCase();
+      const rId = String(m.receiverId || '').toLowerCase();
+      const sentByMe = isMessageSentByUser(m, currentUser);
+      return (
+        sId === targetLower ||
+        rId === targetLower ||
+        (sentByMe && (!rId || rId === String(chatId).toLowerCase() || rId === targetLower))
+      );
+    });
+  }, [messages, selectedReplierId, currentUser, chatId]);
 
   return (
     <div className="flex flex-col h-full bg-[#FCFAF5] dark:bg-slate-900 relative overflow-hidden transition-colors">
@@ -596,9 +649,14 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
           </div>
         )}
         {visibleMessages.map((msg) => {
-          const myUid = getCurrentUser()?.uid || 'my_user';
-          const isMe = msg.authorId === myUid || msg.authorId === 'my_user';
+          const activeUser = getCurrentUser();
+          const isMe = isMessageSentByUser(msg, activeUser);
           const isSystem = msg.authorId === 'system' || msg.type === 'task_completed';
+          const senderDisplayName =
+            msg.authorName ||
+            msg.sender_name ||
+            (msg.senderEmail ? msg.senderEmail.split('@')[0] : peerName) ||
+            'Community Peer';
 
           if (isSystem) {
             return (
@@ -611,51 +669,73 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
 
           if (msg.type === 'pin') {
             return (
-              <div 
-                key={msg.id} 
-                onClick={() => setShowTracker(!showTracker)}
-                className={`max-w-[80%] p-3 rounded-2xl flex items-center gap-2 text-xs font-bold cursor-pointer active:scale-95 transition-transform ${isMe ? 'bg-indigo-600 text-white self-end ml-auto' : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 self-start mr-auto'}`}
-              >
-                <MapPin className="w-4 h-4 shrink-0 text-amber-400 animate-pulse" />
-                <span>{msg.text} (Click to View Live Radar Map)</span>
+              <div key={msg.id} className={`w-full flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                <div 
+                  onClick={() => setShowTracker(!showTracker)}
+                  className={`max-w-[80%] p-3 rounded-2xl flex flex-col gap-1 text-xs font-bold cursor-pointer active:scale-95 transition-transform ${
+                    isMe
+                      ? 'bg-indigo-600 text-white ml-auto rounded-tr-xs'
+                      : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 mr-auto rounded-tl-xs'
+                  }`}
+                >
+                  {!isMe && (
+                    <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400">
+                      {senderDisplayName}
+                    </span>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <MapPin className="w-4 h-4 shrink-0 text-amber-400 animate-pulse" />
+                    <span>{msg.text} (Click to View Live Radar Map)</span>
+                  </div>
+                </div>
               </div>
             );
           }
 
           return (
-            <motion.div 
-              initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-              key={msg.id}
-              className={`max-w-[80%] p-3.5 rounded-2xl shadow-xs flex flex-col gap-1.5 ${
-                isMe 
-                  ? 'bg-indigo-600 text-white self-end ml-auto rounded-tr-xs' 
-                  : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 self-start mr-auto rounded-tl-xs'
-              }`}
-            >
-              {msg.type === 'attachment' && msg.attachmentUrl && (
-                <div 
-                  onClick={() => setZoomedImage(msg.attachmentUrl!)}
-                  className="cursor-pointer overflow-hidden rounded-xl border border-white/20 mb-1"
-                >
-                  <img src={msg.attachmentUrl} alt="attachment" loading="lazy" decoding="async" className="w-full max-h-56 object-cover hover:scale-102 transition-transform" />
-                </div>
-              )}
-              <p className="text-xs font-medium leading-relaxed whitespace-pre-wrap">{msg.text}</p>
-              <div className="flex items-center justify-between gap-2 mt-0.5 pt-1 border-t border-white/10">
-                <span className={`text-[9px] font-semibold ${isMe ? 'text-indigo-200' : 'text-slate-400'}`}>
-                  {msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Just now'}
-                </span>
-                {isMe && (
-                  <button 
-                    onClick={() => handleDeleteMessage(msg.id)}
-                    className="text-[10px] text-indigo-200 hover:text-white px-1.5 py-0.5 rounded bg-indigo-700/60 hover:bg-rose-600 transition-colors cursor-pointer flex items-center gap-1"
-                    title="Delete message"
-                  >
-                    <span>🗑️ Delete</span>
-                  </button>
+            <div key={msg.id} className={`w-full flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+              <motion.div 
+                initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                className={`max-w-[80%] p-3.5 rounded-2xl shadow-xs flex flex-col gap-1.5 ${
+                  isMe 
+                    ? 'bg-indigo-600 text-white self-end ml-auto rounded-tr-xs' 
+                    : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 self-start mr-auto rounded-tl-xs'
+                }`}
+              >
+                {!isMe && (
+                  <div className="flex items-center gap-1.5 pb-0.5 border-b border-slate-100 dark:border-slate-700/60">
+                    <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 truncate">
+                      {senderDisplayName}
+                    </span>
+                  </div>
                 )}
-              </div>
-            </motion.div>
+                {msg.type === 'attachment' && msg.attachmentUrl && (
+                  <div 
+                    onClick={() => setZoomedImage(msg.attachmentUrl!)}
+                    className="cursor-pointer overflow-hidden rounded-xl border border-white/20 mb-1"
+                  >
+                    <img src={msg.attachmentUrl} alt="attachment" loading="lazy" decoding="async" className="w-full max-h-56 object-cover hover:scale-102 transition-transform" />
+                  </div>
+                )}
+                <p className={`text-xs font-medium leading-relaxed whitespace-pre-wrap ${isMe ? 'text-white' : 'text-slate-900 dark:text-slate-100'}`}>
+                  {msg.text}
+                </p>
+                <div className={`flex items-center justify-between gap-2 mt-0.5 pt-1 border-t ${isMe ? 'border-white/15' : 'border-slate-100 dark:border-slate-700/60'}`}>
+                  <span className={`text-[9px] font-semibold ${isMe ? 'text-indigo-100' : 'text-slate-400'}`}>
+                    {msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Just now'}
+                  </span>
+                  {isMe && (
+                    <button 
+                      onClick={() => handleDeleteMessage(msg.id)}
+                      className="text-[10px] text-indigo-100 hover:text-white px-1.5 py-0.5 rounded bg-indigo-700/60 hover:bg-rose-600 transition-colors cursor-pointer flex items-center gap-1"
+                      title="Delete message"
+                    >
+                      <span>🗑️ Delete</span>
+                    </button>
+                  )}
+                </div>
+              </motion.div>
+            </div>
           );
         })}
       </div>

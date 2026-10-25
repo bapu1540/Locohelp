@@ -178,6 +178,7 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
         tags: combinedTags.length > 0 ? combinedTags.map(t => sanitizeText(t, 40)) : ['#General'],
         authorId: activeUid,
         authorName: sanitizeText(profile.displayName || 'Community Member', 100),
+        authorEmail: profile.email || getCurrentUser()?.email || undefined,
         state: finalState,
         city: finalCity,
         area: finalArea,
@@ -190,7 +191,7 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
         isVerifiedUser: true,
         imageUrl: attachmentUrl || undefined,
         attachmentUrl: attachmentUrl || undefined
-      };
+      } as any;
 
       // 1. Sync to central Express backend & PostgreSQL
       const serverResp: any = await broadcastIntentToServer(newIntent);

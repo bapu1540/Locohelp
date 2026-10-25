@@ -89,13 +89,46 @@ export function notifyAuthState(event: string, user: any) {
 }
 
 /**
+ * Legacy hash helper (preserves backward compatibility with records saved before unsigned bitshift fix)
+ */
+function computeLegacyUUIDVariants(str: string): string[] {
+  if (!str) return [];
+  let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+
+  const hex1 = (h1 >>> 0).toString(16).padStart(8, '0');
+  const hex2 = (h2 >>> 0).toString(16).padStart(8, '0');
+  const hex3Signed = Math.imul(h1, 31).toString(16).padStart(8, '0');
+  const hex4Signed = Math.imul(h2, 127).toString(16).padStart(8, '0');
+  const fullSigned = (hex1 + hex2 + hex3Signed + hex4Signed).slice(0, 32);
+  const v1 = `${fullSigned.slice(0, 8)}-${fullSigned.slice(8, 12)}-4${fullSigned.slice(13, 16)}-a${fullSigned.slice(17, 20)}-${fullSigned.slice(20, 32)}`;
+  return [v1.toLowerCase()];
+}
+
+/**
  * Ensures any string ID is converted into a valid PostgreSQL UUID format (8-4-4-4-12 hex string).
+ * Strictly idempotent so calling it multiple times on the same ID always produces the exact same UUID.
  */
 export function ensureValidUUID(str: string): string {
   if (!str) return '00000000-0000-4000-a000-000000000000';
   
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  if (uuidRegex.test(str)) return str;
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (uuidRegex.test(str)) return str.toLowerCase();
+
+  // Repair any legacy UUID that had a '-' in the last segment due to signed Math.imul
+  const legacyUuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-a[0-9a-f]{3}-[0-9a-f-]{12}$/i;
+  if (legacyUuidRegex.test(str)) {
+    const parts = str.split('-');
+    const firstFour = parts.slice(0, 4).join('-');
+    const tail = parts.slice(4).join('0').slice(0, 12).padEnd(12, '0');
+    return `${firstFour}-${tail}`.toLowerCase();
+  }
 
   let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
   for (let i = 0; i < str.length; i++) {
@@ -108,11 +141,11 @@ export function ensureValidUUID(str: string): string {
 
   const hex1 = (h1 >>> 0).toString(16).padStart(8, '0');
   const hex2 = (h2 >>> 0).toString(16).padStart(8, '0');
-  const hex3 = Math.imul(h1, 31).toString(16).padStart(8, '0');
-  const hex4 = Math.imul(h2, 127).toString(16).padStart(8, '0');
+  const hex3 = (Math.imul(h1, 31) >>> 0).toString(16).padStart(8, '0');
+  const hex4 = (Math.imul(h2, 127) >>> 0).toString(16).padStart(8, '0');
 
   const full = (hex1 + hex2 + hex3 + hex4).slice(0, 32);
-  return `${full.slice(0, 8)}-${full.slice(8, 12)}-4${full.slice(13, 16)}-a${full.slice(17, 20)}-${full.slice(20, 32)}`;
+  return `${full.slice(0, 8)}-${full.slice(8, 12)}-4${full.slice(13, 16)}-a${full.slice(17, 20)}-${full.slice(20, 32)}`.toLowerCase();
 }
 
 /**
@@ -121,14 +154,35 @@ export function ensureValidUUID(str: string): string {
 export function getCurrentUser(): AppUser {
   try {
     const saved = localStorage.getItem('locohelp_user');
+    const lastEmail = (localStorage.getItem('locohelp_last_logged_in_email') || '').trim().toLowerCase();
+    const lastName = localStorage.getItem('locohelp_last_logged_in_name') || '';
+
     if (saved) {
       const parsed = JSON.parse(saved);
-      if (parsed && parsed.uid && parsed.uid !== 'guest_user') {
+      const effectiveEmail = (parsed?.email || lastEmail || '').trim().toLowerCase();
+      const rawUid = parsed?.uid && parsed.uid !== 'guest_user'
+        ? String(parsed.uid)
+        : (effectiveEmail ? `email_${effectiveEmail.replace(/[^a-z0-9]/g, '_')}` : '');
+
+      if (rawUid && rawUid !== 'guest_user') {
         return {
           ...parsed,
-          uid: ensureValidUUID(parsed.uid)
+          uid: ensureValidUUID(rawUid),
+          email: effectiveEmail || parsed?.email || '',
+          displayName: parsed?.displayName || lastName || (effectiveEmail ? effectiveEmail.split('@')[0] : 'Community Member'),
+          isGuest: false
         };
       }
+    }
+
+    if (lastEmail) {
+      const emailSlug = `email_${lastEmail.replace(/[^a-z0-9]/g, '_')}`;
+      return {
+        uid: ensureValidUUID(emailSlug),
+        displayName: lastName || lastEmail.split('@')[0] || 'Community Member',
+        email: lastEmail,
+        isGuest: false
+      };
     }
   } catch (e) {}
 
@@ -136,7 +190,106 @@ export function getCurrentUser(): AppUser {
     uid: 'guest_user',
     displayName: 'LocoHelper Member',
     email: '',
+    isGuest: true
   };
+}
+
+/**
+ * Builds a normalized set of all possible IDs and email representations for a user
+ * (including UUID, raw email_ slug, email, and legacy UUID variants) so sender comparisons never fail.
+ */
+export function getUserIdentitySet(user?: { uid?: string; id?: string; email?: string } | null): Set<string> {
+  const ids = new Set<string>();
+  const target = user || getCurrentUser();
+  if (!target) return ids;
+
+  const addCandidate = (val?: string | null) => {
+    if (!val) return;
+    const clean = String(val).trim().toLowerCase();
+    if (!clean || clean === 'guest' || clean === 'guest_user' || clean === 'anonymous_user' || clean === 'peer' || clean === 'community peer') {
+      return;
+    }
+    ids.add(clean);
+    ids.add(ensureValidUUID(clean).toLowerCase());
+    computeLegacyUUIDVariants(clean).forEach(v => {
+      ids.add(v);
+      ids.add(ensureValidUUID(v).toLowerCase());
+    });
+  };
+
+  addCandidate(target.uid);
+  addCandidate((target as any).id);
+
+  // Also check raw stored uid in localStorage if checking current user
+  if (!user) {
+    try {
+      const rawSaved = localStorage.getItem('locohelp_user');
+      if (rawSaved) {
+        const parsed = JSON.parse(rawSaved);
+        addCandidate(parsed?.uid);
+        addCandidate(parsed?.id);
+        addCandidate(parsed?.email);
+      }
+    } catch {}
+  }
+
+  const email = String(target.email || (!user ? localStorage.getItem('locohelp_last_logged_in_email') || '' : '')).trim().toLowerCase();
+  if (email) {
+    addCandidate(email);
+    addCandidate(`email_${email.replace(/[^a-z0-9]/g, '_')}`);
+    addCandidate(`otp_${email.replace(/[^a-z0-9]/g, '_')}`);
+  }
+
+  return ids;
+}
+
+/**
+ * Safely determines if a chat message was sent by the specified user (defaults to current logged-in user).
+ */
+export function isMessageSentByUser(
+  msg: any,
+  user?: { uid?: string; id?: string; email?: string } | null
+): boolean {
+  if (!msg || typeof msg !== 'object') return false;
+  if (msg.authorId === 'system' || msg.senderId === 'system' || msg.type === 'task_completed') return false;
+  if (msg.authorId === 'my_user' || msg.senderId === 'my_user') return true;
+
+  const targetUser = user || getCurrentUser();
+  const targetEmail = String(
+    targetUser?.email || (!user ? localStorage.getItem('locohelp_last_logged_in_email') || '' : '')
+  ).trim().toLowerCase();
+
+  const msgEmail = String(
+    msg.sender_email || msg.senderEmail || msg.authorEmail || msg.email || ''
+  ).trim().toLowerCase();
+
+  // If both message and user have a valid email, email comparison is 100% definitive
+  if (targetEmail && msgEmail) {
+    return targetEmail === msgEmail;
+  }
+
+  const identitySet = getUserIdentitySet(targetUser);
+  if (identitySet.size === 0) return false;
+
+  const msgSenderCandidates = [
+    msg.sender_id,
+    msg.senderId,
+    msg.authorId,
+    msg.user_id,
+    msg.userId,
+    msgEmail
+  ]
+    .filter(Boolean)
+    .map(v => String(v).trim().toLowerCase());
+
+  for (const candidate of msgSenderCandidates) {
+    if (candidate === 'guest' || candidate === 'guest_user' || candidate === 'peer') continue;
+    if (identitySet.has(candidate) || identitySet.has(ensureValidUUID(candidate).toLowerCase())) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 /**

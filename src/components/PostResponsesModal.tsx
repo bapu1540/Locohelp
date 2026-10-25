@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, MessageSquare, User, Clock, ArrowRight, MessageCircle, Sparkles, Inbox, RefreshCw, Send } from 'lucide-react';
+import { X, ArrowRight, MessageCircle, Inbox, RefreshCw, Send } from 'lucide-react';
 import { Intent } from '../types';
 import { useLanguage } from '../i18n';
-import { getCurrentUser, getMessages } from '../auth';
+import { getCurrentUser, getUserIdentitySet, isMessageSentByUser } from '../auth';
 
 interface PostResponsesModalProps {
   isOpen: boolean;
@@ -15,9 +15,12 @@ interface PostResponsesModalProps {
 interface ReplierGroup {
   senderId: string;
   senderName: string;
+  senderEmail?: string;
+  senderAvatar?: string;
   lastMessage: string;
   updatedAt: string;
   count: number;
+  unreadCount: number;
   isCollaborator?: boolean;
 }
 
@@ -37,6 +40,7 @@ export default function PostResponsesModal({
 
     let isMounted = true;
     let initialLoad = true;
+
     const loadResponses = async () => {
       if (initialLoad) {
         setIsLoading(true);
@@ -44,44 +48,127 @@ export default function PostResponsesModal({
       }
       try {
         const currentUser = getCurrentUser();
-        const activeUid = currentUser?.uid || 'me';
+        const myIdentitySet = getUserIdentitySet(currentUser);
+        const ownerId = String(intent.authorId || currentUser?.uid || '').trim();
+        const ownerEmail = String((intent as any).authorEmail || currentUser?.email || '').trim().toLowerCase();
+
+        // 1. Fetch grouped inbox threads + raw messages in parallel for maximum reliability
+        const token = localStorage.getItem('locohelp_token') || '';
+        const headers: Record<string, string> = {};
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+
+        const [inboxRes, messagesRes] = await Promise.all([
+          fetch(
+            `/api/intents/${encodeURIComponent(intent.id)}/inbox?ownerId=${encodeURIComponent(ownerId)}&ownerEmail=${encodeURIComponent(ownerEmail)}&_t=${Date.now()}`,
+            { cache: 'no-store', headers }
+          ).catch(() => null),
+          fetch(`/api/messages/${encodeURIComponent(intent.id)}?_t=${Date.now()}`, {
+            cache: 'no-store',
+            headers
+          }).catch(() => null)
+        ]);
+
+        let inboxThreads: any[] = [];
+        if (inboxRes && inboxRes.ok) {
+          const data = await inboxRes.json().catch(() => []);
+          if (Array.isArray(data)) inboxThreads = data;
+        }
 
         let rawMessages: any[] = [];
+        if (messagesRes && messagesRes.ok) {
+          const data = await messagesRes.json().catch(() => []);
+          if (Array.isArray(data)) rawMessages = data;
+        }
+
+        // Also check localStorage chat cache in case an optimistic message was just sent
         try {
-          const res = await fetch(`/api/messages/${encodeURIComponent(intent.id)}?_t=${Date.now()}`, {
-            cache: 'no-store'
-          });
-          if (res.ok) {
-            rawMessages = await res.json();
+          const cached = JSON.parse(localStorage.getItem(`locohelp_chat_${intent.id}`) || '[]');
+          if (Array.isArray(cached) && cached.length > 0) {
+            const existingIds = new Set(rawMessages.map(m => m?.id).filter(Boolean));
+            cached.forEach(c => {
+              if (c && c.id && !existingIds.has(c.id)) rawMessages.push(c);
+            });
           }
-        } catch (e) {}
-
-        if (!Array.isArray(rawMessages)) rawMessages = [];
-
-        const visitorMessages = rawMessages.filter(
-          m => m.authorId !== activeUid && m.senderId !== activeUid && m.authorId !== 'me' && m.authorId !== 'owner'
-        );
+        } catch {}
 
         const groupsMap = new Map<string, ReplierGroup>();
-        visitorMessages.forEach(msg => {
-          const sId = msg.senderId || msg.authorId || 'visitor_user';
-          const sName = msg.authorName || msg.senderName || 'Community Helper';
-          const existing = groupsMap.get(sId);
 
+        // Seed from backend /inbox endpoint
+        inboxThreads.forEach(item => {
+          if (!item || !item.senderId) return;
+          const isFromMe = isMessageSentByUser(
+            { sender_id: item.senderId, sender_email: item.senderEmail },
+            currentUser
+          );
+          if (isFromMe) return;
+
+          const key = String(item.senderEmail || item.senderId).toLowerCase();
+          groupsMap.set(key, {
+            senderId: String(item.senderId),
+            senderName: item.senderName || 'Community Helper',
+            senderEmail: item.senderEmail || '',
+            senderAvatar: item.senderAvatar || '',
+            lastMessage: item.lastMessage || 'Sent a message',
+            updatedAt: item.updatedAt || new Date().toISOString(),
+            count: Number(item.count) || 1,
+            unreadCount: Number(item.unreadCount) || 0,
+            isCollaborator: Boolean(item.isCollaborator)
+          });
+        });
+
+        // Merge/reconcile from rawMessages so no replier is ever missed
+        rawMessages.forEach(msg => {
+          if (!msg) return;
+          const sId = String(msg.sender_id || msg.senderId || msg.authorId || msg.user_id || '').trim();
+          const sEmail = String(msg.sender_email || msg.senderEmail || msg.authorEmail || '').trim().toLowerCase();
+          if (!sId || sId === 'system' || msg.type === 'task_completed') return;
+
+          const isFromOwner =
+            isMessageSentByUser(msg, currentUser) ||
+            (ownerId && sId.toLowerCase() === ownerId.toLowerCase()) ||
+            (ownerEmail && sEmail && sEmail === ownerEmail) ||
+            myIdentitySet.has(sId.toLowerCase()) ||
+            (sEmail && myIdentitySet.has(sEmail));
+
+          if (isFromOwner) return;
+
+          const key = sEmail || sId.toLowerCase();
+          const sName =
+            msg.sender_name ||
+            msg.senderName ||
+            msg.authorName ||
+            (sEmail ? sEmail.split('@')[0] : 'Community Helper');
+          const sAvatar = msg.sender_avatar || msg.senderAvatar || msg.authorAvatar || '';
+          const msgText = msg.text || msg.content || msg.message || (msg.attachmentUrl ? '📷 Photo / Attachment' : 'Sent a message');
+          const msgTime = msg.createdAt || msg.created_at || msg.sent_at || new Date().toISOString();
+          const isRead = Boolean(msg.isRead || msg.is_read);
+
+          const existing = groupsMap.get(key);
           if (!existing) {
-            groupsMap.set(sId, {
+            groupsMap.set(key, {
               senderId: sId,
               senderName: sName,
-              lastMessage: msg.text || msg.content || 'Sent a message',
-              updatedAt: msg.createdAt || msg.sent_at || new Date().toISOString(),
+              senderEmail: sEmail,
+              senderAvatar: sAvatar,
+              lastMessage: msgText,
+              updatedAt: msgTime,
               count: 1,
-              isCollaborator: Boolean(msg.isCollaborator)
+              unreadCount: isRead ? 0 : 1,
+              isCollaborator: Boolean(msg.isCollaborator || msg.is_collaborator)
             });
-          } else {
-            existing.lastMessage = msg.text || msg.content || existing.lastMessage;
-            existing.updatedAt = msg.createdAt || msg.sent_at || existing.updatedAt;
+          } else if (inboxThreads.length === 0) {
+            // Only increment counts from rawMessages if inboxThreads didn't already aggregate them
+            existing.lastMessage = msgText || existing.lastMessage;
+            existing.updatedAt = msgTime || existing.updatedAt;
             existing.count += 1;
-            if (msg.isCollaborator) existing.isCollaborator = true;
+            if (!isRead) existing.unreadCount += 1;
+            if (msg.isCollaborator || msg.is_collaborator) existing.isCollaborator = true;
+            if ((!existing.senderName || existing.senderName === 'Community Helper') && sName) {
+              existing.senderName = sName;
+            }
+            if (!existing.senderAvatar && sAvatar) {
+              existing.senderAvatar = sAvatar;
+            }
           }
         });
 
@@ -101,7 +188,7 @@ export default function PostResponsesModal({
     };
 
     loadResponses();
-    const pollInterval = setInterval(loadResponses, 2500);
+    const pollInterval = setInterval(loadResponses, 2000);
 
     return () => {
       isMounted = false;
@@ -127,6 +214,26 @@ export default function PostResponsesModal({
       }
     } catch (err) {
       console.warn("Collaborate error:", err);
+    }
+  };
+
+  const handleOpenReplierThread = async (rep: ReplierGroup) => {
+    if (intent?.id) {
+      fetch(`/api/intents/${encodeURIComponent(intent.id)}/mark-read`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ senderId: rep.senderId })
+      }).catch(() => {});
+    }
+    onClose();
+    if (intent) {
+      onOpenChat({
+        ...intent,
+        selectedReplierId: rep.senderId,
+        selectedReplierName: rep.senderName,
+        selectedReplierEmail: rep.senderEmail,
+        selectedReplierAvatar: rep.senderAvatar
+      } as any);
     }
   };
 
@@ -209,22 +316,15 @@ export default function PostResponsesModal({
                     💬 {language === 'EN' ? `People Who Replied (${repliers.length})` : language === 'GU' ? `મળેલા જવાબો (${repliers.length})` : `जवाब देने वाले लोग (${repliers.length})`}
                   </span>
                   <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
-                    {language === 'EN' ? 'Tap to Chat or Collaborate' : 'चैट करें या सहयोगी चुनें'}
+                    {language === 'EN' ? 'Tap to Open 1-on-1 Chat' : language === 'GU' ? '૧-ઓન-૧ ચેટ ખોલવા ક્લિક કરો' : 'चैट करें या सहयोगी चुनें'}
                   </span>
                 </div>
                 {repliers.map((rep) => {
                   const isCollab = collaboratingId === rep.senderId || rep.isCollaborator;
                   return (
                     <div
-                      key={rep.senderId}
-                      onClick={() => {
-                        onClose();
-                        onOpenChat({
-                          ...intent,
-                          selectedReplierId: rep.senderId,
-                          selectedReplierName: rep.senderName
-                        } as any);
-                      }}
+                      key={rep.senderEmail || rep.senderId}
+                      onClick={() => handleOpenReplierThread(rep)}
                       className={`p-3 rounded-2xl border shadow-sm cursor-pointer transition-all flex items-center justify-between gap-2.5 group active:scale-[0.99] ${
                         isCollab
                           ? 'bg-emerald-50/90 dark:bg-emerald-950/40 border-emerald-400 dark:border-emerald-700'
@@ -233,18 +333,40 @@ export default function PostResponsesModal({
                     >
                       <div className="flex items-center gap-3 min-w-0 flex-1">
                         <div className="relative shrink-0">
-                          <div className="w-11 h-11 rounded-full bg-gradient-to-tr from-emerald-600 to-teal-500 text-white font-black text-sm flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform">
-                            {rep.senderName[0]?.toUpperCase() || 'U'}
-                          </div>
-                          <span className="absolute -top-1 -right-1 bg-emerald-600 text-white text-[9px] font-black px-1.5 py-0.2 rounded-full border border-white dark:border-slate-900">
-                            {rep.count}
-                          </span>
+                          {rep.senderAvatar ? (
+                            <img
+                              src={rep.senderAvatar}
+                              alt={rep.senderName}
+                              className="w-11 h-11 rounded-full object-cover border border-emerald-500/30 shadow-xs group-hover:scale-105 transition-transform"
+                            />
+                          ) : (
+                            <div className="w-11 h-11 rounded-full bg-gradient-to-tr from-emerald-600 to-teal-500 text-white font-black text-sm flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform">
+                              {rep.senderName[0]?.toUpperCase() || 'U'}
+                            </div>
+                          )}
+                          {rep.unreadCount > 0 ? (
+                            <span
+                              className="absolute -top-1 -right-1 bg-rose-600 text-white text-[9px] font-black px-1.5 py-0.2 rounded-full border border-white dark:border-slate-900 shadow-xs"
+                              title={`${rep.unreadCount} unread`}
+                            >
+                              {rep.unreadCount}
+                            </span>
+                          ) : (
+                            <span className="absolute -top-1 -right-1 bg-emerald-600 text-white text-[9px] font-black px-1.5 py-0.2 rounded-full border border-white dark:border-slate-900">
+                              {rep.count}
+                            </span>
+                          )}
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5">
                             <span className="text-xs font-black text-slate-900 dark:text-white truncate">
                               {rep.senderName}
                             </span>
+                            {rep.unreadCount > 0 && (
+                              <span className="text-[9px] font-black px-1.5 py-0.2 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 shrink-0">
+                                {rep.unreadCount} new
+                              </span>
+                            )}
                             {isCollab && (
                               <span className="text-[9px] font-black px-1.5 py-0.5 rounded-md bg-emerald-600 text-white shrink-0">
                                 🤝 Collaborating

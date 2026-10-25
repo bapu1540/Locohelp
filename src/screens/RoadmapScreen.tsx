@@ -257,13 +257,21 @@ export default function RoadmapScreen({ onBack }: { onBack: () => void }) {
         </div>
 
         {/* Suggestion Card */}
-        <div className="bg-amber-50/70 dark:bg-slate-800/50 border border-amber-200/70 dark:border-slate-700 rounded-2xl p-4 text-center space-y-1.5 mt-6">
+        <div className="bg-amber-50/70 dark:bg-slate-800/50 border border-amber-200/70 dark:border-slate-700 rounded-2xl p-4 text-center space-y-2 mt-6">
           <p className="text-xs font-extrabold text-amber-900 dark:text-amber-300">
             {r.suggestTitle}
           </p>
           <p className="text-[11px] text-amber-800/80 dark:text-slate-400">
             {r.suggestSub}
           </p>
+          <div className="pt-1">
+            <a
+              href="mailto:support@locohelp.com"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-extrabold transition-colors shadow-xs active:scale-95"
+            >
+              ✉️ support@locohelp.com
+            </a>
+          </div>
         </div>
       </div>
     </div>

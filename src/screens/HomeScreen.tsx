@@ -1174,24 +1174,6 @@ export default function HomeScreen({
                   <X className="w-3.5 h-3.5" />
                 </button>
               )}
-
-
-
-
-              {/* Voice Search Button */}
-              <button 
-                type="button"
-                onClick={handleStartVoiceSearch}
-                className={`flex items-center gap-1 text-[10px] font-black px-2.5 py-1 rounded-full border shadow-2xs transition-all cursor-pointer active:scale-95 shrink-0 ${
-                  isVoiceListening
-                    ? 'bg-rose-600 text-white border-rose-500 animate-pulse'
-                    : 'bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-300 border-indigo-300 dark:border-indigo-800 hover:bg-indigo-200'
-                }`}
-                title="Voice Search (Speak to Search)"
-              >
-                <span className="text-xs">{isVoiceListening ? '🎙️' : '🎙️'}</span>
-                <span>{isVoiceListening ? (language === 'EN' ? 'Listening...' : language === 'GU' ? 'સાંભળી રહ્યા છીએ...' : 'सुन रहे हैं...') : (language === 'GU' ? 'વોઈસ સર્ચ' : language === 'HI' ? 'वॉइस सर्च' : 'Voice Search')}</span>
-              </button>
             </div>
 
             {/* Live Instant Results Dropdown Overlay */}
@@ -1406,11 +1388,10 @@ export default function HomeScreen({
             </div>
           </div>
 
-          {/* 4. Business & Shop Register Banner (Orange #FF8800 + Blue #0066FF Mix Gradient) */}
+          {/* 4. Business & Shop Register Banner (Vibrant Purple Theme) */}
           <div
             onClick={handleSafeRegisterShop}
-            style={{ background: 'linear-gradient(135deg, #FF8800 0%, #6633FF 50%, #0066FF 100%)' }}
-            className="w-full rounded-2xl p-3.5 text-white shadow-lg shadow-indigo-500/25 cursor-pointer active:scale-[0.98] transition-all border-2 border-amber-300 dark:border-blue-400 hover:brightness-105 flex items-center justify-between gap-3"
+            className="w-full rounded-2xl p-3.5 text-white bg-gradient-to-r from-purple-600 via-purple-700 to-indigo-600 shadow-lg shadow-purple-600/25 cursor-pointer active:scale-[0.98] transition-all border-2 border-purple-400/80 hover:brightness-105 flex items-center justify-between gap-3"
             title="Business & Shop Registration"
           >
             <div className="flex items-center gap-2.5">

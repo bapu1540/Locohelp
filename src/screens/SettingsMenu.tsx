@@ -4,11 +4,13 @@ import { ArrowLeft, Shield, Map, ChevronRight, LifeBuoy, User, Sun, Moon, Smartp
 import { useLanguage } from '../i18n';
 import { getCurrentUser, saveUserProfile, getUserProfile } from '../auth';
 import InstallAppModal from '../components/InstallAppModal';
+import PrivacyPolicyModal from '../components/PrivacyPolicyModal';
 
 export default function SettingsMenu({ onNavigate, onBack }: { onNavigate: (s: Screen) => void, onBack: () => void }) {
   const { language, t } = useLanguage();
   const [isDark, setIsDark] = useState(false);
   const [isInstallOpen, setIsInstallOpen] = useState(false);
+  const [isPrivacyOpen, setIsPrivacyOpen] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [closureReason, setClosureReason] = useState('');
@@ -16,6 +18,9 @@ export default function SettingsMenu({ onNavigate, onBack }: { onNavigate: (s: S
 
   useEffect(() => {
     setIsDark(document.documentElement.classList.contains('dark'));
+    const handleOpenPrivacy = () => setIsPrivacyOpen(true);
+    window.addEventListener('locohelp_open_privacy_policy', handleOpenPrivacy);
+    return () => window.removeEventListener('locohelp_open_privacy_policy', handleOpenPrivacy);
   }, []);
 
   const toggleTheme = () => {
@@ -119,6 +124,12 @@ export default function SettingsMenu({ onNavigate, onBack }: { onNavigate: (s: S
             icon={<Shield className="w-5 h-5 text-emerald-500" />} 
             title={t('set.guide') || 'Community Guidelines'} 
             onClick={() => onNavigate('guidelines')} 
+          />
+          <div className="h-px bg-[#EAE6DC] dark:bg-slate-700 w-full ml-12"></div>
+          <SettingsItem 
+            icon={<Shield className="w-5 h-5 text-indigo-500" />} 
+            title={language === 'GU' ? 'ગોપનીયતા નીતિ (Privacy Policy)' : language === 'HI' ? 'गोपनीयता नीति (Privacy Policy)' : 'Privacy Policy'} 
+            onClick={() => setIsPrivacyOpen(true)} 
           />
           <div className="h-px bg-[#EAE6DC] dark:bg-slate-700 w-full ml-12"></div>
           <SettingsItem 
@@ -268,6 +279,11 @@ export default function SettingsMenu({ onNavigate, onBack }: { onNavigate: (s: S
       <InstallAppModal
         isOpen={isInstallOpen}
         onClose={() => setIsInstallOpen(false)}
+      />
+
+      <PrivacyPolicyModal
+        isOpen={isPrivacyOpen}
+        onClose={() => setIsPrivacyOpen(false)}
       />
     </div>
   );

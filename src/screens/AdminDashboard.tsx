@@ -1437,8 +1437,6 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
   const ADMIN_MODULES: Array<{
     id: AdminModuleId;
     title: string;
-    titleHi: string;
-    subtitle: string;
     icon: React.ReactNode;
     gradient: string;
     border: string;
@@ -1448,22 +1446,18 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
   }> = [
     {
       id: 'help_posts',
-      title: '📢 Manage All Public Broadcast Posts on Main Page',
-      titleHi: '📢 मुख्य पेज की सभी पब्लिक ब्रॉडकास्ट हेल्प पोस्ट्स',
-      subtitle: 'View, filter, edit & 1-click delete all user help posts displayed on home screen',
-      icon: <Megaphone className="w-5 h-5 text-white" />,
+      title: 'Public Help Posts',
+      icon: <Megaphone className="w-4 h-4 text-white" />,
       gradient: 'from-amber-600 via-orange-600 to-red-600',
-      border: 'border-orange-500/50 hover:border-orange-400 shadow-lg shadow-orange-500/10',
+      border: 'border-orange-500/50 hover:border-orange-400',
       badgeBg: 'bg-orange-500/20 text-orange-200 border-orange-500/40',
       totalCount: intents.length,
       pendingCount: countPending(intents, 'help_posts')
     },
     {
       id: 'helpers',
-      title: 'Browse Local Service Experts / Service Expert Profiles',
-      titleHi: 'लोकल सर्विस एक्सपर्ट्स और कारीगर प्रोफाइल',
-      subtitle: 'Registered skilled workers, electricians, plumbers & service experts',
-      icon: <Users className="w-5 h-5 text-white" />,
+      title: 'Service Experts',
+      icon: <Users className="w-4 h-4 text-white" />,
       gradient: 'from-emerald-600 to-teal-600',
       border: 'border-emerald-500/30 hover:border-emerald-400',
       badgeBg: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
@@ -1472,10 +1466,8 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
     },
     {
       id: 'simple_users',
-      title: 'Simple User Profiles',
-      titleHi: 'सामान्य यूज़र प्रोफाइल (Simple Users)',
-      subtitle: 'Standard user accounts, profile verifications & ID approvals',
-      icon: <UserCheck className="w-5 h-5 text-white" />,
+      title: 'User Profiles',
+      icon: <UserCheck className="w-4 h-4 text-white" />,
       gradient: 'from-sky-600 to-blue-600',
       border: 'border-sky-500/30 hover:border-sky-400',
       badgeBg: 'bg-sky-500/15 text-sky-300 border-sky-500/30',
@@ -1484,10 +1476,8 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
     },
     {
       id: 'businesses',
-      title: 'Business / Shop Registrations',
-      titleHi: 'दुकान और बिज़नेस रजिस्ट्रेशन',
-      subtitle: 'Local shops, showrooms, service centers & commercial listings',
-      icon: <Store className="w-5 h-5 text-white" />,
+      title: 'Business & Shop Registrations',
+      icon: <Store className="w-4 h-4 text-white" />,
       gradient: 'from-purple-600 to-indigo-600',
       border: 'border-purple-500/30 hover:border-purple-400',
       badgeBg: 'bg-purple-500/15 text-purple-300 border-purple-500/30',
@@ -1496,10 +1486,8 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
     },
     {
       id: 'job_seekers',
-      title: 'Job / Work Registrations (Job Seekers)',
-      titleHi: 'नौकरी / काम चाहने वाले (Job Seekers)',
-      subtitle: 'Candidates looking for local jobs, daily wage or full-time work',
-      icon: <Briefcase className="w-5 h-5 text-white" />,
+      title: 'Job Seekers',
+      icon: <Briefcase className="w-4 h-4 text-white" />,
       gradient: 'from-blue-600 to-indigo-700',
       border: 'border-blue-500/30 hover:border-blue-400',
       badgeBg: 'bg-blue-500/15 text-blue-300 border-blue-500/30',
@@ -1508,10 +1496,8 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
     },
     {
       id: 'employers',
-      title: 'Employer Registrations & Job Postings',
-      titleHi: 'नौकरी / काम देने वाले (Job Givers)',
-      subtitle: 'Registered employers, linked shops & staff vacancy postings',
-      icon: <Building2 className="w-5 h-5 text-white" />,
+      title: 'Employers & Vacancies',
+      icon: <Building2 className="w-4 h-4 text-white" />,
       gradient: 'from-amber-600 to-orange-600',
       border: 'border-amber-500/30 hover:border-amber-400',
       badgeBg: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
@@ -1521,9 +1507,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
     {
       id: 'feedback_categories',
       title: 'User Feedback & Categories',
-      titleHi: 'यूज़र फीडबैक, शिकायतें और कैटेगरी',
-      subtitle: 'User feedback, safety reports & platform service categories',
-      icon: <FileText className="w-5 h-5 text-white" />,
+      icon: <FileText className="w-4 h-4 text-white" />,
       gradient: 'from-pink-600 to-rose-600',
       border: 'border-pink-500/30 hover:border-pink-400',
       badgeBg: 'bg-pink-500/15 text-pink-300 border-pink-500/30',
@@ -2054,249 +2038,177 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         {/* VIEW 1: ADMIN HOME DASHBOARD WITH CLICKABLE SMALL BANNERS    */}
         {/* ============================================================ */}
         {activeModule === 'home' && (
-          <div className="space-y-6">
-            {/* Welcome & Quick Overview Banner */}
-            <div className="rounded-3xl bg-gradient-to-r from-slate-900 via-indigo-950/80 to-slate-900 border border-slate-800 p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <span className="inline-flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider text-orange-400 bg-orange-500/10 border border-orange-500/25 px-3 py-1 rounded-full mb-2">
-                  <LayoutGrid className="w-3.5 h-3.5" /> Admin Home Dashboard
+          <div className="space-y-4">
+            {/* Top Bar Quick Actions (Compact) */}
+            <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-900/80 border border-slate-800/80 p-3 rounded-2xl">
+              <div className="flex items-center gap-2">
+                <LayoutGrid className="w-4 h-4 text-orange-400" />
+                <span className="text-xs font-black text-slate-200 uppercase tracking-wider">
+                  Category Management Modules ({ADMIN_MODULES.length + 4})
                 </span>
-                <h2 className="text-xl sm:text-2xl font-black text-white">
-                  Select a Category Banner to Manage
-                </h2>
-                <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
-                  Click any module banner below to open its dedicated management page (View, Search, Approve, Reject, Edit, or Delete entries).
-                </p>
               </div>
-
-              <div className="flex flex-wrap items-center gap-2 shrink-0">
-                <button
-                  onClick={() => openModule('approved_list')}
-                  className="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white text-xs font-black flex items-center gap-1.5 cursor-pointer transition-all shadow-lg shadow-emerald-500/25 border border-emerald-400/40"
-                >
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>✅ Approved List</span>
-                </button>
-                <button
-                  onClick={() => openModule('ads')}
-                  className="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-black flex items-center gap-1.5 cursor-pointer transition-all shadow-lg shadow-cyan-500/20"
-                >
-                  <Megaphone className="w-4 h-4" />
-                  <span>Advertisements &amp; Banners</span>
-                </button>
+              <div className="flex items-center gap-2 shrink-0">
                 <button
                   onClick={() => openAdminCreateModal('businesses', true)}
-                  className="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white text-xs font-black flex items-center gap-1.5 cursor-pointer transition-all shadow-lg shadow-emerald-500/20"
+                  className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white text-xs font-black flex items-center gap-1.5 cursor-pointer transition-all shadow-md shadow-emerald-500/20"
                 >
-                  <Plus className="w-4 h-4" />
-                  <span>+ Add Entry (No OTP / Direct Publish)</span>
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ Add Entry (Direct Publish)</span>
                 </button>
                 <button
                   onClick={() => setIsChangePasswordOpen(true)}
-                  className="px-4 py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-300 text-xs font-black flex items-center gap-2 cursor-pointer transition-all"
+                  className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-300 text-xs font-black flex items-center gap-1.5 cursor-pointer transition-all"
                 >
-                  <KeyRound className="w-4 h-4 text-amber-400" />
+                  <KeyRound className="w-3.5 h-3.5 text-amber-400" />
                   <span>Change Password</span>
                 </button>
               </div>
             </div>
 
-            {/* 2. GRID OF SMALL CLICKABLE ADMIN BANNERS (CARDS) */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {/* Dedicated Card: Approved List (All Admin-Approved Items Grouped) */}
+            {/* GRID OF COMPACT CLICKABLE ADMIN BANNERS (CARDS) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {/* 1. Approved List Card */}
               <motion.button
-                initial={{ opacity: 0, y: 10 }}
+                initial={{ opacity: 0, y: 5 }}
                 animate={{ opacity: 1, y: 0 }}
                 onClick={() => openModule('approved_list')}
-                className="text-left group relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-950/70 via-[#111827] to-[#111827] hover:from-emerald-900/60 border-2 border-emerald-500/50 hover:border-emerald-400 p-4 sm:p-5 transition-all duration-200 shadow-lg shadow-emerald-500/10 hover:shadow-xl cursor-pointer flex flex-col justify-between"
+                className="text-left group relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-950/60 via-[#111827] to-[#111827] hover:from-emerald-900/50 border border-emerald-500/40 hover:border-emerald-400 p-3.5 sm:p-4 transition-all duration-200 shadow-md hover:shadow-lg cursor-pointer flex items-center justify-between gap-3"
               >
-                <div>
-                  <div className="flex items-start justify-between gap-3 mb-3">
-                    <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center shadow-md shrink-0 group-hover:scale-105 transition-transform">
-                      <CheckCircle2 className="w-5 h-5 text-white" />
-                    </div>
-                    <span className="px-2.5 py-1 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-[11px] font-black text-emerald-300">
-                      ✅ Total Approved: {
-                        helpers.filter(h => getNormalizedStatus(h, 'helpers') === 'approved').length +
-                        businesses.filter(b => getNormalizedStatus(b, 'businesses') === 'approved').length +
-                        simpleUsers.filter(u => getNormalizedStatus(u, 'simple_users') === 'approved').length +
-                        employersList.filter(j => getNormalizedStatus(j, 'employers') === 'approved').length +
-                        jobSeekersList.filter(j => getNormalizedStatus(j, 'job_seekers') === 'approved').length +
-                        intents.filter(i => getNormalizedStatus(i, 'help_posts') === 'approved').length
-                      }
-                    </span>
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center shadow-md shrink-0 group-hover:scale-105 transition-transform">
+                    <CheckCircle2 className="w-5 h-5 text-white" />
                   </div>
-                  <h3 className="text-base font-black text-white group-hover:text-emerald-300 transition-colors leading-snug">
-                    ✅ Approved List (All Approved Items)
-                  </h3>
-                  <p className="text-xs font-bold text-emerald-400 mt-0.5">
-                    एडमिन द्वारा अप्रूव किए गए सभी प्रोफाइल, दुकानें और जॉब्स
-                  </p>
-                  <p className="text-[11px] text-slate-400/90 mt-2 line-clamp-2 leading-relaxed">
-                    Dedicated grouped directory of all admin-approved Service Experts, Shops/Businesses, User Profiles, Employers, Job Seekers &amp; Broadcasts.
-                  </p>
+                  <div className="min-w-0">
+                    <h3 className="text-xs sm:text-sm font-black text-white group-hover:text-emerald-300 transition-colors truncate">
+                      ✅ Approved List
+                    </h3>
+                  </div>
                 </div>
-                <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs font-black text-emerald-400 group-hover:text-emerald-300">
-                  <span>Open Approved List</span>
-                  <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="px-2.5 py-1 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-[11px] font-black text-emerald-300">
+                    Total: {
+                      helpers.filter(h => getNormalizedStatus(h, 'helpers') === 'approved').length +
+                      businesses.filter(b => getNormalizedStatus(b, 'businesses') === 'approved').length +
+                      simpleUsers.filter(u => getNormalizedStatus(u, 'simple_users') === 'approved').length +
+                      employersList.filter(j => getNormalizedStatus(j, 'employers') === 'approved').length +
+                      jobSeekersList.filter(j => getNormalizedStatus(j, 'job_seekers') === 'approved').length +
+                      intents.filter(i => getNormalizedStatus(i, 'help_posts') === 'approved').length
+                    }
+                  </span>
+                  <ChevronRight className="w-4 h-4 text-emerald-400 group-hover:translate-x-0.5 transition-transform" />
                 </div>
               </motion.button>
 
+              {/* 2. Admin Modules Banners */}
               {ADMIN_MODULES.map((mod, idx) => (
                 <motion.button
                   key={mod.id}
-                  initial={{ opacity: 0, y: 10 }}
+                  initial={{ opacity: 0, y: 5 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: idx * 0.04 }}
+                  transition={{ delay: idx * 0.03 }}
                   onClick={() => openModule(mod.id)}
-                  className={`text-left group relative overflow-hidden rounded-2xl bg-[#111827] hover:bg-[#162033] border ${mod.border} p-4 sm:p-5 transition-all duration-200 shadow-lg hover:shadow-xl cursor-pointer flex flex-col justify-between`}
+                  className={`text-left group relative overflow-hidden rounded-2xl bg-[#111827] hover:bg-[#162033] border ${mod.border} p-3.5 sm:p-4 transition-all duration-200 shadow-md hover:shadow-lg cursor-pointer flex items-center justify-between gap-3`}
                 >
-                  {/* Top Row: Icon + Counts */}
-                  <div>
-                    <div className="flex items-start justify-between gap-3 mb-3">
-                      <div className={`w-11 h-11 rounded-2xl bg-gradient-to-br ${mod.gradient} flex items-center justify-center shadow-md shrink-0 group-hover:scale-105 transition-transform`}>
-                        {mod.icon}
-                      </div>
-
-                      <div className="flex flex-wrap items-center justify-end gap-1.5">
-                        <span className="px-2.5 py-1 rounded-xl bg-slate-800/90 border border-slate-700 text-[11px] font-black text-slate-200">
-                          Total: {mod.totalCount}
-                        </span>
-                        <span
-                          className={`px-2.5 py-1 rounded-xl text-[11px] font-black border ${
-                            mod.pendingCount > 0
-                              ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 animate-pulse'
-                              : 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                          }`}
-                        >
-                          Pending: {mod.pendingCount}
-                        </span>
-                      </div>
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${mod.gradient} flex items-center justify-center shadow-md shrink-0 group-hover:scale-105 transition-transform`}>
+                      {mod.icon}
                     </div>
-
-                    {/* Module Titles */}
-                    <h3 className="text-base font-black text-white group-hover:text-orange-300 transition-colors leading-snug">
-                      {mod.title}
-                    </h3>
-                    <p className="text-xs font-bold text-slate-400 mt-0.5">
-                      {mod.titleHi}
-                    </p>
-                    <p className="text-[11px] text-slate-400/90 mt-2 line-clamp-2 leading-relaxed">
-                      {mod.subtitle}
-                    </p>
+                    <div className="min-w-0">
+                      <h3 className="text-xs sm:text-sm font-black text-white group-hover:text-orange-300 transition-colors truncate">
+                        {mod.title}
+                      </h3>
+                    </div>
                   </div>
 
-                  {/* Bottom Action Bar */}
-                  <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs font-black text-orange-400 group-hover:text-orange-300">
-                    <span>Open Dedicated View</span>
-                    <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="px-2 py-0.5 rounded-lg bg-slate-800/90 border border-slate-700 text-[11px] font-black text-slate-200">
+                      Total: {mod.totalCount}
+                    </span>
+                    {mod.pendingCount > 0 && (
+                      <span className="px-2 py-0.5 rounded-lg text-[11px] font-black border bg-amber-500/20 text-amber-300 border-amber-500/40 animate-pulse">
+                        Pending: {mod.pendingCount}
+                      </span>
+                    )}
+                    <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-orange-400 group-hover:translate-x-0.5 transition-transform" />
                   </div>
                 </motion.button>
               ))}
 
-              {/* Dedicated Card: Advertisements & Banners */}
+              {/* 3. Advertisements & Banners Card */}
               <motion.button
-                initial={{ opacity: 0, y: 10 }}
+                initial={{ opacity: 0, y: 5 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.25 }}
+                onClick={() => openModule('ads')}
+                className="text-left group relative overflow-hidden rounded-2xl bg-[#111827] hover:bg-[#162033] border border-cyan-500/30 hover:border-cyan-400 p-3.5 sm:p-4 transition-all duration-200 shadow-md hover:shadow-lg cursor-pointer flex items-center justify-between gap-3"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-600 to-blue-600 flex items-center justify-center shadow-md shrink-0 group-hover:scale-105 transition-transform">
+                    <Megaphone className="w-5 h-5 text-white" />
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className="text-xs sm:text-sm font-black text-white group-hover:text-cyan-300 transition-colors truncate">
+                      Advertisements &amp; Banners
+                    </h3>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="px-2.5 py-1 rounded-xl bg-slate-800/90 border border-slate-700 text-[11px] font-black text-slate-200">
+                    Total: {ads.length}
+                  </span>
+                  <ChevronRight className="w-4 h-4 text-cyan-400 group-hover:translate-x-0.5 transition-transform" />
+                </div>
+              </motion.button>
+
+              {/* 4. Category 16:9 Images Manager Card */}
+              <motion.button
+                initial={{ opacity: 0, y: 5 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.28 }}
+                onClick={() => openModule('category_images')}
+                className="text-left group relative overflow-hidden rounded-2xl bg-[#111827] hover:bg-[#162033] border border-amber-500/40 hover:border-amber-400 p-3.5 sm:p-4 transition-all duration-200 shadow-md hover:shadow-lg cursor-pointer flex items-center justify-between gap-3"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-md shrink-0 group-hover:scale-105 transition-transform">
+                    <ImageIcon className="w-5 h-5 text-white" />
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className="text-xs sm:text-sm font-black text-white group-hover:text-amber-300 transition-colors truncate">
+                      Category 16:9 Images Manager
+                    </h3>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="px-2.5 py-1 rounded-xl bg-amber-500/15 border border-amber-500/30 text-[11px] font-black text-amber-300">
+                    {Object.keys(categoryImages).length} / {CATEGORIES.length}
+                  </span>
+                  <ChevronRight className="w-4 h-4 text-amber-400 group-hover:translate-x-0.5 transition-transform" />
+                </div>
+              </motion.button>
+
+              {/* 5. Encrypted Security Vault Card */}
+              <motion.button
+                initial={{ opacity: 0, y: 5 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.3 }}
-                onClick={() => openModule('ads')}
-                className="text-left group relative overflow-hidden rounded-2xl bg-[#111827] hover:bg-[#162033] border border-cyan-500/30 hover:border-cyan-400 p-4 sm:p-5 transition-all duration-200 shadow-lg hover:shadow-xl cursor-pointer flex flex-col justify-between"
-              >
-                <div>
-                  <div className="flex items-start justify-between gap-3 mb-3">
-                    <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-cyan-600 to-blue-600 flex items-center justify-center shadow-md shrink-0 group-hover:scale-105 transition-transform">
-                      <Megaphone className="w-5 h-5 text-white" />
-                    </div>
-                    <span className="px-2.5 py-1 rounded-xl bg-slate-800/90 border border-slate-700 text-[11px] font-black text-slate-200">
-                      Total Ads: {ads.length}
-                    </span>
-                  </div>
-                  <h3 className="text-base font-black text-white group-hover:text-cyan-300 transition-colors leading-snug">
-                    Advertisements &amp; Banners
-                  </h3>
-                  <p className="text-xs font-bold text-slate-400 mt-0.5">
-                    होमपेज विज्ञापन और 16:9 बैनर (Upload / Active-Inactive / Delete)
-                  </p>
-                  <p className="text-[11px] text-slate-400/90 mt-2 line-clamp-2 leading-relaxed">
-                    Upload 16:9 banner images, add titles/links, toggle active/inactive status, and delete ads.
-                  </p>
-                </div>
-                <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs font-black text-cyan-400 group-hover:text-cyan-300">
-                  <span>Open Advertisements &amp; Banners</span>
-                  <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-                </div>
-              </motion.button>
-
-              {/* Card: Category 16:9 Images Manager (Add, Edit, Delete) */}
-              <motion.button
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.35 }}
-                onClick={() => openModule('category_images')}
-                className="text-left group relative overflow-hidden rounded-2xl bg-[#111827] hover:bg-[#162033] border border-amber-500/40 hover:border-amber-400 p-4 sm:p-5 transition-all duration-200 shadow-lg hover:shadow-xl cursor-pointer flex flex-col justify-between"
-              >
-                <div>
-                  <div className="flex items-start justify-between gap-3 mb-3">
-                    <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-md shrink-0 group-hover:scale-105 transition-transform">
-                      <ImageIcon className="w-5 h-5 text-white" />
-                    </div>
-                    <span className="px-2.5 py-1 rounded-xl bg-amber-500/15 border border-amber-500/30 text-[11px] font-black text-amber-300">
-                      {Object.keys(categoryImages).length} / {CATEGORIES.length} Uploaded
-                    </span>
-                  </div>
-                  <h3 className="text-base font-black text-white group-hover:text-amber-300 transition-colors leading-snug">
-                    Category 16:9 Images Manager
-                  </h3>
-                  <p className="text-xs font-bold text-slate-400 mt-0.5">
-                    कैटेगरी की 16:9 फोटो जोड़ें, बदलें या हटाएं (Add / Edit / Delete)
-                  </p>
-                  <p className="text-[11px] text-slate-400/90 mt-2 line-clamp-2 leading-relaxed">
-                    Directly upload, edit, or delete 16:9 banner images for all {CATEGORIES.length} service categories.
-                  </p>
-                </div>
-                <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs font-black text-amber-400 group-hover:text-amber-300">
-                  <span>Manage Category 16:9 Images</span>
-                  <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-                </div>
-              </motion.button>
-
-              {/* 10th Card: Encrypted Security Vault (Read-Only / Non-Deletable) */}
-              <motion.button
-                type="button"
-                whileHover={{ y: -3 }}
-                whileTap={{ scale: 0.985 }}
                 onClick={() => openModule('security_vault')}
-                className="text-left rounded-3xl bg-gradient-to-br from-emerald-950/60 via-[#111827] to-[#111827] hover:from-emerald-900/50 border border-emerald-500/40 hover:border-emerald-400 p-5 transition-all shadow-lg flex flex-col justify-between group cursor-pointer"
+                className="text-left group relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-950/60 via-[#111827] to-[#111827] hover:from-emerald-900/50 border border-emerald-500/40 hover:border-emerald-400 p-3.5 sm:p-4 transition-all duration-200 shadow-md hover:shadow-lg cursor-pointer flex items-center justify-between gap-3"
               >
-                <div>
-                  <div className="flex items-start justify-between gap-3 mb-3">
-                    <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-md shrink-0 group-hover:scale-105 transition-transform">
-                      <Lock className="w-5 h-5 text-white" />
-                    </div>
-                    <div className="flex flex-col items-end gap-1">
-                      <span className="px-2.5 py-0.5 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-[11px] font-black text-emerald-300">
-                        {securityVaultRecords.length} Encrypted Records
-                      </span>
-                      {securityVaultRecords.filter(r => r.isDeletedFromPublic || r.actionStatus?.includes('DELETED')).length > 0 && (
-                        <span className="px-2 py-0.5 rounded-lg bg-rose-500/25 border border-rose-500/40 text-[10px] font-black text-rose-300">
-                          🚨 {securityVaultRecords.filter(r => r.isDeletedFromPublic || r.actionStatus?.includes('DELETED')).length} Deleted by User (Saved)
-                        </span>
-                      )}
-                    </div>
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-md shrink-0 group-hover:scale-105 transition-transform">
+                    <Lock className="w-5 h-5 text-white" />
                   </div>
-                  <h3 className="text-base font-black text-white group-hover:text-emerald-300 transition-colors leading-snug">
-                    🛡️ Encrypted Security Vault (Read-Only)
-                  </h3>
-                  <p className="text-xs font-bold text-emerald-400 mt-0.5">
-                    AES-256-GCM लॉकर • एडमिन भी डिलीट नहीं कर सकता (सिर्फ़ देख सकते हैं)
-                  </p>
-                  <p className="text-[11px] text-slate-400/90 mt-2 line-clamp-2 leading-relaxed">
-                    Permanent police/fraud investigation archive. Even if a user or service expert deletes their account, their Name, Phone, Address &amp; Watermarked Govt ID remain safely encrypted here forever.
-                  </p>
+                  <div className="min-w-0">
+                    <h3 className="text-xs sm:text-sm font-black text-white group-hover:text-emerald-300 transition-colors truncate">
+                      🛡️ Encrypted Security Vault
+                    </h3>
+                  </div>
                 </div>
-                <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs font-black text-emerald-400 group-hover:text-emerald-300">
-                  <span>Open Read-Only Security Vault</span>
-                  <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="px-2.5 py-1 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-[11px] font-black text-emerald-300">
+                    {securityVaultRecords.length} Encrypted
+                  </span>
+                  <ChevronRight className="w-4 h-4 text-emerald-400 group-hover:translate-x-0.5 transition-transform" />
                 </div>
               </motion.button>
             </div>
@@ -2607,7 +2519,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                     {currentModuleMeta.title}
                   </h2>
                   <p className="text-xs sm:text-sm text-slate-400 font-medium">
-                    {currentModuleMeta.titleHi} — {currentModuleMeta.subtitle}
+                    Manage and review entries for {currentModuleMeta.title}
                   </p>
                 </div>
               </div>

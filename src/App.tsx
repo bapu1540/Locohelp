@@ -149,11 +149,12 @@ function AppContent() {
           const u = session.user;
           // Auto-create profile if missing
           await ensureProfileExists(u);
+          const resolvedUid = u.uid || u.id;
           const userData = {
-            uid: u.id,
-            displayName: u.user_metadata?.full_name || u.email?.split('@')[0] || 'Supabase User',
+            uid: resolvedUid,
+            displayName: u.displayName || u.user_metadata?.full_name || u.email?.split('@')[0] || 'Community Member',
             email: u.email || '',
-            photoURL: u.user_metadata?.avatar_url || 'https://lh3.googleusercontent.com/a/default-user',
+            photoURL: u.photoURL || u.user_metadata?.avatar_url || 'https://lh3.googleusercontent.com/a/default-user',
           };
           
           if (userData && userData.uid) {

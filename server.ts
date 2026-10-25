@@ -1529,12 +1529,15 @@ async function initPostgresTables(pool: pg.Pool): Promise<string[]> {
     "create broadcast_posts"
   );
 
-  // 7. chats & messages tables
+  // 7. chats & messages tables (Strictly non-destructive schema upgrades)
   await execSafeDDL(
     pool,
     `CREATE TABLE IF NOT EXISTS chats (
       id TEXT PRIMARY KEY,
+      intent_id TEXT,
       sender_id TEXT,
+      sender_name TEXT,
+      sender_email TEXT,
       receiver_id TEXT,
       message TEXT,
       sent_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -1542,7 +1545,12 @@ async function initPostgresTables(pool: pg.Pool): Promise<string[]> {
     "create chats"
   );
   await execSafeDDL(pool, `ALTER TABLE chats ALTER COLUMN id TYPE TEXT USING id::TEXT`, "chats.id type text");
+  await execSafeDDL(pool, `ALTER TABLE chats ALTER COLUMN sender_id TYPE TEXT USING sender_id::TEXT`, "chats.sender_id type text");
+  await execSafeDDL(pool, `ALTER TABLE chats ALTER COLUMN receiver_id TYPE TEXT USING receiver_id::TEXT`, "chats.receiver_id type text");
+  await execSafeDDL(pool, `ALTER TABLE chats ADD COLUMN IF NOT EXISTS intent_id TEXT`, "chats.intent_id");
   await execSafeDDL(pool, `ALTER TABLE chats ADD COLUMN IF NOT EXISTS sender_id TEXT`, "chats.sender_id");
+  await execSafeDDL(pool, `ALTER TABLE chats ADD COLUMN IF NOT EXISTS sender_name TEXT`, "chats.sender_name");
+  await execSafeDDL(pool, `ALTER TABLE chats ADD COLUMN IF NOT EXISTS sender_email TEXT`, "chats.sender_email");
   await execSafeDDL(pool, `ALTER TABLE chats ADD COLUMN IF NOT EXISTS receiver_id TEXT`, "chats.receiver_id");
   await execSafeDDL(pool, `ALTER TABLE chats ADD COLUMN IF NOT EXISTS message TEXT`, "chats.message");
   await execSafeDDL(pool, `ALTER TABLE chats ADD COLUMN IF NOT EXISTS sent_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()`, "chats.sent_at");
@@ -1554,6 +1562,8 @@ async function initPostgresTables(pool: pg.Pool): Promise<string[]> {
       intent_id TEXT,
       sender_id TEXT,
       sender_name TEXT,
+      sender_email TEXT,
+      sender_avatar TEXT,
       receiver_id TEXT,
       text TEXT,
       content TEXT,
@@ -1561,12 +1571,29 @@ async function initPostgresTables(pool: pg.Pool): Promise<string[]> {
       attachment_url TEXT,
       attachment_type TEXT,
       is_collaborator BOOLEAN DEFAULT false,
+      is_read BOOLEAN DEFAULT false,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
     )`,
     "create messages"
   );
+  await execSafeDDL(pool, `ALTER TABLE messages ALTER COLUMN id TYPE TEXT USING id::TEXT`, "messages.id type text");
+  await execSafeDDL(pool, `ALTER TABLE messages ADD COLUMN IF NOT EXISTS intent_id TEXT`, "messages.intent_id");
+  await execSafeDDL(pool, `ALTER TABLE messages ALTER COLUMN intent_id TYPE TEXT USING intent_id::TEXT`, "messages.intent_id type text");
+  await execSafeDDL(pool, `ALTER TABLE messages ADD COLUMN IF NOT EXISTS sender_id TEXT`, "messages.sender_id");
+  await execSafeDDL(pool, `ALTER TABLE messages ALTER COLUMN sender_id TYPE TEXT USING sender_id::TEXT`, "messages.sender_id type text");
   await execSafeDDL(pool, `ALTER TABLE messages ADD COLUMN IF NOT EXISTS sender_name TEXT`, "messages.sender_name");
+  await execSafeDDL(pool, `ALTER TABLE messages ADD COLUMN IF NOT EXISTS sender_email TEXT`, "messages.sender_email");
+  await execSafeDDL(pool, `ALTER TABLE messages ADD COLUMN IF NOT EXISTS sender_avatar TEXT`, "messages.sender_avatar");
+  await execSafeDDL(pool, `ALTER TABLE messages ADD COLUMN IF NOT EXISTS receiver_id TEXT`, "messages.receiver_id");
+  await execSafeDDL(pool, `ALTER TABLE messages ALTER COLUMN receiver_id TYPE TEXT USING receiver_id::TEXT`, "messages.receiver_id type text");
+  await execSafeDDL(pool, `ALTER TABLE messages ADD COLUMN IF NOT EXISTS text TEXT`, "messages.text");
+  await execSafeDDL(pool, `ALTER TABLE messages ADD COLUMN IF NOT EXISTS content TEXT`, "messages.content");
+  await execSafeDDL(pool, `ALTER TABLE messages ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'text'`, "messages.type");
+  await execSafeDDL(pool, `ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_url TEXT`, "messages.attachment_url");
+  await execSafeDDL(pool, `ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_type TEXT`, "messages.attachment_type");
   await execSafeDDL(pool, `ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_collaborator BOOLEAN DEFAULT false`, "messages.is_collaborator");
+  await execSafeDDL(pool, `ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_read BOOLEAN DEFAULT false`, "messages.is_read");
+  await execSafeDDL(pool, `ALTER TABLE messages ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()`, "messages.created_at");
 
   await execSafeDDL(
     pool,
@@ -4255,27 +4282,52 @@ async function startServer() {
 
           if (result && result.rows.length > 0) {
             result.rows.forEach(r => {
+              const sId = String(r.sender_id || '').trim();
+              const sName = String(r.sender_name || '').trim() || 'Community Peer';
+              const sEmail = String(r.sender_email || '').trim().toLowerCase();
+              const sAvatar = String(r.sender_avatar || '').trim();
               mergedMap.set(r.id, {
                 id: r.id,
                 conversationId: r.intent_id || conversationId,
-                authorId: r.sender_id,
-                senderId: r.sender_id,
-                authorName: r.sender_name || 'Community Peer',
-                senderName: r.sender_name || 'Community Peer',
+                intent_id: r.intent_id || conversationId,
+                intentId: r.intent_id || conversationId,
+                authorId: sId,
+                senderId: sId,
+                sender_id: sId,
+                user_id: sId,
+                authorName: sName,
+                senderName: sName,
+                sender_name: sName,
+                senderEmail: sEmail,
+                sender_email: sEmail,
+                authorEmail: sEmail,
+                senderAvatar: sAvatar,
+                sender_avatar: sAvatar,
+                authorAvatar: sAvatar,
                 receiverId: r.receiver_id,
+                receiver_id: r.receiver_id,
                 text: r.text || r.content || '',
                 content: r.content || r.text || '',
                 message: r.text || r.content || '',
                 type: r.type || 'text',
                 attachmentUrl: r.attachment_url,
+                attachment_url: r.attachment_url,
                 attachmentType: r.attachment_type,
+                attachment_type: r.attachment_type,
                 isCollaborator: Boolean(r.is_collaborator),
+                is_collaborator: Boolean(r.is_collaborator),
+                isRead: Boolean(r.is_read),
+                is_read: Boolean(r.is_read),
                 createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString()
               });
             });
           }
+        } catch (dbErr) {
+          console.warn("DB messages query error:", dbErr);
+        }
 
-          // 2. Also query chats table for any legacy 1:1 messages
+        try {
+          // 2. Also query chats table for any 1:1 or intent messages
           let chatRes;
           if (userId && otherUserId && (!conversationId || conversationId === 'general')) {
             chatRes = await dbPool.query(
@@ -4284,7 +4336,7 @@ async function startServer() {
             );
           } else {
             chatRes = await dbPool.query(
-              "SELECT * FROM chats WHERE receiver_id = $1 OR sender_id = $1 ORDER BY sent_at ASC",
+              "SELECT * FROM chats WHERE intent_id = $1 OR receiver_id = $1 OR sender_id = $1 ORDER BY sent_at ASC",
               [conversationId]
             );
           }
@@ -4292,12 +4344,26 @@ async function startServer() {
           if (chatRes && chatRes.rows.length > 0) {
             chatRes.rows.forEach(r => {
               if (!mergedMap.has(r.id)) {
+                const sId = String(r.sender_id || '').trim();
+                const sName = String(r.sender_name || '').trim() || 'Community Peer';
+                const sEmail = String(r.sender_email || '').trim().toLowerCase();
                 mergedMap.set(r.id, {
                   id: r.id,
-                  conversationId,
-                  authorId: r.sender_id,
-                  senderId: r.sender_id,
+                  conversationId: r.intent_id || conversationId,
+                  intent_id: r.intent_id || conversationId,
+                  intentId: r.intent_id || conversationId,
+                  authorId: sId,
+                  senderId: sId,
+                  sender_id: sId,
+                  user_id: sId,
+                  authorName: sName,
+                  senderName: sName,
+                  sender_name: sName,
+                  senderEmail: sEmail,
+                  sender_email: sEmail,
+                  authorEmail: sEmail,
                   receiverId: r.receiver_id,
+                  receiver_id: r.receiver_id,
                   text: r.message || '',
                   content: r.message || '',
                   message: r.message || '',
@@ -4307,8 +4373,65 @@ async function startServer() {
               }
             });
           }
-        } catch (dbErr) {
-          console.warn("DB messages query error:", dbErr);
+        } catch (chatErr) {
+          console.warn("DB chats query error:", chatErr);
+        }
+
+        // 3. Enrich any missing sender names, emails, or avatars from users / profiles tables
+        try {
+          const senderIds = Array.from(
+            new Set(
+              Array.from(mergedMap.values())
+                .map(m => String(m.sender_id || m.senderId || m.authorId || '').trim())
+                .filter(Boolean)
+            )
+          );
+          if (senderIds.length > 0) {
+            const userMap = new Map<string, { name?: string; email?: string; avatar?: string }>();
+            const uRes = await dbPool.query(
+              "SELECT id::text AS id, name, email, avatar_url FROM users WHERE id::text = ANY($1::text[]) OR LOWER(email) = ANY($1::text[])",
+              [senderIds.map(s => s.toLowerCase())]
+            ).catch(() => ({ rows: [] as any[] }));
+            uRes.rows.forEach(u => {
+              if (u.id) userMap.set(String(u.id).toLowerCase(), { name: u.name, email: u.email, avatar: u.avatar_url });
+              if (u.email) userMap.set(String(u.email).toLowerCase(), { name: u.name, email: u.email, avatar: u.avatar_url });
+            });
+
+            const pRes = await dbPool.query(
+              "SELECT id::text AS id, full_name, email, avatar_url FROM profiles WHERE id::text = ANY($1::text[]) OR LOWER(email) = ANY($1::text[])",
+              [senderIds.map(s => s.toLowerCase())]
+            ).catch(() => ({ rows: [] as any[] }));
+            pRes.rows.forEach(p => {
+              const entry = { name: p.full_name, email: p.email, avatar: p.avatar_url };
+              if (p.id && !userMap.has(String(p.id).toLowerCase())) userMap.set(String(p.id).toLowerCase(), entry);
+              if (p.email && !userMap.has(String(p.email).toLowerCase())) userMap.set(String(p.email).toLowerCase(), entry);
+            });
+
+            mergedMap.forEach((m) => {
+              const keyId = String(m.sender_id || m.senderId || m.authorId || '').toLowerCase();
+              const keyEmail = String(m.sender_email || m.senderEmail || '').toLowerCase();
+              const info = userMap.get(keyId) || (keyEmail ? userMap.get(keyEmail) : undefined);
+              if (info) {
+                if ((!m.senderName || m.senderName === 'Community Peer' || m.senderName === 'Community Member') && info.name) {
+                  m.senderName = info.name;
+                  m.authorName = info.name;
+                  m.sender_name = info.name;
+                }
+                if (!m.senderEmail && info.email) {
+                  m.senderEmail = String(info.email).toLowerCase();
+                  m.sender_email = String(info.email).toLowerCase();
+                  m.authorEmail = String(info.email).toLowerCase();
+                }
+                if (!m.senderAvatar && info.avatar) {
+                  m.senderAvatar = info.avatar;
+                  m.sender_avatar = info.avatar;
+                  m.authorAvatar = info.avatar;
+                }
+              }
+            });
+          }
+        } catch (enrichErr) {
+          // Non-fatal enrichment error
         }
       }
 
@@ -4316,7 +4439,26 @@ async function startServer() {
       const fileMessages = allMessages[targetChatKey] || allMessages[conversationId] || (id ? allMessages[id] : []) || [];
       fileMessages.forEach((m: any) => {
         if (m && m.id && !mergedMap.has(m.id)) {
-          mergedMap.set(m.id, m);
+          const sId = String(m.sender_id || m.senderId || m.authorId || m.user_id || '').trim();
+          const sName = String(m.sender_name || m.senderName || m.authorName || 'Community Peer').trim();
+          const sEmail = String(m.sender_email || m.senderEmail || m.authorEmail || '').trim().toLowerCase();
+          const sAvatar = String(m.sender_avatar || m.senderAvatar || m.authorAvatar || '').trim();
+          mergedMap.set(m.id, {
+            ...m,
+            sender_id: sId,
+            senderId: sId,
+            authorId: sId,
+            user_id: sId,
+            sender_name: sName,
+            senderName: sName,
+            authorName: sName,
+            sender_email: sEmail,
+            senderEmail: sEmail,
+            authorEmail: sEmail,
+            sender_avatar: sAvatar,
+            senderAvatar: sAvatar,
+            authorAvatar: sAvatar
+          });
         }
       });
 
@@ -4333,6 +4475,209 @@ async function startServer() {
   app.get("/api/chats/:id", getChatMessagesHandler);
   app.get("/api/messages", getChatMessagesHandler);
   app.get("/api/messages/:id", getChatMessagesHandler);
+
+  // Get Post Reply Inbox (Grouped repliers with name, avatar, last message preview, timestamp, and unread count)
+  app.get("/api/intents/:id/inbox", async (req: express.Request, res: express.Response) => {
+    try {
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+      const intentId = req.params.id;
+      const caller = extractRequestUser(req);
+      const ownerIdParam = String(req.query.ownerId || req.query.owner_id || caller?.uid || '').trim();
+      const ownerEmailParam = String(req.query.ownerEmail || req.query.owner_email || caller?.email || '').trim().toLowerCase();
+
+      // Lookup intent owner from DB if available
+      let dbOwnerId = '';
+      let dbOwnerEmail = '';
+      if (dbPool && isDbConnected) {
+        try {
+          const iRes = await dbPool.query(
+            "SELECT user_id, author_id FROM intents WHERE id = $1 UNION ALL SELECT user_id, user_id AS author_id FROM broadcast_posts WHERE id = $1 LIMIT 1",
+            [intentId]
+          ).catch(() => ({ rows: [] as any[] }));
+          if (iRes.rows.length > 0) {
+            dbOwnerId = String(iRes.rows[0].user_id || iRes.rows[0].author_id || '').trim();
+          }
+        } catch {}
+      }
+
+      const ownerIds = new Set<string>(
+        [ownerIdParam, dbOwnerId, 'owner', 'me', 'system']
+          .map(s => String(s || '').trim().toLowerCase())
+          .filter(Boolean)
+      );
+      const ownerEmails = new Set<string>(
+        [ownerEmailParam, dbOwnerEmail]
+          .map(s => String(s || '').trim().toLowerCase())
+          .filter(Boolean)
+      );
+
+      // Reuse getChatMessages logic to gather all messages for this intentId
+      const mergedMap = new Map<string, any>();
+      if (dbPool && isDbConnected) {
+        try {
+          const mRes = await dbPool.query(
+            "SELECT * FROM messages WHERE intent_id = $1 OR receiver_id = $1 ORDER BY created_at ASC",
+            [intentId]
+          );
+          mRes.rows.forEach(r => {
+            mergedMap.set(r.id, {
+              id: r.id,
+              senderId: String(r.sender_id || '').trim(),
+              senderName: String(r.sender_name || '').trim() || 'Community Helper',
+              senderEmail: String(r.sender_email || '').trim().toLowerCase(),
+              senderAvatar: String(r.sender_avatar || '').trim(),
+              receiverId: String(r.receiver_id || '').trim(),
+              text: r.text || r.content || '',
+              isCollaborator: Boolean(r.is_collaborator),
+              isRead: Boolean(r.is_read),
+              createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString()
+            });
+          });
+        } catch {}
+
+        try {
+          const cRes = await dbPool.query(
+            "SELECT * FROM chats WHERE intent_id = $1 OR receiver_id = $1 ORDER BY sent_at ASC",
+            [intentId]
+          );
+          cRes.rows.forEach(r => {
+            if (!mergedMap.has(r.id)) {
+              mergedMap.set(r.id, {
+                id: r.id,
+                senderId: String(r.sender_id || '').trim(),
+                senderName: String(r.sender_name || '').trim() || 'Community Helper',
+                senderEmail: String(r.sender_email || '').trim().toLowerCase(),
+                senderAvatar: '',
+                receiverId: String(r.receiver_id || '').trim(),
+                text: r.message || '',
+                isCollaborator: false,
+                isRead: false,
+                createdAt: r.sent_at ? new Date(r.sent_at).toISOString() : new Date().toISOString()
+              });
+            }
+          });
+        } catch {}
+      }
+
+      const allMessages = readJsonFile<Record<string, any[]>>(MESSAGES_FILE, {});
+      const fileMessages = allMessages[intentId] || [];
+      fileMessages.forEach((m: any) => {
+        if (m && m.id && !mergedMap.has(m.id)) {
+          mergedMap.set(m.id, {
+            id: m.id,
+            senderId: String(m.sender_id || m.senderId || m.authorId || '').trim(),
+            senderName: String(m.sender_name || m.senderName || m.authorName || 'Community Helper').trim(),
+            senderEmail: String(m.sender_email || m.senderEmail || m.authorEmail || '').trim().toLowerCase(),
+            senderAvatar: String(m.sender_avatar || m.senderAvatar || m.authorAvatar || '').trim(),
+            receiverId: String(m.receiver_id || m.receiverId || '').trim(),
+            text: m.text || m.content || m.message || '',
+            isCollaborator: Boolean(m.isCollaborator || m.is_collaborator),
+            isRead: Boolean(m.isRead || m.is_read),
+            createdAt: m.createdAt || m.sent_at || new Date().toISOString()
+          });
+        }
+      });
+
+      // Enrich user names/avatars from users/profiles
+      if (dbPool && isDbConnected && mergedMap.size > 0) {
+        try {
+          const sIds = Array.from(new Set(Array.from(mergedMap.values()).map(m => m.senderId.toLowerCase()).filter(Boolean)));
+          if (sIds.length > 0) {
+            const uMap = new Map<string, { name?: string; email?: string; avatar?: string }>();
+            const uRes = await dbPool.query(
+              "SELECT id::text AS id, name, email, avatar_url FROM users WHERE LOWER(id::text) = ANY($1::text[]) OR LOWER(email) = ANY($1::text[])",
+              [sIds]
+            ).catch(() => ({ rows: [] as any[] }));
+            uRes.rows.forEach(u => {
+              if (u.id) uMap.set(String(u.id).toLowerCase(), { name: u.name, email: u.email, avatar: u.avatar_url });
+              if (u.email) uMap.set(String(u.email).toLowerCase(), { name: u.name, email: u.email, avatar: u.avatar_url });
+            });
+            mergedMap.forEach(m => {
+              const info = uMap.get(m.senderId.toLowerCase()) || (m.senderEmail ? uMap.get(m.senderEmail.toLowerCase()) : undefined);
+              if (info) {
+                if ((!m.senderName || m.senderName === 'Community Helper' || m.senderName === 'Community Peer') && info.name) {
+                  m.senderName = info.name;
+                }
+                if (!m.senderEmail && info.email) m.senderEmail = String(info.email).toLowerCase();
+                if (!m.senderAvatar && info.avatar) m.senderAvatar = info.avatar;
+              }
+            });
+          }
+        } catch {}
+      }
+
+      // Group threads by unique replier (excluding post owner)
+      const groupsMap = new Map<string, any>();
+      Array.from(mergedMap.values()).forEach(msg => {
+        const sIdLower = String(msg.senderId || '').toLowerCase();
+        const sEmailLower = String(msg.senderEmail || '').toLowerCase();
+        const isOwner =
+          (sIdLower && ownerIds.has(sIdLower)) ||
+          (sEmailLower && ownerEmails.has(sEmailLower));
+
+        if (isOwner || !msg.senderId || msg.senderId === 'system') return;
+
+        const groupKey = sEmailLower || sIdLower;
+        const existing = groupsMap.get(groupKey);
+        if (!existing) {
+          groupsMap.set(groupKey, {
+            senderId: msg.senderId,
+            senderName: msg.senderName || 'Community Helper',
+            senderEmail: msg.senderEmail || '',
+            senderAvatar: msg.senderAvatar || '',
+            lastMessage: msg.text || '📷 Attachment shared',
+            updatedAt: msg.createdAt,
+            count: 1,
+            unreadCount: msg.isRead ? 0 : 1,
+            isCollaborator: Boolean(msg.isCollaborator)
+          });
+        } else {
+          existing.lastMessage = msg.text || existing.lastMessage;
+          existing.updatedAt = msg.createdAt || existing.updatedAt;
+          existing.count += 1;
+          if (!msg.isRead) existing.unreadCount += 1;
+          if (msg.isCollaborator) existing.isCollaborator = true;
+          if ((!existing.senderName || existing.senderName === 'Community Helper') && msg.senderName) {
+            existing.senderName = msg.senderName;
+          }
+          if (!existing.senderAvatar && msg.senderAvatar) {
+            existing.senderAvatar = msg.senderAvatar;
+          }
+        }
+      });
+
+      const list = Array.from(groupsMap.values()).sort(
+        (a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime()
+      );
+      res.json(list);
+    } catch (e) {
+      res.status(500).json({ error: "Failed to load post inbox" });
+    }
+  });
+
+  // Mark messages in a post thread as read
+  app.post("/api/intents/:id/mark-read", async (req: express.Request, res: express.Response) => {
+    try {
+      const intentId = req.params.id;
+      const { senderId } = req.body || {};
+      if (dbPool && isDbConnected) {
+        if (senderId) {
+          await dbPool.query(
+            "UPDATE messages SET is_read = TRUE WHERE intent_id = $1 AND sender_id = $2",
+            [intentId, senderId]
+          ).catch(() => {});
+        } else {
+          await dbPool.query(
+            "UPDATE messages SET is_read = TRUE WHERE intent_id = $1",
+            [intentId]
+          ).catch(() => {});
+        }
+      }
+      res.json({ success: true });
+    } catch {
+      res.json({ success: false });
+    }
+  });
 
   // 5. Send Chat Message (POST /api/messages & POST /api/intents/:id/messages)
   const sendChatMessageHandler = async (req: express.Request, res: express.Response) => {
@@ -4370,9 +4715,36 @@ async function startServer() {
       const safeText = sanitizeServerText(message.message || message.text || message.content || '', 2000);
       const caller = extractRequestUser(req);
       const senderIdVal = sanitizeServerText(
-        message.authorId || message.sender_id || message.senderId || caller?.uid || 'guest',
+        message.sender_id || message.senderId || message.authorId || message.user_id || caller?.uid || 'guest',
         150
       );
+      let resolvedName = sanitizeServerText(
+        message.sender_name || message.senderName || message.authorName || caller?.name || '',
+        120
+      );
+      let resolvedEmail = sanitizeServerText(
+        message.sender_email || message.senderEmail || message.authorEmail || caller?.email || message.email || '',
+        150
+      ).toLowerCase();
+      let resolvedAvatar = sanitizeServerText(
+        message.sender_avatar || message.senderAvatar || message.authorAvatar || '',
+        500
+      );
+
+      if (dbPool && isDbConnected && (!resolvedName || resolvedName === 'Community Peer' || !resolvedEmail)) {
+        try {
+          const uLookup = await dbPool.query(
+            "SELECT name, email, avatar_url FROM users WHERE id::text = $1 OR LOWER(email) = LOWER($2) LIMIT 1",
+            [senderIdVal, resolvedEmail || senderIdVal]
+          ).catch(() => ({ rows: [] as any[] }));
+          if (uLookup.rows.length > 0) {
+            if (!resolvedName || resolvedName === 'Community Peer') resolvedName = uLookup.rows[0].name || resolvedName;
+            if (!resolvedEmail && uLookup.rows[0].email) resolvedEmail = String(uLookup.rows[0].email).toLowerCase();
+            if (!resolvedAvatar && uLookup.rows[0].avatar_url) resolvedAvatar = uLookup.rows[0].avatar_url;
+          }
+        } catch {}
+      }
+
       const uploadedChatAttachment = message.attachmentUrl
         ? await uploadDataToFirebaseServer(message.attachmentUrl, "chat_attachments")
         : null;
@@ -4381,32 +4753,49 @@ async function startServer() {
         id: sanitizeServerText(message.id || 'msg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6), 100),
         conversationId,
         intentId: conversationId,
+        intent_id: conversationId,
         authorId: senderIdVal,
         senderId: senderIdVal,
-        authorName: sanitizeServerText(message.authorName || message.senderName || caller?.name || '', 120),
-        senderEmail: sanitizeServerText(caller?.email || message.senderEmail || message.email || '', 150),
+        sender_id: senderIdVal,
+        user_id: senderIdVal,
+        authorName: resolvedName || 'Community Peer',
+        senderName: resolvedName || 'Community Peer',
+        sender_name: resolvedName || 'Community Peer',
+        senderEmail: resolvedEmail,
+        sender_email: resolvedEmail,
+        authorEmail: resolvedEmail,
+        senderAvatar: resolvedAvatar,
+        sender_avatar: resolvedAvatar,
+        authorAvatar: resolvedAvatar,
         receiverId: sanitizeServerText(message.receiverId || message.receiver_id || conversationId, 150),
+        receiver_id: sanitizeServerText(message.receiverId || message.receiver_id || conversationId, 150),
         text: safeText,
         content: safeText,
         message: safeText,
         type: sanitizeServerText(message.type || 'text', 40),
         attachmentUrl: uploadedChatAttachment,
+        attachment_url: uploadedChatAttachment,
         attachmentType: message.attachmentType ? sanitizeServerText(message.attachmentType, 40) : null,
+        attachment_type: message.attachmentType ? sanitizeServerText(message.attachmentType, 40) : null,
+        isRead: false,
+        is_read: false,
         createdAt: message.createdAt || message.sent_at || new Date().toISOString()
       };
 
-      // 1. PostgreSQL Insert into messages and chats tables (Parameterized Query)
+      // 1. PostgreSQL Insert into messages and chats tables (Independent try/catch so neither blocks the other)
       if (dbPool && isDbConnected) {
         try {
           await dbPool.query(`
-            INSERT INTO messages (id, intent_id, sender_id, sender_name, receiver_id, text, content, type, attachment_url, attachment_type, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            INSERT INTO messages (id, intent_id, sender_id, sender_name, sender_email, sender_avatar, receiver_id, text, content, type, attachment_url, attachment_type, is_read, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, FALSE, $13)
             ON CONFLICT (id) DO NOTHING
           `, [
             newMsg.id,
             conversationId,
             newMsg.senderId,
             newMsg.authorName || 'Community Peer',
+            newMsg.senderEmail || null,
+            newMsg.senderAvatar || null,
             newMsg.receiverId,
             newMsg.text,
             newMsg.content,
@@ -4415,20 +4804,60 @@ async function startServer() {
             newMsg.attachmentType,
             newMsg.createdAt
           ]);
+        } catch (dbErr) {
+          console.warn("DB messages insert fallback attempt:", dbErr);
+          try {
+            await dbPool.query(`
+              INSERT INTO messages (id, intent_id, sender_id, sender_name, receiver_id, text, content, type, attachment_url, attachment_type, created_at)
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+              ON CONFLICT (id) DO NOTHING
+            `, [
+              newMsg.id,
+              conversationId,
+              newMsg.senderId,
+              newMsg.authorName || 'Community Peer',
+              newMsg.receiverId,
+              newMsg.text,
+              newMsg.content,
+              newMsg.type,
+              newMsg.attachmentUrl,
+              newMsg.attachmentType,
+              newMsg.createdAt
+            ]);
+          } catch (innerErr) {
+            console.warn("DB messages fallback error:", innerErr);
+          }
+        }
 
+        try {
           await dbPool.query(`
-            INSERT INTO chats (id, sender_id, receiver_id, message, sent_at)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO chats (id, intent_id, sender_id, sender_name, sender_email, receiver_id, message, sent_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             ON CONFLICT (id) DO NOTHING
           `, [
             newMsg.id,
+            conversationId,
             newMsg.senderId,
+            newMsg.authorName || 'Community Peer',
+            newMsg.senderEmail || null,
             newMsg.receiverId,
             newMsg.message,
             newMsg.createdAt
           ]);
-        } catch (dbErr) {
-          console.warn("DB message insert error:", dbErr);
+        } catch (chatInsertErr) {
+          try {
+            await dbPool.query(`
+              INSERT INTO chats (id, sender_id, receiver_id, message, sent_at)
+              VALUES ($1, $2, $3, $4, $5)
+              ON CONFLICT (id) DO NOTHING
+            `, [
+              newMsg.id,
+              newMsg.senderId,
+              newMsg.receiverId,
+              newMsg.message,
+              newMsg.createdAt
+            ]);
+          } catch {}
         }
       }
 
@@ -4491,6 +4920,17 @@ async function startServer() {
         await dbPool.query("DELETE FROM messages WHERE id = $1", [id]).catch(() => {});
         await dbPool.query("DELETE FROM chats WHERE id = $1", [id]).catch(() => {});
       }
+      // Also remove from local JSON backup so it doesn't reappear on poll
+      try {
+        const allMessages = readJsonFile<Record<string, any[]>>(MESSAGES_FILE, {});
+        let modified = false;
+        Object.keys(allMessages).forEach(convKey => {
+          const before = allMessages[convKey]?.length || 0;
+          allMessages[convKey] = (allMessages[convKey] || []).filter((m: any) => m && m.id !== id);
+          if ((allMessages[convKey]?.length || 0) !== before) modified = true;
+        });
+        if (modified) writeJsonFile(MESSAGES_FILE, allMessages);
+      } catch {}
       res.json({ success: true, id });
     } catch (e: any) {
       res.status(500).json({ error: e.message || "Failed to delete message" });

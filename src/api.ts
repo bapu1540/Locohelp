@@ -342,15 +342,30 @@ export async function fetchChatMessages(conversationId: string): Promise<ChatMes
 /**
  * Sends a message in a chat conversation to sync across devices (`messages` table via POST /api/messages).
  */
-export async function sendChatMessage(conversationId: string, msg: Partial<ChatMessage> & { receiverId?: string; authorName?: string }): Promise<ChatMessage> {
+export async function sendChatMessage(conversationId: string, msg: Partial<ChatMessage> & { receiverId?: string; authorName?: string; senderEmail?: string; authorAvatar?: string }): Promise<ChatMessage> {
+  const senderIdVal = sanitizeText(msg.authorId || (msg as any).senderId || (msg as any).sender_id || 'guest');
+  const senderNameVal = sanitizeText((msg as any).authorName || (msg as any).senderName || '');
+  const senderEmailVal = sanitizeText((msg as any).senderEmail || (msg as any).authorEmail || (msg as any).sender_email || '');
+  const senderAvatarVal = (msg as any).authorAvatar || (msg as any).senderAvatar || '';
   const payload = {
     id: msg.id || 'msg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
     conversationId,
     intentId: conversationId,
-    authorId: sanitizeText(msg.authorId || 'guest'),
-    senderId: sanitizeText(msg.authorId || 'guest'),
-    authorName: sanitizeText((msg as any).authorName || ''),
+    intent_id: conversationId,
+    authorId: senderIdVal,
+    senderId: senderIdVal,
+    sender_id: senderIdVal,
+    user_id: senderIdVal,
+    authorName: senderNameVal,
+    senderName: senderNameVal,
+    sender_name: senderNameVal,
+    senderEmail: senderEmailVal,
+    authorEmail: senderEmailVal,
+    sender_email: senderEmailVal,
+    senderAvatar: senderAvatarVal,
+    authorAvatar: senderAvatarVal,
     receiverId: sanitizeText((msg as any).receiverId || conversationId),
+    receiver_id: sanitizeText((msg as any).receiverId || conversationId),
     text: sanitizeText(msg.text || ''),
     content: sanitizeText(msg.text || ''),
     message: sanitizeText(msg.text || ''),

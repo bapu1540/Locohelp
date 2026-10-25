@@ -41,45 +41,27 @@ export default function GuidelinesScreen({ onBack, onReport }: { onBack: () => v
           />
         </div>
 
-        {/* Direct Report Issue / User Card */}
-        {onReport && (
-          <div className="bg-rose-50/90 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/60 rounded-2xl p-4 sm:p-5 shadow-xs space-y-3">
-            <div className="flex items-start gap-3">
-              <div className="p-2.5 bg-rose-100 dark:bg-rose-900/60 rounded-xl text-rose-600 dark:text-rose-400 shrink-0">
-                <ShieldAlert className="w-5 h-5" />
-              </div>
-              <div>
-                <h4 className="text-sm font-black text-slate-900 dark:text-white">
-                  {language === 'EN'
-                    ? 'Report Wrong Post or User to Admin'
-                    : language === 'GU'
-                    ? 'ખોટી પોસ્ટ કે યુઝરની ફરિયાદ કરો'
-                    : 'गलत पोस्ट या यूज़र की शिकायत करें'}
-                </h4>
-                <p className="text-xs text-slate-600 dark:text-slate-300 font-medium mt-1 leading-relaxed">
-                  {language === 'EN'
-                    ? 'If you see any fake profile, misleading shop/ad, or inappropriate post, report it directly to Admin for immediate action.'
-                    : language === 'GU'
-                    ? 'જો તમને કોઈ ખોટી પ્રોફાઇલ, ભ્રામક દુકાન/જાહેરાત કે અયોગ્ય પોસ્ટ દેખાય, તો તાત્કાલિક એડમિનને રિપોર્ટ કરો.'
-                    : 'अगर आपको कोई फर्जी प्रोफाइल, गलत दुकान/विज्ञापन, या अनुचित पोस्ट दिखे, तो तुरंत एडमिन को रिपोर्ट करें।'}
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={onReport}
-              className="w-full py-3 px-4 bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs rounded-xl shadow-md shadow-rose-600/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer"
-            >
-              <ShieldAlert className="w-4 h-4" />
+        {/* Privacy Policy Link Banner */}
+        <div className="pt-2">
+          <button
+            onClick={() => {
+              window.dispatchEvent(new CustomEvent('locohelp_open_privacy_policy'));
+            }}
+            className="w-full py-3 px-4 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold text-xs rounded-2xl border border-slate-200 dark:border-slate-700 transition-colors flex items-center justify-between cursor-pointer"
+          >
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
               <span>
                 {language === 'EN'
-                  ? 'Report Issue to Admin'
+                  ? 'Read Full Privacy Policy & Legal Architecture'
                   : language === 'GU'
-                  ? 'એડમિનને રિપોર્ટ મોકલો (Report to Admin)'
-                  : 'एडमिन को रिपोर्ट भेजें (Report to Admin)'}
+                  ? 'ગોપનીયતા નીતિ અને કાનૂની શરતો વાંચો'
+                  : 'पूर्ण गोपनीयता नीति और कानूनी शर्तें पढ़ें'}
               </span>
-            </button>
-          </div>
-        )}
+            </div>
+            <span>→</span>
+          </button>
+        </div>
       </div>
     </div>
   );
