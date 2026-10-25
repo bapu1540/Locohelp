@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Screen, Intent } from './types';
 import { LanguageProvider, useLanguage, SUPPORTED_LANGUAGES } from './i18n';
-import { logoutUser, ensureProfileExists, onAuthStateChange } from './auth';
+import { logoutUser, ensureProfileExists, onAuthStateChange, restoreSessionFromServer } from './auth';
 import { syncBrowserDataToPostgres } from './api';
 // import LoginScreen from './screens/LoginScreen';
 import HomeScreen from './screens/HomeScreen';
@@ -119,8 +119,9 @@ function AppContent() {
     trackSpaPageView(currentScreen, selectedCategory);
   }, [currentScreen, selectedCategory]);
 
-  // Auto-migrate any existing localStorage data (Categories, Profiles, Shops, Ads, Posts, Users) to Railway PostgreSQL on startup
+  // Auto-migrate any existing localStorage data and restore persistent JWT/cookie session on startup
   useEffect(() => {
+    restoreSessionFromServer();
     syncBrowserDataToPostgres();
   }, []);
 

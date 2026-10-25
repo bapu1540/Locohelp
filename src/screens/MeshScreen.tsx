@@ -16,19 +16,15 @@ export default function MeshScreen({ onBack }: { onBack: () => void }) {
   const [nodes, setNodes] = useState(0);
   const [queue, setQueue] = useState<QueuedAction[]>([]);
   
-  // Simulate network queue loading from local storage
+  // Load real offline queue from local storage (empty state if none)
   useEffect(() => {
     try {
       const storedQueue = localStorage.getItem('locohelp_offline_queue');
       if (storedQueue) {
-        setQueue(JSON.parse(storedQueue));
+        const parsed = JSON.parse(storedQueue);
+        setQueue(Array.isArray(parsed) ? parsed.filter((item: any) => item && item.id !== '1') : []);
       } else {
-        // Add some mock data to show the queue UI working
-        const mockQueue = [
-          { id: '1', type: 'post_intent', payload: 'Car breakdown at Main St', timestamp: new Date().toISOString() }
-        ];
-        setQueue(mockQueue);
-        localStorage.setItem('locohelp_offline_queue', JSON.stringify(mockQueue));
+        setQueue([]);
       }
     } catch (e) {
       console.error('Failed to load queue', e);

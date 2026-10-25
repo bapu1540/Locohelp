@@ -62,6 +62,10 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
   const [shopType, setShopType] = useState('shop');
   const [customType, setCustomType] = useState('');
   const [ownerName, setOwnerName] = useState('');
+  const [ownerEmail, setOwnerEmail] = useState(() => {
+    const u = getCurrentUser();
+    return u?.email || localStorage.getItem('locohelp_last_logged_in_email') || '';
+  });
   const [phone, setPhone] = useState('');
   const [timings, setTimings] = useState('9:00 AM - 9:00 PM');
   const [area, setArea] = useState('');
@@ -203,10 +207,17 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
     const shopId = editingShopId || ('shop_' + Date.now().toString(36));
     const primaryPhoto = shopPhotos[0] || photoUrl || undefined;
 
+    const finalOwnerEmail = (ownerEmail.trim() || activeUser?.email || localStorage.getItem('locohelp_last_logged_in_email') || '').toLowerCase();
+    if (!finalOwnerEmail || !finalOwnerEmail.includes('@')) {
+      setIdUploadNotice(language === 'EN' ? 'Valid Email ID is mandatory for business registration.' : 'दुकान रजिस्ट्रेशन के लिए मान्य ईमेल आईडी अनिवार्य है।');
+      setIsSubmitting(false);
+      return;
+    }
+
     const newShop: RegisteredShop = {
       id: shopId,
       userId: activeUser?.uid || '',
-      ownerEmail: activeUser?.email || localStorage.getItem('locohelp_last_logged_in_email') || '',
+      ownerEmail: finalOwnerEmail,
       name: shopName.trim(),
       type: shopType as any,
       categoryLabel: label,
@@ -587,7 +598,7 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
                 </div>
               )}
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                     {language === 'EN' ? 'Owner Name *' : 'मालिक (Owner) का नाम *'}
@@ -598,6 +609,19 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
                     value={ownerName}
                     onChange={(e) => setOwnerName(e.target.value)}
                     placeholder={language === 'EN' ? 'e.g. Rajesh Sharma' : 'उदा. राजेश शर्मा'}
+                    className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 font-medium text-slate-900 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    {language === 'EN' ? 'Email ID *' : 'ईमेल आईडी *'}
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    value={ownerEmail}
+                    onChange={(e) => setOwnerEmail(e.target.value)}
+                    placeholder="owner@email.com"
                     className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 font-medium text-slate-900 dark:text-white"
                   />
                 </div>

@@ -28,6 +28,18 @@ const EMOJI_OPTIONS = ['🏪', '📱', '🥬', '🚗', '👗', '☕', '💊', '�
 export default function PostAdModal({ isOpen, onClose, onAdCreated }: PostAdModalProps) {
   const { language } = useLanguage();
   const [businessName, setBusinessName] = useState('');
+  const [ownerEmail, setOwnerEmail] = useState(() => {
+    try {
+      const saved = localStorage.getItem('locohelp_user');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed?.email) return parsed.email;
+      }
+      return localStorage.getItem('locohelp_last_logged_in_email') || '';
+    } catch {
+      return '';
+    }
+  });
   const [logo, setLogo] = useState('🏪');
   const [category, setCategory] = useState('Retail & Services');
   const [offerBadge, setOfferBadge] = useState('🔥 Special Offer • 20% OFF');
@@ -91,6 +103,10 @@ export default function PostAdModal({ isOpen, onClose, onAdCreated }: PostAdModa
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!businessName.trim() || !offerTitle.trim() || !description.trim()) return;
+    if (!ownerEmail.trim() || !ownerEmail.includes('@')) {
+      setUploadError(language === 'EN' ? 'Valid Email ID is mandatory for Ad Banner verification.' : 'विज्ञापन सत्यापन के लिए मान्य ईमेल आईडी अनिवार्य है।');
+      return;
+    }
 
     const secBlock = checkSystemSecurityBlock(businessName, offerBadge, offerTitle, description, area);
     if (secBlock.blocked) {
@@ -101,23 +117,27 @@ export default function PostAdModal({ isOpen, onClose, onAdCreated }: PostAdModa
     setUploadError(null);
     setIsSubmitting(true);
 
-    const finalPhotos = adPhotos.length > 0 ? adPhotos : (photoUrl.trim() ? [photoUrl.trim()] : [PHOTO_PRESETS[0].url]);
+    const finalPhotos = adPhotos.length > 0 ? adPhotos : (photoUrl.trim() ? [photoUrl.trim()] : []);
 
-    const newAd: AdBannerItem = {
-      id: 'custom_ad_' + Date.now(),
+    const newAd: any = {
+      id: 'ad_' + Date.now(),
       businessName: businessName.trim(),
+      ownerEmail: ownerEmail.trim().toLowerCase(),
+      email: ownerEmail.trim().toLowerCase(),
       logo,
       category,
       offerBadge: offerBadge.trim() || '🔥 Special Deal',
       offerTitle: offerTitle.trim(),
       description: description.trim(),
-      photoUrl: finalPhotos[0],
+      photoUrl: finalPhotos[0] || '',
       photos: finalPhotos,
       distance: 0.4,
       area: area.trim() || 'Local Area',
       rating: 5.0,
       reviewCount: 1,
-      isVerified: true,
+      isVerified: false,
+      status: 'pending',
+      isActive: false,
       destinationUrl: destinationUrl.trim() || '',
       initialMessage: `Namaste! ${businessName.trim()} me aapka swagat hai. Ad offer "${offerTitle.trim()}" ke baare me aap kya jaanna chahte hain?`,
       createdAt: new Date().toISOString()
@@ -126,15 +146,7 @@ export default function PostAdModal({ isOpen, onClose, onAdCreated }: PostAdModa
     try {
       const { createAdOnServer } = await import('../api');
       await createAdOnServer(newAd);
-    } catch (e) {
-      try {
-        const stored = localStorage.getItem('locohelp_ad_banners');
-        const existing = stored ? JSON.parse(stored) : [];
-        existing.unshift(newAd);
-        localStorage.setItem('locohelp_ad_banners', JSON.stringify(existing));
-        window.dispatchEvent(new Event('storage'));
-      } catch (err) {}
-    }
+    } catch (err) {}
 
     setTimeout(() => {
       setIsSubmitting(false);
@@ -183,24 +195,37 @@ export default function PostAdModal({ isOpen, onClose, onAdCreated }: PostAdModa
             <div className="w-16 h-16 rounded-full bg-emerald-100 dark:bg-emerald-950/70 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto shadow-inner">
               <CheckCircle2 className="w-10 h-10" />
             </div>
-            <h4 className="text-lg font-black text-slate-900 dark:text-white">Ad Published Successfully!</h4>
-            <p className="text-xs text-slate-500">Aapka sponsored ad banner home screen par live ho chuka hai. Customers directly chat ke through contact kar sakte hain.</p>
+            <h4 className="text-lg font-black text-slate-900 dark:text-white">Ad Submitted for Admin Approval!</h4>
+            <p className="text-xs text-slate-500">Aapka sponsored ad banner Admin Dashboard me verification ke liye bhej diya gaya hai. Admin approve karte hi home screen par live dikhega.</p>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="overflow-y-auto py-3 space-y-3 flex-1 pr-1">
-            {/* Business Name */}
-            <div>
-              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                Shop / Business Name *
-              </label>
-              <div className="flex gap-2">
+            {/* Business Name & Mandatory Email */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                  Shop / Business Name *
+                </label>
                 <input
                   type="text"
                   required
                   value={businessName}
                   onChange={(e) => setBusinessName(e.target.value)}
-                  placeholder="e.g. Shree Ram Electronics & Mobiles"
-                  className="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-amber-500"
+                  placeholder="e.g. Shree Ram Electronics"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                  Verified Email ID *
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={ownerEmail}
+                  onChange={(e) => setOwnerEmail(e.target.value)}
+                  placeholder="business@example.com"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-amber-500"
                 />
               </div>
             </div>

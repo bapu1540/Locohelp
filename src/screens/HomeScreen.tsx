@@ -440,19 +440,11 @@ export default function HomeScreen({
       else if (combinedText.includes('surat')) city = 'Surat';
       else if (combinedText.includes('vadodara') || combinedText.includes('baroda')) city = 'Vadodara';
       else if (combinedText.includes('rajkot')) city = 'Rajkot';
-      else city = index % 2 === 0 ? 'Gandhinagar' : 'Ahmedabad';
+      else city = userLocation.district || 'Gandhinagar';
     }
 
     if (!area) {
-      if (city.toLowerCase() === 'gandhinagar') {
-        const gnrDefaults = ['Kudasan', 'Sector 21', 'Sargasan', 'Infocity'];
-        area = gnrDefaults[index % gnrDefaults.length];
-      } else if (city.toLowerCase() === 'ahmedabad') {
-        const amdDefaults = ['Chandkheda', 'Bopal', 'Motera', 'Satellite'];
-        area = amdDefaults[index % amdDefaults.length];
-      } else {
-        area = 'Main Area';
-      }
+      area = (item as any).area || 'Main Area';
     }
 
     return {
@@ -482,8 +474,8 @@ export default function HomeScreen({
     const msRemaining = Math.max(0, ONE_HOUR_MS - (now - effectiveTime));
     const minsRemaining = Math.max(1, Math.ceil(msRemaining / (60 * 1000)));
 
-    const itemLat = (item as any).lat || (gpsCoords.lat + (index % 5 === 0 ? 0.003 : index % 3 === 0 ? 0.008 : 0.014 * (index + 1)));
-    const itemLng = (item as any).lng || (gpsCoords.lng + (index % 4 === 0 ? 0.002 : index % 2 === 0 ? 0.005 : 0.011 * (index + 1)));
+    const itemLat = (item as any).lat || gpsCoords.lat;
+    const itemLng = (item as any).lng || gpsCoords.lng;
     
     const computedKm = getGpsDistanceKm(gpsCoords.lat, gpsCoords.lng, itemLat, itemLng);
     const finalDistance = Math.min(computedKm, item.distance || 0.8);
@@ -509,26 +501,27 @@ export default function HomeScreen({
     return keywords.some(k => text.includes(k));
   });
 
-  // Fallback to all posts if category filter returns no posts so broadcast posts NEVER disappear
-  const baseCategoryIntents = (selectedCategory !== 'all' && categoryFilteredIntents.length === 0)
-    ? processedIntents
-    : categoryFilteredIntents;
+  const baseCategoryIntents = categoryFilteredIntents;
 
-  // Smart Twin-City & Neighboring District Feed Matching based on Header Selected District
+  // Strict Hyper-Local Location Broadcasting: Only show posts matching the user's selected location
   const activeHeaderDistrict = (userLocation.district || 'Gandhinagar').trim().toLowerCase();
   const connectedDistricts = getConnectedTwinDistricts(activeHeaderDistrict);
 
   const zoneFilteredIntents = baseCategoryIntents.filter(item => {
     if (!activeHeaderDistrict || activeHeaderDistrict === 'all') return true;
-    const cityLower = (item.resolvedCity || '').toLowerCase();
-    const locLower = (item.location || '').toLowerCase();
-    return connectedDistricts.some(
-      d => cityLower.includes(d) || d.includes(cityLower) || locLower.includes(d)
+    const cityLower = (item.resolvedCity || '').trim().toLowerCase();
+    const areaLower = (item.resolvedArea || '').trim().toLowerCase();
+    const locLower = (item.location || '').trim().toLowerCase();
+    return (
+      cityLower === activeHeaderDistrict ||
+      cityLower.includes(activeHeaderDistrict) ||
+      activeHeaderDistrict.includes(cityLower) ||
+      locLower.includes(activeHeaderDistrict) ||
+      areaLower.includes(activeHeaderDistrict)
     );
   });
 
-  // Fallback so feed never appears empty if no posts exist in a newly chosen district yet
-  const displayIntents = (zoneFilteredIntents.length === 0 ? baseCategoryIntents : zoneFilteredIntents)
+  const displayIntents = zoneFilteredIntents
     .slice()
     .sort((a, b) => {
       const aCity = (a.resolvedCity || '').toLowerCase();

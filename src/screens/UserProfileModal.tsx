@@ -75,32 +75,28 @@ export default function UserProfileModal({
             </div>
           </div>
 
-          {/* Detailed Unlocked Info Cards */}
+          {/* Detailed Verified Community Info Cards */}
           <div className="bg-slate-50 dark:bg-slate-800/60 rounded-2xl p-4 border border-slate-200 dark:border-slate-700 space-y-3">
             <div className="flex justify-between items-center text-xs">
-              <span className="text-slate-500 font-medium">Mobile Number:</span>
-              <a href="tel:+919876543210" className="font-mono text-indigo-600 dark:text-indigo-400 font-extrabold hover:underline">
-                +91 98765 43210
-              </a>
+              <span className="text-slate-500 font-medium">Direct Connection:</span>
+              <span className="text-indigo-600 dark:text-indigo-400 font-extrabold">
+                Active via LocoHelp Chat
+              </span>
             </div>
             <div className="flex justify-between items-center text-xs">
               <span className="text-slate-500 font-medium">Verification Status:</span>
               <span className="text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1">
-                <CheckCircle2 className="w-3.5 h-3.5" /> Fully Verified
+                <CheckCircle2 className="w-3.5 h-3.5" /> Verified Account
               </span>
             </div>
             <div className="flex justify-between items-center text-xs">
-              <span className="text-slate-500 font-medium">Trust Score:</span>
-              <span className="font-extrabold text-slate-800 dark:text-slate-200">98% (Grade A+)</span>
+              <span className="text-slate-500 font-medium">Safety &amp; Audit:</span>
+              <span className="font-extrabold text-slate-800 dark:text-slate-200">Protected by Security Vault</span>
             </div>
             <div className="flex justify-between items-center text-xs">
-              <span className="text-slate-500 font-medium">Completed Helps:</span>
-              <span className="font-extrabold text-slate-800 dark:text-slate-200">142 Tasks</span>
-            </div>
-            <div className="flex justify-between items-center text-xs">
-              <span className="text-slate-500 font-medium">Overall Rating:</span>
+              <span className="text-slate-500 font-medium">Community Rating:</span>
               <span className="font-extrabold text-amber-500 flex items-center gap-1">
-                <Star className="w-3.5 h-3.5 fill-amber-500" /> 4.8 / 5.0
+                <Star className="w-3.5 h-3.5 fill-amber-500" /> 5.0 / 5.0
               </span>
             </div>
           </div>

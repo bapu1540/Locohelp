@@ -241,9 +241,13 @@ export default function JobSeekerModal({
         ? selectedSkills 
         : (skillInput.trim() ? [skillInput.trim()] : [category]);
 
+      const currentUser = getCurrentUser();
+      const userEmail = currentUser?.email || localStorage.getItem('locohelp_last_logged_in_email') || '';
+
       const res = await submitJobPortalItem({
         type: 'job_seeker',
         website_url_hp: hpWebsiteUrl,
+        email: userEmail,
         fullName: fullName.trim(),
         headline: headline.trim() || `${category} Specialist`,
         category,

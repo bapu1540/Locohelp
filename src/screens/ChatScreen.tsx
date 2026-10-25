@@ -26,6 +26,9 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
     id: string;
     text: string;
     authorId: string;
+    authorName?: string;
+    receiverId?: string;
+    isCollaborator?: boolean;
     type?: 'text' | 'pin' | 'attachment' | 'task_completed';
     attachmentUrl?: string;
     attachmentType?: string;
@@ -46,6 +49,13 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
     return [];
   });
   
+  const [selectedReplierId, setSelectedReplierId] = useState<string | null>(
+    (intent as any)?.selectedReplierId || null
+  );
+  const [selectedReplierName, setSelectedReplierName] = useState<string | null>(
+    (intent as any)?.selectedReplierName || null
+  );
+  const [collaboratorId, setCollaboratorId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [showTracker, setShowTracker] = useState(false);
   const [isRatingOpen, setIsRatingOpen] = useState(false);
@@ -125,6 +135,9 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
                   text: m.text || m.content || m.message || (existing?.text || ''),
                   type: m.type || existing?.type || 'text',
                   authorId: m.authorId || m.senderId || m.sender_id || existing?.authorId || 'peer',
+                  authorName: m.authorName || m.senderName || m.sender_name || existing?.authorName || 'Community Peer',
+                  receiverId: m.receiverId || m.receiver_id || existing?.receiverId || undefined,
+                  isCollaborator: Boolean(m.isCollaborator || m.is_collaborator || existing?.isCollaborator),
                   attachmentUrl: m.attachmentUrl || m.attachment_url || existing?.attachmentUrl || undefined,
                   attachmentType: m.attachmentType || m.attachment_type || existing?.attachmentType || undefined,
                   createdAt: m.createdAt || m.created_at || m.sent_at || existing?.createdAt || new Date().toISOString()
@@ -165,7 +178,7 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
       conversationId: chatId,
       authorId: activeUid,
       authorName: activeName,
-      receiverId: intent?.authorId || chatId,
+      receiverId: selectedReplierId || intent?.authorId || chatId,
       text: trimmed,
       type,
       createdAt: new Date().toISOString()
@@ -181,31 +194,9 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
     try {
       await sendChatMessage(chatId, messageData);
     } catch (e) {}
-
-    // Auto reply for simulated peer / broadcast poster
-    const isSimulated = intent?.authorId?.startsWith('seed_') || intent?.authorId?.startsWith('user_') || intent?.authorId?.startsWith('ad_');
-    if (isSimulated && type === 'text') {
-      setTimeout(() => {
-        const replies = [
-          "Namaste! Ji haan, ye service available hai. Aap bataiye kab zaroorat hai?",
-          "Theek hai, maine aapka message dekh liya hai. Main aapse turant sampark karta hu.",
-          "Haanji! Aap location pin share kar sakte hain ya humse direct call par baat kar sakte hain."
-        ];
-        const randomReply = replies[Math.floor(Math.random() * replies.length)];
-        const autoMsg = {
-          id: 'reply_' + Date.now(),
-          text: randomReply,
-          type: 'text' as const,
-          authorId: 'helper',
-          createdAt: new Date().toISOString()
-        };
-        setMessages(prev => [...prev, autoMsg]);
-        sendChatMessage(chatId, autoMsg).catch(() => {});
-      }, 1200);
-    }
   };
 
-  const handleDeleteMessage = (msgId: string) => {
+  const handleDeleteMessage = async (msgId: string) => {
     setMessages(prev => {
       const updated = prev.filter(m => m.id !== msgId);
       try {
@@ -213,6 +204,32 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
       } catch (e) {}
       return updated;
     });
+    try {
+      const token = localStorage.getItem('locohelp_token') || '';
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      await fetch(`/api/messages/${encodeURIComponent(msgId)}`, {
+        method: 'DELETE',
+        headers
+      });
+    } catch (e) {}
+  };
+
+  const handleCollaborateWithReplier = async (replierId: string, replierName: string) => {
+    if (!chatId) return;
+    try {
+      const token = localStorage.getItem('locohelp_token') || '';
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch(`/api/intents/${encodeURIComponent(chatId)}/collaborate`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ helperId: replierId, helperName: replierName })
+      });
+      if (res.ok) {
+        setCollaboratorId(replierId);
+      }
+    } catch (e) {}
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -342,7 +359,7 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
     } catch(e) { return null; }
   })();
 
-  const rawSeller = (intent as any)?.sellerName || (intent as any)?.authorName || (intent as any)?.name;
+  const rawSeller = selectedReplierName || (intent as any)?.sellerName || (intent as any)?.authorName || (intent as any)?.name;
   const validSeller = rawSeller && rawSeller !== 'Ramesh Sharma' ? rawSeller : null;
 
   const peerName = validSeller || savedProfileName || (currentUser?.displayName !== 'Ramesh Sharma' ? currentUser?.displayName : null) || "Community Peer";
@@ -355,6 +372,39 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
     ? rawLocation.replace(/^,\s*|,\s*$|,+/g, ',').replace(/,\s*,/g, ',').replace(/^,\s*/, '').replace(/,\s*$/, '').trim() || "Local Area"
     : "Local Area";
   const topicDesc = intent?.description || (intent as any)?.title || "LocoHelp Direct Broadcast & Service Inquiry";
+
+  const myActiveUid = currentUser?.uid || 'my_user';
+  const distinctRepliers = React.useMemo(() => {
+    const map = new Map<string, { id: string; name: string; count: number; isCollaborator?: boolean }>();
+    messages.forEach(m => {
+      if (m.authorId && m.authorId !== myActiveUid && m.authorId !== 'my_user' && m.authorId !== 'system') {
+        const existing = map.get(m.authorId);
+        if (!existing) {
+          map.set(m.authorId, {
+            id: m.authorId,
+            name: m.authorName || 'Community Helper',
+            count: 1,
+            isCollaborator: Boolean(m.isCollaborator)
+          });
+        } else {
+          existing.count += 1;
+          if (m.isCollaborator) existing.isCollaborator = true;
+        }
+      }
+    });
+    return Array.from(map.values());
+  }, [messages, myActiveUid]);
+
+  const visibleMessages = React.useMemo(() => {
+    if (!selectedReplierId) return messages;
+    return messages.filter(
+      m =>
+        m.authorId === selectedReplierId ||
+        m.receiverId === selectedReplierId ||
+        (m.authorId === myActiveUid && (!m.receiverId || m.receiverId === chatId)) ||
+        m.type === 'task_completed'
+    );
+  }, [messages, selectedReplierId, myActiveUid, chatId]);
 
   return (
     <div className="flex flex-col h-full bg-[#FCFAF5] dark:bg-slate-900 relative overflow-hidden transition-colors">
@@ -405,6 +455,20 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
 
         {/* Top Action Buttons */}
         <div className="flex items-center gap-1.5">
+          {selectedReplierId && (
+            <button
+              type="button"
+              onClick={() => handleCollaborateWithReplier(selectedReplierId, selectedReplierName || peerName)}
+              className={`px-2.5 py-1.5 rounded-xl text-[11px] font-black transition-all cursor-pointer ${
+                collaboratorId === selectedReplierId
+                  ? 'bg-emerald-700 text-white'
+                  : 'bg-emerald-100 hover:bg-emerald-200 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200'
+              }`}
+              title="Collaborate with this replier"
+            >
+              {collaboratorId === selectedReplierId ? '✅ Collaborating' : '🤝 Collaborate'}
+            </button>
+          )}
           <button 
             onClick={() => setIsMapModalOpen(true)}
             className="p-2 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-300 rounded-xl hover:bg-indigo-100 transition-all cursor-pointer"
@@ -456,6 +520,50 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
         <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 shrink-0">{peerDistance}km</span>
       </div>
 
+      {/* WhatsApp-Style Replier Thread Switcher (When multiple users reply to this post) */}
+      {distinctRepliers.length > 0 && (
+        <div className="px-3 py-2 bg-emerald-50/80 dark:bg-slate-800/90 border-b border-emerald-200/70 dark:border-slate-700 flex items-center gap-2 overflow-x-auto scrollbar-hide">
+          <span className="text-[10px] font-black uppercase text-emerald-800 dark:text-emerald-300 shrink-0">
+            💬 Replies ({distinctRepliers.length}):
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedReplierId(null);
+              setSelectedReplierName(null);
+            }}
+            className={`px-2.5 py-1 rounded-xl text-[11px] font-black shrink-0 transition-all cursor-pointer ${
+              !selectedReplierId
+                ? 'bg-emerald-600 text-white shadow-xs'
+                : 'bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-600'
+            }`}
+          >
+            All Replies
+          </button>
+          {distinctRepliers.map(rep => (
+            <button
+              key={rep.id}
+              type="button"
+              onClick={() => {
+                setSelectedReplierId(rep.id);
+                setSelectedReplierName(rep.name);
+              }}
+              className={`px-2.5 py-1 rounded-xl text-[11px] font-black shrink-0 flex items-center gap-1.5 transition-all cursor-pointer ${
+                selectedReplierId === rep.id
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-600'
+              }`}
+            >
+              <span>{rep.name}</span>
+              <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-black/15">
+                {rep.count}
+              </span>
+              {(rep.isCollaborator || collaboratorId === rep.id) && <span>🤝</span>}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Success Toast */}
       <AnimatePresence>
         {showSuccessToast && (
@@ -474,7 +582,7 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
 
       {/* 2. MESSAGES VIEWPORT */}
       <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-3.5 bg-[#F8F6F0] dark:bg-slate-950">
-        {messages.length === 0 && (
+        {visibleMessages.length === 0 && (
           <div className="py-12 text-center space-y-2">
             <div className="w-12 h-12 rounded-2xl bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 mx-auto flex items-center justify-center text-xl shadow-inner">
               💬
@@ -487,7 +595,7 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
             </p>
           </div>
         )}
-        {messages.map((msg) => {
+        {visibleMessages.map((msg) => {
           const myUid = getCurrentUser()?.uid || 'my_user';
           const isMe = msg.authorId === myUid || msg.authorId === 'my_user';
           const isSystem = msg.authorId === 'system' || msg.type === 'task_completed';

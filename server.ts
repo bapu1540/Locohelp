@@ -7,6 +7,7 @@ import { GoogleGenAI } from "@google/genai";
 import nodemailer from "nodemailer";
 import pg from "pg";
 import dotenv from "dotenv";
+import bcrypt from "bcryptjs";
 import { initializeApp as initFirebaseApp, getApps as getFirebaseApps, getApp as getFirebaseApp } from "firebase/app";
 import {
   getStorage as getFirebaseStorage,
@@ -413,10 +414,23 @@ async function sendEmailViaBrevo(toEmail: string, subject: string, htmlContent: 
   }
 }
 
-// Password hashing helper
+// Password hashing & verification helpers (bcrypt with seamless legacy PBKDF2 support)
 function hashPassword(password: string): string {
+  return bcrypt.hashSync(String(password), 10);
+}
+
+function verifyPassword(password: string, storedHash: string): boolean {
+  if (!password || !storedHash) return false;
+  if (storedHash.startsWith("$2a$") || storedHash.startsWith("$2b$") || storedHash.startsWith("$2y$")) {
+    try {
+      return bcrypt.compareSync(String(password), storedHash);
+    } catch {
+      return false;
+    }
+  }
   const salt = process.env.PASSWORD_SALT || "locohelp_salt_2026";
-  return crypto.pbkdf2Sync(password, salt, 1000, 32, "sha256").toString("hex");
+  const legacyHash = crypto.pbkdf2Sync(String(password), salt, 1000, 32, "sha256").toString("hex");
+  return storedHash === legacyHash;
 }
 
 // ==========================================
@@ -1539,15 +1553,34 @@ async function initPostgresTables(pool: pg.Pool): Promise<string[]> {
       id TEXT PRIMARY KEY,
       intent_id TEXT,
       sender_id TEXT,
+      sender_name TEXT,
       receiver_id TEXT,
       text TEXT,
       content TEXT,
       type TEXT DEFAULT 'text',
       attachment_url TEXT,
       attachment_type TEXT,
+      is_collaborator BOOLEAN DEFAULT false,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
     )`,
     "create messages"
+  );
+  await execSafeDDL(pool, `ALTER TABLE messages ADD COLUMN IF NOT EXISTS sender_name TEXT`, "messages.sender_name");
+  await execSafeDDL(pool, `ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_collaborator BOOLEAN DEFAULT false`, "messages.is_collaborator");
+
+  await execSafeDDL(
+    pool,
+    `CREATE TABLE IF NOT EXISTS profile_edit_history (
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      email TEXT,
+      entity_type TEXT,
+      previous_data JSONB,
+      updated_data JSONB,
+      changed_by TEXT,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )`,
+    "create profile_edit_history"
   );
 
   // 8. user_passwords, helpers, admin_reports, verification_requests, otp_codes, job_portal_items, security_vault
@@ -2884,8 +2917,13 @@ async function startServer() {
         ? await uploadDataToFirebaseServer(rawAvatar, "profiles")
         : "";
 
+      const callerUser = extractRequestUser(req);
+      const isAdminCaller = isRequestAdmin(req);
       const fullName = sanitizeServerText(profile.name || profile.full_name || profile.displayName || "Community Member", 120);
-      const email = sanitizeServerText(profile.email || "", 150).toLowerCase();
+      const email = sanitizeServerText(profile.email || callerUser?.email || "", 150).toLowerCase();
+      if (!email && !isAdminCaller) {
+        return res.status(400).json({ error: "Email ID is mandatory for profile registration and verification." });
+      }
       const phone = sanitizeServerText(profile.phone || "", 30);
       const whatsapp = sanitizeServerText(profile.whatsapp || phone || "", 30);
       const avatarUrl = uploadedAvatar || "https://lh3.googleusercontent.com/a/default-user";
@@ -2899,7 +2937,6 @@ async function startServer() {
       const experience = sanitizeServerText(profile.experience || "", 120);
       const myHelper = profile.my_helper_profile || profile.myHelperProfile || null;
 
-      const isAdminCaller = isRequestAdmin(req);
       const requestedStatus = profile.status === 'deletion_requested'
         ? 'deletion_requested'
         : (isAdminCaller && (profile.status === 'approved' || profile.isVerified === true) ? 'approved' : 'pending');
@@ -2912,9 +2949,65 @@ async function startServer() {
           }
         : null;
 
-      // 1. PostgreSQL Upsert into users, "user", and profiles tables
+      // 1. PostgreSQL Upsert into users, "user", and profiles tables (with Edit History & Firebase Storage Cleanup)
       if (dbPool && isDbConnected) {
         try {
+          const existingProfRes = await dbPool.query(
+            "SELECT * FROM profiles WHERE uid = $1 OR id = $1 LIMIT 1",
+            [uid]
+          ).catch(() => ({ rows: [] as any[] }));
+
+          if (existingProfRes.rows.length > 0) {
+            const prevRow = existingProfRes.rows[0];
+            const prevAvatar = prevRow.avatar_url || prevRow.image_url || "";
+            if (prevAvatar && uploadedAvatar && prevAvatar !== uploadedAvatar) {
+              await deleteFilesFromFirebaseStorage(prevAvatar);
+            }
+            const historyId = "hist_prof_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6);
+            const updatedSnapshot = {
+              uid,
+              name: fullName,
+              email,
+              phone,
+              whatsapp,
+              city,
+              sector,
+              address,
+              skills,
+              experience,
+              categoryId,
+              avatarUrl,
+              status: requestedStatus
+            };
+            await dbPool.query(
+              `INSERT INTO profile_edit_history (id, user_id, email, entity_type, previous_data, updated_data, changed_by, created_at)
+               VALUES ($1, $2, $3, 'user_profile', $4, $5, $6, NOW())`,
+              [
+                historyId,
+                uid,
+                email,
+                JSON.stringify(prevRow),
+                JSON.stringify(updatedSnapshot),
+                callerUser?.email || callerUser?.uid || uid
+              ]
+            ).catch(() => {});
+            await dbPool.query(
+              `INSERT INTO audit_logs (id, data, created_at) VALUES ($1, $2, NOW())`,
+              [
+                historyId,
+                JSON.stringify({
+                  id: historyId,
+                  type: "PROFILE_EDIT_HISTORY",
+                  userId: uid,
+                  email,
+                  previous: prevRow,
+                  updated: updatedSnapshot,
+                  receivedAt: new Date().toISOString()
+                })
+              ]
+            ).catch(() => {});
+          }
+
           if (email) {
             await dbPool.query(`
               INSERT INTO users (id, name, email, phone, role, avatar_url, created_at)
@@ -3536,9 +3629,9 @@ async function startServer() {
       }
 
       const existing = await findExistingAccount(cleanEmail);
-      const hashedInput = hashPassword(String(password));
 
       if (!existing || !existing.passwordHash) {
+        const hashedInput = hashPassword(String(password));
         const uid = existing?.uid || ('email_' + cleanEmail.replace(/[^a-z0-9]/g, '_'));
         const displayName = (name && String(name).trim()) || existing?.name || cleanEmail.split('@')[0];
         const finalPhone = (phone && String(phone).trim()) || existing?.phone || '';
@@ -3560,14 +3653,18 @@ async function startServer() {
         return res.json({ success: true, token, user });
       }
 
-      if (existing.passwordHash !== hashedInput) {
+      if (!verifyPassword(String(password), existing.passwordHash)) {
         return res.status(401).json({
           error: "गलत पासवर्ड! यदि आप अपना पासवर्ड भूल गए हैं तो नीचे 'Forgot / Reset Password via OTP' विकल्प चुनें। (Incorrect password!)",
           needsReset: true
         });
       }
 
-      await saveAccountWithPassword(cleanEmail, existing.uid, existing.name, existing.phone || '', existing.passwordHash);
+      // Upgrade hash to bcrypt if legacy PBKDF2 was used
+      const finalPasswordHash = existing.passwordHash.startsWith("$2")
+        ? existing.passwordHash
+        : hashPassword(String(password));
+      await saveAccountWithPassword(cleanEmail, existing.uid, existing.name, existing.phone || '', finalPasswordHash);
 
       const user = {
         uid: existing.uid,
@@ -3641,8 +3738,8 @@ async function startServer() {
     }
   });
 
-  // Session verification (Get active session user from token / cookie)
-  app.get("/api/auth/me", (req, res) => {
+  // Session verification (Get active session user from token / cookie and refresh persistent cookie)
+  app.get("/api/auth/me", async (req, res) => {
     try {
       const authHeader = req.headers.authorization;
       const cookieHeader = req.headers.cookie;
@@ -3663,14 +3760,42 @@ async function startServer() {
         return res.status(401).json({ error: "Session expired or invalid" });
       }
 
+      let dbName = decoded.name || (decoded.email ? decoded.email.split("@")[0] : "Community User");
+      let dbPhone = "";
+      let dbPhoto = "";
+      if (dbPool && isDbConnected) {
+        try {
+          const pRes = await dbPool.query(
+            "SELECT name, full_name, phone, avatar_url, image_url FROM profiles WHERE uid = $1 OR LOWER(TRIM(email)) = LOWER(TRIM($2)) LIMIT 1",
+            [decoded.uid, decoded.email || ""]
+          );
+          if (pRes.rows.length > 0) {
+            const r = pRes.rows[0];
+            dbName = r.full_name || r.name || dbName;
+            dbPhone = r.phone || "";
+            dbPhoto = r.avatar_url || r.image_url || "";
+          }
+        } catch {}
+      }
+
+      const refreshedToken = createSessionToken({
+        uid: decoded.uid,
+        email: decoded.email || "",
+        name: dbName
+      });
+      res.setHeader('Set-Cookie', `locohelp_token=${refreshedToken}; Path=/; Max-Age=${365 * 24 * 3600}; SameSite=Lax`);
+
       res.json({
         success: true,
+        token: refreshedToken,
         user: {
           uid: decoded.uid,
           id: decoded.uid,
-          name: decoded.name,
-          displayName: decoded.name,
-          email: decoded.email,
+          name: dbName,
+          displayName: dbName,
+          email: decoded.email || "",
+          phone: dbPhone,
+          photoURL: dbPhoto,
           isGuest: false
         }
       });
@@ -3680,7 +3805,8 @@ async function startServer() {
   });
 
   // Logout route
-  app.post("/api/auth/logout", (req, res) => {
+  app.post("/api/auth/logout", (_req, res) => {
+    res.setHeader('Set-Cookie', 'locohelp_token=; Path=/; Max-Age=0; SameSite=Lax');
     res.json({ success: true });
   });
 
@@ -4134,6 +4260,8 @@ async function startServer() {
                 conversationId: r.intent_id || conversationId,
                 authorId: r.sender_id,
                 senderId: r.sender_id,
+                authorName: r.sender_name || 'Community Peer',
+                senderName: r.sender_name || 'Community Peer',
                 receiverId: r.receiver_id,
                 text: r.text || r.content || '',
                 content: r.content || r.text || '',
@@ -4141,6 +4269,7 @@ async function startServer() {
                 type: r.type || 'text',
                 attachmentUrl: r.attachment_url,
                 attachmentType: r.attachment_type,
+                isCollaborator: Boolean(r.is_collaborator),
                 createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString()
               });
             });
@@ -4270,13 +4399,14 @@ async function startServer() {
       if (dbPool && isDbConnected) {
         try {
           await dbPool.query(`
-            INSERT INTO messages (id, intent_id, sender_id, receiver_id, text, content, type, attachment_url, attachment_type, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            INSERT INTO messages (id, intent_id, sender_id, sender_name, receiver_id, text, content, type, attachment_url, attachment_type, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             ON CONFLICT (id) DO NOTHING
           `, [
             newMsg.id,
             conversationId,
             newMsg.senderId,
+            newMsg.authorName || 'Community Peer',
             newMsg.receiverId,
             newMsg.text,
             newMsg.content,
@@ -4348,6 +4478,61 @@ async function startServer() {
   app.post("/api/chats", chatMessageLimiter, sendChatMessageHandler);
   app.post("/api/messages", chatMessageLimiter, sendChatMessageHandler);
   app.post("/api/messages/:id", chatMessageLimiter, sendChatMessageHandler);
+
+  // Delete a chat message and clean up any Firebase Storage attachment
+  app.delete("/api/messages/:id", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      if (dbPool && isDbConnected) {
+        const msgRes = await dbPool.query("SELECT attachment_url FROM messages WHERE id = $1", [id]).catch(() => ({ rows: [] as any[] }));
+        if (msgRes.rows.length > 0 && msgRes.rows[0].attachment_url) {
+          await deleteFilesFromFirebaseStorage(msgRes.rows[0].attachment_url);
+        }
+        await dbPool.query("DELETE FROM messages WHERE id = $1", [id]).catch(() => {});
+        await dbPool.query("DELETE FROM chats WHERE id = $1", [id]).catch(() => {});
+      }
+      res.json({ success: true, id });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Failed to delete message" });
+    }
+  });
+
+  // Select a replier to collaborate with on a post/help request
+  app.post("/api/intents/:id/collaborate", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { helperId, helperName } = req.body;
+      if (!helperId) {
+        return res.status(400).json({ error: "Helper ID is required to collaborate" });
+      }
+      const caller = extractRequestUser(req);
+      const confirmMsgId = "msg_collab_" + Date.now();
+      const confirmText = `🤝 Collaboration Confirmed! Post owner selected ${helperName || "this community helper"} to collaborate on this request.`;
+
+      if (dbPool && isDbConnected) {
+        await dbPool.query(
+          `UPDATE messages SET is_collaborator = (sender_id = $1) WHERE intent_id = $2`,
+          [helperId, id]
+        ).catch(() => {});
+        await dbPool.query(
+          `INSERT INTO messages (id, intent_id, sender_id, sender_name, receiver_id, text, content, type, is_collaborator, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $6, 'text', true, NOW())
+           ON CONFLICT (id) DO NOTHING`,
+          [confirmMsgId, id, caller?.uid || "owner", caller?.name || "Post Owner", helperId, confirmText]
+        ).catch(() => {});
+      }
+
+      res.json({
+        success: true,
+        intentId: id,
+        collaboratorId: helperId,
+        collaboratorName: helperName || "Community Peer",
+        message: confirmText
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Failed to confirm collaboration" });
+    }
+  });
 
   // Keep posts permanently in PostgreSQL (no auto-purge of database tables)
 
@@ -4533,12 +4718,24 @@ async function startServer() {
 
       const isAdminCaller = isRequestAdmin(req);
       const userFromReq = (req as any).user;
-      const ownerEmail = shop.ownerEmail ?? shop.email ?? (!isAdminCaller ? userFromReq?.email : '') ?? '';
+      const ownerEmail = sanitizeServerText(shop.ownerEmail ?? shop.email ?? (!isAdminCaller ? userFromReq?.email : '') ?? '', 150).toLowerCase();
+      if (!ownerEmail && !isAdminCaller) {
+        return res.status(400).json({ error: "Email ID is mandatory for business registration and verification." });
+      }
       const ownerId = shop.userId || shop.owner_id || (!isAdminCaller ? userFromReq?.uid : '') || shop.ownerName || 'Owner';
 
-      // Verify ownership if updating an existing shop
+      // Verify ownership and clean up old Firebase Storage photos if updating an existing shop
       const existingShops = readJsonFile<any[]>(SHOPS_FILE, []);
-      const existingShop = existingShops.find(s => s.id === shop.id);
+      let existingShop = existingShops.find(s => s.id === shop.id);
+      if (!existingShop && shop.id && dbPool && isDbConnected) {
+        try {
+          const bRes = await dbPool.query("SELECT * FROM businesses WHERE id = $1 LIMIT 1", [shop.id]);
+          if (bRes.rows.length > 0) {
+            const r = bRes.rows[0];
+            existingShop = { ...(r.raw_json || {}), id: r.id, userId: r.user_id, owner_id: r.owner_id, photoUrl: r.image_url };
+          }
+        } catch {}
+      }
       if (existingShop && !isAdminCaller && !isAuthorizedAdmin(userFromReq)) {
         const isOwner =
           (existingShop.userId && (existingShop.userId === userFromReq?.uid || existingShop.userId === ownerId)) ||
@@ -4546,6 +4743,22 @@ async function startServer() {
           (existingShop.ownerEmail && userFromReq?.email && existingShop.ownerEmail.toLowerCase() === userFromReq.email.toLowerCase());
         if (!isOwner && (existingShop.userId || existingShop.ownerEmail)) {
           return res.status(403).json({ error: "Unauthorized: You can only edit your own registered business." });
+        }
+      }
+      if (existingShop) {
+        const oldPhotos = [existingShop.photoUrl, ...(Array.isArray(existingShop.photos) ? existingShop.photos : [])].filter(Boolean);
+        for (const oldUrl of oldPhotos) {
+          if (oldUrl && validatedPhotos.length > 0 && !validatedPhotos.includes(oldUrl)) {
+            await deleteFilesFromFirebaseStorage(oldUrl);
+          }
+        }
+        if (dbPool && isDbConnected) {
+          const histId = "hist_biz_" + Date.now();
+          await dbPool.query(
+            `INSERT INTO profile_edit_history (id, user_id, email, entity_type, previous_data, updated_data, changed_by, created_at)
+             VALUES ($1, $2, $3, 'business', $4, $5, $6, NOW())`,
+            [histId, ownerId, ownerEmail, JSON.stringify(existingShop), JSON.stringify(shop), ownerEmail || ownerId]
+          ).catch(() => {});
         }
       }
 
@@ -5013,18 +5226,45 @@ async function startServer() {
 
       const isAdminCaller = isRequestAdmin(req);
       const userFromReq = (req as any).user;
-      const userEmail = helper.email ?? (!isAdminCaller ? userFromReq?.email : '') ?? '';
+      const userEmail = sanitizeServerText(helper.email ?? (!isAdminCaller ? userFromReq?.email : '') ?? '', 150).toLowerCase();
+      if (!userEmail && !isAdminCaller) {
+        return res.status(400).json({ error: "Email ID is mandatory for service helper registration and verification." });
+      }
       const userId = helper.userId || (!isAdminCaller ? userFromReq?.uid : '') || helper.id || '';
 
-      // Ownership check if updating an existing helper profile
+      // Ownership check & Firebase Storage cleanup if updating an existing helper profile
       const helpers = readJsonFile<any[]>(HELPERS_FILE, []);
-      const existingHelper = helpers.find(h => h.id === helper.id);
+      let existingHelper = helpers.find(h => h.id === helper.id);
+      if (!existingHelper && helper.id && dbPool && isDbConnected) {
+        try {
+          const hRes = await dbPool.query("SELECT * FROM helpers WHERE id = $1 LIMIT 1", [helper.id]);
+          if (hRes.rows.length > 0) existingHelper = hRes.rows[0];
+        } catch {}
+      }
       if (existingHelper && !isAdminCaller && !isAuthorizedAdmin(userFromReq)) {
         const isOwner =
           (existingHelper.userId && (existingHelper.userId === userFromReq?.uid || existingHelper.userId === userId)) ||
           (existingHelper.email && userFromReq?.email && existingHelper.email.toLowerCase() === userFromReq.email.toLowerCase());
         if (!isOwner && (existingHelper.userId || existingHelper.email)) {
           return res.status(403).json({ error: "Unauthorized: You can only update your own helper profile." });
+        }
+      }
+      if (existingHelper) {
+        const prevPhoto = existingHelper.photoUrl || existingHelper.photo_url || existingHelper.image_url;
+        if (prevPhoto && helper.photoUrl && prevPhoto !== helper.photoUrl) {
+          await deleteFilesFromFirebaseStorage(prevPhoto);
+        }
+        const prevDoc = existingHelper.idDocUrl || existingHelper.id_doc_url;
+        if (prevDoc && helper.idDocUrl && prevDoc !== helper.idDocUrl) {
+          await deleteFilesFromFirebaseStorage(prevDoc);
+        }
+        if (dbPool && isDbConnected) {
+          const histId = "hist_hlp_" + Date.now();
+          await dbPool.query(
+            `INSERT INTO profile_edit_history (id, user_id, email, entity_type, previous_data, updated_data, changed_by, created_at)
+             VALUES ($1, $2, $3, 'helper', $4, $5, $6, NOW())`,
+            [histId, userId, userEmail, JSON.stringify(existingHelper), JSON.stringify(helper), userEmail || userId]
+          ).catch(() => {});
         }
       }
 
@@ -5337,15 +5577,18 @@ async function startServer() {
   // AD BANNER MANAGEMENT API ROUTES
   // ==========================================
 
-  app.get("/api/ads", async (_req, res) => {
+  app.get("/api/ads", async (req, res) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
       res.setHeader("Pragma", "no-cache");
       res.setHeader("Expires", "0");
 
-      const cached = getPublicCache('public_ads');
-      if (cached) {
-        return res.json(cached);
+      const includeAll = req.query.all === 'true' || req.query.includePending === 'true' || isRequestAdmin(req);
+      if (!includeAll) {
+        const cached = getPublicCache('public_ads');
+        if (cached) {
+          return res.json(cached);
+        }
       }
 
       const adsMap = new Map<string, any>();
@@ -5360,6 +5603,8 @@ async function startServer() {
             if (!r || !r.id) return;
             const rawObj = typeof r.raw_json === 'object' && r.raw_json ? r.raw_json : {};
             const img = r.image_url || rawObj.photoUrl || (Array.isArray(rawObj.photos) && rawObj.photos[0]) || '';
+            const rowStatus = r.status || rawObj.status || 'approved';
+            const isApproved = rowStatus === 'active' || rowStatus === 'approved' || rawObj.isVerified === true;
             adsMap.set(r.id, {
               ...rawObj,
               id: r.id,
@@ -5370,7 +5615,9 @@ async function startServer() {
               photos: Array.isArray(rawObj.photos) && rawObj.photos.length > 0 ? rawObj.photos : (img ? [img] : []),
               destinationUrl: r.target_url || rawObj.destinationUrl || '',
               area: r.market_area || rawObj.area || 'Local Market',
-              isActive: r.status !== 'inactive',
+              status: rowStatus,
+              isVerified: isApproved,
+              isActive: isApproved && rowStatus !== 'inactive' && rowStatus !== 'pending',
               createdAt: r.created_at
             });
           });
@@ -5383,8 +5630,11 @@ async function startServer() {
           });
         } catch {}
       }
-      const allAds = Array.from(adsMap.values());
-      setPublicCache('public_ads', allAds);
+      let allAds = Array.from(adsMap.values());
+      if (!includeAll) {
+        allAds = allAds.filter(a => a.isActive !== false && a.status !== 'pending' && a.status !== 'rejected');
+        setPublicCache('public_ads', allAds);
+      }
       res.json(allAds);
     } catch (e) {
       res.status(500).json({ error: "Failed to fetch ad banners" });
@@ -5397,6 +5647,13 @@ async function startServer() {
       const ad = req.body;
       if (!ad || !ad.businessName || !ad.offerTitle) {
         return res.status(400).json({ error: "Business name and offer title are required" });
+      }
+
+      const isAdminCaller = isRequestAdmin(req);
+      const caller = extractRequestUser(req);
+      const ownerEmail = sanitizeServerText(ad.ownerEmail || ad.email || caller?.email || '', 150).toLowerCase();
+      if (!ownerEmail && !isAdminCaller) {
+        return res.status(400).json({ error: "Email ID is mandatory for submitting an ad banner." });
       }
 
       const validPhotos: string[] = [];
@@ -5427,26 +5684,47 @@ async function startServer() {
         }
       }
 
-      const defaultFallbackImg = 'https://images.unsplash.com/photo-1550009158-9ebf69173e03?auto=format&fit=crop&w=800&q=80';
-      const finalPhotos = validPhotos.length > 0 ? validPhotos : [defaultFallbackImg];
+      // Clean up replaced Firebase Storage photos if editing an existing ad
+      if (ad.id && dbPool && isDbConnected) {
+        try {
+          const prevAdRes = await dbPool.query("SELECT image_url, raw_json FROM ads WHERE id = $1 LIMIT 1", [ad.id]);
+          if (prevAdRes.rows.length > 0) {
+            const prevRow = prevAdRes.rows[0];
+            const prevRaw = prevRow.raw_json || {};
+            const oldUrls = [prevRow.image_url, prevRaw.photoUrl, ...(Array.isArray(prevRaw.photos) ? prevRaw.photos : [])].filter(Boolean);
+            for (const oldUrl of oldUrls) {
+              if (oldUrl && validPhotos.length > 0 && !validPhotos.includes(oldUrl)) {
+                await deleteFilesFromFirebaseStorage(oldUrl);
+              }
+            }
+          }
+        } catch {}
+      }
+
+      const finalPhotos = validPhotos;
+      const autoApprove = isAdminCaller;
+      const adStatus = autoApprove ? (ad.isActive === false ? 'inactive' : 'active') : 'pending';
 
       const ads = readJsonFile<any[]>(ADS_FILE, []);
       const newAd = {
         id: ad.id || 'ad_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
         businessName: sanitizeStringServer(ad.businessName.trim(), 200),
+        ownerEmail,
+        email: ownerEmail,
         logo: sanitizeStringServer(ad.logo || '🏪', 20),
         category: sanitizeStringServer(ad.category || 'Retail & Services', 120),
         offerBadge: sanitizeStringServer(ad.offerBadge || '🔥 Special Offer', 100),
         offerTitle: sanitizeStringServer(ad.offerTitle.trim(), 200),
         description: sanitizeStringServer(ad.description || '', 1000),
-        photoUrl: finalPhotos[0],
+        photoUrl: finalPhotos[0] || '',
         photos: finalPhotos,
-        isActive: ad.isActive !== false,
+        status: adStatus,
+        isActive: autoApprove ? (ad.isActive !== false) : false,
         distance: typeof ad.distance === 'number' ? ad.distance : 0.4,
         area: sanitizeStringServer(ad.area || 'Local Market', 200),
         rating: typeof ad.rating === 'number' ? ad.rating : 4.9,
         reviewCount: typeof ad.reviewCount === 'number' ? ad.reviewCount : 12,
-        isVerified: true,
+        isVerified: autoApprove,
         destinationUrl: sanitizeStringServer(ad.destinationUrl || '', 500),
         initialMessage: sanitizeStringServer(ad.initialMessage || `Namaste! ${ad.businessName} me aapka swagat hai. Ad offer "${ad.offerBadge}" ke baare me poochhein.`, 500),
         createdAt: ad.createdAt || new Date().toISOString()
@@ -5483,7 +5761,7 @@ async function startServer() {
               newAd.businessName,
               newAd.destinationUrl,
               newAd.area,
-              newAd.isActive ? 'active' : 'inactive',
+              adStatus,
               newAd.description,
               newAd.photoUrl,
               JSON.stringify(newAd)
@@ -5495,17 +5773,65 @@ async function startServer() {
              ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data`,
             [newAd.id, JSON.stringify(newAd)]
           );
+
+          if (!autoApprove) {
+            const verifId = 'verif_ad_' + newAd.id;
+            await dbPool.query(
+              `INSERT INTO verification_requests (id, entity_type, entity_id, user_id, user_name, user_phone, title, id_doc_url, status, created_at)
+               VALUES ($1, 'business', $2, $3, $4, $5, $6, $7, 'pending', NOW())
+               ON CONFLICT (id) DO UPDATE SET status = 'pending', title = EXCLUDED.title`,
+              [
+                verifId,
+                newAd.id,
+                caller?.uid || ownerEmail,
+                newAd.businessName,
+                ownerEmail,
+                `Ad Banner: ${newAd.businessName} - ${newAd.offerTitle}`,
+                newAd.photoUrl || ''
+              ]
+            ).catch(() => {});
+          }
         } catch (dbErr) {
           console.warn("[PostgreSQL] ads insert note:", dbErr);
         }
       }
 
       invalidatePublicCache(['public_ads']);
-      console.log(`[Ad Banner Saved] ${newAd.id}: ${newAd.businessName}`);
+      console.log(`[Ad Banner Saved] ${newAd.id}: ${newAd.businessName} (${adStatus})`);
       res.status(201).json(newAd);
     } catch (e) {
       console.error("Failed to save ad banner:", e);
       res.status(500).json({ error: "Failed to save ad banner" });
+    }
+  });
+
+  app.patch("/api/admin/ads/:id", requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { status, isActive } = req.body;
+      const nextStatus = status || (isActive ? 'active' : 'inactive');
+      if (dbPool && isDbConnected) {
+        const resAd = await dbPool.query("SELECT raw_json FROM ads WHERE id = $1 LIMIT 1", [id]);
+        const rawObj = resAd.rows[0]?.raw_json || {};
+        const updatedRaw = {
+          ...rawObj,
+          status: nextStatus,
+          isVerified: nextStatus === 'active' || nextStatus === 'approved',
+          isActive: nextStatus === 'active' || nextStatus === 'approved'
+        };
+        await dbPool.query(
+          "UPDATE ads SET status = $1, raw_json = $2 WHERE id = $3",
+          [nextStatus, JSON.stringify(updatedRaw), id]
+        );
+        await dbPool.query(
+          "UPDATE ad_banners SET data = $1 WHERE id = $2",
+          [JSON.stringify(updatedRaw), id]
+        ).catch(() => {});
+      }
+      invalidatePublicCache(['public_ads']);
+      res.json({ success: true, id, status: nextStatus });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Failed to update ad status" });
     }
   });
 
@@ -5650,7 +5976,28 @@ async function startServer() {
       }
 
       const isAdminCaller = isRequestAdmin(req);
+      const caller = extractRequestUser(req);
+      const jobEmail = sanitizeStringServer(payload.email?.trim() || caller?.email || '', 150).toLowerCase();
+      if (!jobEmail && !isAdminCaller) {
+        return res.status(400).json({ error: "Email ID is mandatory for Job Portal registration and verification." });
+      }
       const autoApprove = isAdminCaller;
+
+      // Clean up replaced Firebase Storage photo/resume if updating an existing job portal item
+      if (payload.id && dbPool && isDbConnected) {
+        try {
+          const prevJobRes = await dbPool.query("SELECT data FROM job_portal_items WHERE id = $1 LIMIT 1", [payload.id]);
+          if (prevJobRes.rows.length > 0 && prevJobRes.rows[0].data) {
+            const prevJob = prevJobRes.rows[0].data;
+            if (prevJob.photoOrLogoUrl && payload.photoOrLogoUrl && prevJob.photoOrLogoUrl !== payload.photoOrLogoUrl) {
+              await deleteFilesFromFirebaseStorage(prevJob.photoOrLogoUrl);
+            }
+            if (prevJob.resumeUrl && payload.resumeUrl && prevJob.resumeUrl !== payload.resumeUrl) {
+              await deleteFilesFromFirebaseStorage(prevJob.resumeUrl);
+            }
+          }
+        } catch {}
+      }
 
       const items = readJsonFile<any[]>(JOB_PORTAL_FILE, []);
       const isSeeker = payload.type === 'job_seeker';
@@ -5676,13 +6023,11 @@ async function startServer() {
         category: sanitizeStringServer(payload.category || 'Retail & Services', 100),
         phone: sanitizeStringServer(payload.phone?.trim() || '', 30),
         whatsapp: sanitizeStringServer(payload.whatsapp?.trim() || payload.phone?.trim() || '', 30),
-        email: sanitizeStringServer(payload.email?.trim() || '', 150),
+        email: jobEmail,
         area: sanitizeStringServer(payload.area?.trim() || 'Local Area', 150),
         address: sanitizeStringServer(payload.address?.trim() || '', 300),
         description: sanitizeStringServer(payload.description?.trim() || (isSeeker ? 'Looking for local employment opportunities.' : 'Staff required for our business.'), 2000),
-        photoOrLogoUrl: payload.photoOrLogoUrl || (isSeeker 
-          ? 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80'
-          : 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=800&q=80'),
+        photoOrLogoUrl: payload.photoOrLogoUrl || '',
         resumeUrl: payload.resumeUrl || '',
         resumeFileName: sanitizeStringServer(payload.resumeFileName || '', 150),
         createdAt: new Date().toISOString(),
@@ -6990,13 +7335,19 @@ async function startServer() {
             updatedItem = row;
 
             if (status === 'approved') {
-              if (row.entity_type === 'business') {
+              if (String(row.entity_id || '').startsWith('ad_')) {
+                await dbPool.query("UPDATE ads SET status = 'active' WHERE id = $1", [row.entity_id]).catch(() => {});
+                invalidatePublicCache(['public_ads']);
+              } else if (row.entity_type === 'business') {
                 await dbPool.query("UPDATE shops SET is_verified = true WHERE id = $1", [row.entity_id]).catch(() => {});
-                await dbPool.query("UPDATE businesses SET is_verified = true WHERE id = $1", [row.entity_id]).catch(() => {});
+                await dbPool.query("UPDATE businesses SET is_verified = true, is_approved = true WHERE id = $1", [row.entity_id]).catch(() => {});
               } else {
                 await dbPool.query("UPDATE helpers SET is_verified = true WHERE id = $1", [row.entity_id]).catch(() => {});
-                await dbPool.query("UPDATE profiles SET is_verified = true WHERE uid = $1", [row.entity_id]).catch(() => {});
+                await dbPool.query("UPDATE profiles SET is_verified = true, verified = true, status = 'approved' WHERE uid = $1 OR id = $1", [row.entity_id]).catch(() => {});
               }
+            } else if (status === 'rejected' && String(row.entity_id || '').startsWith('ad_')) {
+              await dbPool.query("UPDATE ads SET status = 'rejected' WHERE id = $1", [row.entity_id]).catch(() => {});
+              invalidatePublicCache(['public_ads']);
             }
           }
         } catch (dbErr) {
@@ -7299,13 +7650,14 @@ async function startServer() {
       };
 
       // Also support optional password setting right during OTP verification if provided
-      if (isEmail && req.body.newPassword && String(req.body.newPassword).length >= 6) {
+      const otpPassword = req.body.newPassword || req.body.password;
+      if (isEmail && otpPassword && String(otpPassword).length >= 6) {
         await saveAccountWithPassword(
           cleanIdentifier,
           user.uid,
           user.displayName,
           user.phone,
-          hashPassword(String(req.body.newPassword))
+          hashPassword(String(otpPassword))
         );
       }
 

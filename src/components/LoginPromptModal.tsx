@@ -37,6 +37,7 @@ export default function LoginPromptModal({
 
   const [emailInput, setEmailInput] = useState('');
   const [otpCode, setOtpCode] = useState('');
+  const [otpOptionalPassword, setOtpOptionalPassword] = useState('');
   const [otpStep, setOtpStep] = useState<'input' | 'verify'>('input');
   const [otpCooldownSeconds, setOtpCooldownSeconds] = useState(0);
   
@@ -109,11 +110,16 @@ export default function LoginPromptModal({
       return;
     }
 
+    if (otpOptionalPassword.trim().length > 0 && otpOptionalPassword.trim().length < 6) {
+      setErrorMessage(language === 'EN' ? 'Custom password must be at least 6 characters' : 'पासवर्ड कम से कम 6 अक्षरों का होना चाहिए');
+      return;
+    }
+
     setIsLoadingOtp(true);
     setErrorMessage(null);
     setInfoMessage(null);
 
-    const res = await verifyEmailOtp(emailInput, otpCode);
+    const res = await verifyEmailOtp(emailInput, otpCode, otpOptionalPassword.trim() || undefined);
     setIsLoadingOtp(false);
 
     if (res.success) {
@@ -378,6 +384,16 @@ export default function LoginPromptModal({
                       className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl py-2.5 pl-10 pr-4 text-sm font-black tracking-widest text-slate-900 dark:text-white outline-none focus:border-indigo-500 transition-all text-center"
                       required
                       autoFocus
+                    />
+                  </div>
+                  <div className="relative">
+                    <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                    <input
+                      type="password"
+                      value={otpOptionalPassword}
+                      onChange={(e) => setOtpOptionalPassword(e.target.value)}
+                      placeholder={language === 'EN' ? 'Set Password (Optional - for direct login next time)' : 'अपना पासवर्ड सेट करें (वैकल्पिक - अगली बार सीधे लॉगिन हेतु)'}
+                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl py-2 pl-10 pr-4 text-[11px] font-medium text-slate-900 dark:text-white outline-none focus:border-indigo-500 transition-all"
                     />
                   </div>
                   <button

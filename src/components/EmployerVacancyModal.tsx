@@ -303,9 +303,13 @@ export default function EmployerVacancyModal({
       const bizArea = selectedBusiness?.area || area.trim() || 'Local Market Area';
       const bizAddress = selectedBusiness?.address || address.trim() || bizArea;
 
+      const currentUser = getCurrentUser();
+      const userEmail = currentUser?.email || selectedBusiness?.email || selectedBusiness?.ownerEmail || localStorage.getItem('locohelp_last_logged_in_email') || '';
+
       const res = await submitJobPortalItem({
         type: 'employer_vacancy',
         website_url_hp: hpWebsiteUrl,
+        email: userEmail,
         companyOrShopName: bizName,
         jobRole: jobRole.trim(),
         category: bizCategory,
@@ -320,7 +324,7 @@ export default function EmployerVacancyModal({
         address: bizAddress,
         description: description.trim() || `Hiring for ${jobRole} at ${bizName}.`,
         photoOrLogoUrl: selectedBusiness?.photoUrl || logoOrPhotoUrl || undefined
-      });
+      } as any);
 
       setIsSubmitting(false);
       if (res.success) {
@@ -378,6 +382,7 @@ export default function EmployerVacancyModal({
 
     try {
       const currentUser = getCurrentUser();
+      const userEmail = currentUser?.email || localStorage.getItem('locohelp_last_logged_in_email') || '';
       // 1. Save / Register the New Employer Business on LocoHelp (strictly pending Admin approval)
       if (!editingVacancyId) {
         const newShopObj = {
@@ -389,7 +394,8 @@ export default function EmployerVacancyModal({
           categoryLabel: category,
           ownerName: ownerName.trim() || currentUser?.displayName || 'Employer',
           userId: currentUser?.uid || '',
-          ownerEmail: currentUser?.email || '',
+          email: userEmail,
+          ownerEmail: userEmail,
           phone: phone.trim(),
           area: area.trim(),
           address: address.trim() || area.trim(),
@@ -410,6 +416,7 @@ export default function EmployerVacancyModal({
         id: editingVacancyId || undefined,
         type: 'employer_vacancy',
         website_url_hp: hpWebsiteUrl,
+        email: userEmail,
         companyOrShopName: companyOrShopName.trim(),
         jobRole: jobRole.trim(),
         category,
@@ -424,7 +431,7 @@ export default function EmployerVacancyModal({
         address: address.trim() || area.trim(),
         description: description.trim() || `Hiring for ${jobRole} at ${companyOrShopName}.`,
         photoOrLogoUrl: logoOrPhotoUrl || undefined
-      });
+      } as any);
 
       setIsSubmitting(false);
 

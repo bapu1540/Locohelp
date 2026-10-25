@@ -140,6 +140,52 @@ export function getCurrentUser(): AppUser {
 }
 
 /**
+ * Restores active user session from backend JWT/cookie (/api/auth/me) on app boot
+ * so verified users are never forced to re-enter OTP on page refresh.
+ */
+export async function restoreSessionFromServer(): Promise<AppUser | null> {
+  try {
+    const token = localStorage.getItem('locohelp_token') || '';
+    const headers: Record<string, string> = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    const res = await fetch('/api/auth/me', {
+      method: 'GET',
+      headers,
+      credentials: 'include'
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data || !data.success || !data.user) return null;
+
+    const u = data.user;
+    const userData: AppUser = {
+      uid: ensureValidUUID(u.uid || u.id || u.email),
+      displayName: sanitizeText(u.displayName || u.name || (u.email ? u.email.split('@')[0] : 'Community Member')),
+      email: u.email || '',
+      phone: u.phone || '',
+      photoURL: u.photoURL || 'https://lh3.googleusercontent.com/a/default-user',
+      isGuest: false
+    };
+
+    if (data.token) {
+      localStorage.setItem('locohelp_token', data.token);
+    }
+    localStorage.setItem('locohelp_user', JSON.stringify(userData));
+    localStorage.setItem('locohelp_logged_in', 'true');
+    if (userData.email) {
+      localStorage.setItem('locohelp_last_logged_in_email', userData.email);
+      localStorage.setItem('locohelp_last_logged_in_name', userData.displayName);
+    }
+    notifyAuthState('SIGNED_IN', userData);
+    return userData;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Strict RFC 5322 compliant email validator
  */
 export function isValidEmail(email: string): boolean {

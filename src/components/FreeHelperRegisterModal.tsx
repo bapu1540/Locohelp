@@ -28,6 +28,7 @@ export default function FreeHelperRegisterModal({
   const [isEditing, setIsEditing] = useState(false);
 
   const [formName, setFormName] = useState('');
+  const [formEmail, setFormEmail] = useState('');
   const [formCategory, setFormCategory] = useState(defaultCategory);
   const [customCategoryName, setCustomCategoryName] = useState('');
   const [formPhone, setFormPhone] = useState('');
@@ -45,15 +46,17 @@ export default function FreeHelperRegisterModal({
 
     const activeUser = getCurrentUser();
     const uid = activeUser?.uid || '';
-    const cleanEmail = (activeUser?.email || '').trim().toLowerCase();
+    const cleanEmail = (activeUser?.email || localStorage.getItem('locohelp_last_logged_in_email') || '').trim().toLowerCase();
     const cleanPhone = (activeUser?.phone || '').replace(/\D/g, '');
 
     if (activeUser?.displayName && !formName) setFormName(activeUser.displayName);
+    if (cleanEmail && !formEmail) setFormEmail(cleanEmail);
     if (cleanPhone && !formPhone) setFormPhone(cleanPhone);
 
     const populateFormFromProfile = (prof: any) => {
       if (!prof) return;
       setFormName(prof.name || activeUser?.displayName || '');
+      setFormEmail(prof.email || cleanEmail || '');
       setFormCategory(prof.categoryId || defaultCategory);
       setCustomCategoryName(prof.customCategoryName || '');
       setFormPhone(prof.phone || cleanPhone || '');
@@ -142,7 +145,12 @@ export default function FreeHelperRegisterModal({
 
     const activeUser = getCurrentUser();
     const uid = activeUser?.uid || '';
-    const userEmail = activeUser?.email || '';
+    const userEmail = (formEmail.trim() || activeUser?.email || localStorage.getItem('locohelp_last_logged_in_email') || '').toLowerCase();
+    if (!userEmail || !userEmail.includes('@')) {
+      setFileError(language === 'EN' ? 'Valid Email ID is mandatory for helper profile verification.' : 'प्रोफाइल सत्यापन के लिए मान्य ईमेल आईडी अनिवार्य है।');
+      setIsSubmitting(false);
+      return;
+    }
 
     const matchedCat = CATEGORIES.find(c => c.id === formCategory);
     const trimmedCustom = customCategoryName.trim();
@@ -160,7 +168,7 @@ export default function FreeHelperRegisterModal({
     const newHelper = saveFreeHelperProfile({
       id: existingProfile?.id,
       userId: uid || existingProfile?.userId,
-      email: userEmail || existingProfile?.email,
+      email: userEmail,
       name: formName.trim(),
       categoryId: formCategory,
       customCategoryName: formCategory === 'other' ? trimmedCustom : '',
@@ -446,16 +454,29 @@ export default function FreeHelperRegisterModal({
                 )}
               </div>
 
-              {/* Phone Number */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  {t('cat.phoneLabel')}
-                </label>
-                <div className="relative">
+              {/* Email & Phone Number */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    {language === 'EN' ? 'Verified Email ID *' : 'सत्यापित ईमेल आईडी *'}
+                  </label>
+                  <input 
+                    type="email" 
+                    required
+                    placeholder="name@email.com"
+                    value={formEmail}
+                    onChange={(e) => setFormEmail(e.target.value)}
+                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    {t('cat.phoneLabel')}
+                  </label>
                   <input 
                     type="tel" 
                     required
-                    placeholder="+91 98765 43210"
+                    placeholder="98XXXXXXXX"
                     value={formPhone}
                     onChange={(e) => setFormPhone(e.target.value)}
                     className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"

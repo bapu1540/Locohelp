@@ -18,6 +18,7 @@ interface ReplierGroup {
   lastMessage: string;
   updatedAt: string;
   count: number;
+  isCollaborator?: boolean;
 }
 
 export default function PostResponsesModal({
@@ -29,6 +30,7 @@ export default function PostResponsesModal({
   const { language } = useLanguage();
   const [repliers, setRepliers] = useState<ReplierGroup[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [collaboratingId, setCollaboratingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isOpen || !intent?.id) return;
@@ -44,7 +46,6 @@ export default function PostResponsesModal({
         const currentUser = getCurrentUser();
         const activeUid = currentUser?.uid || 'me';
 
-        // 1. Fetch from server messages table for this conversationId
         let rawMessages: any[] = [];
         try {
           const res = await fetch(`/api/messages/${encodeURIComponent(intent.id)}?_t=${Date.now()}`, {
@@ -55,28 +56,16 @@ export default function PostResponsesModal({
           }
         } catch (e) {}
 
-        // Fallback to local storage if API empty
-        if (!Array.isArray(rawMessages) || rawMessages.length === 0) {
-          try {
-            const localStored = localStorage.getItem(`locohelp_chat_${intent.id}`);
-            if (localStored) {
-              rawMessages = JSON.parse(localStored);
-            }
-          } catch (e) {}
-        }
-
         if (!Array.isArray(rawMessages)) rawMessages = [];
 
-        // Filter out messages sent by the owner themselves, to find visitor repliers
         const visitorMessages = rawMessages.filter(
-          m => m.authorId !== activeUid && m.senderId !== activeUid && m.authorId !== 'me'
+          m => m.authorId !== activeUid && m.senderId !== activeUid && m.authorId !== 'me' && m.authorId !== 'owner'
         );
 
-        // Group by sender
         const groupsMap = new Map<string, ReplierGroup>();
         visitorMessages.forEach(msg => {
           const sId = msg.senderId || msg.authorId || 'visitor_user';
-          const sName = msg.authorName || msg.senderName || 'Nearby Helper / Visitor';
+          const sName = msg.authorName || msg.senderName || 'Community Helper';
           const existing = groupsMap.get(sId);
 
           if (!existing) {
@@ -85,21 +74,24 @@ export default function PostResponsesModal({
               senderName: sName,
               lastMessage: msg.text || msg.content || 'Sent a message',
               updatedAt: msg.createdAt || msg.sent_at || new Date().toISOString(),
-              count: 1
+              count: 1,
+              isCollaborator: Boolean(msg.isCollaborator)
             });
           } else {
             existing.lastMessage = msg.text || msg.content || existing.lastMessage;
             existing.updatedAt = msg.createdAt || msg.sent_at || existing.updatedAt;
             existing.count += 1;
+            if (msg.isCollaborator) existing.isCollaborator = true;
           }
         });
 
-        // Convert to array
         const list = Array.from(groupsMap.values());
         list.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 
         if (isMounted) {
           setRepliers(list);
+          const collab = list.find(r => r.isCollaborator);
+          if (collab) setCollaboratingId(collab.senderId);
           setIsLoading(false);
         }
       } catch (err) {
@@ -109,13 +101,34 @@ export default function PostResponsesModal({
     };
 
     loadResponses();
-    const pollInterval = setInterval(loadResponses, 3000);
+    const pollInterval = setInterval(loadResponses, 2500);
 
     return () => {
       isMounted = false;
       clearInterval(pollInterval);
     };
   }, [isOpen, intent]);
+
+  const handleSelectCollaborator = async (e: React.MouseEvent, rep: ReplierGroup) => {
+    e.stopPropagation();
+    if (!intent?.id) return;
+    try {
+      const token = localStorage.getItem('locohelp_token') || '';
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch(`/api/intents/${encodeURIComponent(intent.id)}/collaborate`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ helperId: rep.senderId, helperName: rep.senderName })
+      });
+      if (res.ok) {
+        setCollaboratingId(rep.senderId);
+        setRepliers(prev => prev.map(r => ({ ...r, isCollaborator: r.senderId === rep.senderId })));
+      }
+    } catch (err) {
+      console.warn("Collaborate error:", err);
+    }
+  };
 
   if (!isOpen || !intent) return null;
 
@@ -128,15 +141,15 @@ export default function PostResponsesModal({
           exit={{ opacity: 0, scale: 0.93, y: 16 }}
           className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden relative z-50 flex flex-col max-h-[85vh]"
         >
-          {/* Header */}
-          <div className="p-4 sm:p-5 border-b border-slate-200 dark:border-slate-800 bg-gradient-to-r from-amber-500/10 via-indigo-500/10 to-emerald-500/10 flex items-center justify-between">
+          {/* WhatsApp-Style Header */}
+          <div className="p-4 sm:p-5 border-b border-slate-200 dark:border-slate-800 bg-gradient-to-r from-emerald-600/15 via-teal-500/10 to-indigo-500/10 flex items-center justify-between">
             <div className="flex items-center gap-3 min-w-0">
-              <div className="w-10 h-10 rounded-2xl bg-amber-500 text-white flex items-center justify-center font-black shadow-md shrink-0">
+              <div className="w-10 h-10 rounded-2xl bg-emerald-600 text-white flex items-center justify-center font-black shadow-md shrink-0">
                 <Inbox className="w-5 h-5" />
               </div>
               <div className="min-w-0">
-                <span className="text-[10px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-950/80 px-2.5 py-0.5 rounded-full border border-amber-200 dark:border-amber-900">
-                  ⚡ {language === 'EN' ? 'Owner Responses Inbox' : language === 'GU' ? 'તમારી પોસ્ટના જવાબો (Inbox)' : 'आपकी पोस्ट का जवाब इनबॉक्स'}
+                <span className="text-[10px] font-black uppercase tracking-wider text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950/80 px-2.5 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-900">
+                  💬 {language === 'EN' ? 'WhatsApp-Style Reply Inbox' : language === 'GU' ? 'તમારી પોસ્ટના જવાબો (Inbox)' : 'आपकी पोस्ट का चैट इनबॉक्स'}
                 </span>
                 <h3 className="text-sm font-black text-slate-900 dark:text-white truncate mt-1">
                   {intent.description}
@@ -155,14 +168,14 @@ export default function PostResponsesModal({
           <div className="p-4 sm:p-5 overflow-y-auto flex-1 space-y-3">
             {isLoading ? (
               <div className="py-12 flex flex-col items-center justify-center text-center space-y-2">
-                <RefreshCw className="w-6 h-6 text-amber-500 animate-spin" />
+                <RefreshCw className="w-6 h-6 text-emerald-600 animate-spin" />
                 <span className="text-xs font-bold text-slate-500">
-                  {language === 'EN' ? 'Loading responses...' : language === 'GU' ? 'જવાબો લોડ થઈ રહ્યા છે...' : 'जवाब लोड हो रहे हैं...'}
+                  {language === 'EN' ? 'Loading live replies...' : language === 'GU' ? 'જવાબો લોડ થઈ રહ્યા છે...' : 'चैट जवाब लोड हो रहे हैं...'}
                 </span>
               </div>
             ) : repliers.length === 0 ? (
               <div className="py-10 px-4 text-center space-y-3 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700">
-                <div className="w-12 h-12 rounded-full bg-amber-100 dark:bg-amber-950/80 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto">
+                <div className="w-12 h-12 rounded-full bg-emerald-100 dark:bg-emerald-950/80 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto">
                   <MessageCircle className="w-6 h-6" />
                 </div>
                 <div>
@@ -171,10 +184,10 @@ export default function PostResponsesModal({
                   </h4>
                   <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mt-1 max-w-xs mx-auto">
                     {language === 'EN'
-                      ? 'When nearby neighbors or helpers click "Chat / Reply" on your post, their messages will appear live right here!'
+                      ? 'When nearby neighbors or helpers reply to your post, their messages appear here in a clean chat list so you can review and choose who to collaborate with!'
                       : language === 'GU'
-                      ? 'જ્યારે આસપાસના લોકો કે સર્વિસ એક્સપર્ટ્સ તમારી પોસ્ટ પર "સીધી ચેટ" પર ક્લિક કરશે, ત્યારે તેમના મેસેજ અહીં લાઈવ દેખાશે!'
-                      : 'जब आस-पास के लोग या हेल्पर्स आपकी पोस्ट पर "बात करें" पर क्लिक करेंगे, तब उनके संदेश यहाँ लाइव दिखाई देंगे।'}
+                      ? 'જ્યારે આસપાસના લોકો કે સર્વિસ એક્સપર્ટ્સ તમારી પોસ્ટ પર જવાબ આપશે, ત્યારે તેમની ચેટ યાદી અહીં લાઈવ દેખાશે!'
+                      : 'जब आस-पास के लोग या हेल्पर्स आपकी पोस्ट पर जवाब देंगे, तब उनकी चैट लिस्ट यहाँ दिखेगी ताकि आप बात कर सकें और सहयोगी चुन सकें।'}
                   </p>
                 </div>
                 <button
@@ -183,51 +196,91 @@ export default function PostResponsesModal({
                     onClose();
                     onOpenChat(intent);
                   }}
-                  className="bg-amber-500 hover:bg-amber-600 text-white text-xs font-black px-4 py-2 rounded-xl shadow-md cursor-pointer inline-flex items-center gap-1.5 active:scale-95 transition-all mt-2"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black px-4 py-2 rounded-xl shadow-md cursor-pointer inline-flex items-center gap-1.5 active:scale-95 transition-all mt-2"
                 >
                   <Send className="w-3.5 h-3.5" />
-                  <span>{language === 'EN' ? 'Open Chat Room' : language === 'GU' ? 'ચેટ રૂમ ખોલો' : 'चैट रूम खोलें'}</span>
+                  <span>{language === 'EN' ? 'Open Post Chat Room' : language === 'GU' ? 'ચેટ રૂમ ખોલો' : 'पोस्ट चैट रूम खोलें'}</span>
                 </button>
               </div>
             ) : (
               <div className="space-y-2.5">
-                <span className="text-[11px] font-black uppercase text-slate-500 dark:text-slate-400 block px-1">
-                  💬 {language === 'EN' ? `Received Responses (${repliers.length})` : language === 'GU' ? `મળેલા જવાબો (${repliers.length})` : `प्राप्त जवाब (${repliers.length})`}
-                </span>
-                {repliers.map((rep) => (
-                  <div
-                    key={rep.senderId}
-                    onClick={() => {
-                      onClose();
-                      onOpenChat(intent);
-                    }}
-                    className="p-3 rounded-2xl bg-gradient-to-r from-amber-50/80 via-white to-amber-50/40 dark:from-slate-800 dark:to-slate-850 hover:border-amber-400 border border-amber-200 dark:border-slate-700 shadow-sm cursor-pointer transition-all flex items-center justify-between gap-3 group active:scale-[0.99]"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-10 h-10 rounded-full bg-amber-500 text-white font-bold text-sm flex items-center justify-center shrink-0 shadow-2xs group-hover:scale-105 transition-transform">
-                        {rep.senderName[0]?.toUpperCase() || 'U'}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-black text-slate-900 dark:text-white truncate">
-                            {rep.senderName}
-                          </span>
-                          <span className="text-[9px] font-black px-1.5 py-0.2 rounded-md bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200">
-                            {rep.count} msg
+                <div className="flex items-center justify-between px-1">
+                  <span className="text-[11px] font-black uppercase text-slate-500 dark:text-slate-400">
+                    💬 {language === 'EN' ? `People Who Replied (${repliers.length})` : language === 'GU' ? `મળેલા જવાબો (${repliers.length})` : `जवाब देने वाले लोग (${repliers.length})`}
+                  </span>
+                  <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+                    {language === 'EN' ? 'Tap to Chat or Collaborate' : 'चैट करें या सहयोगी चुनें'}
+                  </span>
+                </div>
+                {repliers.map((rep) => {
+                  const isCollab = collaboratingId === rep.senderId || rep.isCollaborator;
+                  return (
+                    <div
+                      key={rep.senderId}
+                      onClick={() => {
+                        onClose();
+                        onOpenChat({
+                          ...intent,
+                          selectedReplierId: rep.senderId,
+                          selectedReplierName: rep.senderName
+                        } as any);
+                      }}
+                      className={`p-3 rounded-2xl border shadow-sm cursor-pointer transition-all flex items-center justify-between gap-2.5 group active:scale-[0.99] ${
+                        isCollab
+                          ? 'bg-emerald-50/90 dark:bg-emerald-950/40 border-emerald-400 dark:border-emerald-700'
+                          : 'bg-white dark:bg-slate-800 hover:border-emerald-400 border-slate-200 dark:border-slate-700'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <div className="relative shrink-0">
+                          <div className="w-11 h-11 rounded-full bg-gradient-to-tr from-emerald-600 to-teal-500 text-white font-black text-sm flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform">
+                            {rep.senderName[0]?.toUpperCase() || 'U'}
+                          </div>
+                          <span className="absolute -top-1 -right-1 bg-emerald-600 text-white text-[9px] font-black px-1.5 py-0.2 rounded-full border border-white dark:border-slate-900">
+                            {rep.count}
                           </span>
                         </div>
-                        <p className="text-xs text-slate-600 dark:text-slate-300 font-medium truncate mt-0.5">
-                          "{rep.lastMessage}"
-                        </p>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-black text-slate-900 dark:text-white truncate">
+                              {rep.senderName}
+                            </span>
+                            {isCollab && (
+                              <span className="text-[9px] font-black px-1.5 py-0.5 rounded-md bg-emerald-600 text-white shrink-0">
+                                🤝 Collaborating
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-slate-600 dark:text-slate-300 font-medium truncate mt-0.5">
+                            {rep.lastMessage}
+                          </p>
+                          <span className="text-[10px] text-slate-400 font-semibold block mt-0.5">
+                            {new Date(rep.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="shrink-0 flex flex-col sm:flex-row items-end sm:items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={(e) => handleSelectCollaborator(e, rep)}
+                          className={`text-[10px] font-black px-2.5 py-1.5 rounded-xl transition-all cursor-pointer ${
+                            isCollab
+                              ? 'bg-emerald-700 text-white'
+                              : 'bg-emerald-100 hover:bg-emerald-200 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200'
+                          }`}
+                          title="Choose this user to collaborate with"
+                        >
+                          {isCollab ? '✅ Selected' : '🤝 Collaborate'}
+                        </button>
+                        <div className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-black px-3 py-1.5 rounded-xl shadow-xs transition-colors">
+                          <span>Chat</span>
+                          <ArrowRight className="w-3 h-3" />
+                        </div>
                       </div>
                     </div>
-
-                    <div className="shrink-0 flex items-center gap-1 bg-amber-500 hover:bg-amber-600 text-white text-xs font-black px-3 py-1.5 rounded-xl shadow-xs transition-colors">
-                      <span>Chat</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

@@ -169,10 +169,7 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
       const fullLocationLabel = `${finalArea}, ${finalCity}`;
 
       try {
-        // Only initialize persistent location if user hasn't explicitly saved one in header yet
-        if (!localStorage.getItem('locohelp_user_location')) {
-          saveUserLocationPermanently({ state: finalState, district: finalCity, area: finalArea });
-        }
+        saveUserLocationPermanently({ state: finalState, district: finalCity, area: finalArea });
       } catch (e) {}
       
       const newIntent: Intent = {
