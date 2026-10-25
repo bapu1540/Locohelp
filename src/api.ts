@@ -1604,5 +1604,66 @@ export async function deletePublicSuggestionOnServer(
   }
 }
 
+export async function fetchSiteLockStatus(): Promise<{ isLocked: boolean }> {
+  try {
+    const res = await fetch(`/api/site-lock/status?_t=${Date.now()}`, { cache: 'no-store' });
+    if (res.ok) {
+      const data = await res.json();
+      return { isLocked: Boolean(data.isLocked) };
+    }
+  } catch (e) {}
+  return { isLocked: true };
+}
+
+export async function verifySiteLockPin(pin: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const res = await fetch('/api/site-lock/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin })
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      return { success: true };
+    }
+    return { success: false, error: data.error || 'Incorrect PIN' };
+  } catch (e: any) {
+    return { success: false, error: e.message || 'Network error while verifying PIN' };
+  }
+}
+
+export async function fetchAdminSiteLock(): Promise<{ isLocked: boolean; accessPin: string }> {
+  try {
+    const res = await fetch('/api/admin/site-lock', {
+      headers: getAuthHeaders()
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return { isLocked: Boolean(data.isLocked), accessPin: String(data.accessPin || '1540') };
+    }
+  } catch (e) {}
+  return { isLocked: true, accessPin: '1540' };
+}
+
+export async function updateAdminSiteLock(
+  isLocked: boolean,
+  accessPin: string
+): Promise<{ success: boolean; isLocked?: boolean; accessPin?: string; error?: string }> {
+  try {
+    const res = await fetch('/api/admin/site-lock', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      body: JSON.stringify({ isLocked, accessPin })
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      return { success: true, isLocked: data.isLocked, accessPin: data.accessPin };
+    }
+    return { success: false, error: data.error || 'Failed to update site lock' };
+  } catch (e: any) {
+    return { success: false, error: e.message || 'Network error' };
+  }
+}
+
 
 

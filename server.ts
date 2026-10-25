@@ -845,6 +845,71 @@ async function saveMasterAdminPassword(newPwd: string): Promise<void> {
   }
 }
 
+const SITE_LOCK_FILE = path.join(DATA_DIR, "site_lock.json");
+
+interface SiteLockConfig {
+  isLocked: boolean;
+  accessPin: string;
+  updatedAt: string;
+}
+
+let cachedSiteLockConfig: SiteLockConfig = {
+  isLocked: true,
+  accessPin: "1540",
+  updatedAt: new Date().toISOString()
+};
+
+async function getSiteLockConfig(): Promise<SiteLockConfig> {
+  try {
+    const fileConf = readJsonFile<SiteLockConfig>(SITE_LOCK_FILE, null as any);
+    if (fileConf && typeof fileConf.isLocked === 'boolean' && fileConf.accessPin) {
+      cachedSiteLockConfig = fileConf;
+    }
+  } catch {}
+
+  if (dbPool && isDbConnected) {
+    try {
+      const r = await dbPool.query("SELECT value FROM app_settings WHERE key = 'site_lock_config' LIMIT 1");
+      if (r.rows.length > 0 && r.rows[0].value) {
+        const val = r.rows[0].value;
+        if (typeof val.isLocked === 'boolean' && val.accessPin) {
+          cachedSiteLockConfig = {
+            isLocked: Boolean(val.isLocked),
+            accessPin: String(val.accessPin).trim(),
+            updatedAt: val.updatedAt || new Date().toISOString()
+          };
+        }
+      }
+    } catch {}
+  }
+  return cachedSiteLockConfig;
+}
+
+async function saveSiteLockConfig(isLocked: boolean, accessPin: string): Promise<SiteLockConfig> {
+  const newConfig: SiteLockConfig = {
+    isLocked: Boolean(isLocked),
+    accessPin: String(accessPin || "1540").trim(),
+    updatedAt: new Date().toISOString()
+  };
+  cachedSiteLockConfig = newConfig;
+  writeJsonFile(SITE_LOCK_FILE, newConfig);
+
+  if (dbPool && isDbConnected) {
+    try {
+      await dbPool.query(
+        `INSERT INTO app_settings (key, value, updated_at)
+         VALUES ('site_lock_config', $1, NOW())
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+        [JSON.stringify(newConfig)]
+      );
+    } catch (e) {
+      console.warn("[PostgreSQL] site_lock_config save notice:", e);
+    }
+  }
+  return newConfig;
+}
+
+
 interface OtpRecord {
   code: string;
   expiresAt: number;
@@ -8731,6 +8796,66 @@ async function startServer() {
       return res.json({ success: true, postgresConnected: isDbConnected, syncedCount });
     } catch (e: any) {
       return res.status(500).json({ error: e.message || "Failed to sync browser data" });
+    }
+  });
+
+  // ==========================================
+  // PRIVATE SITE LOCK GATE API (Toggleable Private Access PIN Lock)
+  // ==========================================
+  app.get("/api/site-lock/status", async (_req, res) => {
+    try {
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      const config = await getSiteLockConfig();
+      return res.json({
+        isLocked: config.isLocked
+      });
+    } catch (e) {
+      return res.json({ isLocked: true });
+    }
+  });
+
+  app.post("/api/site-lock/verify", async (req, res) => {
+    try {
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      const { pin } = req.body || {};
+      const config = await getSiteLockConfig();
+      if (!config.isLocked) {
+        return res.json({ success: true, message: "Site is unlocked" });
+      }
+      const submittedPin = String(pin || "").trim();
+      if (submittedPin === config.accessPin) {
+        return res.json({ success: true, message: "PIN verified successfully" });
+      }
+      return res.status(401).json({ success: false, error: "ખોટો PIN દાખલ કર્યો છે (Incorrect PIN. Please try again.)" });
+    } catch (e: any) {
+      return res.status(500).json({ success: false, error: "Failed to verify PIN" });
+    }
+  });
+
+  app.get("/api/admin/site-lock", requireAdmin, async (_req, res) => {
+    try {
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      const config = await getSiteLockConfig();
+      return res.json(config);
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message || "Failed to fetch site lock config" });
+    }
+  });
+
+  app.post("/api/admin/site-lock", requireAdmin, async (req, res) => {
+    try {
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      const { isLocked, accessPin } = req.body || {};
+      if (accessPin !== undefined && (!String(accessPin).trim() || String(accessPin).trim().length < 4)) {
+        return res.status(400).json({ error: "Access PIN must be at least 4 digits" });
+      }
+      const current = await getSiteLockConfig();
+      const updatedLocked = typeof isLocked === 'boolean' ? isLocked : current.isLocked;
+      const updatedPin = accessPin !== undefined ? String(accessPin).trim() : current.accessPin;
+      const saved = await saveSiteLockConfig(updatedLocked, updatedPin);
+      return res.json({ success: true, ...saved });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message || "Failed to update site lock config" });
     }
   });
 

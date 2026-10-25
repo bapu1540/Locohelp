@@ -48,11 +48,15 @@ import { MASTER_CATEGORIES, getFreeHelperProfiles } from './data/categories';
 import ErrorBoundary from './components/ErrorBoundary';
 import { trackSpaPageView } from './lib/analytics';
 
+import PrivateLockGate from './components/PrivateLockGate';
+
 export default function App() {
   return (
     <ErrorBoundary>
       <LanguageProvider>
-        <AppContent />
+        <PrivateLockGate>
+          <AppContent />
+        </PrivateLockGate>
       </LanguageProvider>
     </ErrorBoundary>
   );

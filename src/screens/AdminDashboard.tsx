@@ -87,7 +87,9 @@ import {
   initAndRepairPostgresDatabaseOnServer,
   fetchPublicSuggestions,
   deletePublicSuggestionOnServer,
-  PublicSuggestion
+  PublicSuggestion,
+  fetchAdminSiteLock,
+  updateAdminSiteLock
 } from '../api';
 import { validateUploadedFile } from '../lib/security';
 import { compressImageToWebP } from '../lib/imageCompression';
@@ -203,6 +205,37 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
   const [securityVaultRecords, setSecurityVaultRecords] = useState<SecurityVaultRecord[]>([]);
   const [vaultFilter, setVaultFilter] = useState<'all' | 'deleted' | 'helper' | 'user_profile' | 'business' | 'job' | 'help_post' | 'with_id'>('all');
   const [vaultSearch, setVaultSearch] = useState('');
+
+  // Private Access PIN Lock Gate Settings State
+  const [siteLockState, setSiteLockState] = useState<{ isLocked: boolean; accessPin: string }>({
+    isLocked: true,
+    accessPin: '1540'
+  });
+  const [isSavingSiteLock, setIsSavingSiteLock] = useState(false);
+
+  const handleSaveSiteLock = async (newIsLocked: boolean, newPin: string) => {
+    if (!newPin || newPin.trim().length < 4) {
+      showToast('⚠️ PIN ઓછામાં ઓછા 4 અંકનો હોવો જોઈએ (PIN must be at least 4 digits)');
+      return;
+    }
+    setIsSavingSiteLock(true);
+    try {
+      const res = await updateAdminSiteLock(newIsLocked, newPin.trim());
+      if (res.success) {
+        setSiteLockState({
+          isLocked: Boolean(res.isLocked),
+          accessPin: String(res.accessPin || '1540')
+        });
+        showToast(newIsLocked ? `🔒 Private Access Lock ACTIVE (PIN: ${res.accessPin})` : '🔓 Site Lock Disabled (Public Access)');
+      } else {
+        showToast(res.error || 'Failed to update site lock settings');
+      }
+    } catch (e: any) {
+      showToast(e.message || 'Error updating site lock');
+    } finally {
+      setIsSavingSiteLock(false);
+    }
+  };
 
   // Helper: resize & center-crop any uploaded image file to 16:9 WebP data URL (max 1200x675, quality 0.75)
   const processCategoryImageFileTo16x9 = async (file: File): Promise<string> => {
@@ -624,12 +657,13 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         }
       } catch {}
 
-      // Bonus: Sponsored Ads, Category 16:9 Images, Security Vault & Public Suggestions
-      const [liveAds, liveCatImages, liveVault, liveSugs] = await Promise.all([
+      // Bonus: Sponsored Ads, Category 16:9 Images, Security Vault, Public Suggestions & Site Lock
+      const [liveAds, liveCatImages, liveVault, liveSugs, liveLock] = await Promise.all([
         fetchLiveAds(),
         fetchCategoryImages(),
         fetchAdminSecurityVault(),
-        fetchPublicSuggestions()
+        fetchPublicSuggestions(),
+        fetchAdminSiteLock()
       ]);
       if (Array.isArray(liveAds)) {
         setAds(liveAds);
@@ -642,6 +676,9 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
       }
       if (Array.isArray(liveSugs)) {
         setPublicSuggestions(liveSugs);
+      }
+      if (liveLock && typeof liveLock.isLocked === 'boolean') {
+        setSiteLockState({ isLocked: liveLock.isLocked, accessPin: liveLock.accessPin || '1540' });
       }
     } catch (err) {
       console.warn('Admin load data warning:', err);
@@ -2220,6 +2257,71 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                 </div>
               </motion.button>
             </div>
+
+            {/* 6. Private Access PIN Lock Gate Manager Card */}
+            <motion.div
+              initial={{ opacity: 0, y: 5 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.32 }}
+              className="mt-3 p-4 sm:p-5 rounded-2xl bg-[#111827] border border-amber-500/40 shadow-lg"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-500 to-orange-600 flex items-center justify-center shadow-md shrink-0">
+                    <KeyRound className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-xs sm:text-sm font-black text-white flex items-center gap-2">
+                      <span>🔒 Private Access / PIN Lock Gate</span>
+                      <span className={`text-[10px] uppercase font-extrabold px-2.5 py-0.5 rounded-full ${siteLockState.isLocked ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'}`}>
+                        {siteLockState.isLocked ? 'ACTIVE (LOCKED)' : 'UNLOCKED (PUBLIC)'}
+                      </span>
+                    </h3>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Restricts site viewing to authorized testing users who enter the 4-digit Access PIN.
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleSaveSiteLock(!siteLockState.isLocked, siteLockState.accessPin)}
+                  disabled={isSavingSiteLock}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer shadow-md ${
+                    siteLockState.isLocked
+                      ? 'bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/40'
+                      : 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40'
+                  }`}
+                >
+                  {isSavingSiteLock ? 'Saving...' : siteLockState.isLocked ? 'Turn Lock OFF (Make Public)' : 'Turn Lock ON (Make Private)'}
+                </button>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-800/80">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-300">Change Access PIN:</span>
+                  <input
+                    type="text"
+                    maxLength={6}
+                    value={siteLockState.accessPin}
+                    onChange={(e) => setSiteLockState(prev => ({ ...prev, accessPin: e.target.value.replace(/\D/g, '') }))}
+                    className="w-24 px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-xl text-center text-sm font-mono font-bold text-amber-300 focus:outline-none focus:border-amber-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleSaveSiteLock(siteLockState.isLocked, siteLockState.accessPin)}
+                    disabled={isSavingSiteLock || !siteLockState.accessPin || siteLockState.accessPin.length < 4}
+                    className="px-3.5 py-1.5 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white font-black text-xs rounded-xl shadow-md transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    {isSavingSiteLock ? 'Updating...' : 'Save PIN'}
+                  </button>
+                </div>
+
+                <span className="text-[11px] font-medium text-slate-400">
+                  Stored in database table <code className="text-amber-300 font-mono">app_settings</code>
+                </span>
+              </div>
+            </motion.div>
           </div>
         )}
 
