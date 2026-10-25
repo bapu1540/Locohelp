@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { X, Send, MapPin, Clock, Loader2, Sparkles, Mic, AlertCircle } from 'lucide-react';
+import { X, Send, MapPin, Clock, Loader2, Sparkles, Mic, AlertCircle, Image as ImageIcon } from 'lucide-react';
 import { useLanguage } from '../i18n';
 import { getCurrentUser } from '../auth';
 import { Intent } from '../types';
@@ -11,8 +11,11 @@ import {
   sanitizeText,
   getPostCooldownRemainingSeconds,
   recordPostCreatedTimestamp,
-  checkSystemSecurityBlock
+  checkSystemSecurityBlock,
+  validateUploadedFile
 } from '../lib/security';
+import { compressImageToWebP } from '../lib/imageCompression';
+import { uploadFileToFirebaseStorage, deleteFileFromFirebaseStorage } from '../lib/firebase';
 import {
   PAN_INDIA_STATES_DISTRICTS,
   DISTRICT_POPULAR_AREAS,
@@ -35,6 +38,8 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
   const [isListening, setIsListening] = useState(false);
   const [isLoginPromptOpen, setIsLoginPromptOpen] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
+  const [attachmentUrl, setAttachmentUrl] = useState<string>('');
+  const [isUploadingAttachment, setIsUploadingAttachment] = useState<boolean>(false);
   const [cooldownRemaining, setCooldownRemaining] = useState<number>(() => getPostCooldownRemainingSeconds());
 
   useEffect(() => {
@@ -185,7 +190,9 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
         status: 'active',
         hasLocationPin: hasPin,
         distance: Number((Math.random() * 0.4 + 0.1).toFixed(1)),
-        isVerifiedUser: true
+        isVerifiedUser: true,
+        imageUrl: attachmentUrl || undefined,
+        attachmentUrl: attachmentUrl || undefined
       };
 
       // 1. Sync to central Express backend & PostgreSQL
@@ -317,6 +324,76 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
               className="w-full bg-[#F8FAFC] dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-2xl p-3.5 text-slate-900 dark:text-white placeholder:text-slate-400 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-950 transition-all resize-none text-sm font-medium"
               autoFocus
             />
+
+            {/* Optional Help Request Attachment (Uploaded directly to Firebase Storage locohelp/help_requests/) */}
+            <div className="flex items-center justify-between gap-2 pt-1">
+              <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 text-slate-700 dark:text-slate-200 text-xs font-bold border border-slate-200 dark:border-slate-700 cursor-pointer transition-colors">
+                <ImageIcon className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                <span>
+                  {isUploadingAttachment
+                    ? (language === 'EN' ? 'Uploading to Cloud...' : 'अपलोड हो रहा है...')
+                    : (language === 'EN' ? 'Attach Photo / Issue Image (Optional)' : 'फ़ोटो / अटैचमेंट जोड़ें (वैकल्पिक)')}
+                </span>
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    setPostError(null);
+                    const check = await validateUploadedFile(file, { allowPdf: false });
+                    if (!check.valid) {
+                      setPostError(check.error || 'Only safe JPG, PNG, or WEBP images up to 2MB are allowed.');
+                      e.target.value = '';
+                      return;
+                    }
+                    setIsUploadingAttachment(true);
+                    try {
+                      if (attachmentUrl) {
+                        await deleteFileFromFirebaseStorage(attachmentUrl).catch(() => {});
+                      }
+                      const uploadedUrl = await compressImageToWebP(file, {
+                        maxWidth: 1200,
+                        quality: 0.75,
+                        folder: 'help_requests'
+                      });
+                      setAttachmentUrl(uploadedUrl);
+                    } catch {
+                      try {
+                        const fallbackUrl = await uploadFileToFirebaseStorage(file, 'help_requests', file.name);
+                        setAttachmentUrl(fallbackUrl);
+                      } catch {}
+                    } finally {
+                      setIsUploadingAttachment(false);
+                      e.target.value = '';
+                    }
+                  }}
+                />
+              </label>
+
+              {attachmentUrl && (
+                <div className="flex items-center gap-2 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 px-2 py-1 rounded-xl">
+                  <img
+                    src={attachmentUrl}
+                    alt="Attachment"
+                    className="w-8 h-8 rounded-lg object-cover border border-emerald-300"
+                  />
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const prev = attachmentUrl;
+                      setAttachmentUrl('');
+                      await deleteFileFromFirebaseStorage(prev).catch(() => {});
+                    }}
+                    className="text-xs font-black text-rose-600 hover:text-rose-700 px-1 cursor-pointer"
+                    title="Remove attachment"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Pan-India State, District/City & Local Area/Village Selection */}

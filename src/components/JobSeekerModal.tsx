@@ -29,6 +29,7 @@ import { validateUploadedFile, checkSystemSecurityBlock } from '../lib/security'
 import { getCurrentUser } from '../auth';
 import { isEntityOwner } from '../lib/ownership';
 import { compressImageToWebP } from '../lib/imageCompression';
+import { uploadFileToFirebaseStorage } from '../lib/firebase';
 
 interface JobSeekerModalProps {
   isOpen: boolean;
@@ -181,14 +182,11 @@ export default function JobSeekerModal({
       }
       setErrorMessage(null);
       try {
-        const compressed = await compressImageToWebP(file, { maxWidth: 1200, quality: 0.75 });
+        const compressed = await compressImageToWebP(file, { maxWidth: 1200, quality: 0.75, folder: 'jobs' });
         setPhotoUrl(compressed);
       } catch {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          setPhotoUrl(reader.result as string);
-        };
-        reader.readAsDataURL(file);
+        const uploaded = await uploadFileToFirebaseStorage(file, 'jobs', file.name);
+        setPhotoUrl(uploaded);
       }
     }
   };
@@ -204,11 +202,16 @@ export default function JobSeekerModal({
       }
       setErrorMessage(null);
       setResumeFileName(file.name);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setResumeUrl(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      try {
+        const uploadedUrl = await uploadFileToFirebaseStorage(file, 'jobs/resumes', file.name);
+        setResumeUrl(uploadedUrl);
+      } catch {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setResumeUrl(reader.result as string);
+        };
+        reader.readAsDataURL(file);
+      }
     }
   };
 

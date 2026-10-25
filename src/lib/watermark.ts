@@ -12,6 +12,7 @@
  */
 
 import { validateUploadedFile } from './security';
+import { uploadFileToFirebaseStorage } from './firebase';
 
 export interface WatermarkOptions {
   entityType?: 'user_profile' | 'business';
@@ -30,15 +31,10 @@ export async function applyIdWatermark(
       throw new Error(check.error || 'Invalid file format or size');
     }
     if (check.isPdf) {
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = (e) => resolve(e.target?.result as string);
-        reader.onerror = () => reject(new Error('Failed to read PDF file'));
-        reader.readAsDataURL(imageSource);
-      });
+      return await uploadFileToFirebaseStorage(imageSource, 'verifications', imageSource.name);
     }
   } else if (typeof imageSource === 'string' && imageSource.startsWith('data:application/pdf;base64,')) {
-    return imageSource;
+    return await uploadFileToFirebaseStorage(imageSource, 'verifications');
   }
 
   return new Promise((resolve, reject) => {
@@ -167,7 +163,11 @@ export async function applyIdWatermark(
           quality -= 0.15;
           watermarkedDataUrl = canvas.toDataURL('image/jpeg', quality);
         }
-        resolve(watermarkedDataUrl);
+
+        // Upload watermarked document directly to Firebase Storage inside locohelp/verifications/
+        uploadFileToFirebaseStorage(watermarkedDataUrl, 'verifications')
+          .then((permanentUrl) => resolve(permanentUrl || watermarkedDataUrl))
+          .catch(() => resolve(watermarkedDataUrl));
       } catch (err) {
         reject(err);
       }
@@ -187,3 +187,4 @@ export async function applyIdWatermark(
     }
   });
 }
+

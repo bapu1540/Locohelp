@@ -576,26 +576,18 @@ export default function FreeHelperRegisterModal({
                         e.target.value = '';
                         return;
                       }
-                      if (file.type === 'application/pdf') {
+                      try {
+                        const watermarkedDataUrl = await applyIdWatermark(file, {
+                          userName: formName.trim() || 'Helper',
+                          customText: 'FOR LOCOHELP VERIFICATION ONLY • DO NOT REUSE'
+                        });
+                        setFormIdDoc(watermarkedDataUrl);
+                      } catch {
                         const reader = new FileReader();
                         reader.onloadend = () => {
                           setFormIdDoc(reader.result as string);
                         };
                         reader.readAsDataURL(file);
-                      } else {
-                        try {
-                          const watermarkedDataUrl = await applyIdWatermark(file, {
-                            userName: formName.trim() || 'Helper',
-                            customText: 'FOR LOCOHELP VERIFICATION ONLY • DO NOT REUSE'
-                          });
-                          setFormIdDoc(watermarkedDataUrl);
-                        } catch {
-                          const reader = new FileReader();
-                          reader.onloadend = () => {
-                            setFormIdDoc(reader.result as string);
-                          };
-                          reader.readAsDataURL(file);
-                        }
                       }
                     }
                   }}

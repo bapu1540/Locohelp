@@ -1388,26 +1388,18 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
                               return;
                             }
                             setHelperIdFrontName(file.name);
-                            if (file.type === 'application/pdf') {
+                            try {
+                              const watermarked = await applyIdWatermark(file, {
+                                userName: helperName.trim() || userName || 'Service Expert',
+                                customText: 'FOR LOCOHELP VERIFICATION ONLY • SERVICE EXPERT ID FRONT'
+                              });
+                              setHelperIdFrontDoc(watermarked);
+                            } catch {
                               const reader = new FileReader();
                               reader.onloadend = () => {
                                 setHelperIdFrontDoc(reader.result as string);
                               };
                               reader.readAsDataURL(file);
-                            } else {
-                              try {
-                                const watermarked = await applyIdWatermark(file, {
-                                  userName: helperName.trim() || userName || 'Service Expert',
-                                  customText: 'FOR LOCOHELP VERIFICATION ONLY • SERVICE EXPERT ID FRONT'
-                                });
-                                setHelperIdFrontDoc(watermarked);
-                              } catch {
-                                const reader = new FileReader();
-                                reader.onloadend = () => {
-                                  setHelperIdFrontDoc(reader.result as string);
-                                };
-                                reader.readAsDataURL(file);
-                              }
                             }
                           }
                         }}
@@ -1439,26 +1431,18 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
                               return;
                             }
                             setHelperIdBackName(file.name);
-                            if (file.type === 'application/pdf') {
+                            try {
+                              const watermarked = await applyIdWatermark(file, {
+                                userName: helperName.trim() || userName || 'Service Expert',
+                                customText: 'FOR LOCOHELP VERIFICATION ONLY • SERVICE EXPERT ID BACK'
+                              });
+                              setHelperIdBackDoc(watermarked);
+                            } catch {
                               const reader = new FileReader();
                               reader.onloadend = () => {
                                 setHelperIdBackDoc(reader.result as string);
                               };
                               reader.readAsDataURL(file);
-                            } else {
-                              try {
-                                const watermarked = await applyIdWatermark(file, {
-                                  userName: helperName.trim() || userName || 'Service Expert',
-                                  customText: 'FOR LOCOHELP VERIFICATION ONLY • SERVICE EXPERT ID BACK'
-                                });
-                                setHelperIdBackDoc(watermarked);
-                              } catch {
-                                const reader = new FileReader();
-                                reader.onloadend = () => {
-                                  setHelperIdBackDoc(reader.result as string);
-                                };
-                                reader.readAsDataURL(file);
-                              }
                             }
                           }
                         }}

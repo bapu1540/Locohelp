@@ -88,6 +88,7 @@ import {
 } from '../api';
 import { validateUploadedFile } from '../lib/security';
 import { compressImageToWebP } from '../lib/imageCompression';
+import { uploadFileToFirebaseStorage } from '../lib/firebase';
 
 interface AdminDashboardProps {
   onBack: () => void;
@@ -292,6 +293,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
     areaOrLocation: string;
     descriptionOrBio: string;
     salaryOrPrice: string;
+    photoUrl?: string;
     status: 'pending' | 'approved' | 'rejected';
     raw: any;
   } | null>(null);
@@ -910,17 +912,28 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
 
   const openEditModal = (mod: AdminModuleId, item: any) => {
     const status = getNormalizedStatus(item, mod);
+    const existingPhoto =
+      item.photoUrl ||
+      item.photo_url ||
+      item.imageUrl ||
+      item.image_url ||
+      item.avatarUrl ||
+      item.avatar_url ||
+      item.photoOrLogoUrl ||
+      item.attachmentUrl ||
+      '';
     if (mod === 'help_posts') {
       setEditingItem({
         module: mod,
         id: item.id,
-        nameOrTitle: item.userName || item.user_name || 'Community User',
+        nameOrTitle: item.userName || item.user_name || item.authorName || 'Community User',
         categoryOrRole: item.category || 'General Help',
         phone: item.phone || item.contactPhone || '',
         email: item.email || '',
         areaOrLocation: item.area || item.locationName || '',
         descriptionOrBio: item.description || '',
         salaryOrPrice: item.urgency || 'normal',
+        photoUrl: existingPhoto,
         status,
         raw: item
       });
@@ -935,6 +948,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         areaOrLocation: item.area || item.address || '',
         descriptionOrBio: item.bio || item.description || item.experience || '',
         salaryOrPrice: item.priceRange || '',
+        photoUrl: existingPhoto,
         status,
         raw: item
       });
@@ -949,6 +963,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         areaOrLocation: item.area || item.address || '',
         descriptionOrBio: item.bio || item.adminNotes || '',
         salaryOrPrice: '',
+        photoUrl: existingPhoto,
         status,
         raw: item
       });
@@ -963,6 +978,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         areaOrLocation: item.area || item.address || '',
         descriptionOrBio: item.description || item.offerTitle || '',
         salaryOrPrice: item.timings || item.openingHours || '',
+        photoUrl: existingPhoto,
         status,
         raw: item
       });
@@ -977,6 +993,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         areaOrLocation: item.area || '',
         descriptionOrBio: item.skills || item.experience || '',
         salaryOrPrice: item.expectedSalary || '',
+        photoUrl: existingPhoto,
         status,
         raw: item
       });
@@ -991,6 +1008,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         areaOrLocation: item.jobLocation || item.area || '',
         descriptionOrBio: item.jobDescription || '',
         salaryOrPrice: item.salaryOffer || '',
+        photoUrl: existingPhoto,
         status,
         raw: item
       });
@@ -1005,6 +1023,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         areaOrLocation: item.targetId || '',
         descriptionOrBio: item.details || item.reason || '',
         salaryOrPrice: '',
+        photoUrl: existingPhoto,
         status,
         raw: item
       });
@@ -1220,7 +1239,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
     if (!editingItem) return;
     setIsSavingEdit(true);
 
-    const { module: mod, id, nameOrTitle, categoryOrRole, phone, email, areaOrLocation, descriptionOrBio, salaryOrPrice, status, raw } = editingItem;
+    const { module: mod, id, nameOrTitle, categoryOrRole, phone, email, areaOrLocation, descriptionOrBio, salaryOrPrice, photoUrl, status, raw } = editingItem;
     const isApproved = status === 'approved';
 
     try {
@@ -1233,6 +1252,8 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
           area: areaOrLocation,
           description: descriptionOrBio,
           urgency: salaryOrPrice,
+          imageUrl: photoUrl || '',
+          attachmentUrl: photoUrl || '',
           status,
           isApproved
         };
@@ -1258,6 +1279,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
           bio: descriptionOrBio,
           experience: descriptionOrBio,
           priceRange: salaryOrPrice,
+          photoUrl: photoUrl || '',
           status,
           isVerified: isApproved
         };
@@ -1288,6 +1310,8 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
           area: areaOrLocation,
           bio: descriptionOrBio,
           skills: descriptionOrBio,
+          avatarUrl: photoUrl || '',
+          photoUrl: photoUrl || '',
           status,
           isVerified: isApproved
         };
@@ -1313,6 +1337,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
           address: areaOrLocation,
           description: descriptionOrBio,
           timings: salaryOrPrice,
+          photoUrl: photoUrl || '',
           status,
           isVerified: isApproved
         };
@@ -1344,6 +1369,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
           area: areaOrLocation,
           skills: descriptionOrBio,
           expectedSalary: salaryOrPrice,
+          photoOrLogoUrl: photoUrl || '',
           status
         };
         const res = await updateAdminJobPortalOnServer(id, updates);
@@ -1365,6 +1391,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
           area: areaOrLocation,
           jobDescription: descriptionOrBio,
           salaryOffer: salaryOrPrice,
+          photoOrLogoUrl: photoUrl || '',
           status
         };
         const res = await updateAdminJobPortalOnServer(id, updates);
@@ -4073,6 +4100,58 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                   />
                 </div>
 
+                {/* Photo / Banner / Attachment Upload (Firebase Storage locohelp/) */}
+                <div className="p-3 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-2">
+                  <label className="block font-bold text-slate-300">
+                    Photo / Banner / Attachment (Firebase Storage: locohelp/)
+                  </label>
+                  <div className="flex flex-wrap items-center gap-3">
+                    {editingItem.photoUrl && (
+                      <div className="relative w-16 h-16 rounded-xl overflow-hidden border border-indigo-500/60 shrink-0">
+                        <img
+                          src={editingItem.photoUrl}
+                          alt="Preview"
+                          className="w-full h-full object-cover"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setEditingItem({ ...editingItem, photoUrl: '' })}
+                          className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-rose-600 text-white text-[9px] font-black flex items-center justify-center cursor-pointer"
+                          title="Remove photo"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    )}
+                    <input
+                      type="file"
+                      accept=".jpg,.jpeg,.png,.webp"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        const check = await validateUploadedFile(file, { allowPdf: false });
+                        if (!check.valid) {
+                          showToast(check.error || 'Invalid image file');
+                          return;
+                        }
+                        try {
+                          const uploadedUrl = await compressImageToWebP(file, {
+                            maxWidth: 1200,
+                            quality: 0.75,
+                            folder: editingItem.module
+                          });
+                          setEditingItem((prev) => (prev ? { ...prev, photoUrl: uploadedUrl } : prev));
+                          showToast('✅ Photo uploaded to Firebase Storage!');
+                        } catch {
+                          const fallbackUrl = await uploadFileToFirebaseStorage(file, editingItem.module, file.name);
+                          setEditingItem((prev) => (prev ? { ...prev, photoUrl: fallbackUrl } : prev));
+                        }
+                      }}
+                      className="text-xs text-slate-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-black file:bg-slate-800 file:text-indigo-400 hover:file:bg-slate-700"
+                    />
+                  </div>
+                </div>
+
                 <div className="pt-2 flex items-center justify-end gap-2">
                   <button
                     type="button"
@@ -4366,17 +4445,24 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                           continue;
                         }
                         if (file.type === 'application/pdf') {
-                          const reader = new FileReader();
-                          reader.onloadend = () => {
-                            const dataUrl = reader.result as string;
+                          try {
+                            const uploadedUrl = await uploadFileToFirebaseStorage(file, 'jobs/resumes', file.name);
                             setCreatingItem((prev) =>
-                              prev ? { ...prev, resumeUrl: dataUrl, resumeFileName: file.name } : prev
+                              prev ? { ...prev, resumeUrl: uploadedUrl, resumeFileName: file.name } : prev
                             );
-                          };
-                          reader.readAsDataURL(file);
+                          } catch {
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                              const dataUrl = reader.result as string;
+                              setCreatingItem((prev) =>
+                                prev ? { ...prev, resumeUrl: dataUrl, resumeFileName: file.name } : prev
+                              );
+                            };
+                            reader.readAsDataURL(file);
+                          }
                         } else {
                           try {
-                            const dataUrl = await compressImageToWebP(file, { maxWidth: 1200, quality: 0.75 });
+                            const dataUrl = await compressImageToWebP(file, { maxWidth: 1200, quality: 0.75, folder: creatingItem.module });
                             setCreatingItem((prev) => {
                               if (!prev) return prev;
                               const nextPhotos = [...prev.photos, dataUrl].slice(0, 3);

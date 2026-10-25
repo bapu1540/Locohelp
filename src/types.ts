@@ -23,6 +23,8 @@ export type Intent = {
   hasLocationPin?: boolean;
   isVerifiedUser?: boolean;
   authorAvatar?: string;
+  imageUrl?: string;
+  attachmentUrl?: string;
 };
 
 export type ServiceProvider = {

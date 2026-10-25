@@ -1653,6 +1653,18 @@ export default function HomeScreen({
                         {intent.description}
                       </p>
 
+                      {(intent.imageUrl || intent.attachmentUrl || (intent as any).image_url) && (
+                        <div className="mb-2.5 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 max-h-48 bg-slate-100 dark:bg-slate-800">
+                          <img
+                            src={intent.imageUrl || intent.attachmentUrl || (intent as any).image_url}
+                            alt="Help Request Attachment"
+                            loading="lazy"
+                            decoding="async"
+                            className="w-full max-h-48 object-cover"
+                          />
+                        </div>
+                      )}
+
                       {/* Tags + Bottom Actions Row */}
                       <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
                         <div className="flex flex-wrap items-center gap-1">

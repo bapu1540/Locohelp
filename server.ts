@@ -7,6 +7,14 @@ import { GoogleGenAI } from "@google/genai";
 import nodemailer from "nodemailer";
 import pg from "pg";
 import dotenv from "dotenv";
+import { initializeApp as initFirebaseApp, getApps as getFirebaseApps, getApp as getFirebaseApp } from "firebase/app";
+import {
+  getStorage as getFirebaseStorage,
+  ref as fbStorageRef,
+  uploadBytes as fbUploadBytes,
+  getDownloadURL as fbGetDownloadURL,
+  deleteObject as fbDeleteObject
+} from "firebase/storage";
 
 dotenv.config();
 
@@ -63,7 +71,184 @@ function readJsonFile<T>(_filePath: string, fallback: T): T {
 }
 
 function writeJsonFile<T>(_filePath: string, _data: T): void {
-  // No-op: All persistence strictly uses live Railway PostgreSQL database
+  // No-op: All persistence strictly uses live Railway PostgreSQL database and Firebase Storage
+}
+
+// ==========================================
+// FIREBASE STORAGE INTEGRATION (ZERO LOCAL DISK STORAGE)
+// Configures Firebase Storage using process.env.FIREBASE_* environment variables.
+// All uploaded files are stored inside the dedicated `locohelp/` folder in Firebase Storage
+// and their permanent public download URLs are saved in PostgreSQL.
+// ==========================================
+const firebaseServerConfig = {
+  apiKey: process.env.FIREBASE_API_KEY || process.env.VITE_FIREBASE_API_KEY || "",
+  authDomain: process.env.FIREBASE_AUTH_DOMAIN || process.env.VITE_FIREBASE_AUTH_DOMAIN || "",
+  projectId: process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || "",
+  storageBucket: process.env.FIREBASE_STORAGE_BUCKET || process.env.VITE_FIREBASE_STORAGE_BUCKET || "",
+  messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID || process.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "",
+  appId: process.env.FIREBASE_APP_ID || process.env.VITE_FIREBASE_APP_ID || ""
+};
+
+function isServerFirebaseStorageConfigured(): boolean {
+  return Boolean(
+    firebaseServerConfig.apiKey &&
+      firebaseServerConfig.storageBucket &&
+      firebaseServerConfig.apiKey !== "AIzaSyDummyKeyForLocoHelpAuthInit2026" &&
+      firebaseServerConfig.storageBucket !== "locohelp-app.appspot.com"
+  );
+}
+
+function getServerFirebaseStorageInstance() {
+  if (!isServerFirebaseStorageConfigured()) return null;
+  try {
+    const app =
+      getFirebaseApps().length === 0
+        ? initFirebaseApp(firebaseServerConfig)
+        : getFirebaseApp();
+    return getFirebaseStorage(app);
+  } catch (err) {
+    console.warn("[Firebase Storage] Initialization warning:", err);
+    return null;
+  }
+}
+
+function getExtFromMimeServer(mime: string, fallback = "webp"): string {
+  const m = (mime || "").toLowerCase();
+  if (m.includes("pdf")) return "pdf";
+  if (m.includes("png")) return "png";
+  if (m.includes("jpeg") || m.includes("jpg")) return "jpg";
+  if (m.includes("webp")) return "webp";
+  return fallback;
+}
+
+/**
+ * Uploads a Base64 Data URL directly to Firebase Storage inside `locohelp/<subFolder>/`
+ * and returns its permanent public download URL. Never writes to local disk paths.
+ */
+async function uploadDataToFirebaseServer(
+  dataOrUrl: unknown,
+  subFolder = "media",
+  customFileName?: string
+): Promise<string> {
+  if (!dataOrUrl || typeof dataOrUrl !== "string") return "";
+  const trimmed = dataOrUrl.trim();
+  if (!trimmed) return "";
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+
+  const match = trimmed.match(/^data:([a-zA-Z0-9/+.-]+);base64,([A-Za-z0-9+/=\s]+)$/);
+  if (!match) return trimmed;
+
+  const storageInstance = getServerFirebaseStorageInstance();
+  if (!storageInstance) {
+    return trimmed;
+  }
+
+  try {
+    const mime = match[1].toLowerCase();
+    const base64Data = match[2].replace(/\s+/g, "");
+    const buffer = Buffer.from(base64Data, "base64");
+    const ext = getExtFromMimeServer(mime);
+    const cleanSub = (subFolder || "media")
+      .replace(/^\/+|\/+$/g, "")
+      .replace(/^locohelp\/?/i, "") || "media";
+    const rand = crypto.randomBytes(4).toString("hex");
+    const safeName = customFileName
+      ? `${Date.now()}_${rand}_${customFileName.replace(/[^a-zA-Z0-9._-]/g, "_")}`
+      : `${Date.now()}_${rand}.${ext}`;
+    const storagePath = `locohelp/${cleanSub}/${safeName}`;
+
+    const fileRef = fbStorageRef(storageInstance, storagePath);
+    await fbUploadBytes(fileRef, new Uint8Array(buffer), { contentType: mime });
+    const downloadUrl = await fbGetDownloadURL(fileRef);
+    return downloadUrl || trimmed;
+  } catch (err: any) {
+    console.warn("[Firebase Storage] Upload notice:", err?.message || err);
+    return trimmed;
+  }
+}
+
+function extractServerFirebaseStoragePath(fileUrl: unknown): string | null {
+  if (!fileUrl || typeof fileUrl !== "string") return null;
+  const trimmed = fileUrl.trim();
+  if (!trimmed) return null;
+
+  if (trimmed.startsWith("gs://")) {
+    const parts = trimmed.replace("gs://", "").split("/");
+    parts.shift();
+    return parts.join("/") || null;
+  }
+
+  if (trimmed.includes("firebasestorage.googleapis.com") || trimmed.includes(".firebasestorage.app")) {
+    const match = trimmed.match(/\/o\/([^?]+)/);
+    if (match && match[1]) {
+      try {
+        return decodeURIComponent(match[1]);
+      } catch {
+        return match[1];
+      }
+    }
+  }
+
+  if (trimmed.startsWith("locohelp/")) {
+    return trimmed;
+  }
+
+  return null;
+}
+
+function collectFirebaseStoragePaths(input: unknown, collected = new Set<string>()): Set<string> {
+  if (!input) return collected;
+  if (typeof input === "string") {
+    const trimmed = input.trim();
+    const directPath = extractServerFirebaseStoragePath(trimmed);
+    if (directPath) {
+      collected.add(directPath);
+    } else if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        collectFirebaseStoragePaths(parsed, collected);
+      } catch {}
+    }
+    return collected;
+  }
+  if (Array.isArray(input)) {
+    for (const item of input) {
+      collectFirebaseStoragePaths(item, collected);
+    }
+    return collected;
+  }
+  if (typeof input === "object") {
+    for (const val of Object.values(input as Record<string, unknown>)) {
+      collectFirebaseStoragePaths(val, collected);
+    }
+  }
+  return collected;
+}
+
+/**
+ * Automatically deletes any Firebase Storage file(s) referenced in a URL, array, or PostgreSQL record
+ * whenever an item is deleted or its media is replaced.
+ */
+async function deleteFilesFromFirebaseStorage(source: unknown): Promise<number> {
+  const storageInstance = getServerFirebaseStorageInstance();
+  if (!storageInstance) return 0;
+
+  const paths = collectFirebaseStoragePaths(source);
+  let deletedCount = 0;
+  for (const storagePath of paths) {
+    try {
+      const fileRef = fbStorageRef(storageInstance, storagePath);
+      await fbDeleteObject(fileRef);
+      deletedCount++;
+      console.log(`[Firebase Storage] Deleted file: ${storagePath}`);
+    } catch (err: any) {
+      // Ignore object-not-found if already deleted
+      if (err?.code !== "storage/object-not-found") {
+        console.warn(`[Firebase Storage] Delete notice for ${storagePath}:`, err?.message || err);
+      }
+    }
+  }
+  return deletedCount;
 }
 
 // ==========================================
@@ -2251,6 +2436,40 @@ async function startServer() {
     return res.json({ valid: true });
   });
 
+  // Dedicated Firebase Storage Upload Endpoint (Uploads directly to `locohelp/` in Firebase Storage; zero local disk storage)
+  app.post("/api/storage/upload", async (req, res) => {
+    try {
+      const { dataUrl, folder = "locohelp/media", fileName, allowPdf = true } = req.body || {};
+      if (!dataUrl || typeof dataUrl !== "string") {
+        return res.status(400).json({ error: "dataUrl is required" });
+      }
+      const check = validateServerUploadedData(dataUrl, { allowPdf: Boolean(allowPdf), fileName });
+      if (!check.valid) {
+        return res.status(400).json({ error: check.error });
+      }
+      const cleanFolder = String(folder || "media").replace(/^locohelp\/?/i, "") || "media";
+      const url = await uploadDataToFirebaseServer(dataUrl, cleanFolder, fileName);
+      return res.json({
+        success: true,
+        url,
+        firebaseConfigured: isServerFirebaseStorageConfigured()
+      });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message || "Failed to upload to Firebase Storage" });
+    }
+  });
+
+  // Dedicated Firebase Storage Delete Endpoint
+  app.post("/api/storage/delete", async (req, res) => {
+    try {
+      const { fileUrl, storagePath } = req.body || {};
+      const deletedCount = await deleteFilesFromFirebaseStorage(fileUrl || storagePath);
+      return res.json({ success: true, deletedCount });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message || "Failed to delete from Firebase Storage" });
+    }
+  });
+
   // Helper to strictly verify a 6-digit OTP code from memory or PostgreSQL otp_codes table
   const verifyAndConsumeOtp = async (cleanIdentifier: string, cleanCode: string): Promise<{ valid: boolean; error?: string; type?: string }> => {
     if (!cleanIdentifier || !cleanCode) {
@@ -2653,7 +2872,7 @@ async function startServer() {
         });
       }
 
-      // Validate uploaded profile avatar (image only <= 2MB)
+      // Validate uploaded profile avatar (image only <= 2MB) and upload directly to Firebase Storage (`locohelp/profiles/`)
       const rawAvatar = profile.image_url || profile.avatar_url || profile.profilePhoto || profile.photoURL;
       if (rawAvatar) {
         const avatarCheck = validateServerUploadedData(rawAvatar, { allowPdf: false });
@@ -2661,12 +2880,15 @@ async function startServer() {
           return res.status(400).json({ error: avatarCheck.error });
         }
       }
+      const uploadedAvatar = rawAvatar
+        ? await uploadDataToFirebaseServer(rawAvatar, "profiles")
+        : "";
 
       const fullName = sanitizeServerText(profile.name || profile.full_name || profile.displayName || "Community Member", 120);
       const email = sanitizeServerText(profile.email || "", 150).toLowerCase();
       const phone = sanitizeServerText(profile.phone || "", 30);
       const whatsapp = sanitizeServerText(profile.whatsapp || phone || "", 30);
-      const avatarUrl = rawAvatar || "https://lh3.googleusercontent.com/a/default-user";
+      const avatarUrl = uploadedAvatar || "https://lh3.googleusercontent.com/a/default-user";
       const skills = sanitizeServerText(profile.skills || "", 500);
       const address = sanitizeServerText(profile.address || profile.sector || "", 300);
       const city = sanitizeServerText(profile.city || "Gandhinagar", 120);
@@ -2968,6 +3190,11 @@ async function startServer() {
         "ADMIN_REMOVED_PUBLIC"
       );
 
+      // Delete any associated profile/helper/shop files from Firebase Storage when profile is permanently removed by Admin
+      if (targetProfile) {
+        await deleteFilesFromFirebaseStorage(targetProfile);
+      }
+
       // 2. Also archive & remove any linked Helper Profile of this user from public listings
       const helpers = readJsonFile<any[]>(HELPERS_FILE, []);
       const userHelpers = helpers.filter(
@@ -2975,8 +3202,11 @@ async function startServer() {
       );
       for (const uh of userHelpers) {
         await archiveToSecurityVault("helper", uh.id, uh, "ADMIN_REMOVED_PUBLIC");
+        await deleteFilesFromFirebaseStorage(uh);
         if (dbPool && isDbConnected) {
           try {
+            const hRows = await dbPool.query("SELECT * FROM helpers WHERE id = $1", [uh.id]).catch(() => ({ rows: [] as any[] }));
+            await deleteFilesFromFirebaseStorage(hRows.rows);
             await dbPool.query("DELETE FROM helpers WHERE id = $1", [uh.id]);
           } catch (_e) {}
         }
@@ -2995,8 +3225,11 @@ async function startServer() {
       );
       for (const us of userShops) {
         await archiveToSecurityVault("business", us.id, us, "ADMIN_REMOVED_PUBLIC");
+        await deleteFilesFromFirebaseStorage(us);
         if (dbPool && isDbConnected) {
           try {
+            const bRows = await dbPool.query("SELECT * FROM businesses WHERE id = $1", [us.id]).catch(() => ({ rows: [] as any[] }));
+            await deleteFilesFromFirebaseStorage(bRows.rows);
             await dbPool.query("DELETE FROM businesses WHERE id = $1", [us.id]);
             await dbPool.query("DELETE FROM shops WHERE id = $1", [us.id]);
           } catch (_e) {}
@@ -3643,6 +3876,18 @@ async function startServer() {
         250
       );
 
+      const rawPostAttachment =
+        newIntent.imageUrl || newIntent.image_url || newIntent.attachmentUrl || newIntent.photoUrl || "";
+      if (rawPostAttachment && String(rawPostAttachment).startsWith("data:")) {
+        const postImgCheck = validateServerUploadedData(rawPostAttachment, { allowPdf: true });
+        if (!postImgCheck.valid) {
+          return res.status(400).json({ error: postImgCheck.error });
+        }
+      }
+      const uploadedPostImageUrl = rawPostAttachment
+        ? await uploadDataToFirebaseServer(rawPostAttachment, "help_requests")
+        : "";
+
       const intentRecord = {
         id: sanitizeServerText(newIntent.id || 'intent_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7), 100),
         authorId: sanitizeServerText(caller?.uid || newIntent.authorId || newIntent.user_id || newIntent.author_id || (isAdminCaller ? 'admin_published' : 'anonymous_user'), 150),
@@ -3658,6 +3903,8 @@ async function startServer() {
         city: cityVal,
         area: areaVal,
         location: formattedLocation,
+        imageUrl: uploadedPostImageUrl || undefined,
+        attachmentUrl: uploadedPostImageUrl || undefined,
         status: newIntent.status || 'active',
         createdAt: newIntent.createdAt || new Date().toISOString(),
         expiresAt: newIntent.expiresAt || new Date(Date.now() + 1000 * 60 * 60).toISOString(), // 1 Hour Auto Expiry
@@ -3689,7 +3936,7 @@ async function startServer() {
             intentRecord.authorId,
             intentRecord.authorName,
             intentRecord.description,
-            newIntent.imageUrl || newIntent.image_url || newIntent.photoUrl || '',
+            uploadedPostImageUrl,
             intentRecord.category,
             intentRecord.city || intentRecord.location,
             JSON.stringify(intentRecord),
@@ -3787,9 +4034,18 @@ async function startServer() {
         );
       }
 
-      // 1. PostgreSQL Delete from posts, listings, broadcast_posts, chats, messages (Parameterized Queries)
+      if (existingPost) {
+        await deleteFilesFromFirebaseStorage(existingPost);
+      }
+
+      // 1. PostgreSQL Delete from posts, listings, broadcast_posts, chats, messages & clean up Firebase Storage attachments
       if (dbPool && isDbConnected) {
         try {
+          const postRows = await dbPool.query("SELECT image_url, raw_json FROM posts WHERE id = $1", [id]).catch(() => ({ rows: [] as any[] }));
+          const msgRows = await dbPool.query("SELECT attachment_url FROM messages WHERE intent_id = $1", [id]).catch(() => ({ rows: [] as any[] }));
+          await deleteFilesFromFirebaseStorage(postRows.rows);
+          await deleteFilesFromFirebaseStorage(msgRows.rows);
+
           await dbPool.query("DELETE FROM posts WHERE id = $1", [id]);
           await dbPool.query("DELETE FROM listings WHERE id = $1", [id]);
           if (targetDesc) {
@@ -3988,6 +4244,10 @@ async function startServer() {
         message.authorId || message.sender_id || message.senderId || caller?.uid || 'guest',
         150
       );
+      const uploadedChatAttachment = message.attachmentUrl
+        ? await uploadDataToFirebaseServer(message.attachmentUrl, "chat_attachments")
+        : null;
+
       const newMsg = {
         id: sanitizeServerText(message.id || 'msg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6), 100),
         conversationId,
@@ -4001,7 +4261,7 @@ async function startServer() {
         content: safeText,
         message: safeText,
         type: sanitizeServerText(message.type || 'text', 40),
-        attachmentUrl: message.attachmentUrl || null,
+        attachmentUrl: uploadedChatAttachment,
         attachmentType: message.attachmentType ? sanitizeServerText(message.attachmentType, 40) : null,
         createdAt: message.createdAt || message.sent_at || new Date().toISOString()
       };
@@ -4245,7 +4505,8 @@ async function startServer() {
                 return res.status(400).json({ error: pCheck.error });
               }
             }
-            validatedPhotos.push(p.trim());
+            const uploadedPhoto = await uploadDataToFirebaseServer(p.trim(), "businesses");
+            validatedPhotos.push(uploadedPhoto);
           }
         }
       }
@@ -4257,8 +4518,9 @@ async function startServer() {
             return res.status(400).json({ error: photoCheck.error });
           }
         }
-        if (primaryUrl && !validatedPhotos.includes(primaryUrl) && validatedPhotos.length < 3) {
-          validatedPhotos.unshift(primaryUrl);
+        const uploadedPrimary = await uploadDataToFirebaseServer(primaryUrl, "businesses");
+        if (uploadedPrimary && !validatedPhotos.includes(uploadedPrimary) && validatedPhotos.length < 3) {
+          validatedPhotos.unshift(uploadedPrimary);
         }
       }
       if (shop.idDocumentWatermarked) {
@@ -4266,6 +4528,7 @@ async function startServer() {
         if (!docCheck.valid) {
           return res.status(400).json({ error: docCheck.error });
         }
+        shop.idDocumentWatermarked = await uploadDataToFirebaseServer(shop.idDocumentWatermarked, "verifications");
       }
 
       const isAdminCaller = isRequestAdmin(req);
@@ -4451,10 +4714,15 @@ async function startServer() {
           targetShop,
           isAdminCaller ? "ADMIN_REMOVED_PUBLIC" : "DELETED_BY_USER"
         );
+        await deleteFilesFromFirebaseStorage(targetShop);
       }
 
       if (dbPool && isDbConnected) {
         try {
+          const bRows = await dbPool.query("SELECT image_url, raw_json FROM businesses WHERE id = $1", [id]).catch(() => ({ rows: [] as any[] }));
+          const sRows = await dbPool.query("SELECT photo_url FROM shops WHERE id = $1", [id]).catch(() => ({ rows: [] as any[] }));
+          await deleteFilesFromFirebaseStorage(bRows.rows);
+          await deleteFilesFromFirebaseStorage(sRows.rows);
           await dbPool.query("DELETE FROM businesses WHERE id = $1", [id]);
           await dbPool.query("DELETE FROM shops WHERE id = $1", [id]);
         } catch (e) {}
@@ -4727,13 +4995,20 @@ async function startServer() {
             return res.status(400).json({ error: pCheck.error });
           }
         }
+        const uploadedHelperPhoto = await uploadDataToFirebaseServer(pUrl, "service_providers");
+        helper.photoUrl = uploadedHelperPhoto;
+        helper.photo_url = uploadedHelperPhoto;
       }
 
       if (helper.idDocUrl || helper.id_doc_url) {
-        const docCheck = validateServerUploadedDataUrl(helper.idDocUrl || helper.id_doc_url, { allowPdf: true });
+        const rawDoc = helper.idDocUrl || helper.id_doc_url;
+        const docCheck = validateServerUploadedDataUrl(rawDoc, { allowPdf: true });
         if (!docCheck.valid) {
           return res.status(400).json({ error: docCheck.error });
         }
+        const uploadedDoc = await uploadDataToFirebaseServer(rawDoc, "verifications");
+        helper.idDocUrl = uploadedDoc;
+        helper.id_doc_url = uploadedDoc;
       }
 
       const isAdminCaller = isRequestAdmin(req);
@@ -4937,12 +5212,18 @@ async function startServer() {
           { ...targetHelper, idDocumentWatermarked: targetHelper.idDocUrl || "" },
           isAdminCaller ? "ADMIN_REMOVED_PUBLIC" : "DELETED_BY_USER"
         );
+        await deleteFilesFromFirebaseStorage(targetHelper);
       }
 
       writeJsonFile(HELPERS_FILE, helpers.filter(h => h.id !== id));
       if (dbPool && isDbConnected) {
         try {
+          const hRows = await dbPool.query("SELECT * FROM helpers WHERE id = $1", [id]).catch(() => ({ rows: [] as any[] }));
+          const pRows = await dbPool.query("SELECT image_url, avatar_url, raw_json FROM profiles WHERE uid = $1 OR id = $1", [id]).catch(() => ({ rows: [] as any[] }));
+          await deleteFilesFromFirebaseStorage(hRows.rows);
+          await deleteFilesFromFirebaseStorage(pRows.rows);
           await dbPool.query("DELETE FROM helpers WHERE id = $1", [id]);
+          await dbPool.query("DELETE FROM profiles WHERE uid = $1 OR id = $1", [id]).catch(() => {});
         } catch (_e) {}
       }
       invalidatePublicCache(['public_helpers']);
@@ -5128,7 +5409,8 @@ async function startServer() {
                 return res.status(400).json({ error: pCheck.error });
               }
             }
-            validPhotos.push(p.trim());
+            const uploadedAdPhoto = await uploadDataToFirebaseServer(p.trim(), "banners");
+            validPhotos.push(uploadedAdPhoto);
           }
         }
       }
@@ -5139,8 +5421,9 @@ async function startServer() {
             return res.status(400).json({ error: photoCheck.error });
           }
         }
-        if (!validPhotos.includes(ad.photoUrl.trim())) {
-          validPhotos.unshift(ad.photoUrl.trim());
+        const uploadedPrimaryAd = await uploadDataToFirebaseServer(ad.photoUrl.trim(), "banners");
+        if (!validPhotos.includes(uploadedPrimaryAd)) {
+          validPhotos.unshift(uploadedPrimaryAd);
         }
       }
 
@@ -5231,10 +5514,18 @@ async function startServer() {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
       const { id } = req.params;
       const ads = readJsonFile<any[]>(ADS_FILE, []);
+      const targetAd = ads.find(a => a.id === id);
+      if (targetAd) {
+        await deleteFilesFromFirebaseStorage(targetAd);
+      }
       const filtered = ads.filter(a => a.id !== id);
       writeJsonFile(ADS_FILE, filtered);
       if (dbPool && isDbConnected) {
         try {
+          const adRows = await dbPool.query("SELECT image_url, raw_json FROM ads WHERE id = $1", [id]).catch(() => ({ rows: [] as any[] }));
+          const bannerRows = await dbPool.query("SELECT data FROM ad_banners WHERE id = $1", [id]).catch(() => ({ rows: [] as any[] }));
+          await deleteFilesFromFirebaseStorage(adRows.rows);
+          await deleteFilesFromFirebaseStorage(bannerRows.rows);
           await dbPool.query("DELETE FROM ads WHERE id = $1", [id]);
           await dbPool.query("DELETE FROM ad_banners WHERE id = $1", [id]);
         } catch {}
@@ -5330,18 +5621,24 @@ async function startServer() {
         return res.status(400).json({ error: "Invalid submission payload: type is required" });
       }
 
-      if (payload.photoOrLogoUrl && String(payload.photoOrLogoUrl).startsWith('data:')) {
-        const photoCheck = validateServerUploadedDataUrl(payload.photoOrLogoUrl, { allowPdf: true });
-        if (!photoCheck.valid) {
-          return res.status(400).json({ error: photoCheck.error });
+      if (payload.photoOrLogoUrl) {
+        if (String(payload.photoOrLogoUrl).startsWith('data:')) {
+          const photoCheck = validateServerUploadedDataUrl(payload.photoOrLogoUrl, { allowPdf: true });
+          if (!photoCheck.valid) {
+            return res.status(400).json({ error: photoCheck.error });
+          }
         }
+        payload.photoOrLogoUrl = await uploadDataToFirebaseServer(payload.photoOrLogoUrl, "jobs");
       }
 
-      if (payload.resumeUrl && String(payload.resumeUrl).startsWith('data:')) {
-        const resumeCheck = validateServerUploadedDataUrl(payload.resumeUrl, { allowPdf: true });
-        if (!resumeCheck.valid) {
-          return res.status(400).json({ error: resumeCheck.error });
+      if (payload.resumeUrl) {
+        if (String(payload.resumeUrl).startsWith('data:')) {
+          const resumeCheck = validateServerUploadedDataUrl(payload.resumeUrl, { allowPdf: true });
+          if (!resumeCheck.valid) {
+            return res.status(400).json({ error: resumeCheck.error });
+          }
         }
+        payload.resumeUrl = await uploadDataToFirebaseServer(payload.resumeUrl, "jobs/resumes", payload.resumeFileName);
       }
 
       if (payload.type === 'job_seeker' && !payload.fullName) {
@@ -5500,11 +5797,14 @@ async function startServer() {
           targetJob,
           "ADMIN_REMOVED_PUBLIC"
         );
+        await deleteFilesFromFirebaseStorage(targetJob);
       }
       const filtered = items.filter(i => i.id !== id);
       writeJsonFile(JOB_PORTAL_FILE, filtered);
       if (dbPool && isDbConnected) {
         try {
+          const jobRows = await dbPool.query("SELECT data FROM job_portal_items WHERE id = $1", [id]).catch(() => ({ rows: [] as any[] }));
+          await deleteFilesFromFirebaseStorage(jobRows.rows);
           await dbPool.query("DELETE FROM job_portal_items WHERE id = $1", [id]);
         } catch {}
       }
@@ -5549,6 +5849,11 @@ async function startServer() {
       if (typeof updates.status === 'string') item.status = sanitizeStringServer(updates.status, 40);
       if (typeof updates.isApproved === 'boolean') item.isApproved = updates.isApproved;
       if (typeof updates.isVerifiedUser === 'boolean') item.isVerifiedUser = updates.isVerifiedUser;
+      if (typeof (updates.imageUrl || updates.attachmentUrl) === 'string') {
+        const uploadedUrl = await uploadDataToFirebaseServer(updates.imageUrl || updates.attachmentUrl, "help_requests");
+        item.imageUrl = uploadedUrl;
+        item.attachmentUrl = uploadedUrl;
+      }
       item.lastInteractionAt = new Date().toISOString();
 
       intents[idx] = item;
@@ -5556,6 +5861,10 @@ async function startServer() {
 
       if (dbPool && isDbConnected) {
         try {
+          await dbPool.query(
+            "UPDATE posts SET content = $1, category = $2, image_url = COALESCE(NULLIF($3, ''), image_url), raw_json = $4 WHERE id = $5",
+            [item.description, item.category || 'General', item.imageUrl || '', JSON.stringify(item), id]
+          ).catch(() => {});
           await dbPool.query(
             "UPDATE broadcast_posts SET description = $1, category = $2, status = $3 WHERE id = $4",
             [item.description, item.category || 'General', item.status || 'active', id]
@@ -5640,6 +5949,17 @@ async function startServer() {
         helper.is_verified = updates.isVerified;
         helper.status = updates.isVerified ? 'approved' : (helper.status === 'rejected' ? 'rejected' : 'pending');
       }
+      if (updates.photoUrl !== undefined || updates.avatarUrl !== undefined || updates.imageUrl !== undefined) {
+        const rawPhoto = updates.photoUrl ?? updates.avatarUrl ?? updates.imageUrl ?? '';
+        const newPhotoUrl = rawPhoto ? await uploadDataToFirebaseServer(String(rawPhoto), "helpers") : '';
+        const prevPhoto = helper.photoUrl || helper.avatarUrl || helper.imageUrl || '';
+        if (prevPhoto && prevPhoto !== newPhotoUrl) {
+          await deleteFilesFromFirebaseStorage(prevPhoto);
+        }
+        helper.photoUrl = newPhotoUrl;
+        helper.avatarUrl = newPhotoUrl;
+        helper.imageUrl = newPhotoUrl;
+      }
 
       helpers[idx] = helper;
       writeJsonFile(HELPERS_FILE, helpers);
@@ -5681,8 +6001,8 @@ async function startServer() {
           );
 
           await dbPool.query(
-            `INSERT INTO profiles (uid, id, user_id, name, full_name, email, category_id, category_name, phone, sector, address, experience, skills, verified, is_verified, status, raw_json, updated_at)
-             VALUES ($1, $1, $2, $3, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11, $11, $12, $13, NOW())
+            `INSERT INTO profiles (uid, id, user_id, name, full_name, email, category_id, category_name, phone, sector, address, experience, skills, image_url, avatar_url, verified, is_verified, status, raw_json, updated_at)
+             VALUES ($1, $1, $2, $3, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11, $11, $12, $12, $13, $14, NOW())
              ON CONFLICT (uid) DO UPDATE SET
                name = EXCLUDED.name,
                full_name = EXCLUDED.full_name,
@@ -5693,6 +6013,8 @@ async function startServer() {
                address = EXCLUDED.address,
                experience = EXCLUDED.experience,
                skills = EXCLUDED.skills,
+               image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), profiles.image_url),
+               avatar_url = COALESCE(NULLIF(EXCLUDED.avatar_url, ''), profiles.avatar_url),
                verified = EXCLUDED.verified,
                is_verified = EXCLUDED.is_verified,
                status = EXCLUDED.status,
@@ -5709,6 +6031,7 @@ async function startServer() {
               helper.area,
               helper.experience,
               skillsArr.join(', '),
+              helper.photoUrl || helper.avatarUrl || '',
               Boolean(helper.isVerified),
               helper.status || 'approved',
               JSON.stringify(helper)
@@ -5744,6 +6067,7 @@ async function startServer() {
           { ...targetHelper, idDocumentWatermarked: targetHelper.idDocUrl || "" },
           "ADMIN_REMOVED_PUBLIC"
         );
+        await deleteFilesFromFirebaseStorage(targetHelper);
       }
       writeJsonFile(HELPERS_FILE, helpers.filter(h => h.id !== id));
 
@@ -5760,7 +6084,12 @@ async function startServer() {
 
       if (dbPool && isDbConnected) {
         try {
+          const hRows = await dbPool.query("SELECT * FROM helpers WHERE id = $1", [id]).catch(() => ({ rows: [] as any[] }));
+          const pRows = await dbPool.query("SELECT image_url, avatar_url, raw_json FROM profiles WHERE uid = $1 OR id = $1", [id]).catch(() => ({ rows: [] as any[] }));
+          await deleteFilesFromFirebaseStorage(hRows.rows);
+          await deleteFilesFromFirebaseStorage(pRows.rows);
           await dbPool.query("DELETE FROM helpers WHERE id = $1", [id]);
+          await dbPool.query("DELETE FROM profiles WHERE uid = $1 OR id = $1", [id]).catch(() => {});
         } catch (e) {}
       }
 
@@ -5884,6 +6213,7 @@ async function startServer() {
               skills: r.skills || '',
               experience: r.experience || '',
               category: r.category_id || '',
+              avatarUrl: r.avatar_url || r.image_url || '',
               status: r.status || (r.is_verified ? 'approved' : 'pending'),
               isVerified: Boolean(r.verified || r.is_verified || r.status === 'approved')
             };
@@ -5902,6 +6232,14 @@ async function startServer() {
       if (typeof (updates.skills || updates.bio) === 'string') current.skills = sanitizeStringServer(updates.skills || updates.bio, 500);
       if (typeof updates.experience === 'string') current.experience = sanitizeStringServer(updates.experience, 120);
       if (typeof updates.category === 'string') current.category = sanitizeStringServer(updates.category, 100);
+      if (updates.avatarUrl !== undefined || updates.photoUrl !== undefined || updates.imageUrl !== undefined) {
+        const rawAvatar = updates.avatarUrl ?? updates.photoUrl ?? updates.imageUrl ?? '';
+        const newAvatarUrl = rawAvatar ? await uploadDataToFirebaseServer(String(rawAvatar), "profiles") : '';
+        if (current.avatarUrl && current.avatarUrl !== newAvatarUrl) {
+          await deleteFilesFromFirebaseStorage(current.avatarUrl);
+        }
+        current.avatarUrl = newAvatarUrl;
+      }
       if (typeof updates.status === 'string') {
         current.status = updates.status;
         current.isVerified = updates.status === 'approved';
@@ -5912,8 +6250,8 @@ async function startServer() {
       if (dbPool && isDbConnected) {
         try {
           await dbPool.query(
-            `INSERT INTO profiles (uid, id, user_id, name, full_name, email, phone, address, sector, skills, experience, category_id, verified, is_verified, status, updated_at)
-             VALUES ($1, $1, $1, $2, $2, $3, $4, $5, $5, $6, $7, $8, $9, $9, $10, NOW())
+            `INSERT INTO profiles (uid, id, user_id, name, full_name, email, phone, address, sector, skills, experience, category_id, avatar_url, image_url, verified, is_verified, status, updated_at)
+             VALUES ($1, $1, $1, $2, $2, $3, $4, $5, $5, $6, $7, $8, $9, $9, $10, $10, $11, NOW())
              ON CONFLICT (uid) DO UPDATE SET
                name = COALESCE(NULLIF(EXCLUDED.name, ''), profiles.name),
                full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), profiles.full_name),
@@ -5924,6 +6262,8 @@ async function startServer() {
                skills = COALESCE(NULLIF(EXCLUDED.skills, ''), profiles.skills),
                experience = COALESCE(NULLIF(EXCLUDED.experience, ''), profiles.experience),
                category_id = COALESCE(NULLIF(EXCLUDED.category_id, ''), profiles.category_id),
+               avatar_url = CASE WHEN $12::boolean THEN EXCLUDED.avatar_url ELSE COALESCE(NULLIF(EXCLUDED.avatar_url, ''), profiles.avatar_url) END,
+               image_url = CASE WHEN $12::boolean THEN EXCLUDED.image_url ELSE COALESCE(NULLIF(EXCLUDED.image_url, ''), profiles.image_url) END,
                verified = EXCLUDED.verified,
                is_verified = EXCLUDED.is_verified,
                status = EXCLUDED.status,
@@ -5937,8 +6277,10 @@ async function startServer() {
               current.skills || '',
               current.experience || '',
               current.category || '',
+              current.avatarUrl || '',
               Boolean(current.isVerified),
-              current.status || 'approved'
+              current.status || 'approved',
+              Boolean(updates.avatarUrl !== undefined || updates.photoUrl !== undefined || updates.imageUrl !== undefined)
             ]
           );
 
@@ -5966,7 +6308,13 @@ async function startServer() {
           const pRes = await dbPool.query("SELECT * FROM profiles WHERE uid = $1 LIMIT 1", [uid]);
           if (pRes.rows.length > 0) {
             await archiveToSecurityVault("user_profile", uid, pRes.rows[0], "ADMIN_REMOVED_PUBLIC");
+            await deleteFilesFromFirebaseStorage(pRes.rows[0]);
           }
+          const uRes = await dbPool.query("SELECT avatar_url FROM users WHERE id = $1", [uid]).catch(() => ({ rows: [] as any[] }));
+          const vRes = await dbPool.query("SELECT id_document_watermarked FROM verification_requests WHERE user_id = $1 OR entity_id = $1", [uid]).catch(() => ({ rows: [] as any[] }));
+          await deleteFilesFromFirebaseStorage(uRes.rows);
+          await deleteFilesFromFirebaseStorage(vRes.rows);
+
           await dbPool.query('DELETE FROM "user" WHERE id = $1', [uid]).catch(() => {});
           await dbPool.query('DELETE FROM users WHERE id = $1', [uid]).catch(() => {});
           await dbPool.query("DELETE FROM profiles WHERE uid = $1", [uid]).catch(() => {});
@@ -6063,6 +6411,14 @@ async function startServer() {
         shop.is_verified = updates.isVerified;
         shop.status = updates.isVerified ? 'approved' : (shop.status === 'rejected' ? 'rejected' : 'pending');
       }
+      if (updates.photoUrl !== undefined || updates.imageUrl !== undefined) {
+        const rawPhoto = updates.photoUrl ?? updates.imageUrl ?? '';
+        const newPhotoUrl = rawPhoto ? await uploadDataToFirebaseServer(String(rawPhoto), "shops") : '';
+        if (shop.photoUrl && shop.photoUrl !== newPhotoUrl) {
+          await deleteFilesFromFirebaseStorage(shop.photoUrl);
+        }
+        shop.photoUrl = newPhotoUrl || null;
+      }
 
       if (dbPool && isDbConnected) {
         try {
@@ -6077,6 +6433,7 @@ async function startServer() {
                area = EXCLUDED.area,
                address = EXCLUDED.address,
                description = EXCLUDED.description,
+               photo_url = EXCLUDED.photo_url,
                is_verified = EXCLUDED.is_verified`,
             [id, shop.name, shop.categoryLabel, shop.ownerName, shop.phone, shop.area, shop.address, shop.description, shop.photoUrl || null, Boolean(shop.isVerified)]
           );
@@ -6091,6 +6448,7 @@ async function startServer() {
                sector = EXCLUDED.sector,
                phone = EXCLUDED.phone,
                description = EXCLUDED.description,
+               image_url = EXCLUDED.image_url,
                is_approved = EXCLUDED.is_approved,
                is_verified = EXCLUDED.is_verified,
                raw_json = EXCLUDED.raw_json`,
@@ -6154,6 +6512,22 @@ async function startServer() {
       if (typeof updates.status === 'string' && ['approved', 'rejected', 'pending'].includes(updates.status)) {
         item.status = updates.status;
         item.reviewedAt = new Date().toISOString();
+      }
+      if (updates.photoOrLogoUrl !== undefined || updates.photoUrl !== undefined) {
+        const rawPhoto = updates.photoOrLogoUrl ?? updates.photoUrl ?? '';
+        const newPhotoUrl = rawPhoto ? await uploadDataToFirebaseServer(String(rawPhoto), "job_portal/photos") : '';
+        if (item.photoOrLogoUrl && item.photoOrLogoUrl !== newPhotoUrl) {
+          await deleteFilesFromFirebaseStorage(item.photoOrLogoUrl);
+        }
+        item.photoOrLogoUrl = newPhotoUrl;
+      }
+      if (updates.resumeUrl !== undefined) {
+        const rawResume = updates.resumeUrl ?? '';
+        const newResumeUrl = rawResume ? await uploadDataToFirebaseServer(String(rawResume), "job_portal/resumes") : '';
+        if (item.resumeUrl && item.resumeUrl !== newResumeUrl) {
+          await deleteFilesFromFirebaseStorage(item.resumeUrl);
+        }
+        item.resumeUrl = newResumeUrl;
       }
 
       if (dbPool && isDbConnected) {
@@ -6305,7 +6679,9 @@ async function startServer() {
       const targetEntityId = entityId || userId || reqId;
       const targetUserId = userId || targetEntityId;
       const docTitle = sanitizeStringServer(title || (entityType === 'business' ? 'Business Registration Document' : 'User Identity Document'), 300);
-      const safeDoc = idDocumentWatermarked || '';
+      const safeDoc = idDocumentWatermarked
+        ? await uploadDataToFirebaseServer(idDocumentWatermarked, "verifications")
+        : '';
 
       if (dbPool && isDbConnected) {
         try {
@@ -7102,13 +7478,15 @@ async function startServer() {
   const upsertCategoryImageHandler = async (req: express.Request, res: express.Response) => {
     try {
       const cleanId = String(req.params.id || req.body?.categoryId || req.body?.id || "").trim();
-      const cleanUrl = String(req.body?.imageUrl || req.body?.image_url || "").trim();
+      const rawUrl = String(req.body?.imageUrl || req.body?.image_url || "").trim();
       const catName = String(req.body?.name || cleanId).trim();
       const catIcon = String(req.body?.icon || "🛠️").trim();
 
-      if (!cleanId || !cleanUrl) {
+      if (!cleanId || !rawUrl) {
         return res.status(400).json({ error: "categoryId and imageUrl are required" });
       }
+
+      const cleanUrl = await uploadDataToFirebaseServer(rawUrl, "categories", `category_${cleanId}.webp`);
 
       const fileImages = readJsonFile<Record<string, string>>(CATEGORY_IMAGES_FILE, {});
       fileImages[cleanId] = cleanUrl;
@@ -7116,6 +7494,11 @@ async function startServer() {
 
       if (dbPool && isDbConnected) {
         try {
+          const prevRes = await dbPool.query("SELECT image_url FROM categories WHERE id = $1", [cleanId]).catch(() => ({ rows: [] as any[] }));
+          if (prevRes.rows.length > 0 && prevRes.rows[0].image_url && prevRes.rows[0].image_url !== cleanUrl) {
+            await deleteFilesFromFirebaseStorage(prevRes.rows[0].image_url);
+          }
+
           await dbPool.query(
             `INSERT INTO categories (id, name, icon, image_url, updated_at)
              VALUES ($1, $2, $3, $4, NOW())
@@ -7162,6 +7545,11 @@ async function startServer() {
 
       if (dbPool && isDbConnected) {
         try {
+          const catRows = await dbPool.query("SELECT image_url FROM categories WHERE id = $1", [cleanId]).catch(() => ({ rows: [] as any[] }));
+          const imgRows = await dbPool.query("SELECT image_url FROM category_images WHERE category_id = $1", [cleanId]).catch(() => ({ rows: [] as any[] }));
+          await deleteFilesFromFirebaseStorage(catRows.rows);
+          await deleteFilesFromFirebaseStorage(imgRows.rows);
+
           await dbPool.query("UPDATE categories SET image_url = NULL, updated_at = NOW() WHERE id = $1", [cleanId]);
           await dbPool.query("DELETE FROM category_images WHERE category_id = $1", [cleanId]);
         } catch (dbErr: any) {

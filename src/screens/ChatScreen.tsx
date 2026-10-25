@@ -10,6 +10,7 @@ import { isGuestUser } from '../lib/authUtils';
 import { fetchChatMessages, sendChatMessage, logAuditRecord } from '../api';
 import { validateUploadedFile, sanitizeText } from '../lib/security';
 import { compressImageToWebP } from '../lib/imageCompression';
+import { uploadFileToFirebaseStorage } from '../lib/firebase';
 
 interface ChatScreenProps {
   intent: Intent | null;
@@ -227,24 +228,18 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
       setCameraError('');
       if (file.type.startsWith('image/')) {
         try {
-          const compressed = await compressImageToWebP(file, { maxWidth: 1200, quality: 0.75 });
+          const compressed = await compressImageToWebP(file, { maxWidth: 1200, quality: 0.75, folder: 'chat_attachments' });
           setPhotoCaptured(compressed);
           setIsCameraOpen(true);
         } catch {
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            setPhotoCaptured(reader.result as string);
-            setIsCameraOpen(true);
-          };
-          reader.readAsDataURL(file);
+          const uploaded = await uploadFileToFirebaseStorage(file, 'chat_attachments', file.name);
+          setPhotoCaptured(uploaded);
+          setIsCameraOpen(true);
         }
       } else {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          setPhotoCaptured(reader.result as string);
-          setIsCameraOpen(true);
-        };
-        reader.readAsDataURL(file);
+        const uploaded = await uploadFileToFirebaseStorage(file, 'chat_attachments', file.name);
+        setPhotoCaptured(uploaded);
+        setIsCameraOpen(true);
       }
     }
     if (e.target) e.target.value = '';

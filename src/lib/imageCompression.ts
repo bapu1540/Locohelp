@@ -1,8 +1,10 @@
 /**
- * Client-side HTML5 Canvas WebP Image Compression Utility
+ * Client-side HTML5 Canvas WebP Image Compression + Firebase Storage Upload Utility
  * Automatically converts and compresses uploaded images into image/webp format
- * (max width 1200px, quality 0.75) before sending to the server.
+ * (max width 1200px, quality 0.75) and uploads directly to Firebase Storage (`locohelp/`).
  */
+
+import { uploadFileToFirebaseStorage } from './firebase';
 
 export interface CompressionOptions {
   maxWidth?: number;
@@ -10,6 +12,7 @@ export interface CompressionOptions {
   quality?: number;
   aspectRatio?: number; // e.g. 16/9 for 16:9 banners
   cropToAspectRatio?: boolean;
+  folder?: string; // Subfolder inside locohelp/ in Firebase Storage
 }
 
 export function compressImageToWebP(
@@ -21,7 +24,8 @@ export function compressImageToWebP(
     maxHeight = 1200,
     quality = 0.75,
     aspectRatio,
-    cropToAspectRatio = false
+    cropToAspectRatio = false,
+    folder = 'images'
   } = options;
 
   return new Promise((resolve, reject) => {
@@ -34,7 +38,8 @@ export function compressImageToWebP(
           let srcH = img.naturalHeight || img.height;
 
           if (srcW === 0 || srcH === 0) {
-            return resolve(src);
+            uploadFileToFirebaseStorage(src, folder).then(resolve).catch(() => resolve(src));
+            return;
           }
 
           let drawW = srcW;
@@ -81,7 +86,8 @@ export function compressImageToWebP(
           canvas.height = targetH;
           const ctx = canvas.getContext('2d');
           if (!ctx) {
-            return resolve(src);
+            uploadFileToFirebaseStorage(src, folder).then(resolve).catch(() => resolve(src));
+            return;
           }
 
           ctx.imageSmoothingEnabled = true;
@@ -101,15 +107,18 @@ export function compressImageToWebP(
             webpDataUrl = canvas.toDataURL('image/jpeg', quality);
           }
 
-          resolve(webpDataUrl);
+          // Upload directly to Firebase Storage inside locohelp/<folder>/ and return permanent download URL
+          uploadFileToFirebaseStorage(webpDataUrl, folder)
+            .then((permanentUrl) => resolve(permanentUrl || webpDataUrl))
+            .catch(() => resolve(webpDataUrl));
         } catch (err) {
           console.warn('Image canvas compression warning, using original:', err);
-          resolve(src);
+          uploadFileToFirebaseStorage(src, folder).then(resolve).catch(() => resolve(src));
         }
       };
 
       img.onerror = () => {
-        resolve(src);
+        uploadFileToFirebaseStorage(src, folder).then(resolve).catch(() => resolve(src));
       };
 
       img.src = src;
@@ -134,3 +143,4 @@ export function compressImageToWebP(
     }
   });
 }
+
