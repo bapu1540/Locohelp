@@ -25,6 +25,7 @@ import { isGuestUser } from '../lib/authUtils';
 import FeedbackBanner from '../components/FeedbackBanner';
 import InstallAppModal from '../components/InstallAppModal';
 import RedWarningTicker from '../components/RedWarningTicker';
+import PublicSuggestionsBanner from '../components/PublicSuggestionsBanner';
 
 interface HomeScreenProps {
   onNavigate: (screen: Screen) => void;
@@ -1836,6 +1837,16 @@ export default function HomeScreen({
           
           {/* New Feedback Banner at the bottom of the feed */}
           <FeedbackBanner />
+
+          {/* Public Suggestions Banner Box at the Very Bottom of Main Page */}
+          <PublicSuggestionsBanner
+            language={language}
+            activeUser={activeUser}
+            showToast={(msg) => {
+              setCreatedToast(msg);
+              setTimeout(() => setCreatedToast(null), 3200);
+            }}
+          />
         </div>
 
         {/* Footer at the bottom of the scrollable page */}

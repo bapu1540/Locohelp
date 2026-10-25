@@ -1747,6 +1747,26 @@ async function initPostgresTables(pool: pg.Pool): Promise<string[]> {
     "create audit_logs"
   );
 
+  await execSafeDDL(
+    pool,
+    `CREATE TABLE IF NOT EXISTS suggestions (
+      id TEXT PRIMARY KEY,
+      user_name TEXT,
+      user_email TEXT,
+      user_avatar TEXT,
+      content TEXT NOT NULL,
+      likes_count INTEGER DEFAULT 0,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )`,
+    "create suggestions"
+  );
+  await execSafeDDL(pool, `ALTER TABLE suggestions ADD COLUMN IF NOT EXISTS user_name TEXT`, "suggestions.user_name");
+  await execSafeDDL(pool, `ALTER TABLE suggestions ADD COLUMN IF NOT EXISTS user_email TEXT`, "suggestions.user_email");
+  await execSafeDDL(pool, `ALTER TABLE suggestions ADD COLUMN IF NOT EXISTS user_avatar TEXT`, "suggestions.user_avatar");
+  await execSafeDDL(pool, `ALTER TABLE suggestions ADD COLUMN IF NOT EXISTS content TEXT`, "suggestions.content");
+  await execSafeDDL(pool, `ALTER TABLE suggestions ADD COLUMN IF NOT EXISTS likes_count INTEGER DEFAULT 0`, "suggestions.likes_count");
+  await execSafeDDL(pool, `ALTER TABLE suggestions ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()`, "suggestions.created_at");
+
   // Verify live tables in public schema
   let liveTables: string[] = [];
   try {
@@ -2814,6 +2834,128 @@ async function startServer() {
       postgresConnected: isDbConnected,
       timestamp: new Date().toISOString()
     });
+  });
+
+  // ==========================================
+  // PUBLIC SUGGESTIONS BOARD & ADMIN MODERATION API
+  // ==========================================
+  const memorySuggestions: any[] = [];
+
+  // Get all public suggestions
+  app.get("/api/suggestions", async (_req, res) => {
+    try {
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+      if (dbPool && isDbConnected) {
+        try {
+          const result = await dbPool.query(
+            "SELECT id, user_name AS \"userName\", user_email AS \"userEmail\", user_avatar AS \"userAvatar\", content, likes_count AS \"likesCount\", created_at AS \"createdAt\" FROM suggestions ORDER BY created_at DESC LIMIT 200"
+          );
+          if (result.rows.length > 0) {
+            return res.json(result.rows);
+          }
+        } catch (dbErr: any) {
+          console.warn("[PostgreSQL] fetch suggestions note:", dbErr.message);
+        }
+      }
+      return res.json(memorySuggestions);
+    } catch (e: any) {
+      return res.status(500).json({ error: "Failed to fetch suggestions" });
+    }
+  });
+
+  // Submit a public suggestion
+  app.post("/api/suggestions", async (req, res) => {
+    try {
+      const { content, userName, userEmail, userAvatar } = req.body || {};
+      const cleanContent = sanitizeServerText(String(content || '').trim(), 1000);
+      if (!cleanContent) {
+        return res.status(400).json({ error: "सुझाव का विवरण खाली नहीं हो सकता। (Suggestion content is required)" });
+      }
+
+      const id = "sug_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6);
+      const caller = extractRequestUser(req);
+      const finalName = sanitizeServerText(userName || caller?.name || "Community Member", 120);
+      const finalEmail = sanitizeServerText(userEmail || caller?.email || "", 150).toLowerCase();
+      const finalAvatar = userAvatar || "https://lh3.googleusercontent.com/a/default-user";
+      const createdAt = new Date().toISOString();
+
+      const item = {
+        id,
+        userName: finalName,
+        userEmail: finalEmail,
+        userAvatar: finalAvatar,
+        content: cleanContent,
+        likesCount: 0,
+        createdAt
+      };
+
+      if (dbPool && isDbConnected) {
+        try {
+          await dbPool.query(
+            `INSERT INTO suggestions (id, user_name, user_email, user_avatar, content, likes_count, created_at)
+             VALUES ($1, $2, $3, $4, $5, 0, NOW())`,
+            [id, finalName, finalEmail, finalAvatar, cleanContent]
+          );
+        } catch (dbErr: any) {
+          console.warn("[PostgreSQL] insert suggestion error:", dbErr.message);
+        }
+      }
+
+      memorySuggestions.unshift(item);
+      return res.status(201).json({ success: true, suggestion: item });
+    } catch (e: any) {
+      return res.status(500).json({ error: "Failed to submit suggestion" });
+    }
+  });
+
+  // Like a suggestion
+  app.post("/api/suggestions/:id/like", async (req, res) => {
+    try {
+      const { id } = req.params;
+      let newCount = 1;
+      if (dbPool && isDbConnected) {
+        try {
+          const r = await dbPool.query(
+            "UPDATE suggestions SET likes_count = likes_count + 1 WHERE id = $1 RETURNING likes_count",
+            [id]
+          );
+          if (r.rows.length > 0) {
+            newCount = r.rows[0].likes_count;
+          }
+        } catch {}
+      }
+
+      const match = memorySuggestions.find(s => s.id === id);
+      if (match) {
+        match.likesCount = (match.likesCount || 0) + 1;
+        newCount = match.likesCount;
+      }
+
+      return res.json({ success: true, likesCount: newCount });
+    } catch (e) {
+      return res.status(500).json({ error: "Failed to like suggestion" });
+    }
+  });
+
+  // Delete a suggestion (Admin moderation or author)
+  app.delete("/api/suggestions/:id", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      if (dbPool && isDbConnected) {
+        try {
+          await dbPool.query("DELETE FROM suggestions WHERE id = $1", [id]);
+        } catch {}
+      }
+
+      const idx = memorySuggestions.findIndex(s => s.id === id);
+      if (idx !== -1) {
+        memorySuggestions.splice(idx, 1);
+      }
+
+      return res.json({ success: true });
+    } catch (e) {
+      return res.status(500).json({ error: "Failed to delete suggestion" });
+    }
   });
 
   // ==========================================

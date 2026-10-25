@@ -84,7 +84,10 @@ import {
   downloadDatabaseBackupFromServer,
   restoreDatabaseBackupOnServer,
   syncBrowserDataToPostgres,
-  initAndRepairPostgresDatabaseOnServer
+  initAndRepairPostgresDatabaseOnServer,
+  fetchPublicSuggestions,
+  deletePublicSuggestionOnServer,
+  PublicSuggestion
 } from '../api';
 import { validateUploadedFile } from '../lib/security';
 import { compressImageToWebP } from '../lib/imageCompression';
@@ -170,6 +173,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
   const [businesses, setBusinesses] = useState<any[]>([]);
   const [jobPortalItems, setJobPortalItems] = useState<JobPortalSubmission[]>([]);
   const [reports, setReports] = useState<any[]>([]);
+  const [publicSuggestions, setPublicSuggestions] = useState<PublicSuggestion[]>([]);
   const [verificationsList, setVerificationsList] = useState<AdminVerificationItem[]>([]);
   const [ads, setAds] = useState<AdBannerItem[]>([]);
   const [customCategories, setCustomCategories] = useState<Array<{ id: string; name: string; nameHi: string; icon: string }>>(() => {
@@ -620,11 +624,12 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         }
       } catch {}
 
-      // Bonus: Sponsored Ads, Category 16:9 Images & Encrypted Security Vault
-      const [liveAds, liveCatImages, liveVault] = await Promise.all([
+      // Bonus: Sponsored Ads, Category 16:9 Images, Security Vault & Public Suggestions
+      const [liveAds, liveCatImages, liveVault, liveSugs] = await Promise.all([
         fetchLiveAds(),
         fetchCategoryImages(),
-        fetchAdminSecurityVault()
+        fetchAdminSecurityVault(),
+        fetchPublicSuggestions()
       ]);
       if (Array.isArray(liveAds)) {
         setAds(liveAds);
@@ -634,6 +639,9 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
       }
       if (Array.isArray(liveVault)) {
         setSecurityVaultRecords(liveVault);
+      }
+      if (Array.isArray(liveSugs)) {
+        setPublicSuggestions(liveSugs);
       }
     } catch (err) {
       console.warn('Admin load data warning:', err);
@@ -3012,6 +3020,77 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                 })}
               </div>
             )}
+
+            {/* Public Suggestions Moderation Board */}
+            <div className="mt-8 pt-6 border-t border-slate-800 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-base sm:text-lg font-black text-amber-300 flex items-center gap-2">
+                    💡 Public Suggestions Board ({publicSuggestions.length})
+                  </h3>
+                  <p className="text-xs text-slate-400 font-medium">
+                    सार्वजनिक सुझाव पेटी से आए यूजर्स के सभी सुझावों को देखें और किसी भी अनुचित या स्पैम सुझाव को डिलीट करें।
+                  </p>
+                </div>
+              </div>
+
+              {publicSuggestions.length === 0 ? (
+                <div className="p-6 text-center bg-slate-900/60 rounded-2xl border border-dashed border-slate-800 text-slate-400 text-xs">
+                  अभी तक कोई सार्वजनिक सुझाव नहीं मिला है।
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {publicSuggestions.map(sug => (
+                    <div
+                      key={sug.id}
+                      className="p-4 rounded-2xl bg-slate-900/90 border border-amber-500/20 hover:border-amber-500/40 flex flex-col justify-between gap-3 transition-all"
+                    >
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2.5">
+                            <img
+                              src={sug.userAvatar || 'https://lh3.googleusercontent.com/a/default-user'}
+                              alt={sug.userName}
+                              className="w-8 h-8 rounded-xl object-cover shrink-0 border border-slate-700"
+                            />
+                            <div>
+                              <h4 className="text-xs font-black text-amber-300">{sug.userName || 'Community Member'}</h4>
+                              {sug.userEmail && <p className="text-[10px] text-slate-400">{sug.userEmail}</p>}
+                            </div>
+                          </div>
+                          <span className="text-[10px] font-bold text-slate-400 shrink-0">
+                            {sug.createdAt ? new Date(sug.createdAt).toLocaleDateString() : 'Recent'}
+                          </span>
+                        </div>
+
+                        <p className="text-xs text-slate-200 leading-relaxed font-medium break-words">
+                          {sug.content}
+                        </p>
+                      </div>
+
+                      <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs">
+                        <span className="text-[11px] font-extrabold text-amber-400">
+                          ❤️ {sug.likesCount || 0} Likes
+                        </span>
+
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await deletePublicSuggestionOnServer(sug.id);
+                            setPublicSuggestions(prev => prev.filter(s => s.id !== sug.id));
+                            showToast('🗑️ Suggestion deleted successfully!');
+                          }}
+                          className="px-3 py-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/35 text-rose-300 border border-rose-500/30 text-xs font-black flex items-center gap-1 cursor-pointer transition-all"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Delete Suggestion</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
 

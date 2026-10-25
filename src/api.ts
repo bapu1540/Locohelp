@@ -1539,5 +1539,84 @@ export async function restoreDatabaseBackupOnServer(backupPayload: any): Promise
   }
 }
 
+// ==========================================
+// PUBLIC SUGGESTIONS BOARD API
+// ==========================================
+export interface PublicSuggestion {
+  id: string;
+  userName: string;
+  userEmail?: string;
+  userAvatar?: string;
+  content: string;
+  likesCount: number;
+  createdAt: string;
+}
+
+export async function fetchPublicSuggestions(): Promise<PublicSuggestion[]> {
+  try {
+    const res = await fetch(`/api/suggestions?_t=${Date.now()}`, {
+      cache: 'no-store',
+      headers: getAuthHeaders()
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data)) return data;
+    }
+  } catch (e) {}
+  return [];
+}
+
+export async function submitPublicSuggestion(
+  content: string,
+  userName?: string,
+  userEmail?: string,
+  userAvatar?: string
+): Promise<{ success: boolean; suggestion?: PublicSuggestion; error?: string }> {
+  try {
+    const res = await fetch('/api/suggestions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      body: JSON.stringify({ content, userName, userEmail, userAvatar })
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      return { success: true, suggestion: data.suggestion };
+    }
+    return { success: false, error: data.error || 'Failed to submit suggestion' };
+  } catch (e: any) {
+    return { success: false, error: e.message || 'Network error submitting suggestion' };
+  }
+}
+
+export async function likePublicSuggestion(
+  id: string
+): Promise<{ success: boolean; likesCount?: number }> {
+  try {
+    const res = await fetch(`/api/suggestions/${encodeURIComponent(id)}/like`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
+    const data = await res.json();
+    return { success: res.ok && data.success, likesCount: data.likesCount };
+  } catch (e) {
+    return { success: false };
+  }
+}
+
+export async function deletePublicSuggestionOnServer(
+  id: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const res = await fetch(`/api/suggestions/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
+    const data = await res.json();
+    return { success: res.ok && data.success, error: data.error };
+  } catch (e: any) {
+    return { success: false, error: e.message || 'Network error deleting suggestion' };
+  }
+}
+
 
 
