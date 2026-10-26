@@ -15,13 +15,76 @@ export default function SettingsMenu({ onNavigate, onBack }: { onNavigate: (s: S
   const [isDeleting, setIsDeleting] = useState(false);
   const [closureReason, setClosureReason] = useState('');
   const [closureSubmitted, setClosureSubmitted] = useState(false);
+  const [profileDisplay, setProfileDisplay] = useState<{
+    name: string;
+    email: string;
+    avatar: string;
+    isLoggedIn: boolean;
+  }>({
+    name: '',
+    email: '',
+    avatar: '',
+    isLoggedIn: false
+  });
 
   useEffect(() => {
     setIsDark(document.documentElement.classList.contains('dark'));
     const handleOpenPrivacy = () => setIsPrivacyOpen(true);
     window.addEventListener('locohelp_open_privacy_policy', handleOpenPrivacy);
+
+    const activeUser = getCurrentUser();
+    const cleanPhone = (activeUser?.phone || '').replace(/\D/g, '');
+    const userKey = activeUser?.uid || (cleanPhone ? `phone_${cleanPhone}` : 'guest');
+    let savedName = activeUser?.displayName && activeUser.displayName !== 'Guest' ? activeUser.displayName : '';
+    let savedEmail = activeUser?.email || '';
+    let savedAvatar = activeUser?.photoURL || '';
+
+    try {
+      const scopedRaw = localStorage.getItem(`locohelp_user_profile_${userKey}`);
+      if (scopedRaw) {
+        const parsed = JSON.parse(scopedRaw);
+        if (parsed.full_name || parsed.name) savedName = parsed.full_name || parsed.name;
+        if (parsed.email) savedEmail = parsed.email;
+        if (parsed.profilePhoto || parsed.avatar_url) savedAvatar = parsed.profilePhoto || parsed.avatar_url;
+      }
+      if (!savedName) savedName = localStorage.getItem('locohelp_profile_name') || '';
+      if (!savedEmail) savedEmail = localStorage.getItem('locohelp_last_logged_in_email') || '';
+      if (!savedAvatar) savedAvatar = localStorage.getItem('locohelp_profile_photo') || '';
+    } catch {}
+
+    if (savedAvatar === 'https://lh3.googleusercontent.com/a/default-user') {
+      savedAvatar = '';
+    }
+
+    const isLogged = Boolean((activeUser && activeUser.uid && activeUser.uid !== 'guest') || savedEmail);
+    setProfileDisplay({
+      name: savedName || (savedEmail ? savedEmail.split('@')[0] : language === 'HI' ? 'लोकोहेल्प यूज़र' : 'LocoHelp User'),
+      email: savedEmail,
+      avatar: savedAvatar,
+      isLoggedIn: isLogged
+    });
+
+    if (userKey && userKey !== 'guest') {
+      getUserProfile(userKey)
+        .then((prof) => {
+          if (prof) {
+            const dbAvatar =
+              prof.avatar_url && prof.avatar_url !== 'https://lh3.googleusercontent.com/a/default-user'
+                ? prof.avatar_url
+                : savedAvatar;
+            setProfileDisplay({
+              name: prof.full_name || prof.name || savedName || 'LocoHelp User',
+              email: prof.email || savedEmail,
+              avatar: dbAvatar || '',
+              isLoggedIn: true
+            });
+          }
+        })
+        .catch(() => {});
+    }
+
     return () => window.removeEventListener('locohelp_open_privacy_policy', handleOpenPrivacy);
-  }, []);
+  }, [language]);
 
   const toggleTheme = () => {
     const nextDark = !isDark;
@@ -50,16 +113,37 @@ export default function SettingsMenu({ onNavigate, onBack }: { onNavigate: (s: S
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-hide pb-20">
-        {/* User Card */}
+        {/* Real User Account Card */}
         <div className="bg-[#FCFAF5] dark:bg-slate-800 border border-[#DFDBCF] dark:border-slate-700 p-4 rounded-2xl flex flex-col gap-3.5 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-[10px] text-slate-400 font-bold tracking-widest uppercase mb-0.5">{t('prof.role') || 'Role'}</p>
-              <p className="text-slate-900 dark:text-white font-extrabold tracking-wide">{t('set.memberRole') || 'Community Member'}</p>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-12 h-12 rounded-full bg-indigo-100 dark:bg-slate-700 border-2 border-indigo-500/70 flex items-center justify-center overflow-hidden shrink-0">
+                {profileDisplay.avatar ? (
+                  <img src={profileDisplay.avatar} alt={profileDisplay.name} className="w-full h-full object-cover" />
+                ) : (
+                  <User className="w-6 h-6 text-indigo-600 dark:text-indigo-300" />
+                )}
+              </div>
+              <div className="min-w-0">
+                <p className="text-slate-900 dark:text-white font-extrabold text-sm truncate">
+                  {profileDisplay.name}
+                </p>
+                {profileDisplay.email ? (
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 font-semibold truncate">
+                    {profileDisplay.email}
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                    {language === 'HI' ? 'लोकोहेल्प प्रोफाइल' : language === 'GU' ? 'લોકોહેલ્પ પ્રોફાઇલ' : 'LocoHelp Profile'}
+                  </p>
+                )}
+              </div>
             </div>
-            <div className="px-3 py-1 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 rounded-lg text-xs font-bold uppercase tracking-wider border border-emerald-200 dark:border-emerald-800">
-              {t('set.trust') || 'Trust'}: 98%
-            </div>
+            {profileDisplay.isLoggedIn && (
+              <div className="px-2.5 py-1 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 rounded-lg text-[10px] font-extrabold uppercase tracking-wider border border-emerald-200 dark:border-emerald-800 shrink-0">
+                {language === 'HI' ? '✓ सत्यापित खाता' : language === 'GU' ? '✓ પ્રમાણિત ખાતું' : '✓ Active Account'}
+              </div>
+            )}
           </div>
           <div className="pt-2.5 border-t border-[#EAE6DC] dark:border-slate-700">
             <button 

@@ -14,9 +14,9 @@ export interface FileValidationResult {
   isPdf?: boolean;
 }
 
-const ALLOWED_IMAGE_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp']);
-const ALLOWED_IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'webp']);
-const MAX_IMAGE_SIZE_BYTES = 2 * 1024 * 1024; // 2MB
+const ALLOWED_IMAGE_MIMES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp']);
+const ALLOWED_IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'webp', 'jfif']);
+const MAX_IMAGE_SIZE_BYTES = 15 * 1024 * 1024; // 15MB raw file limit (compressed to <500KB WebP before upload)
 const MAX_PDF_SIZE_BYTES = 5 * 1024 * 1024;   // 5MB
 
 // Dangerous extensions that must never appear anywhere in the filename (including double extensions)

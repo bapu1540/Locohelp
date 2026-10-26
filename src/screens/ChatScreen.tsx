@@ -105,12 +105,13 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
   // Camera & Media States
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [photoCaptured, setPhotoCaptured] = useState<string | null>(null);
+  const [photoCaption, setPhotoCaption] = useState('');
+  const [isGalleryPreview, setIsGalleryPreview] = useState(false);
   const [cameraError, setCameraError] = useState('');
   const [isFamilyShareOpen, setIsFamilyShareOpen] = useState(false);
-  const [isVideoCallOpen, setIsVideoCallOpen] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isMapModalOpen, setIsMapModalOpen] = useState(false);
+  const [isSharingLiveLocation, setIsSharingLiveLocation] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -423,19 +424,26 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isGuestUser()) {
+      setIsLoginPromptOpen(true);
+      if (e.target) e.target.value = '';
+      return;
+    }
     const file = e.target.files?.[0];
     if (file) {
       const check = await validateUploadedFile(file, { allowPdf: true });
       if (!check.valid) {
-        setCameraError(check.error || 'Only safe images (JPEG, PNG, WebP <= 2MB) or PDF (<= 5MB) are allowed.');
-        setIsCameraOpen(true);
+        setReportStatusBanner(`⚠️ ${check.errorHi || check.error || 'केवल सुरक्षित इमेज (JPEG, PNG, WebP) या PDF की अनुमति है।'}`);
+        setTimeout(() => setReportStatusBanner(null), 4500);
         if (e.target) e.target.value = '';
         return;
       }
       setCameraError('');
+      setIsGalleryPreview(true);
+      setPhotoCaption('');
       if (file.type.startsWith('image/')) {
         try {
-          const compressed = await compressImageToWebP(file, { maxWidth: 1200, quality: 0.75, folder: 'chat_attachments' });
+          const compressed = await compressImageToWebP(file, { maxWidth: 1200, quality: 0.78, folder: 'chat_attachments' });
           setPhotoCaptured(compressed);
           setIsCameraOpen(true);
         } catch {
@@ -457,6 +465,8 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
       setIsLoginPromptOpen(true);
       return;
     }
+    setIsGalleryPreview(false);
+    setPhotoCaption('');
     setIsCameraOpen(true);
     setPhotoCaptured(null);
     setCameraError('');
@@ -482,6 +492,9 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
     }
     setIsCameraOpen(false);
     setPhotoCaptured(null);
+    setPhotoCaption('');
+    setIsGalleryPreview(false);
+    setCameraError('');
   };
 
   const capturePhoto = () => {
@@ -493,7 +506,7 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
       const ctx = canvas.getContext('2d');
       if (ctx) {
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
+        const dataUrl = canvas.toDataURL('image/webp', 0.82);
         setPhotoCaptured(dataUrl);
       }
     } else {
@@ -501,10 +514,50 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
     }
   };
 
-  const sendPhotoInChat = () => {
+  const sendPhotoInChat = async () => {
     if (!photoCaptured) return;
-    handleSend("📸 Camera Snapshot Shared", 'attachment', photoCaptured, 'image');
+    const imgToSend = photoCaptured;
+    const captionText = photoCaption.trim() || "📷 फोटो साझा की गई (Photo shared)";
     stopCamera();
+    await handleSend(captionText, 'attachment', imgToSend, 'image');
+  };
+
+  const handleShareLocationInChat = () => {
+    if (isGuestUser()) {
+      setIsMapModalOpen(false);
+      setIsLoginPromptOpen(true);
+      return;
+    }
+    setIsSharingLiveLocation(true);
+    const sendFallbackPin = () => {
+      const mapUrl = `https://www.google.com/maps?q=${encodeURIComponent(peerLocation)}`;
+      handleSend(`📍 लोकेशन साझा की गई: ${peerLocation} | ${mapUrl}`, 'pin');
+      setIsSharingLiveLocation(false);
+      setIsMapModalOpen(false);
+      setReportStatusBanner('✅ लोकेशन पिन चैट में सफलतापूर्वक भेज दिया गया है!');
+      setTimeout(() => setReportStatusBanner(null), 3500);
+    };
+
+    if (typeof navigator !== 'undefined' && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const lat = pos.coords.latitude.toFixed(6);
+          const lng = pos.coords.longitude.toFixed(6);
+          const mapUrl = `https://www.google.com/maps?q=${lat},${lng}`;
+          handleSend(`📍 मेरी लाइव GPS लोकेशन (${peerLocation}) | ${mapUrl}`, 'pin');
+          setIsSharingLiveLocation(false);
+          setIsMapModalOpen(false);
+          setReportStatusBanner('✅ आपकी लाइव GPS लोकेशन चैट में भेज दी गई है!');
+          setTimeout(() => setReportStatusBanner(null), 3500);
+        },
+        () => {
+          sendFallbackPin();
+        },
+        { enableHighAccuracy: true, timeout: 4000, maximumAge: 60000 }
+      );
+    } else {
+      sendFallbackPin();
+    }
   };
 
   const handleDeleteAndArchiveChat = () => {
@@ -667,22 +720,6 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
             </button>
           )}
           <button 
-            onClick={() => setIsMapModalOpen(true)}
-            className="p-2 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-300 rounded-xl hover:bg-indigo-100 transition-all cursor-pointer"
-            title="View Map Location"
-          >
-            <MapPin className="w-4 h-4" />
-          </button>
-
-          <button 
-            onClick={() => setIsVideoCallOpen(true)}
-            className="p-2 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-300 rounded-xl hover:bg-indigo-100 transition-all cursor-pointer"
-            title="Video Call"
-          >
-            <Video className="w-4 h-4" />
-          </button>
-
-          <button 
             onClick={() => setIsRatingOpen(true)}
             className={`p-2 rounded-xl transition-all cursor-pointer ${isTaskDone ? 'bg-emerald-100 text-emerald-800' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}
             title="Complete Task"
@@ -832,25 +869,42 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
           }
 
           if (msg.type === 'pin') {
+            const urlMatch = msg.text.match(/https?:\/\/[^\s]+/);
+            const extractedMapUrl = urlMatch ? urlMatch[0] : `https://www.google.com/maps?q=${encodeURIComponent(peerLocation)}`;
+            const cleanPinLabel = msg.text.replace(/\|\s*https?:\/\/[^\s]+/, '').trim();
             return (
               <div key={msg.id} className={`w-full flex ${isMe ? 'justify-end' : 'justify-start'}`}>
                 <div 
-                  onClick={() => setShowTracker(!showTracker)}
-                  className={`max-w-[80%] p-3 rounded-2xl flex flex-col gap-1 text-xs font-bold cursor-pointer active:scale-95 transition-transform ${
+                  className={`max-w-[82%] p-3.5 rounded-2xl flex flex-col gap-2 text-xs font-bold shadow-xs ${
                     isMe
-                      ? 'bg-indigo-600 text-white ml-auto rounded-tr-xs'
-                      : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 mr-auto rounded-tl-xs'
+                      ? 'bg-emerald-600 text-white ml-auto rounded-tr-xs'
+                      : 'bg-white dark:bg-slate-800 border border-emerald-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 mr-auto rounded-tl-xs'
                   }`}
                 >
                   {!isMe && (
-                    <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400">
+                    <span className="text-[10px] font-black text-emerald-600 dark:text-emerald-400">
                       {senderDisplayName}
                     </span>
                   )}
                   <div className="flex items-center gap-2">
-                    <MapPin className="w-4 h-4 shrink-0 text-amber-400 animate-pulse" />
-                    <span>{msg.text} (Click to View Live Radar Map)</span>
+                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${isMe ? 'bg-white/20 text-white' : 'bg-emerald-100 dark:bg-emerald-950 text-emerald-600'}`}>
+                      <MapPin className="w-4 h-4 animate-bounce" />
+                    </div>
+                    <span className="leading-snug">{cleanPinLabel}</span>
                   </div>
+                  <a
+                    href={extractedMapUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`w-full py-2 px-3 rounded-xl text-[11px] font-black flex items-center justify-center gap-1.5 transition-colors ${
+                      isMe
+                        ? 'bg-white text-emerald-700 hover:bg-emerald-50'
+                        : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                    }`}
+                  >
+                    <Navigation className="w-3.5 h-3.5" />
+                    <span>🗺️ Google Maps पर लोकेशन देखें</span>
+                  </a>
                 </div>
               </div>
             );
@@ -873,12 +927,12 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
                     </span>
                   </div>
                 )}
-                {msg.type === 'attachment' && msg.attachmentUrl && (
+                {Boolean(msg.attachmentUrl) && (
                   <div 
                     onClick={() => setZoomedImage(msg.attachmentUrl!)}
-                    className="cursor-pointer overflow-hidden rounded-xl border border-white/20 mb-1"
+                    className="cursor-pointer overflow-hidden rounded-xl border border-white/20 mb-1 bg-black/10"
                   >
-                    <img src={msg.attachmentUrl} alt="attachment" loading="lazy" decoding="async" className="w-full max-h-56 object-cover hover:scale-102 transition-transform" />
+                    <img src={msg.attachmentUrl} alt="Chat photo" loading="lazy" decoding="async" className="w-full max-h-64 object-cover hover:scale-102 transition-transform" />
                   </div>
                 )}
                 <p className={`text-xs font-medium leading-relaxed whitespace-pre-wrap ${isMe ? 'text-white' : 'text-slate-900 dark:text-slate-100'}`}>
@@ -1122,7 +1176,7 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
         )}
       </AnimatePresence>
 
-      {/* Camera Capture Modal */}
+      {/* Photo Preview & Camera Capture Modal */}
       <AnimatePresence>
         {isCameraOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md">
@@ -1130,97 +1184,98 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
               initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
               className="bg-slate-900 border border-slate-700 text-white rounded-3xl p-5 w-full max-w-sm shadow-2xl flex flex-col items-center relative"
             >
-              <button onClick={stopCamera} className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white rounded-full bg-slate-800">
+              <button onClick={stopCamera} className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white rounded-full bg-slate-800 cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
 
-              <h3 className="text-sm font-black mb-3">📸 Take Photo / Snapshot</h3>
+              <h3 className="text-sm font-black mb-3">
+                {photoCaptured ? '🖼️ फोटो प्रीव्यू (Send Photo in Chat)' : '📸 कैमरा फोटो (Take Photo)'}
+              </h3>
 
-              <div className="relative w-full aspect-[4/3] rounded-2xl bg-black overflow-hidden border border-slate-700 mb-4 flex items-center justify-center">
+              <div className="relative w-full aspect-[4/3] rounded-2xl bg-black overflow-hidden border border-slate-700 mb-3 flex items-center justify-center">
                 {!photoCaptured ? (
                   <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
                 ) : (
-                  <img src={photoCaptured} alt="snapshot" loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                  <img src={photoCaptured} alt="Selected preview" loading="lazy" decoding="async" className="w-full h-full object-contain bg-slate-950" />
                 )}
 
-                {cameraError && !photoCaptured && (
+                {cameraError && !photoCaptured && !isGalleryPreview && (
                   <div className="absolute inset-0 bg-slate-900 flex flex-col items-center justify-center p-6 text-center">
+                    <p className="text-xs text-slate-300 font-semibold mb-3">
+                      कैमरा या गैलरी से फोटो चुनें:
+                    </p>
                     <div className="flex flex-col gap-3 w-full max-w-[240px]">
                       <button 
+                        type="button"
                         onClick={() => fallbackCameraInputRef.current?.click()}
                         className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black flex items-center justify-center gap-2 shadow-lg cursor-pointer active:scale-95 transition-transform"
                       >
-                        📸 Open Device Camera
+                        📸 मोबाइल कैमरा खोलें
                       </button>
                       <button 
+                        type="button"
                         onClick={() => imageInputRef.current?.click()}
                         className="w-full py-3.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 cursor-pointer border border-slate-700 active:scale-95 transition-transform"
                       >
-                        📁 Open Gallery
+                        📁 गैलरी से फोटो चुनें
                       </button>
                     </div>
-                    <input 
-                      type="file" 
-                      accept="image/*" 
-                      capture="environment" 
-                      ref={fallbackCameraInputRef} 
-                      onChange={(e) => {
-                        handleFileUpload(e);
-                        stopCamera();
-                      }} 
-                      className="hidden" 
-                    />
                   </div>
                 )}
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  capture="environment" 
+                  ref={fallbackCameraInputRef} 
+                  onChange={handleFileUpload} 
+                  className="hidden" 
+                />
               </div>
 
               <canvas ref={canvasRef} className="hidden" />
 
               {!photoCaptured ? (
                 <button
+                  type="button"
                   onClick={capturePhoto}
                   className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl text-xs shadow-lg active:scale-95 cursor-pointer"
                 >
-                  Capture Photo
+                  📸 फोटो क्लिक करें (Capture Photo)
                 </button>
               ) : (
-                <div className="flex gap-2 w-full">
-                  <button onClick={() => setPhotoCaptured(null)} className="flex-1 py-2.5 bg-slate-800 text-slate-300 rounded-xl text-xs font-bold">Retake</button>
-                  <button onClick={sendPhotoInChat} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl text-xs font-extrabold">Send in Chat</button>
+                <div className="w-full space-y-2.5">
+                  <input
+                    type="text"
+                    value={photoCaption}
+                    onChange={(e) => setPhotoCaption(e.target.value)}
+                    placeholder="फोटो के साथ संदेश लिखें (वैकल्पिक / Optional caption)..."
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder:text-slate-400 outline-none focus:border-indigo-500"
+                  />
+                  <div className="flex gap-2 w-full">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (isGalleryPreview) {
+                          imageInputRef.current?.click();
+                        } else {
+                          setPhotoCaptured(null);
+                        }
+                      }}
+                      className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold cursor-pointer"
+                    >
+                      {isGalleryPreview ? 'दूसरी फोटो चुनें' : 'दोबारा लें (Retake)'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={sendPhotoInChat}
+                      className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black flex items-center justify-center gap-1.5 shadow-lg cursor-pointer"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      <span>चैट में भेजें</span>
+                    </button>
+                  </div>
                 </div>
               )}
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Video Call Modal */}
-      <AnimatePresence>
-        {isVideoCallOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md">
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
-              className="bg-slate-900 border border-indigo-500/30 text-white rounded-3xl p-5 w-full max-w-sm shadow-2xl flex flex-col items-center relative"
-            >
-              <div className="w-full flex items-center justify-between mb-4">
-                <span className="text-xs font-black text-emerald-400">Live Video Call</span>
-                <button onClick={() => setIsVideoCallOpen(false)} className="p-1.5 bg-slate-800 text-slate-400 rounded-full"><X className="w-4 h-4" /></button>
-              </div>
-
-              <div className="w-full aspect-[4/3] rounded-2xl bg-slate-950 border border-indigo-500/40 flex flex-col items-center justify-center mb-4">
-                <div className="w-16 h-16 rounded-full bg-indigo-600 flex items-center justify-center text-xl font-black mb-2">
-                  {peerName[0]}
-                </div>
-                <h4 className="text-sm font-bold">{peerName}</h4>
-                <p className="text-[10px] text-emerald-400">🟢 Connected</p>
-              </div>
-
-              <div className="flex gap-4">
-                <button onClick={() => setIsMuted(!isMuted)} className={`p-3 rounded-full ${isMuted ? 'bg-red-500/20 text-red-400' : 'bg-slate-800 text-white'}`}>
-                  {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
-                </button>
-                <button onClick={() => setIsVideoCallOpen(false)} className="px-6 py-3 bg-red-600 text-white rounded-full text-xs font-black shadow-lg">End Call</button>
-              </div>
             </motion.div>
           </div>
         )}
@@ -1312,15 +1367,24 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
                 </div>
               </div>
 
-              <div className="flex gap-2 w-full">
-                <button 
-                  onClick={() => {
-                    window.open(`https://maps.google.com/?q=${encodeURIComponent(peerLocation)}`, '_blank');
-                  }}
-                  className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-xl text-xs shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+              <div className="flex flex-col gap-2 w-full">
+                <button
+                  type="button"
+                  disabled={isSharingLiveLocation}
+                  onClick={handleShareLocationInChat}
+                  className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-black rounded-xl text-xs shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                 >
-                  <Navigation className="w-4 h-4" /> Open in Google Maps
+                  <MapPin className="w-4 h-4" />
+                  <span>{isSharingLiveLocation ? 'लोकेशन भेजी जा रही है...' : '📍 चैट में अपनी लोकेशन भेजें (Share Location in Chat)'}</span>
                 </button>
+                <a 
+                  href={`https://www.google.com/maps?q=${encodeURIComponent(peerLocation)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-xl text-xs shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Navigation className="w-4 h-4" /> 🗺️ Google Maps में खोलें (Open in Google Maps)
+                </a>
               </div>
             </motion.div>
           </div>

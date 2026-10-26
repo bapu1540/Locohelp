@@ -3149,6 +3149,7 @@ async function startServer() {
           );
           if (result.rows.length > 0) {
             const row = result.rows[0];
+            const cleanAvatar = row.avatar_url && row.avatar_url !== "https://lh3.googleusercontent.com/a/default-user" ? row.avatar_url : "";
             return formatResponse({
               uid: row.uid,
               id: row.uid,
@@ -3156,8 +3157,8 @@ async function startServer() {
               displayName: row.full_name,
               email: row.email,
               phone: row.phone,
-              avatar_url: row.avatar_url,
-              photoURL: row.avatar_url,
+              avatar_url: cleanAvatar,
+              photoURL: cleanAvatar,
               skills: row.skills,
               address: row.address,
               experience: row.experience,
@@ -3173,6 +3174,7 @@ async function startServer() {
           ).catch(() => ({ rows: [] as any[] }));
           if (userRes.rows.length > 0) {
             const u = userRes.rows[0];
+            const cleanAvatar = u.avatar_url && u.avatar_url !== "https://lh3.googleusercontent.com/a/default-user" ? u.avatar_url : "";
             return formatResponse({
               uid: u.id,
               id: u.id,
@@ -3180,8 +3182,8 @@ async function startServer() {
               displayName: u.name,
               email: u.email || "",
               phone: u.phone || "",
-              avatar_url: u.avatar_url || "https://lh3.googleusercontent.com/a/default-user",
-              photoURL: u.avatar_url || "https://lh3.googleusercontent.com/a/default-user",
+              avatar_url: cleanAvatar,
+              photoURL: cleanAvatar,
               created_at: u.created_at
             });
           }
@@ -3199,8 +3201,8 @@ async function startServer() {
               displayName: u.name,
               email: u.email || "",
               phone: u.phone || "",
-              avatar_url: "https://lh3.googleusercontent.com/a/default-user",
-              photoURL: "https://lh3.googleusercontent.com/a/default-user",
+              avatar_url: "",
+              photoURL: "",
               created_at: u.created_at
             });
           }
@@ -3252,23 +3254,39 @@ async function startServer() {
 
       const callerUser = extractRequestUser(req);
       const isAdminCaller = isRequestAdmin(req);
-      const fullName = sanitizeServerText(profile.name || profile.full_name || profile.displayName || "Community Member", 120);
-      const email = sanitizeServerText(profile.email || callerUser?.email || "", 150).toLowerCase();
-      if (!email && !isAdminCaller) {
-        return res.status(400).json({ error: "Email ID is mandatory for profile registration and verification." });
+      const localProfiles = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
+      let existingLocalOrDb: any = localProfiles[uid] || null;
+      if (dbPool && isDbConnected) {
+        try {
+          const checkRes = await dbPool.query("SELECT * FROM profiles WHERE uid = $1 OR id = $1 LIMIT 1", [uid]);
+          if (checkRes.rows.length > 0) existingLocalOrDb = checkRes.rows[0];
+        } catch {}
       }
-      const phone = sanitizeServerText(profile.phone || "", 30);
-      const whatsapp = sanitizeServerText(profile.whatsapp || phone || "", 30);
-      const avatarUrl = uploadedAvatar || "https://lh3.googleusercontent.com/a/default-user";
-      const skills = sanitizeServerText(profile.skills || "", 500);
-      const address = sanitizeServerText(profile.address || profile.sector || "", 300);
-      const city = sanitizeServerText(profile.city || "Gandhinagar", 120);
-      const sector = sanitizeServerText(profile.sector || address || "", 200);
-      const categoryId = sanitizeServerText(profile.category_id || profile.category || "", 100);
-      const categoryName = sanitizeServerText(profile.category_name || profile.service || categoryId || "", 150);
-      const description = sanitizeServerText(profile.description || profile.bio || skills || "", 1000);
-      const experience = sanitizeServerText(profile.experience || "", 120);
-      const myHelper = profile.my_helper_profile || profile.myHelperProfile || null;
+
+      const fullName = sanitizeServerText(
+        profile.name || profile.full_name || profile.displayName || existingLocalOrDb?.full_name || existingLocalOrDb?.name || "Community Member",
+        120
+      );
+      const email = sanitizeServerText(
+        profile.email || callerUser?.email || existingLocalOrDb?.email || (uid.includes('@') ? uid : ""),
+        150
+      ).toLowerCase();
+      const phone = sanitizeServerText(profile.phone || existingLocalOrDb?.phone || "", 30);
+      const whatsapp = sanitizeServerText(profile.whatsapp || phone || existingLocalOrDb?.whatsapp || "", 30);
+      const prevCleanAvatar =
+        existingLocalOrDb?.avatar_url && existingLocalOrDb.avatar_url !== "https://lh3.googleusercontent.com/a/default-user"
+          ? existingLocalOrDb.avatar_url
+          : "";
+      const avatarUrl = uploadedAvatar || prevCleanAvatar || "";
+      const skills = sanitizeServerText(profile.skills !== undefined ? profile.skills : (existingLocalOrDb?.skills || ""), 500);
+      const address = sanitizeServerText(profile.address !== undefined ? (profile.address || profile.sector) : (existingLocalOrDb?.address || ""), 300);
+      const city = sanitizeServerText(profile.city || existingLocalOrDb?.city || "Gandhinagar", 120);
+      const sector = sanitizeServerText(profile.sector || address || existingLocalOrDb?.sector || "", 200);
+      const categoryId = sanitizeServerText(profile.category_id || profile.category || existingLocalOrDb?.category_id || "", 100);
+      const categoryName = sanitizeServerText(profile.category_name || profile.service || categoryId || existingLocalOrDb?.category_name || "", 150);
+      const description = sanitizeServerText(profile.description || profile.bio || skills || existingLocalOrDb?.description || "", 1000);
+      const experience = sanitizeServerText(profile.experience !== undefined ? profile.experience : (existingLocalOrDb?.experience || ""), 120);
+      const myHelper = profile.my_helper_profile || profile.myHelperProfile || existingLocalOrDb?.my_helper_profile || existingLocalOrDb?.myHelperProfile || null;
 
       const requestedStatus = profile.status === 'deletion_requested'
         ? 'deletion_requested'
@@ -4280,6 +4298,53 @@ async function startServer() {
         }
       }
 
+      // Compute distinct response counts (repliers per post, excluding post owner and system)
+      const responseSetsByIntent = new Map<string, Set<string>>();
+      const addResponder = (intentIdRaw: any, senderIdRaw: any, senderEmailRaw?: any) => {
+        const iId = String(intentIdRaw || '').trim();
+        if (!iId) return;
+        const postItem = mergedMap.get(iId);
+        const ownerId = String(postItem?.authorId || '').trim().toLowerCase();
+        const ownerEmail = String(postItem?.authorEmail || '').trim().toLowerCase();
+        const sId = String(senderIdRaw || '').trim().toLowerCase();
+        const sEmail = String(senderEmailRaw || '').trim().toLowerCase();
+        if (!sId || sId === 'system' || sId === 'owner' || sId === 'me') return;
+        if ((ownerId && sId === ownerId) || (ownerEmail && sEmail && sEmail === ownerEmail) || (ownerEmail && sId === ownerEmail)) return;
+        const responderKey = sEmail || sId;
+        if (!responseSetsByIntent.has(iId)) {
+          responseSetsByIntent.set(iId, new Set());
+        }
+        responseSetsByIntent.get(iId)!.add(responderKey);
+      };
+
+      try {
+        const allLocalMsgs = readJsonFile<Record<string, any[]>>(MESSAGES_FILE, {});
+        Object.entries(allLocalMsgs).forEach(([convKey, arr]) => {
+          if (Array.isArray(arr)) {
+            arr.forEach((m: any) => {
+              addResponder(convKey, m?.sender_id || m?.senderId || m?.authorId, m?.sender_email || m?.senderEmail || m?.authorEmail);
+            });
+          }
+        });
+      } catch {}
+
+      if (dbPool && isDbConnected) {
+        try {
+          const msgCountRes = await dbPool.query(
+            "SELECT intent_id, sender_id, sender_email FROM messages WHERE intent_id IS NOT NULL"
+          ).catch(() => ({ rows: [] as any[] }));
+          msgCountRes.rows.forEach((r: any) => {
+            addResponder(r.intent_id, r.sender_id, r.sender_email);
+          });
+          const chatCountRes = await dbPool.query(
+            "SELECT intent_id, receiver_id, sender_id, sender_email FROM chats"
+          ).catch(() => ({ rows: [] as any[] }));
+          chatCountRes.rows.forEach((r: any) => {
+            addResponder(r.intent_id || r.receiver_id, r.sender_id, r.sender_email);
+          });
+        } catch {}
+      }
+
       const combined = Array.from(mergedMap.values())
         .filter(item => {
           if (includeExpired || isAdmin) return true;
@@ -4288,6 +4353,7 @@ async function startServer() {
         })
         .map(i => {
           const safe = redactBulkItemForPrivacy(i, isAuth, isAdmin);
+          safe.responseCount = responseSetsByIntent.get(i.id)?.size || 0;
           // Option B Privacy: Never expose broadcast post author's mobile number publicly (contact via Chat only; Admin sees all)
           if (!isAdmin) {
             delete safe.phone;

@@ -194,7 +194,10 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
           setHelperArea(userScoped.address);
           setShopArea(userScoped.address);
         }
-        if (userScoped.profilePhoto || userScoped.avatar_url) setProfilePhoto(userScoped.profilePhoto || userScoped.avatar_url);
+        const candidateLocalPhoto = userScoped.profilePhoto || userScoped.avatar_url || '';
+        if (candidateLocalPhoto && candidateLocalPhoto !== 'https://lh3.googleusercontent.com/a/default-user') {
+          setProfilePhoto(candidateLocalPhoto);
+        }
         if (userScoped.myHelperProfile) {
           foundHelper = userScoped.myHelperProfile;
         }
@@ -211,7 +214,9 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
         const savedExp = localStorage.getItem('locohelp_profile_exp');
         if (savedExp) setUserExp(savedExp);
         const savedPhoto = localStorage.getItem('locohelp_profile_photo');
-        if (savedPhoto) setProfilePhoto(savedPhoto);
+        if (savedPhoto && savedPhoto !== 'https://lh3.googleusercontent.com/a/default-user') {
+          setProfilePhoto(savedPhoto);
+        }
       }
 
       if (!foundHelper) {
@@ -258,7 +263,13 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
           if (data.skills) setUserSkills(data.skills);
           if (data.address) setUserAddress(data.address);
           if (data.experience || data.exp) setUserExp(data.experience || data.exp);
-          if (data.avatar_url || data.profilePhoto) setProfilePhoto(data.avatar_url || data.profilePhoto);
+          const remotePhoto = data.avatar_url || data.profilePhoto || '';
+          if (remotePhoto && remotePhoto !== 'https://lh3.googleusercontent.com/a/default-user') {
+            setProfilePhoto(remotePhoto);
+            try {
+              localStorage.setItem('locohelp_profile_photo', remotePhoto);
+            } catch {}
+          }
           if (data.myHelperProfile) {
             setMyHelperProfile(data.myHelperProfile);
             populateHelperForm(data.myHelperProfile);
@@ -367,6 +378,8 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
   };
 
   const [uploadErrorMsg, setUploadErrorMsg] = useState<string | null>(null);
+  const [photoSavedMsg, setPhotoSavedMsg] = useState<string | null>(null);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
 
   // -------------------------------------------------------------
   // TAB 1 ACTIONS: SAVE SIMPLE PROFILE & PHOTO
@@ -375,40 +388,81 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
     const file = e.target.files?.[0];
     if (file) {
       setUploadErrorMsg(null);
+      setPhotoSavedMsg(null);
       const check = await validateUploadedFile(file, { allowPdf: false });
       if (!check.valid) {
-        setUploadErrorMsg(check.error || 'Only safe JPEG, PNG, or WebP images up to 2MB are allowed.');
+        setUploadErrorMsg(check.error || 'Only safe JPEG, PNG, or WebP images are allowed.');
         e.target.value = '';
         return;
       }
+      setIsUploadingPhoto(true);
       try {
-        const base64String = await compressImageToWebP(file, { maxWidth: 1200, quality: 0.75 });
+        const base64String = await compressImageToWebP(file, { maxWidth: 800, quality: 0.8, folder: 'profiles' });
         setProfilePhoto(base64String);
 
         const activeUser = getCurrentUser();
         const phoneFromUser = userPhone.replace(/\D/g, '') || activeUser?.phone || '';
-        const userKey = activeUser?.uid || (phoneFromUser ? `phone_${phoneFromUser}` : 'guest');
+        const cleanEmail = (userEmail || activeUser?.email || localStorage.getItem('locohelp_last_logged_in_email') || '').trim().toLowerCase();
+        const userKey = activeUser?.uid || (phoneFromUser ? `phone_${phoneFromUser}` : (cleanEmail || 'guest'));
+        const resolvedName = userName || myHelperProfile?.name || activeUser?.displayName || (cleanEmail ? cleanEmail.split('@')[0] : 'Community Member');
 
         try {
           localStorage.setItem('locohelp_profile_photo', base64String);
           const userScopedRaw = localStorage.getItem(`locohelp_user_profile_${userKey}`);
           const userScoped = userScopedRaw ? JSON.parse(userScopedRaw) : {};
           userScoped.profilePhoto = base64String;
+          userScoped.avatar_url = base64String;
+          if (!userScoped.full_name) userScoped.full_name = resolvedName;
+          if (!userScoped.email && cleanEmail) userScoped.email = cleanEmail;
           localStorage.setItem(`locohelp_user_profile_${userKey}`, JSON.stringify(userScoped));
-        } catch (e) {}
+
+          if (activeUser) {
+            localStorage.setItem(
+              'locohelp_user',
+              JSON.stringify({
+                ...activeUser,
+                photoURL: base64String
+              })
+            );
+          }
+        } catch (err) {}
 
         try {
           if (userKey && userKey !== 'guest') {
-            await saveUserProfile({ uid: userKey, avatar_url: base64String });
+            await saveUserProfile({
+              uid: userKey,
+              full_name: resolvedName,
+              name: resolvedName,
+              email: cleanEmail,
+              phone: userPhone || phoneFromUser,
+              skills: userSkills,
+              address: userAddress,
+              experience: userExp,
+              avatar_url: base64String,
+              image_url: base64String,
+              profilePhoto: base64String,
+              myHelperProfile
+            });
           }
         } catch (err) {}
+
+        setPhotoSavedMsg('✅ प्रोफाइल फोटो सफलतापूर्वक अपलोड और सेव हो गई! (Profile photo saved!)');
+        setTimeout(() => setPhotoSavedMsg(null), 4000);
       } catch {
         const reader = new FileReader();
         reader.onloadend = async () => {
           const base64String = reader.result as string;
           setProfilePhoto(base64String);
+          try {
+            localStorage.setItem('locohelp_profile_photo', base64String);
+          } catch {}
+          setPhotoSavedMsg('✅ प्रोफाइल फोटो सेव हो गई!');
+          setTimeout(() => setPhotoSavedMsg(null), 4000);
         };
         reader.readAsDataURL(file);
+      } finally {
+        setIsUploadingPhoto(false);
+        if (e.target) e.target.value = '';
       }
     }
   };
@@ -845,21 +899,31 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
                 </div>
 
                 {/* Profile Photo */}
-                <div className="relative shrink-0">
-                  <div className="w-18 h-18 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center relative overflow-hidden border-2 border-indigo-500/80 shadow-md">
-                    {profilePhoto ? (
+                <div className="relative shrink-0 flex flex-col items-center gap-1.5">
+                  <div 
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-18 h-18 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center relative overflow-hidden border-2 border-indigo-500/80 shadow-md cursor-pointer group"
+                    title="Click to upload profile photo"
+                  >
+                    {profilePhoto && profilePhoto !== 'https://lh3.googleusercontent.com/a/default-user' ? (
                       <img src={profilePhoto} alt="Profile" loading="lazy" decoding="async" className="w-full h-full object-cover" />
                     ) : (
                       <User className="w-8 h-8 text-slate-400" />
                     )}
                     <div 
-                      onClick={() => fileInputRef.current?.click()} 
-                      className="absolute inset-x-0 bottom-0 bg-black/50 hover:bg-black/70 h-5 flex items-center justify-center cursor-pointer transition-colors"
-                      title="Upload Photo"
+                      className="absolute inset-x-0 bottom-0 bg-black/60 group-hover:bg-indigo-600/90 h-5 flex items-center justify-center transition-colors"
                     >
                       <Camera className="w-3 h-3 text-white" />
                     </div>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isUploadingPhoto}
+                    className="px-2 py-0.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/70 hover:bg-indigo-100 text-indigo-600 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-[10px] font-extrabold cursor-pointer transition-colors"
+                  >
+                    {isUploadingPhoto ? '⏳ सेव हो रहा...' : '📷 फोटो बदलें'}
+                  </button>
                   <input 
                     type="file" 
                     ref={fileInputRef} 
@@ -869,6 +933,18 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
                   />
                 </div>
               </div>
+              {photoSavedMsg && (
+                <div className="mt-3 p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 text-xs font-extrabold flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+                  <span>{photoSavedMsg}</span>
+                </div>
+              )}
+              {uploadErrorMsg && (
+                <div className="mt-3 p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-extrabold flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                  <span>{uploadErrorMsg}</span>
+                </div>
+              )}
             </div>
 
             {/* Identity Verification Status Card */}

@@ -1656,7 +1656,7 @@ export default function HomeScreen({
                                   setSelectedIntentForResponses(intent);
                                   setIsResponsesModalOpen(true);
                                 }}
-                                className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-black flex items-center gap-1 shadow-xs transition-all cursor-pointer active:scale-95"
+                                className="relative px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-black flex items-center gap-1.5 shadow-xs transition-all cursor-pointer active:scale-95"
                               >
                                 <MessageSquare className="w-3.5 h-3.5 shrink-0" />
                                 <span>
@@ -1665,6 +1665,16 @@ export default function HomeScreen({
                                     : language === 'GU'
                                     ? 'રિસ્પોન્સ જુઓ'
                                     : 'रिस्पॉन्स देखें'}
+                                </span>
+                                <span
+                                  className={`px-1.5 py-0.5 rounded-full text-[10px] font-black leading-none ${
+                                    Number((intent as any).responseCount || 0) > 0
+                                      ? 'bg-amber-400 text-slate-950 shadow-2xs animate-pulse'
+                                      : 'bg-indigo-800/80 text-indigo-100'
+                                  }`}
+                                  title="Number of people who messaged on this post"
+                                >
+                                  {Number((intent as any).responseCount || 0)}
                                 </span>
                               </button>
                               <button
