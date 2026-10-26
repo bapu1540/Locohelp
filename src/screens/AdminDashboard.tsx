@@ -3032,11 +3032,28 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                                 🪪 ID Document Attached
                               </span>
                             )}
+
+                            {Array.isArray(item.chatSnapshot) && item.chatSnapshot.length > 0 && (
+                              <span className="px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 text-[10px] font-black">
+                                💬 Reported Chat Evidence ({item.chatSnapshot.length} Messages)
+                              </span>
+                            )}
+
+                            {item.isUserBlocked && (
+                              <span className="px-2.5 py-0.5 rounded-full bg-red-600/25 text-red-300 border border-red-500/40 text-[10px] font-black">
+                                🚫 Reported User Blocked
+                              </span>
+                            )}
                           </div>
                         </div>
 
                         <h3 className="text-base sm:text-lg font-black text-white leading-snug break-words">
                           {title}
+                          {item.reportedUserName && (
+                            <span className="ml-2 text-xs font-extrabold text-rose-400">
+                              (Reported User: {item.reportedUserName})
+                            </span>
+                          )}
                         </h3>
 
                         {desc && (
@@ -3078,7 +3095,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                           title="View All Details & Documents"
                         >
                           <Eye className="w-3.5 h-3.5 text-cyan-400" />
-                          <span>View</span>
+                          <span>{Array.isArray(item.chatSnapshot) && item.chatSnapshot.length > 0 ? 'View Chat & Details' : 'View'}</span>
                         </button>
 
                         <button
@@ -4009,6 +4026,66 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                   </div>
                 )}
 
+                {Array.isArray(viewingItem.data.chatSnapshot) && viewingItem.data.chatSnapshot.length > 0 && (
+                  <div className="p-4 rounded-2xl bg-slate-950 border border-rose-500/40 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
+                      <div>
+                        <p className="text-xs sm:text-sm font-black text-rose-400 flex items-center gap-1.5">
+                          💬 Immutable Reported Chat Transcript ({viewingItem.data.chatSnapshot.length} Messages)
+                        </p>
+                        <p className="text-[11px] text-slate-400">
+                          यह चैट हिस्ट्री रिपोर्ट के समय सुरक्षित लॉक कर दी गई थी। दोनों यूज़र द्वारा अपने फोन से डिलीट करने पर भी यह एडमिन के लिए सुरक्षित रहेगी।
+                        </p>
+                      </div>
+                      {viewingItem.data.isUserBlocked && (
+                        <span className="px-2.5 py-1 rounded-full bg-red-600/25 border border-red-500/40 text-[10px] font-black text-red-300">
+                          🚫 Reported User Blocked by Reporter
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                      {viewingItem.data.chatSnapshot.map((msg: any, idx: number) => {
+                        const senderLabel = msg.senderName || msg.authorName || msg.senderEmail || msg.senderId || 'User';
+                        const isReporterMsg =
+                          (viewingItem.data.reporterId && String(msg.senderId) === String(viewingItem.data.reporterId)) ||
+                          (viewingItem.data.reporterEmail && String(msg.senderEmail).toLowerCase() === String(viewingItem.data.reporterEmail).toLowerCase());
+                        return (
+                          <div
+                            key={msg.id || idx}
+                            className={`p-3 rounded-xl border text-xs ${
+                              isReporterMsg
+                                ? 'bg-indigo-950/40 border-indigo-500/30'
+                                : 'bg-rose-950/35 border-rose-500/30'
+                            }`}
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+                              <span className={`font-black ${isReporterMsg ? 'text-indigo-300' : 'text-rose-300'}`}>
+                                {senderLabel} {isReporterMsg ? '(Reporter)' : '(Reported User)'}
+                              </span>
+                              <span className="text-[10px] text-slate-400 font-mono">
+                                {msg.createdAt ? new Date(msg.createdAt).toLocaleString('en-IN') : ''}
+                              </span>
+                            </div>
+                            {msg.attachmentUrl && (
+                              <div className="my-1.5">
+                                <img
+                                  src={msg.attachmentUrl}
+                                  alt="Chat Attachment"
+                                  className="max-h-40 rounded-lg border border-slate-700 object-contain"
+                                />
+                              </div>
+                            )}
+                            <p className="text-white font-medium whitespace-pre-wrap break-words">
+                              {msg.text || '(Attachment)'}
+                            </p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {Object.entries(viewingItem.data).map(([key, val]) => {
                     if (
@@ -4018,6 +4095,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                       key === 'idDocumentWatermarked' ||
                       key === 'photoUrl' ||
                       key === 'avatar' ||
+                      key === 'chatSnapshot' ||
                       typeof val === 'object'
                     ) {
                       return null;

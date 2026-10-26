@@ -1724,13 +1724,49 @@ async function initPostgresTables(pool: pg.Pool): Promise<string[]> {
       id TEXT PRIMARY KEY,
       reporter_id TEXT,
       reporter_name TEXT,
+      reporter_email TEXT,
+      reported_user_id TEXT,
+      reported_user_name TEXT,
+      chat_id TEXT,
+      report_type TEXT DEFAULT 'general',
       reason TEXT,
       details TEXT,
+      chat_snapshot JSONB,
+      is_user_blocked BOOLEAN DEFAULT false,
       status TEXT DEFAULT 'pending_admin_review',
       reported_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
     )`,
     "create admin_reports"
   );
+  await execSafeDDL(pool, `ALTER TABLE admin_reports ADD COLUMN IF NOT EXISTS reporter_email TEXT`, "admin_reports.reporter_email");
+  await execSafeDDL(pool, `ALTER TABLE admin_reports ADD COLUMN IF NOT EXISTS reported_user_id TEXT`, "admin_reports.reported_user_id");
+  await execSafeDDL(pool, `ALTER TABLE admin_reports ADD COLUMN IF NOT EXISTS reported_user_name TEXT`, "admin_reports.reported_user_name");
+  await execSafeDDL(pool, `ALTER TABLE admin_reports ADD COLUMN IF NOT EXISTS chat_id TEXT`, "admin_reports.chat_id");
+  await execSafeDDL(pool, `ALTER TABLE admin_reports ADD COLUMN IF NOT EXISTS report_type TEXT DEFAULT 'general'`, "admin_reports.report_type");
+  await execSafeDDL(pool, `ALTER TABLE admin_reports ADD COLUMN IF NOT EXISTS chat_snapshot JSONB`, "admin_reports.chat_snapshot");
+  await execSafeDDL(pool, `ALTER TABLE admin_reports ADD COLUMN IF NOT EXISTS is_user_blocked BOOLEAN DEFAULT false`, "admin_reports.is_user_blocked");
+
+  await execSafeDDL(
+    pool,
+    `CREATE TABLE IF NOT EXISTS blocked_users (
+      id TEXT PRIMARY KEY,
+      blocker_id TEXT NOT NULL,
+      blocker_email TEXT,
+      blocked_id TEXT NOT NULL,
+      blocked_name TEXT,
+      chat_id TEXT,
+      reason TEXT,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )`,
+    "create blocked_users"
+  );
+  await execSafeDDL(pool, `ALTER TABLE blocked_users ADD COLUMN IF NOT EXISTS blocker_id TEXT`, "blocked_users.blocker_id");
+  await execSafeDDL(pool, `ALTER TABLE blocked_users ADD COLUMN IF NOT EXISTS blocker_email TEXT`, "blocked_users.blocker_email");
+  await execSafeDDL(pool, `ALTER TABLE blocked_users ADD COLUMN IF NOT EXISTS blocked_id TEXT`, "blocked_users.blocked_id");
+  await execSafeDDL(pool, `ALTER TABLE blocked_users ADD COLUMN IF NOT EXISTS blocked_name TEXT`, "blocked_users.blocked_name");
+  await execSafeDDL(pool, `ALTER TABLE blocked_users ADD COLUMN IF NOT EXISTS chat_id TEXT`, "blocked_users.chat_id");
+  await execSafeDDL(pool, `ALTER TABLE blocked_users ADD COLUMN IF NOT EXISTS reason TEXT`, "blocked_users.reason");
+  await execSafeDDL(pool, `ALTER TABLE blocked_users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()`, "blocked_users.created_at");
 
   await execSafeDDL(
     pool,
@@ -1831,6 +1867,14 @@ async function initPostgresTables(pool: pg.Pool): Promise<string[]> {
   await execSafeDDL(pool, `ALTER TABLE suggestions ADD COLUMN IF NOT EXISTS content TEXT`, "suggestions.content");
   await execSafeDDL(pool, `ALTER TABLE suggestions ADD COLUMN IF NOT EXISTS likes_count INTEGER DEFAULT 0`, "suggestions.likes_count");
   await execSafeDDL(pool, `ALTER TABLE suggestions ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()`, "suggestions.created_at");
+  await execSafeDDL(
+    pool,
+    `UPDATE suggestions
+     SET user_name = INITCAP(REPLACE(REPLACE(SPLIT_PART(user_email, '@', 1), '.', ' '), '_', ' '))
+     WHERE (user_name IS NULL OR LOWER(TRIM(user_name)) IN ('locohelp member', 'community member', 'guest user', 'user', 'member', ''))
+       AND user_email IS NOT NULL AND user_email LIKE '%@%'`,
+    "normalize suggestions placeholder names"
+  );
 
   // One-time cleanup of stale resurrected category images so only newly uploaded images appear
   try {
@@ -2907,6 +2951,39 @@ async function startServer() {
   // ==========================================
   const memorySuggestions: any[] = [];
 
+  const isGenericSuggestionName = (n?: string): boolean => {
+    const clean = String(n || "").trim().toLowerCase();
+    return (
+      !clean ||
+      clean.length < 2 ||
+      clean === "locohelp member" ||
+      clean === "community member" ||
+      clean === "guest user" ||
+      clean === "guest" ||
+      clean === "user" ||
+      clean === "member" ||
+      clean === "anonymous"
+    );
+  };
+
+  const formatSuggestionAuthorName = (name?: string, email?: string): string => {
+    const trimmed = String(name || "").trim();
+    if (!isGenericSuggestionName(trimmed)) {
+      return trimmed;
+    }
+    if (email && String(email).includes("@")) {
+      const prefix = String(email).split("@")[0].replace(/[._-]+/g, " ").trim();
+      if (prefix.length >= 2) {
+        return prefix
+          .split(" ")
+          .filter(Boolean)
+          .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+          .join(" ");
+      }
+    }
+    return "Verified User";
+  };
+
   // Get all public suggestions
   app.get("/api/suggestions", async (_req, res) => {
     try {
@@ -2917,19 +2994,28 @@ async function startServer() {
             "SELECT id, user_name AS \"userName\", user_email AS \"userEmail\", user_avatar AS \"userAvatar\", content, likes_count AS \"likesCount\", created_at AS \"createdAt\" FROM suggestions ORDER BY created_at DESC LIMIT 200"
           );
           if (result.rows.length > 0) {
-            return res.json(result.rows);
+            const normalizedRows = result.rows.map((r: any) => ({
+              ...r,
+              userName: formatSuggestionAuthorName(r.userName, r.userEmail)
+            }));
+            return res.json(normalizedRows);
           }
         } catch (dbErr: any) {
           console.warn("[PostgreSQL] fetch suggestions note:", dbErr.message);
         }
       }
-      return res.json(memorySuggestions);
+      return res.json(
+        memorySuggestions.map((s) => ({
+          ...s,
+          userName: formatSuggestionAuthorName(s.userName, s.userEmail)
+        }))
+      );
     } catch (e: any) {
       return res.status(500).json({ error: "Failed to fetch suggestions" });
     }
   });
 
-  // Submit a public suggestion (Requires logged-in user)
+  // Submit a public suggestion (Requires logged-in user + Mandatory Real Name)
   app.post("/api/suggestions", requireAuth, async (req, res) => {
     try {
       const { content, userName, userEmail, userAvatar } = req.body || {};
@@ -2938,9 +3024,16 @@ async function startServer() {
         return res.status(400).json({ error: "सुझाव का विवरण खाली नहीं हो सकता। (Suggestion content is required)" });
       }
 
-      const id = "sug_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6);
       const caller = (req as any).user || extractRequestUser(req);
-      const finalName = sanitizeServerText(userName || caller?.name || "Community Member", 120);
+      const rawName = sanitizeServerText(String(userName || caller?.name || '').trim(), 120);
+      if (isGenericSuggestionName(rawName)) {
+        return res.status(400).json({
+          error: "कृपया सुझाव सबमिट करने से पहले अपना असली नाम लिखें। (Please enter your real full name before submitting a suggestion.)"
+        });
+      }
+
+      const id = "sug_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6);
+      const finalName = rawName;
       const finalEmail = sanitizeServerText(userEmail || caller?.email || "", 150).toLowerCase();
       const finalAvatar = userAvatar || "https://lh3.googleusercontent.com/a/default-user";
       const createdAt = new Date().toISOString();
@@ -3028,7 +3121,7 @@ async function startServer() {
   // USER PROFILES & AUTHENTICATION API
   // ==========================================
 
-  // Get user profile (Queries primary "user" table with fallback to profiles; redacts private contact info for unauthenticated callers)
+  // Get user profile (Option B Privacy: Regular user mobile numbers are strictly private; only Owner and Admin can view them)
   const getUserProfileHandler = async (req: express.Request, res: express.Response) => {
     try {
       const uid = sanitizeServerText(req.params.uid || req.params.id, 150);
@@ -3039,6 +3132,11 @@ async function startServer() {
 
       const formatResponse = (prof: Record<string, any>) => {
         const safe = redactBulkItemForPrivacy(prof, isAuth || isOwner, isAdmin);
+        if (!isOwner && !isAdmin) {
+          delete safe.phone;
+          delete safe.whatsapp;
+          delete safe.userPhone;
+        }
         return res.json(safe);
       };
 
@@ -4188,13 +4286,30 @@ async function startServer() {
           if (item.status === 'rejected') return false;
           return true;
         })
-        .map(i => redactBulkItemForPrivacy(i, isAuth, isAdmin));
+        .map(i => {
+          const safe = redactBulkItemForPrivacy(i, isAuth, isAdmin);
+          // Option B Privacy: Never expose broadcast post author's mobile number publicly (contact via Chat only; Admin sees all)
+          if (!isAdmin) {
+            delete safe.phone;
+            delete safe.authorPhone;
+            delete safe.contactPhone;
+            delete safe.whatsapp;
+          }
+          return safe;
+        });
 
       combined.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
       res.json(combined);
     } catch (e) {
       console.warn("Recovering from fetch intents error:", e);
-      const fallbackIntents = readJsonFile<any[]>(INTENTS_FILE, []).map(i => redactBulkItemForPrivacy(i, false, false));
+      const fallbackIntents = readJsonFile<any[]>(INTENTS_FILE, []).map(i => {
+        const safe = redactBulkItemForPrivacy(i, false, false);
+        delete safe.phone;
+        delete safe.authorPhone;
+        delete safe.contactPhone;
+        delete safe.whatsapp;
+        return safe;
+      });
       res.json(fallbackIntents);
     }
   };
@@ -4872,6 +4987,183 @@ async function startServer() {
     }
   });
 
+  // ==========================================
+  // USER-TO-USER CHAT BLOCK API
+  // ==========================================
+  const memoryChatBlocks: Array<{
+    id: string;
+    blockerId: string;
+    blockerEmail: string;
+    blockedId: string;
+    blockedName: string;
+    chatId: string;
+    reason: string;
+    createdAt: string;
+  }> = [];
+
+  const checkChatBlockState = async (
+    chatId: string,
+    userAId?: string,
+    userBId?: string
+  ): Promise<{ isBlocked: boolean; blockerId?: string; blockedId?: string; reason?: string }> => {
+    const cleanChatId = String(chatId || "").trim();
+    const cleanA = String(userAId || "").trim().toLowerCase();
+    const cleanB = String(userBId || "").trim().toLowerCase();
+
+    if (dbPool && isDbConnected) {
+      try {
+        const q = await dbPool.query(
+          `SELECT * FROM blocked_users
+           WHERE (chat_id = $1 AND $1 <> '' AND $1 <> 'general')
+              OR ($2 <> '' AND $3 <> '' AND (
+                   (LOWER(blocker_id) = $2 AND LOWER(blocked_id) = $3) OR
+                   (LOWER(blocker_id) = $3 AND LOWER(blocked_id) = $2)
+                 ))
+           ORDER BY created_at DESC LIMIT 1`,
+          [cleanChatId, cleanA, cleanB]
+        );
+        if (q.rows.length > 0) {
+          const row = q.rows[0];
+          return {
+            isBlocked: true,
+            blockerId: row.blocker_id,
+            blockedId: row.blocked_id,
+            reason: row.reason || ""
+          };
+        }
+      } catch {}
+    }
+
+    const memMatch = memoryChatBlocks.find((b) => {
+      if (cleanChatId && cleanChatId !== "general" && b.chatId === cleanChatId) return true;
+      if (cleanA && cleanB) {
+        const bBlocker = b.blockerId.toLowerCase();
+        const bBlocked = b.blockedId.toLowerCase();
+        return (bBlocker === cleanA && bBlocked === cleanB) || (bBlocker === cleanB && bBlocked === cleanA);
+      }
+      return false;
+    });
+
+    if (memMatch) {
+      return {
+        isBlocked: true,
+        blockerId: memMatch.blockerId,
+        blockedId: memMatch.blockedId,
+        reason: memMatch.reason
+      };
+    }
+
+    return { isBlocked: false };
+  };
+
+  app.get("/api/chat-blocks", async (req, res) => {
+    try {
+      const chatId = sanitizeServerText(req.query.chatId || "", 150);
+      const userId = sanitizeServerText(req.query.userId || "", 150);
+      const peerId = sanitizeServerText(req.query.peerId || "", 150);
+      const state = await checkChatBlockState(chatId, userId, peerId);
+      const blockedByMe = Boolean(
+        state.isBlocked &&
+          userId &&
+          state.blockerId &&
+          state.blockerId.toLowerCase() === userId.toLowerCase()
+      );
+      return res.json({
+        isBlocked: state.isBlocked,
+        blockedByMe,
+        blockerId: state.blockerId || "",
+        blockedId: state.blockedId || "",
+        reason: state.reason || ""
+      });
+    } catch {
+      return res.json({ isBlocked: false, blockedByMe: false });
+    }
+  });
+
+  app.post("/api/chat-blocks", requireAuth, async (req, res) => {
+    try {
+      const caller = (req as any).user || extractRequestUser(req);
+      const { chatId, blockedId, blockedName, reason, blockerId } = req.body || {};
+      const finalBlockerId = sanitizeServerText(blockerId || caller?.uid || caller?.email || "", 150);
+      const finalBlockerEmail = sanitizeServerText(caller?.email || "", 150).toLowerCase();
+      const finalBlockedId = sanitizeServerText(blockedId || chatId || "peer", 150);
+      const finalBlockedName = sanitizeServerText(blockedName || "User", 120);
+      const finalChatId = sanitizeServerText(chatId || "", 150);
+      const finalReason = sanitizeServerText(reason || "Blocked by user in chat", 300);
+
+      if (!finalBlockerId) {
+        return res.status(400).json({ error: "Blocker user ID required" });
+      }
+
+      const blockId = `blk_${finalChatId || "chat"}_${finalBlockerId}_${finalBlockedId}`.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 140);
+      const entry = {
+        id: blockId,
+        blockerId: finalBlockerId,
+        blockerEmail: finalBlockerEmail,
+        blockedId: finalBlockedId,
+        blockedName: finalBlockedName,
+        chatId: finalChatId,
+        reason: finalReason,
+        createdAt: new Date().toISOString()
+      };
+
+      if (dbPool && isDbConnected) {
+        try {
+          await dbPool.query(
+            `INSERT INTO blocked_users (id, blocker_id, blocker_email, blocked_id, blocked_name, chat_id, reason, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+             ON CONFLICT (id) DO UPDATE SET reason = EXCLUDED.reason, created_at = NOW()`,
+            [entry.id, entry.blockerId, entry.blockerEmail, entry.blockedId, entry.blockedName, entry.chatId, entry.reason]
+          );
+        } catch (e) {}
+      }
+
+      const existingIdx = memoryChatBlocks.findIndex((b) => b.id === entry.id);
+      if (existingIdx >= 0) memoryChatBlocks[existingIdx] = entry;
+      else memoryChatBlocks.unshift(entry);
+
+      return res.json({ success: true, block: entry });
+    } catch (e: any) {
+      return res.status(500).json({ error: "Failed to block user" });
+    }
+  });
+
+  app.delete("/api/chat-blocks", requireAuth, async (req, res) => {
+    try {
+      const caller = (req as any).user || extractRequestUser(req);
+      const chatId = sanitizeServerText(req.query.chatId || req.body?.chatId || "", 150);
+      const blockerId = sanitizeServerText(req.query.blockerId || req.body?.blockerId || caller?.uid || "", 150);
+      const blockedId = sanitizeServerText(req.query.blockedId || req.body?.blockedId || "", 150);
+
+      if (dbPool && isDbConnected) {
+        try {
+          if (chatId) {
+            await dbPool.query(
+              `DELETE FROM blocked_users WHERE chat_id = $1 AND (LOWER(blocker_id) = LOWER($2) OR $3 = TRUE)`,
+              [chatId, blockerId, isRequestAdmin(req)]
+            );
+          } else if (blockerId && blockedId) {
+            await dbPool.query(
+              `DELETE FROM blocked_users WHERE LOWER(blocker_id) = LOWER($1) AND LOWER(blocked_id) = LOWER($2)`,
+              [blockerId, blockedId]
+            );
+          }
+        } catch {}
+      }
+
+      for (let i = memoryChatBlocks.length - 1; i >= 0; i--) {
+        const b = memoryChatBlocks[i];
+        if ((chatId && b.chatId === chatId) || (blockerId && blockedId && b.blockerId === blockerId && b.blockedId === blockedId)) {
+          memoryChatBlocks.splice(i, 1);
+        }
+      }
+
+      return res.json({ success: true });
+    } catch {
+      return res.status(500).json({ error: "Failed to unblock user" });
+    }
+  });
+
   // 5. Send Chat Message (POST /api/messages & POST /api/intents/:id/messages)
   const sendChatMessageHandler = async (req: express.Request, res: express.Response) => {
     try {
@@ -4911,6 +5203,20 @@ async function startServer() {
         message.sender_id || message.senderId || message.authorId || message.user_id || caller?.uid || 'guest',
         150
       );
+      const receiverIdVal = sanitizeServerText(
+        message.receiverId || message.receiver_id || conversationId,
+        150
+      );
+
+      // Enforce User-to-User Chat Block
+      const blockCheck = await checkChatBlockState(conversationId, senderIdVal, receiverIdVal);
+      if (blockCheck.isBlocked) {
+        return res.status(403).json({
+          error: "इस चैट में संदेश भेजना ब्लॉक किया गया है। (Messaging is blocked in this conversation.)",
+          code: "CHAT_BLOCKED"
+        });
+      }
+
       let resolvedName = sanitizeServerText(
         message.sender_name || message.senderName || message.authorName || caller?.name || '',
         120
@@ -6151,34 +6457,218 @@ async function startServer() {
     }
   });
 
-  // 7. Community Reports (Persisted in PostgreSQL admin_reports table)
+  // 7. Community & Direct Chat Reports (Persisted in PostgreSQL admin_reports table with Immutable Chat Evidence Snapshot)
+  const memoryAdminReports: any[] = [];
+
   app.post("/api/reports", async (req, res) => {
     try {
       const report = req.body || {};
-      const reportId = report.id || ('rep_' + Date.now());
+      const caller = extractRequestUser(req);
+      const reportId = sanitizeServerText(report.id || ('rep_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6)), 100);
+      const chatId = sanitizeServerText(report.chatId || report.conversationId || report.intentId || '', 150);
+      const reporterId = sanitizeServerText(report.reporterId || caller?.uid || report.targetId || 'guest', 150);
+      const reporterName = sanitizeServerText(report.reporterName || report.userName || caller?.name || 'Community Member', 120);
+      const reporterEmail = sanitizeServerText(report.reporterEmail || report.email || caller?.email || '', 150).toLowerCase();
+      const reportedUserId = sanitizeServerText(report.reportedUserId || report.peerId || report.targetId || '', 150);
+      const reportedUserName = sanitizeServerText(report.reportedUserName || report.peerName || '', 120);
+      const reason = sanitizeServerText(report.reason || 'Inappropriate Behavior', 300);
+      const details = sanitizeServerText(report.details || report.description || '', 2000);
+      const blockUser = Boolean(report.blockUser || report.isUserBlocked);
+
+      // Build an immutable, tamper-proof snapshot of all chat messages between the two users
+      const snapshotMap = new Map<string, any>();
+
+      if (Array.isArray(report.chatSnapshot)) {
+        report.chatSnapshot.forEach((m: any, idx: number) => {
+          if (!m) return;
+          const mId = String(m.id || `snap_${idx}_${Date.now()}`);
+          snapshotMap.set(mId, {
+            id: mId,
+            senderId: sanitizeServerText(m.senderId || m.authorId || '', 150),
+            senderName: sanitizeServerText(m.senderName || m.authorName || 'User', 120),
+            senderEmail: sanitizeServerText(m.senderEmail || m.authorEmail || '', 150),
+            receiverId: sanitizeServerText(m.receiverId || '', 150),
+            text: sanitizeServerText(m.text || m.content || m.message || '', 2000),
+            attachmentUrl: m.attachmentUrl || m.attachment_url || null,
+            attachmentType: m.attachmentType || m.attachment_type || null,
+            createdAt: m.createdAt || m.timestamp || new Date().toISOString()
+          });
+        });
+      }
+
+      if (chatId && dbPool && isDbConnected) {
+        try {
+          const dbMsgs = await dbPool.query(
+            "SELECT * FROM messages WHERE intent_id = $1 OR receiver_id = $1 ORDER BY created_at ASC",
+            [chatId]
+          );
+          dbMsgs.rows.forEach((r: any) => {
+            snapshotMap.set(r.id, {
+              id: r.id,
+              senderId: r.sender_id || '',
+              senderName: r.sender_name || 'User',
+              senderEmail: r.sender_email || '',
+              receiverId: r.receiver_id || '',
+              text: r.text || r.content || '',
+              attachmentUrl: r.attachment_url || null,
+              attachmentType: r.attachment_type || null,
+              createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString()
+            });
+          });
+        } catch {}
+
+        try {
+          const dbChats = await dbPool.query(
+            "SELECT * FROM chats WHERE intent_id = $1 OR receiver_id = $1 ORDER BY sent_at ASC",
+            [chatId]
+          );
+          dbChats.rows.forEach((r: any) => {
+            if (!snapshotMap.has(r.id)) {
+              snapshotMap.set(r.id, {
+                id: r.id,
+                senderId: r.sender_id || '',
+                senderName: r.sender_name || 'User',
+                senderEmail: r.sender_email || '',
+                receiverId: r.receiver_id || '',
+                text: r.message || '',
+                attachmentUrl: null,
+                attachmentType: null,
+                createdAt: r.sent_at ? new Date(r.sent_at).toISOString() : new Date().toISOString()
+              });
+            }
+          });
+        } catch {}
+      }
+
+      if (chatId) {
+        try {
+          const allLocalMsgs = readJsonFile<Record<string, any[]>>(MESSAGES_FILE, {});
+          const fileThread = allLocalMsgs[chatId] || [];
+          fileThread.forEach((m: any) => {
+            if (m && m.id && !snapshotMap.has(m.id)) {
+              snapshotMap.set(m.id, {
+                id: m.id,
+                senderId: m.senderId || m.authorId || '',
+                senderName: m.senderName || m.authorName || 'User',
+                senderEmail: m.senderEmail || m.authorEmail || '',
+                receiverId: m.receiverId || '',
+                text: m.text || m.content || m.message || '',
+                attachmentUrl: m.attachmentUrl || null,
+                attachmentType: m.attachmentType || null,
+                createdAt: m.createdAt || new Date().toISOString()
+              });
+            }
+          });
+        } catch {}
+      }
+
+      const finalChatSnapshot = Array.from(snapshotMap.values()).sort(
+        (a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime()
+      );
+      const reportType = chatId || finalChatSnapshot.length > 0 ? 'chat_report' : (report.reportType || 'general');
+
+      // If reporter also opted to block the reported user, record the block immediately
+      if (blockUser && reporterId && (reportedUserId || chatId)) {
+        const blockId = `blk_${chatId || "chat"}_${reporterId}_${reportedUserId || "peer"}`.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 140);
+        const blockEntry = {
+          id: blockId,
+          blockerId: reporterId,
+          blockerEmail: reporterEmail,
+          blockedId: reportedUserId || chatId,
+          blockedName: reportedUserName || "Reported User",
+          chatId,
+          reason,
+          createdAt: new Date().toISOString()
+        };
+        if (dbPool && isDbConnected) {
+          await dbPool.query(
+            `INSERT INTO blocked_users (id, blocker_id, blocker_email, blocked_id, blocked_name, chat_id, reason, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+             ON CONFLICT (id) DO UPDATE SET reason = EXCLUDED.reason, created_at = NOW()`,
+            [blockEntry.id, blockEntry.blockerId, blockEntry.blockerEmail, blockEntry.blockedId, blockEntry.blockedName, blockEntry.chatId, blockEntry.reason]
+          ).catch(() => {});
+        }
+        const existingIdx = memoryChatBlocks.findIndex((b) => b.id === blockEntry.id);
+        if (existingIdx >= 0) memoryChatBlocks[existingIdx] = blockEntry;
+        else memoryChatBlocks.unshift(blockEntry);
+      }
+
       const record = {
         id: reportId,
-        createdAt: new Date().toISOString(),
-        ...report
+        reporterId,
+        reporterName,
+        reporterEmail,
+        reportedUserId,
+        reportedUserName,
+        chatId,
+        reportType,
+        reason,
+        details,
+        chatSnapshot: finalChatSnapshot,
+        isUserBlocked: blockUser,
+        status: report.status || 'pending',
+        createdAt: new Date().toISOString()
       };
 
       if (dbPool && isDbConnected) {
         try {
           await dbPool.query(
-            "INSERT INTO admin_reports (id, reporter_id, reporter_name, reason, details, status, reported_at) VALUES ($1, $2, $3, $4, $5, $6, NOW()) ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, details = EXCLUDED.details",
+            `INSERT INTO admin_reports (
+               id, reporter_id, reporter_name, reporter_email, reported_user_id, reported_user_name,
+               chat_id, report_type, reason, details, chat_snapshot, is_user_blocked, status, reported_at
+             )
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, NOW())
+             ON CONFLICT (id) DO UPDATE SET
+               status = EXCLUDED.status,
+               details = EXCLUDED.details,
+               chat_snapshot = COALESCE(EXCLUDED.chat_snapshot, admin_reports.chat_snapshot),
+               is_user_blocked = EXCLUDED.is_user_blocked`,
             [
               record.id,
-              record.reporterId || record.targetId || 'guest',
-              record.reporterName || record.userName || 'Community Member',
-              record.reason || '',
-              record.details || record.description || '',
-              record.status || 'pending_admin_review'
+              record.reporterId,
+              record.reporterName,
+              record.reporterEmail,
+              record.reportedUserId,
+              record.reportedUserName,
+              record.chatId,
+              record.reportType,
+              record.reason,
+              record.details,
+              JSON.stringify(finalChatSnapshot),
+              record.isUserBlocked,
+              record.status
             ]
           );
-        } catch (e) {}
+        } catch (e) {
+          console.warn("[PostgreSQL] admin_reports insert fallback:", e);
+        }
       }
 
-      res.status(201).json({ success: true, id: record.id });
+      memoryAdminReports.unshift(record);
+
+      // Permanently archive chat report & full message transcript in Encrypted Security Vault so it can never be lost even if accounts are deleted
+      if (reportType === 'chat_report') {
+        await archiveToSecurityVault(
+          "help_post",
+          record.id,
+          {
+            id: record.id,
+            name: `Chat Report: ${reporterName} -> ${reportedUserName || 'Peer'}`,
+            email: reporterEmail,
+            reason: record.reason,
+            details: record.details,
+            chatId: record.chatId,
+            reportedUserId: record.reportedUserId,
+            reportedUserName: record.reportedUserName,
+            chatMessagesCount: finalChatSnapshot.length,
+            chatSnapshot: finalChatSnapshot,
+            createdAt: record.createdAt
+          },
+          "ACTIVE_REGISTERED"
+        ).catch(() => {});
+      }
+
+      res.status(201).json({ success: true, id: record.id, report: record });
     } catch (e) {
       res.status(500).json({ error: "Failed to submit report" });
     }
@@ -6192,15 +6682,22 @@ async function startServer() {
           id: r.id,
           reporterId: r.reporter_id || 'guest',
           reporterName: r.reporter_name || 'Community Member',
+          reporterEmail: r.reporter_email || '',
+          reportedUserId: r.reported_user_id || '',
+          reportedUserName: r.reported_user_name || '',
+          chatId: r.chat_id || '',
+          reportType: r.report_type || (Array.isArray(r.chat_snapshot) && r.chat_snapshot.length > 0 ? 'chat_report' : 'general'),
           reason: r.reason || '',
           details: r.details || '',
           description: r.details || '',
-          status: r.status || 'pending_admin_review',
+          chatSnapshot: Array.isArray(r.chat_snapshot) ? r.chat_snapshot : [],
+          isUserBlocked: Boolean(r.is_user_blocked),
+          status: r.status || 'pending',
           createdAt: r.reported_at ? new Date(r.reported_at).toISOString() : new Date().toISOString()
         }));
         return res.json(mapped);
       }
-      res.json([]);
+      res.json(memoryAdminReports);
     } catch (e) {
       res.status(500).json({ error: "Failed to fetch reports" });
     }

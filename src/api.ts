@@ -1683,5 +1683,109 @@ export async function updateAdminSiteLock(
   }
 }
 
+// ==========================================
+// DIRECT CHAT REPORTING (WITH IMMUTABLE EVIDENCE) & USER-TO-USER BLOCKING
+// ==========================================
+
+export async function fetchChatBlockStatus(params: {
+  chatId?: string;
+  userId?: string;
+  peerId?: string;
+}): Promise<{ isBlocked: boolean; blockedByMe: boolean; blockedByPeer: boolean }> {
+  try {
+    const qs = new URLSearchParams();
+    if (params.chatId) qs.set('chatId', params.chatId);
+    if (params.userId) qs.set('userId', params.userId);
+    if (params.peerId) qs.set('peerId', params.peerId);
+    qs.set('_t', String(Date.now()));
+    const res = await fetch(`/api/chat-blocks?${qs.toString()}`, {
+      cache: 'no-store',
+      headers: getAuthHeaders()
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return {
+        isBlocked: Boolean(data.isBlocked),
+        blockedByMe: Boolean(data.blockedByMe),
+        blockedByPeer: Boolean(data.blockedByPeer)
+      };
+    }
+  } catch (e) {}
+  return { isBlocked: false, blockedByMe: false, blockedByPeer: false };
+}
+
+export async function blockUserInChatOnServer(payload: {
+  blockerId: string;
+  blockerEmail?: string;
+  blockedId: string;
+  blockedName?: string;
+  chatId?: string;
+  reason?: string;
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    const res = await fetch('/api/chat-blocks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (res.ok && data.success) return { success: true };
+    return { success: false, error: data.error || 'Failed to block user' };
+  } catch (e: any) {
+    return { success: false, error: e.message || 'Network error while blocking user' };
+  }
+}
+
+export async function unblockUserInChatOnServer(payload: {
+  blockerId: string;
+  blockedId?: string;
+  chatId?: string;
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    const res = await fetch('/api/chat-blocks', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (res.ok && data.success) return { success: true };
+    return { success: false, error: data.error || 'Failed to unblock user' };
+  } catch (e: any) {
+    return { success: false, error: e.message || 'Network error while unblocking user' };
+  }
+}
+
+export async function submitChatReportToServer(payload: {
+  reason: string;
+  details?: string;
+  reporterId: string;
+  reporterName: string;
+  reporterEmail?: string;
+  reportedUserId: string;
+  reportedUserName: string;
+  chatId: string;
+  chatSnapshot: any[];
+  blockUser?: boolean;
+}): Promise<{ success: boolean; report?: any; error?: string }> {
+  try {
+    const res = await fetch('/api/reports', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      body: JSON.stringify({
+        ...payload,
+        reportType: 'chat_report'
+      })
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      return { success: true, report: data.report };
+    }
+    return { success: false, error: data.error || 'Failed to submit chat report' };
+  } catch (e: any) {
+    return { success: false, error: e.message || 'Network error while submitting chat report' };
+  }
+}
+
+
 
 

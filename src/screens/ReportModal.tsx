@@ -6,7 +6,14 @@ import { getCurrentUser } from '../auth';
 
 export default function ReportModal({ onClose }: { onClose: () => void }) {
   const { t } = useLanguage();
-  const [selectedReason, setSelectedReason] = React.useState(t('rep.o1') || 'Fake Profile or Wrong Details');
+  const PROFESSIONAL_REPORT_REASONS = [
+    'अनुचित भाषा या दुर्व्यवहार (Inappropriate Language / Misbehavior)',
+    'धोखाधड़ी या संदिग्ध गतिविधि (Fraud / Suspicious Activity)',
+    'स्पैम या बार-बार परेशान करना (Spam / Unwanted Messages)',
+    'गलत या भ्रामक जानकारी (Fake Profile / Misleading Info)',
+    'अन्य कारण (Other Reason)'
+  ];
+  const [selectedReason, setSelectedReason] = React.useState(PROFESSIONAL_REPORT_REASONS[0]);
   const [isSubmitted, setIsSubmitted] = React.useState(false);
   const [details, setDetails] = React.useState('');
 
@@ -17,7 +24,8 @@ export default function ReportModal({ onClose }: { onClose: () => void }) {
         reason: selectedReason,
         details: details.trim(),
         reporterId: user?.uid || 'guest_user',
-        reporterName: user?.displayName || 'Guest',
+        reporterName: user?.displayName || localStorage.getItem('locohelp_profile_name') || 'Verified User',
+        reporterEmail: user?.email || localStorage.getItem('locohelp_last_logged_in_email') || '',
         reportedAt: new Date().toISOString(),
         status: 'pending_admin_review'
       };
@@ -72,15 +80,15 @@ export default function ReportModal({ onClose }: { onClose: () => void }) {
 
           {!isSubmitted ? (
             <>
-              <div className="space-y-2.5 mb-4">
-                {[t('rep.o1') || 'Fake Profile or Wrong Details', t('rep.o2') || 'Inappropriate Behavior', t('rep.o3') || 'Spam / Scam Offer'].map((reason) => (
+              <div className="space-y-2 mb-4">
+                {PROFESSIONAL_REPORT_REASONS.map((reason) => (
                   <label 
                     key={reason}
                     onClick={() => setSelectedReason(reason)}
-                    className={`flex items-center justify-between p-3.5 rounded-2xl cursor-pointer transition-all border ${selectedReason === reason ? 'bg-rose-50 dark:bg-rose-950/50 border-rose-300 dark:border-rose-700 text-rose-900 dark:text-rose-200 font-extrabold' : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-medium'}`}
+                    className={`flex items-center justify-between p-3 rounded-2xl cursor-pointer transition-all border ${selectedReason === reason ? 'bg-rose-50 dark:bg-rose-950/50 border-rose-300 dark:border-rose-700 text-rose-900 dark:text-rose-200 font-extrabold' : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-medium'}`}
                   >
-                    <span className="text-xs">{reason}</span>
-                    <input type="radio" name="reportReason" checked={selectedReason === reason} onChange={() => setSelectedReason(reason)} className="accent-rose-600" />
+                    <span className="text-xs pr-2">{reason}</span>
+                    <input type="radio" name="reportReason" checked={selectedReason === reason} onChange={() => setSelectedReason(reason)} className="accent-rose-600 shrink-0" />
                   </label>
                 ))}
               </div>

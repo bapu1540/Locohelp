@@ -7,10 +7,26 @@ import { useLanguage } from '../i18n';
 import UserProfileModal from './UserProfileModal';
 import LoginPromptModal from '../components/LoginPromptModal';
 import { isGuestUser } from '../lib/authUtils';
-import { fetchChatMessages, sendChatMessage } from '../api';
+import {
+  fetchChatMessages,
+  sendChatMessage,
+  fetchChatBlockStatus,
+  blockUserInChatOnServer,
+  unblockUserInChatOnServer,
+  submitChatReportToServer
+} from '../api';
 import { validateUploadedFile, sanitizeText } from '../lib/security';
 import { compressImageToWebP } from '../lib/imageCompression';
 import { uploadFileToFirebaseStorage } from '../lib/firebase';
+import { Ban } from 'lucide-react';
+
+const CHAT_REPORT_REASONS = [
+  'अनुचित भाषा या दुर्व्यवहार (Inappropriate Language / Misbehavior)',
+  'धोखाधड़ी या संदिग्ध गतिविधि (Fraud / Suspicious Activity)',
+  'स्पैम या बार-बार परेशान करना (Spam / Unwanted Messages)',
+  'गलत या भ्रामक जानकारी (Fake Profile / Misleading Info)',
+  'अन्य कारण (Other Reason)'
+];
 
 interface ChatScreenProps {
   intent: Intent | null;
@@ -76,6 +92,16 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
   const [zoomedImage, setZoomedImage] = useState<string | null>(null);
   const [isLoginPromptOpen, setIsLoginPromptOpen] = useState(false);
 
+  // Direct Chat Report & User-to-User Block States
+  const [isChatBlocked, setIsChatBlocked] = useState(false);
+  const [blockedByMe, setBlockedByMe] = useState(false);
+  const [isReportChatModalOpen, setIsReportChatModalOpen] = useState(false);
+  const [reportReason, setReportReason] = useState(CHAT_REPORT_REASONS[0]);
+  const [reportDetails, setReportDetails] = useState('');
+  const [alsoBlockUser, setAlsoBlockUser] = useState(true);
+  const [isSubmittingReport, setIsSubmittingReport] = useState(false);
+  const [reportStatusBanner, setReportStatusBanner] = useState<string | null>(null);
+
   // Camera & Media States
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [photoCaptured, setPhotoCaptured] = useState<string | null>(null);
@@ -101,6 +127,17 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
       setSelectedReplierName((intent as any).selectedReplierName || null);
     }
   }, [(intent as any)?.selectedReplierId, (intent as any)?.selectedReplierName]);
+
+  // Check if either user has blocked the other in this chat
+  useEffect(() => {
+    const activeUser = getCurrentUser();
+    const myId = activeUser?.uid || activeUser?.email || '';
+    const peerTargetId = selectedReplierId || intent?.authorId || '';
+    fetchChatBlockStatus({ chatId, userId: myId, peerId: peerTargetId }).then(status => {
+      setIsChatBlocked(status.isBlocked);
+      setBlockedByMe(status.blockedByMe);
+    });
+  }, [chatId, selectedReplierId, intent?.authorId]);
 
   // Auto scroll message list
   useEffect(() => {
@@ -193,9 +230,116 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
     };
   }, [chatId]);
 
+  const handleToggleBlockPeer = async () => {
+    if (isGuestUser()) {
+      setIsLoginPromptOpen(true);
+      return;
+    }
+    const activeUser = getCurrentUser();
+    const myId = activeUser?.uid || activeUser?.email || 'my_user';
+    const myEmail = (activeUser?.email || localStorage.getItem('locohelp_last_logged_in_email') || '').trim().toLowerCase();
+    const peerTargetId = selectedReplierId || intent?.authorId || chatId;
+    const peerTargetName = selectedReplierName || (intent as any)?.authorName || 'User';
+
+    if (isChatBlocked && blockedByMe) {
+      const res = await unblockUserInChatOnServer({
+        blockerId: myId,
+        blockedId: peerTargetId,
+        chatId
+      });
+      if (res.success) {
+        setIsChatBlocked(false);
+        setBlockedByMe(false);
+        setReportStatusBanner('✅ यूज़र को अनब्लॉक कर दिया गया है। अब आप संदेश भेज सकते हैं।');
+        setTimeout(() => setReportStatusBanner(null), 4000);
+      }
+    } else {
+      const res = await blockUserInChatOnServer({
+        blockerId: myId,
+        blockerEmail: myEmail,
+        blockedId: peerTargetId,
+        blockedName: peerTargetName,
+        chatId,
+        reason: 'Blocked directly by user in chat'
+      });
+      if (res.success) {
+        setIsChatBlocked(true);
+        setBlockedByMe(true);
+        setReportStatusBanner('🚫 इस यूज़र को ब्लॉक कर दिया गया है। अब यह आपको संदेश नहीं भेज सकेगा।');
+        setTimeout(() => setReportStatusBanner(null), 4000);
+      }
+    }
+  };
+
+  const handleSubmitChatReport = async () => {
+    if (isGuestUser()) {
+      setIsLoginPromptOpen(true);
+      return;
+    }
+    setIsSubmittingReport(true);
+    try {
+      const activeUser = getCurrentUser();
+      const myId = activeUser?.uid || activeUser?.email || 'my_user';
+      const myEmail = (activeUser?.email || localStorage.getItem('locohelp_last_logged_in_email') || '').trim().toLowerCase();
+      const myName =
+        activeUser?.displayName ||
+        localStorage.getItem('locohelp_profile_name') ||
+        (myEmail ? myEmail.split('@')[0] : 'Verified User');
+      const peerTargetId = selectedReplierId || intent?.authorId || chatId;
+      const peerTargetName = selectedReplierName || (intent as any)?.authorName || 'Community Peer';
+
+      const snapshotToSave = visibleMessages.map(m => ({
+        id: m.id,
+        senderId: m.sender_id || m.authorId,
+        senderName: m.authorName || m.sender_name || 'User',
+        senderEmail: m.senderEmail || m.sender_email || '',
+        receiverId: m.receiverId || '',
+        text: m.text,
+        type: m.type || 'text',
+        attachmentUrl: m.attachmentUrl || '',
+        createdAt: m.createdAt || new Date().toISOString()
+      }));
+
+      const res = await submitChatReportToServer({
+        reason: reportReason,
+        details: reportDetails.trim(),
+        reporterId: myId,
+        reporterName: myName,
+        reporterEmail: myEmail,
+        reportedUserId: peerTargetId,
+        reportedUserName: peerTargetName,
+        chatId,
+        chatSnapshot: snapshotToSave,
+        blockUser: alsoBlockUser
+      });
+
+      if (res.success) {
+        if (alsoBlockUser) {
+          setIsChatBlocked(true);
+          setBlockedByMe(true);
+        }
+        setIsReportChatModalOpen(false);
+        setReportDetails('');
+        setReportStatusBanner(
+          alsoBlockUser
+            ? '🛡️ चैट रिपोर्ट और संपूर्ण बातचीत का रिकॉर्ड एडमिन को भेज दिया गया है तथा इस यूज़र को ब्लॉक कर दिया गया है।'
+            : '🛡️ चैट रिपोर्ट और संपूर्ण बातचीत का रिकॉर्ड एडमिन को भेज दिया गया है।'
+        );
+        setTimeout(() => setReportStatusBanner(null), 6000);
+      }
+    } finally {
+      setIsSubmittingReport(false);
+    }
+  };
+
   const handleSend = async (textToSend: string, type: 'text' | 'pin' | 'attachment' | 'task_completed' = 'text', attachmentUrl?: string, attachmentType?: string) => {
     if (isGuestUser()) {
       setIsLoginPromptOpen(true);
+      return;
+    }
+    if (isChatBlocked) {
+      setReportStatusBanner('🚫 यह चैट ब्लॉक है। संदेश भेजने के लिए पहले अनब्लॉक करें।');
+      setTimeout(() => setReportStatusBanner(null), 4000);
       return;
     }
     const trimmed = sanitizeText(textToSend.trim(), 2000);
@@ -208,7 +352,7 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
     const activeName =
       activeUser?.displayName ||
       localStorage.getItem('locohelp_profile_name') ||
-      (activeEmail ? activeEmail.split('@')[0] : 'Community Member');
+      (activeEmail ? activeEmail.split('@')[0] : 'Verified User');
     const activeAvatar = activeUser?.photoURL || localStorage.getItem('locohelp_profile_photo') || '';
 
     const messageData: any = {
@@ -555,9 +699,21 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
           </button>
 
           <button 
-            onClick={onReport}
-            className="p-2 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-xl transition-colors cursor-pointer"
-            title="Report"
+            onClick={handleToggleBlockPeer}
+            className={`p-2 rounded-xl transition-colors cursor-pointer flex items-center gap-1 ${
+              isChatBlocked && blockedByMe
+                ? 'bg-rose-600 text-white'
+                : 'hover:bg-rose-50 text-slate-400 hover:text-rose-600'
+            }`}
+            title={isChatBlocked && blockedByMe ? 'Unblock User' : 'Block User'}
+          >
+            <Ban className="w-4 h-4" />
+          </button>
+
+          <button 
+            onClick={() => setIsReportChatModalOpen(true)}
+            className="p-2 hover:bg-rose-50 text-rose-500 hover:text-rose-600 rounded-xl transition-colors cursor-pointer"
+            title="Report Chat & User to Admin"
           >
             <ShieldAlert className="w-4 h-4" />
           </button>
@@ -572,6 +728,14 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
         </div>
         <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 shrink-0">{peerDistance}km</span>
       </div>
+
+      {/* Report / Block Status Notification Banner */}
+      {reportStatusBanner && (
+        <div className="px-4 py-2.5 bg-rose-600 text-white text-xs font-bold flex items-center justify-between gap-2 shadow-sm">
+          <span>{reportStatusBanner}</span>
+          <button onClick={() => setReportStatusBanner(null)} className="text-white/80 hover:text-white cursor-pointer">✕</button>
+        </div>
+      )}
 
       {/* WhatsApp-Style Replier Thread Switcher (When multiple users reply to this post) */}
       {distinctRepliers.length > 0 && (
@@ -742,86 +906,221 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
 
       {/* 3. CLEAN BOTTOM ACTION BAR & INPUT */}
       <div className="p-3 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 flex flex-col gap-2 shadow-lg">
-        
-        {/* Quick Toolbar */}
-        <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide text-xs font-bold">
-          {/* Photo Upload from Gallery */}
-          <button
-            type="button"
-            onClick={() => imageInputRef.current?.click()}
-            className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-xl flex items-center gap-1.5 shrink-0 active:scale-95 transition-all cursor-pointer"
-            title="Upload Photo"
-          >
-            <ImageIcon className="w-3.5 h-3.5" />
-            <span>फोटो अपलोड</span>
-          </button>
-          <input type="file" ref={imageInputRef} className="hidden" onChange={handleFileUpload} accept="image/*" />
+        {isChatBlocked ? (
+          <div className="p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 flex flex-col sm:flex-row items-center justify-between gap-2 text-center sm:text-left">
+            <div className="flex items-center gap-2 text-xs font-extrabold text-rose-700 dark:text-rose-300">
+              <Ban className="w-4 h-4 shrink-0" />
+              <span>
+                {blockedByMe
+                  ? 'आपने इस यूज़र को ब्लॉक किया है। अब कोई भी संदेश नहीं भेजा जा सकता।'
+                  : 'यह बातचीत ब्लॉक कर दी गई है। संदेश नहीं भेजे जा सकते।'}
+              </span>
+            </div>
+            {blockedByMe && (
+              <button
+                type="button"
+                onClick={handleToggleBlockPeer}
+                className="px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-black shrink-0 cursor-pointer"
+              >
+                अनब्लॉक करें (Unblock)
+              </button>
+            )}
+          </div>
+        ) : (
+          <>
+            {/* Quick Toolbar */}
+            <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide text-xs font-bold">
+              {/* Photo Upload from Gallery */}
+              <button
+                type="button"
+                onClick={() => imageInputRef.current?.click()}
+                className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-xl flex items-center gap-1.5 shrink-0 active:scale-95 transition-all cursor-pointer"
+                title="Upload Photo"
+              >
+                <ImageIcon className="w-3.5 h-3.5" />
+                <span>फोटो अपलोड</span>
+              </button>
+              <input type="file" ref={imageInputRef} className="hidden" onChange={handleFileUpload} accept="image/*" />
 
-          {/* Camera Capture */}
-          <button
-            type="button"
-            onClick={startCamera}
-            className="px-3 py-1.5 bg-amber-50 dark:bg-amber-950/60 hover:bg-amber-100 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 rounded-xl flex items-center gap-1.5 shrink-0 active:scale-95 transition-all cursor-pointer"
-            title="Camera Photo"
-          >
-            <Camera className="w-3.5 h-3.5" />
-            <span>कैमरा फोटो</span>
-          </button>
+              {/* Camera Capture */}
+              <button
+                type="button"
+                onClick={startCamera}
+                className="px-3 py-1.5 bg-amber-50 dark:bg-amber-950/60 hover:bg-amber-100 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 rounded-xl flex items-center gap-1.5 shrink-0 active:scale-95 transition-all cursor-pointer"
+                title="Camera Photo"
+              >
+                <Camera className="w-3.5 h-3.5" />
+                <span>कैमरा फोटो</span>
+              </button>
 
-          {/* Map Location Button */}
-          <button
-            type="button"
-            onClick={() => setIsMapModalOpen(true)}
-            className="px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-xl flex items-center gap-1.5 shrink-0 active:scale-95 transition-all cursor-pointer"
-            title="View Map Location"
-          >
-            <MapPin className="w-3.5 h-3.5" />
-            <span>मैप लोकेशन</span>
-          </button>
+              {/* Map Location Button */}
+              <button
+                type="button"
+                onClick={() => setIsMapModalOpen(true)}
+                className="px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-xl flex items-center gap-1.5 shrink-0 active:scale-95 transition-all cursor-pointer"
+                title="View Map Location"
+              >
+                <MapPin className="w-3.5 h-3.5" />
+                <span>मैप लोकेशन</span>
+              </button>
 
-          {/* WhatsApp Family Safety */}
-          <button
-            type="button"
-            onClick={() => setIsFamilyShareOpen(true)}
-            className="px-3 py-1.5 bg-teal-50 dark:bg-teal-950/60 hover:bg-teal-100 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800 rounded-xl flex items-center gap-1.5 shrink-0 active:scale-95 transition-all cursor-pointer"
-          >
-            <Share2 className="w-3.5 h-3.5" />
-            <span>WhatsApp फैमली</span>
-          </button>
-        </div>
+              {/* Direct Report Chat Button in Toolbar */}
+              <button
+                type="button"
+                onClick={() => setIsReportChatModalOpen(true)}
+                className="px-3 py-1.5 bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 rounded-xl flex items-center gap-1.5 shrink-0 active:scale-95 transition-all cursor-pointer"
+                title="Report Chat or Block User"
+              >
+                <ShieldAlert className="w-3.5 h-3.5" />
+                <span>रिपोर्ट / ब्लॉक</span>
+              </button>
+            </div>
 
-        {/* Text Input Form */}
-        <form 
-          onSubmit={(e) => {
-            e.preventDefault();
-            handleSend(input);
-          }}
-          className="flex items-center gap-2"
-        >
-          <input 
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
+            {/* Text Input Form */}
+            <form 
+              onSubmit={(e) => {
                 e.preventDefault();
                 handleSend(input);
-              }
-            }}
-            placeholder="Type message here..."
-            className="flex-1 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-full px-4 py-2.5 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 outline-none focus:border-indigo-500 font-medium"
-          />
+              }}
+              className="flex items-center gap-2"
+            >
+              <input 
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSend(input);
+                  }
+                }}
+                placeholder="Type message here..."
+                className="flex-1 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-full px-4 py-2.5 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 outline-none focus:border-indigo-500 font-medium"
+              />
 
-          <button 
-            type="submit"
-            disabled={!input.trim()}
-            className="p-3 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white rounded-full active:scale-95 transition-all shadow-md shrink-0 flex items-center justify-center cursor-pointer"
-            title="Send Message"
-          >
-            <Send className="w-4 h-4" />
-          </button>
-        </form>
+              <button 
+                type="submit"
+                disabled={!input.trim()}
+                className="p-3 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white rounded-full active:scale-95 transition-all shadow-md shrink-0 flex items-center justify-center cursor-pointer"
+                title="Send Message"
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            </form>
+          </>
+        )}
       </div>
+
+      {/* Direct Chat Report & Block Modal */}
+      <AnimatePresence>
+        {isReportChatModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 w-full max-w-md shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2.5 rounded-2xl bg-rose-50 dark:bg-rose-950/70 border border-rose-200 dark:border-rose-800 text-rose-600">
+                    <ShieldAlert className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm sm:text-base font-black text-slate-900 dark:text-white">
+                      चैट की रिपोर्ट करें (Report Chat to Admin)
+                    </h3>
+                    <p className="text-[11px] text-rose-600 dark:text-rose-400 font-bold">
+                      Reported User: {peerName}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsReportChatModalOpen(false)}
+                  className="p-1.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[11px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 block">
+                  रिपोर्ट का कारण चुनें (Select Reason):
+                </label>
+                {CHAT_REPORT_REASONS.map((reason) => (
+                  <label
+                    key={reason}
+                    onClick={() => setReportReason(reason)}
+                    className={`flex items-center justify-between p-3 rounded-2xl cursor-pointer transition-all border ${
+                      reportReason === reason
+                        ? 'bg-rose-50 dark:bg-rose-950/50 border-rose-400 dark:border-rose-700 text-rose-900 dark:text-rose-200 font-extrabold'
+                        : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-medium'
+                    }`}
+                  >
+                    <span className="text-xs pr-2">{reason}</span>
+                    <input
+                      type="radio"
+                      name="chatReportReason"
+                      checked={reportReason === reason}
+                      onChange={() => setReportReason(reason)}
+                      className="accent-rose-600 shrink-0"
+                    />
+                  </label>
+                ))}
+              </div>
+
+              <textarea
+                value={reportDetails}
+                onChange={(e) => setReportDetails(e.target.value)}
+                rows={2}
+                placeholder="अतिरिक्त विवरण लिखें (वैकल्पिक / Optional details)..."
+                className="w-full rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 outline-none focus:border-rose-500 resize-none font-medium"
+              />
+
+              <label className="flex items-center gap-2.5 p-3 rounded-2xl bg-rose-50/70 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/80 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={alsoBlockUser}
+                  onChange={(e) => setAlsoBlockUser(e.target.checked)}
+                  className="w-4 h-4 accent-rose-600 rounded"
+                />
+                <div className="text-xs">
+                  <span className="font-black text-rose-900 dark:text-rose-200 block">
+                    🚫 इस यूज़र को ब्लॉक भी करें (Also block this user)
+                  </span>
+                  <span className="text-[10px] text-rose-700 dark:text-rose-300 font-medium">
+                    ब्लॉक करने पर यह यूज़र आपको आगे कोई संदेश नहीं भेज पाएगा।
+                  </span>
+                </div>
+              </label>
+
+              <div className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800/80 text-[10px] text-slate-600 dark:text-slate-300 font-semibold leading-relaxed">
+                🛡️ <strong>सुरक्षा नोट:</strong> रिपोर्ट सबमिट करने पर इस चैट की संपूर्ण बातचीत का रिकॉर्ड (Evidence Snapshot) एडमिन के पास सुरक्षित सेव हो जाएगा, भले ही कोई यूज़र बाद में अपनी चैट या अकाउंट डिलीट कर दे।
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsReportChatModalOpen(false)}
+                  className="flex-1 py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-extrabold cursor-pointer"
+                >
+                  रद्द करें (Cancel)
+                </button>
+                <button
+                  type="button"
+                  disabled={isSubmittingReport}
+                  onClick={handleSubmitChatReport}
+                  className="flex-1 py-3 rounded-2xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-black shadow-lg shadow-rose-600/25 flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <ShieldAlert className="w-4 h-4" />
+                  <span>{isSubmittingReport ? 'भेजा जा रहा है...' : 'रिपोर्ट सबमिट करें'}</span>
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Camera Capture Modal */}
       <AnimatePresence>

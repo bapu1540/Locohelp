@@ -30,14 +30,32 @@ export default function PublicSuggestionsBanner({
 
   const guestMode = isGuestUser() && !activeUser?.email && !activeUser?.uid;
 
+  const isGenericPlaceholderName = (val?: string | null) => {
+    const n = String(val || '').trim().toLowerCase();
+    return (
+      !n ||
+      n === 'locohelp member' ||
+      n === 'locohelp members' ||
+      n === 'community member' ||
+      n === 'guest user' ||
+      n === 'guest' ||
+      n === 'user' ||
+      n === 'member' ||
+      n === 'anonymous'
+    );
+  };
+
   useEffect(() => {
     const profile = getUserProfile();
-    const resolvedName =
-      activeUser?.name ||
-      activeUser?.displayName ||
-      (profile.displayName && profile.displayName !== 'Guest User' ? profile.displayName : '');
-    if (resolvedName) {
-      setNameInput(resolvedName);
+    const candidates = [
+      activeUser?.name,
+      activeUser?.displayName,
+      profile.displayName,
+      localStorage.getItem('locohelp_profile_name')
+    ];
+    const validRealName = candidates.find((c) => c && !isGenericPlaceholderName(c));
+    if (validRealName) {
+      setNameInput(String(validRealName).trim());
     }
   }, [activeUser]);
 
@@ -85,14 +103,21 @@ export default function PublicSuggestionsBanner({
       return;
     }
 
+    const cleanName = nameInput.trim();
+    if (cleanName.length < 2 || isGenericPlaceholderName(cleanName)) {
+      if (showToast) {
+        showToast(
+          language === 'EN'
+            ? '⚠️ Please enter your real full name (Mandatory) to submit a suggestion.'
+            : '⚠️ सुझाव देने के लिए कृपया अपना असली पूरा नाम लिखें (अनिवार्य)।'
+        );
+      }
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const profile = getUserProfile();
-      const finalName =
-        nameInput.trim() ||
-        activeUser?.name ||
-        activeUser?.displayName ||
-        (profile.displayName && profile.displayName !== 'Guest User' ? profile.displayName : 'Community Member');
       const finalEmail = activeUser?.email || profile.email || '';
       const finalAvatar =
         activeUser?.photoURL ||
@@ -100,11 +125,14 @@ export default function PublicSuggestionsBanner({
         profile.photoURL ||
         'https://lh3.googleusercontent.com/a/default-user';
 
-      const res = await submitPublicSuggestion(cleanContent, finalName, finalEmail, finalAvatar);
+      const res = await submitPublicSuggestion(cleanContent, cleanName, finalEmail, finalAvatar);
       if (res.success && res.suggestion) {
+        try {
+          localStorage.setItem('locohelp_profile_name', cleanName);
+        } catch {}
         setSuggestions(prev => [res.suggestion!, ...prev]);
         setContentInput('');
-        if (showToast) showToast('✅ आपका सुझाव सफलतापूर्वक पोस्ट हो गया! धन्यवाद।');
+        if (showToast) showToast('✅ आपका सुझाव आपके नाम के साथ सफलतापूर्वक पोस्ट हो गया! धन्यवाद।');
       } else {
         if (res.error && (res.error.toLowerCase().includes('auth') || res.error.toLowerCase().includes('login') || res.error.toLowerCase().includes('unauthorized'))) {
           if (onRequireLogin) onRequireLogin();
@@ -231,6 +259,7 @@ export default function PublicSuggestionsBanner({
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
             <input
               type="text"
+              required
               value={nameInput}
               onFocus={() => {
                 if (guestMode) handleRequireAuthIfGuest();
@@ -244,12 +273,12 @@ export default function PublicSuggestionsBanner({
               }}
               placeholder={
                 language === 'EN'
-                  ? 'Your Name'
+                  ? 'Enter Your Real Full Name *'
                   : language === 'GU'
-                  ? 'તમારું નામ'
-                  : 'आपका नाम'
+                  ? 'તમારું સાચું પૂરું નામ લખો *'
+                  : 'अपना असली पूरा नाम लिखें (अनिवार्य) *'
               }
-              className="px-3.5 py-2 rounded-xl bg-blue-50/50 dark:bg-slate-800/90 border border-blue-200 dark:border-slate-700 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-[#0066FF] sm:w-64 font-semibold"
+              className="px-3.5 py-2 rounded-xl bg-blue-50/50 dark:bg-slate-800/90 border border-blue-200 dark:border-slate-700 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-[#0066FF] sm:w-72 font-semibold"
             />
 
             {guestMode ? (
@@ -270,7 +299,7 @@ export default function PublicSuggestionsBanner({
             ) : (
               <button
                 type="submit"
-                disabled={isSubmitting || !contentInput.trim()}
+                disabled={isSubmitting || !contentInput.trim() || !nameInput.trim()}
                 className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#FF8800] to-[#FF5500] hover:from-[#FF7700] hover:to-[#E64A00] text-white font-black text-xs flex items-center justify-center gap-1.5 shadow-md shadow-orange-500/25 active:scale-95 transition-all cursor-pointer disabled:opacity-50 shrink-0"
               >
                 <Send className="w-3.5 h-3.5" />
@@ -326,7 +355,11 @@ export default function PublicSuggestionsBanner({
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2 mb-1">
                       <span className="text-xs font-black text-[#0066FF] dark:text-blue-300 truncate">
-                        {s.userName || 'Community Member'}
+                        {!isGenericPlaceholderName(s.userName)
+                          ? s.userName
+                          : s.userEmail
+                          ? s.userEmail.split('@')[0]
+                          : 'Verified User'}
                       </span>
                       <span className="text-[10px] text-slate-400 font-semibold shrink-0">
                         {s.createdAt ? new Date(s.createdAt).toLocaleDateString() : 'Just now'}
