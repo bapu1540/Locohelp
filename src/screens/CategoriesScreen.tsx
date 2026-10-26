@@ -155,10 +155,6 @@ export default function CategoriesScreen({
   };
 
   const loadCategoryImages = () => {
-    const cached = getCachedCategoryImages();
-    if (cached && Object.keys(cached).length > 0) {
-      setCategoryImages(prev => ({ ...prev, ...cached }));
-    }
     fetchCategoryImages().then(imgs => {
       if (imgs && typeof imgs === 'object') {
         setCategoryImages(imgs);

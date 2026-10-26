@@ -259,7 +259,19 @@ export async function broadcastIntentToServer(intent: Intent): Promise<Intent> {
   try {
     const stored = localStorage.getItem('locohelp_custom_intents');
     const existing: Intent[] = stored ? JSON.parse(stored) : [];
-    localStorage.setItem('locohelp_custom_intents', JSON.stringify([cleanIntent, ...existing.slice(0, 50)]));
+    localStorage.setItem('locohelp_custom_intents', JSON.stringify([cleanIntent, ...existing.filter(i => i.id !== cleanIntent.id).slice(0, 50)]));
+
+    const cachedRaw = localStorage.getItem('locohelp_cached_intents');
+    const existingCached: Intent[] = cachedRaw ? JSON.parse(cachedRaw) : [];
+    localStorage.setItem('locohelp_cached_intents', JSON.stringify([cleanIntent, ...existingCached.filter(i => i.id !== cleanIntent.id).slice(0, 50)]));
+
+    // Ensure any previous deleted-description entry with the same text does not hide this new post
+    const descRaw = localStorage.getItem('locohelp_deleted_descs');
+    if (descRaw && cleanIntent.description) {
+      const delDescs: string[] = JSON.parse(descRaw);
+      const filteredDescs = delDescs.filter(d => d !== cleanIntent.description.trim());
+      localStorage.setItem('locohelp_deleted_descs', JSON.stringify(filteredDescs));
+    }
   } catch (e) {}
 
   try {
@@ -281,6 +293,15 @@ export async function broadcastIntentToServer(intent: Intent): Promise<Intent> {
     if (res.ok) {
       recordPostCreatedTimestamp();
       const saved = await res.json();
+      try {
+        const stored = localStorage.getItem('locohelp_custom_intents');
+        const existing: Intent[] = stored ? JSON.parse(stored) : [];
+        localStorage.setItem('locohelp_custom_intents', JSON.stringify([saved, ...existing.filter(i => i.id !== saved.id && i.id !== cleanIntent.id).slice(0, 50)]));
+
+        const cachedRaw = localStorage.getItem('locohelp_cached_intents');
+        const existingCached: Intent[] = cachedRaw ? JSON.parse(cachedRaw) : [];
+        localStorage.setItem('locohelp_cached_intents', JSON.stringify([saved, ...existingCached.filter(i => i.id !== saved.id && i.id !== cleanIntent.id).slice(0, 50)]));
+      } catch {}
       return saved;
     }
   } catch (err: any) {
@@ -1216,6 +1237,13 @@ export function getCachedCategoryImages(): Record<string, string> {
 }
 
 export async function fetchCategoryImages(): Promise<Record<string, string>> {
+  try {
+    if (localStorage.getItem('locohelp_cat_images_purged_v2') !== 'true') {
+      localStorage.removeItem('locohelp_category_images');
+      localStorage.setItem('locohelp_cat_images_purged_v2', 'true');
+    }
+  } catch {}
+
   let deletedCats: string[] = [];
   try {
     const delRaw = localStorage.getItem('locohelp_deleted_category_images');
@@ -1370,7 +1398,6 @@ export async function syncBrowserDataToPostgres(): Promise<void> {
   try {
     const users: any[] = [];
     const profiles: any[] = [];
-    let categories: Record<string, string> = {};
     let businesses: any[] = [];
     let ads: any[] = [];
     let posts: any[] = [];
@@ -1382,13 +1409,6 @@ export async function syncBrowserDataToPostgres(): Promise<void> {
         if (u && (u.uid || u.id || u.email)) {
           users.push(u);
         }
-      }
-    } catch {}
-
-    try {
-      const catRaw = localStorage.getItem('locohelp_category_images');
-      if (catRaw) {
-        categories = JSON.parse(catRaw) || {};
       }
     } catch {}
 
@@ -1438,8 +1458,6 @@ export async function syncBrowserDataToPostgres(): Promise<void> {
       body: JSON.stringify({
         user: users[0] || null,
         users,
-        categories,
-        categoryImages: categories,
         profiles,
         helpers: profiles,
         businesses,

@@ -76,10 +76,6 @@ export default function HomeScreen({
 
   useEffect(() => {
     const syncCatImages = () => {
-      const cached = getCachedCategoryImages();
-      if (cached && Object.keys(cached).length > 0) {
-        setCategoryImages(prev => ({ ...prev, ...cached }));
-      }
       fetchCategoryImages().then(imgs => {
         if (imgs && typeof imgs === 'object') {
           setCategoryImages(imgs);
@@ -665,41 +661,35 @@ export default function HomeScreen({
   const mergeAndDeduplicateIntents = (incoming: Intent[]) => {
     setIntents(prev => {
       let deletedIds: string[] = [];
-      let deletedDescs: string[] = [];
+      let recentCustom: Intent[] = [];
       try {
         const idRaw = localStorage.getItem('locohelp_deleted_posts');
         if (idRaw) deletedIds = JSON.parse(idRaw);
-        const descRaw = localStorage.getItem('locohelp_deleted_descs');
-        if (descRaw) deletedDescs = JSON.parse(descRaw);
+        const customRaw = localStorage.getItem('locohelp_custom_intents');
+        if (customRaw) {
+          const parsed: Intent[] = JSON.parse(customRaw);
+          const now = Date.now();
+          // Preserve newly created user posts (within last 60 minutes) so background polls never wipe them
+          recentCustom = parsed.filter(item => {
+            if (!item || !item.id || deletedIds.includes(item.id)) return false;
+            const createdMs = new Date(item.createdAt || 0).getTime();
+            return now - createdMs < 60 * 60 * 1000;
+          });
+        }
       } catch (e) {
         console.warn("Deleted posts sync error:", e);
       }
 
-      const all = [...incoming, ...prev];
+      const all = [...incoming, ...recentCustom, ...prev];
       const seenIds = new Set<string>();
-      const seenTexts = new Map<string, number>();
       const result: Intent[] = [];
 
       for (const item of all) {
         if (!item || !item.id) continue;
         if (deletedIds.includes(item.id)) continue;
-        const normDesc = item.description?.trim();
-        if (normDesc && deletedDescs.includes(normDesc)) continue;
         if (seenIds.has(item.id)) continue;
 
-        const lowerText = normDesc?.toLowerCase() || '';
-        const itemTime = new Date(item.createdAt || 0).getTime();
-
-        // Prevent double broadcast (identical text within 2 minutes)
-        if (lowerText && seenTexts.has(lowerText)) {
-          const existingTime = seenTexts.get(lowerText)!;
-          if (Math.abs(itemTime - existingTime) < 120000) {
-            continue;
-          }
-        }
-
         seenIds.add(item.id);
-        if (lowerText) seenTexts.set(lowerText, itemTime);
         result.push(item);
       }
 
@@ -719,14 +709,7 @@ export default function HomeScreen({
     try {
       const serverIntents = await fetchLiveIntents();
       if (serverIntents && Array.isArray(serverIntents)) {
-        if (serverIntents.length > 0) {
-          mergeAndDeduplicateIntents(serverIntents);
-        } else {
-          setIntents([]);
-          try {
-            localStorage.setItem('locohelp_cached_intents', JSON.stringify([]));
-          } catch {}
-        }
+        mergeAndDeduplicateIntents(serverIntents);
       }
     } catch (err) {
       console.warn("Live broadcast sync notice:", err);
@@ -840,29 +823,22 @@ export default function HomeScreen({
     );
     setTimeout(() => setCreatedToast(null), 3500);
 
-    // 3. Add to local deleted lists
+    // 3. Add to local deleted lists (by exact post ID only)
     try {
       const deletedIds: string[] = JSON.parse(localStorage.getItem('locohelp_deleted_posts') || '[]');
       if (!deletedIds.includes(intentId)) {
         deletedIds.push(intentId);
         localStorage.setItem('locohelp_deleted_posts', JSON.stringify(deletedIds));
       }
-      if (targetDesc) {
-        const deletedDescs: string[] = JSON.parse(localStorage.getItem('locohelp_deleted_descs') || '[]');
-        if (!deletedDescs.includes(targetDesc)) {
-          deletedDescs.push(targetDesc);
-          localStorage.setItem('locohelp_deleted_descs', JSON.stringify(deletedDescs));
-        }
-      }
 
       const storedCustom = localStorage.getItem('locohelp_custom_intents');
       if (storedCustom) {
-        const arr = JSON.parse(storedCustom).filter((i: any) => i.id !== intentId && (!targetDesc || i.description?.trim() !== targetDesc));
+        const arr = JSON.parse(storedCustom).filter((i: any) => i.id !== intentId);
         localStorage.setItem('locohelp_custom_intents', JSON.stringify(arr));
       }
       const storedCached = localStorage.getItem('locohelp_cached_intents');
       if (storedCached) {
-        const arr = JSON.parse(storedCached).filter((i: any) => i.id !== intentId && (!targetDesc || i.description?.trim() !== targetDesc));
+        const arr = JSON.parse(storedCached).filter((i: any) => i.id !== intentId);
         localStorage.setItem('locohelp_cached_intents', JSON.stringify(arr));
       }
       const myIds = JSON.parse(localStorage.getItem('locohelp_my_post_ids') || '[]');
@@ -1842,6 +1818,17 @@ export default function HomeScreen({
           <PublicSuggestionsBanner
             language={language}
             activeUser={activeUser}
+            onRequireLogin={() => {
+              setLoginPromptTitle({
+                en: 'Sign In Required to Share Suggestion',
+                hi: 'सुझाव साझा करने के लिए लॉगिन करें'
+              });
+              setLoginPromptDesc({
+                en: 'Please sign in with your verified account to post a public suggestion on LocoHelp.',
+                hi: 'लोकोहेल्प की सार्वजनिक सुझाव पेटी में अपना विचार लिखने के लिए कृपया लॉगिन करें।'
+              });
+              setIsLoginPromptOpen(true);
+            }}
             showToast={(msg) => {
               setCreatedToast(msg);
               setTimeout(() => setCreatedToast(null), 3200);

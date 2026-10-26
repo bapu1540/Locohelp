@@ -1,21 +1,24 @@
 import React, { useState, useEffect } from 'react';
-import { Lightbulb, Send, Heart, MessageSquare, Sparkles, CheckCircle2 } from 'lucide-react';
+import { Lightbulb, Send, Heart, MessageSquare, LogIn, Sparkles } from 'lucide-react';
 import {
   fetchPublicSuggestions,
   submitPublicSuggestion,
   likePublicSuggestion,
   PublicSuggestion
 } from '../api';
+import { isGuestUser, getUserProfile } from '../lib/authUtils';
 
 interface PublicSuggestionsBannerProps {
   language?: 'EN' | 'HI' | 'GU';
   activeUser?: any;
+  onRequireLogin?: () => void;
   showToast?: (msg: string) => void;
 }
 
 export default function PublicSuggestionsBanner({
   language = 'HI',
   activeUser,
+  onRequireLogin,
   showToast
 }: PublicSuggestionsBannerProps) {
   const [suggestions, setSuggestions] = useState<PublicSuggestion[]>([]);
@@ -25,9 +28,16 @@ export default function PublicSuggestionsBanner({
   const [isLoading, setIsLoading] = useState(true);
   const [likedIds, setLikedIds] = useState<Record<string, boolean>>({});
 
+  const guestMode = isGuestUser() && !activeUser?.email && !activeUser?.uid;
+
   useEffect(() => {
-    if (activeUser?.name || activeUser?.displayName) {
-      setNameInput(activeUser.name || activeUser.displayName);
+    const profile = getUserProfile();
+    const resolvedName =
+      activeUser?.name ||
+      activeUser?.displayName ||
+      (profile.displayName && profile.displayName !== 'Guest User' ? profile.displayName : '');
+    if (resolvedName) {
+      setNameInput(resolvedName);
     }
   }, [activeUser]);
 
@@ -47,8 +57,28 @@ export default function PublicSuggestionsBanner({
     loadSuggestions();
   }, []);
 
+  const handleRequireAuthIfGuest = (): boolean => {
+    if (isGuestUser() && !activeUser?.email && !activeUser?.uid) {
+      if (onRequireLogin) {
+        onRequireLogin();
+      } else if (showToast) {
+        showToast(
+          language === 'EN'
+            ? '🔒 Please sign in to submit a suggestion.'
+            : language === 'GU'
+            ? '🔒 સૂચન મોકલવા માટે કૃપા કરીને લોગિન કરો.'
+            : '🔒 सुझाव भेजने के लिए कृपया पहले लॉगिन करें।'
+        );
+      }
+      return true;
+    }
+    return false;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (handleRequireAuthIfGuest()) return;
+
     const cleanContent = contentInput.trim();
     if (!cleanContent) {
       if (showToast) showToast('⚠️ कृपया अपना सुझाव/विचार दर्ज करें।');
@@ -57,9 +87,18 @@ export default function PublicSuggestionsBanner({
 
     setIsSubmitting(true);
     try {
-      const finalName = nameInput.trim() || activeUser?.name || activeUser?.displayName || 'Community Member';
-      const finalEmail = activeUser?.email || '';
-      const finalAvatar = activeUser?.photoURL || activeUser?.avatar_url || 'https://lh3.googleusercontent.com/a/default-user';
+      const profile = getUserProfile();
+      const finalName =
+        nameInput.trim() ||
+        activeUser?.name ||
+        activeUser?.displayName ||
+        (profile.displayName && profile.displayName !== 'Guest User' ? profile.displayName : 'Community Member');
+      const finalEmail = activeUser?.email || profile.email || '';
+      const finalAvatar =
+        activeUser?.photoURL ||
+        activeUser?.avatar_url ||
+        profile.photoURL ||
+        'https://lh3.googleusercontent.com/a/default-user';
 
       const res = await submitPublicSuggestion(cleanContent, finalName, finalEmail, finalAvatar);
       if (res.success && res.suggestion) {
@@ -67,6 +106,9 @@ export default function PublicSuggestionsBanner({
         setContentInput('');
         if (showToast) showToast('✅ आपका सुझाव सफलतापूर्वक पोस्ट हो गया! धन्यवाद।');
       } else {
+        if (res.error && (res.error.toLowerCase().includes('auth') || res.error.toLowerCase().includes('login') || res.error.toLowerCase().includes('unauthorized'))) {
+          if (onRequireLogin) onRequireLogin();
+        }
         if (showToast) showToast(`❌ ${res.error || 'सुझाव सबमिट नहीं हो सका'}`);
       }
     } catch (err: any) {
@@ -86,9 +128,9 @@ export default function PublicSuggestionsBanner({
   };
 
   const getTitleText = () => {
-    if (language === 'EN') return '💡 Public Suggestions & Community Ideas';
-    if (language === 'GU') return '💡 સાર્વજનિક સુઝાવ પેટી (Public Suggestions)';
-    return '💡 सार्वजनिक सुझाव पेटी (Public Suggestions)';
+    if (language === 'EN') return 'Public Suggestions & Community Ideas';
+    if (language === 'GU') return 'સાર્વજનિક સુઝાવ પેટી (Public Suggestions)';
+    return 'सार्वजनिक सुझाव पेटी (Public Suggestions)';
   };
 
   const getSubtitleText = () => {
@@ -100,145 +142,219 @@ export default function PublicSuggestionsBanner({
   };
 
   return (
-    <div className="w-full mt-6 rounded-3xl bg-gradient-to-br from-amber-900/10 via-slate-900 to-indigo-950/80 border border-amber-500/30 dark:border-amber-500/40 p-4 sm:p-5 shadow-xl text-white">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-3 mb-4 border-b border-slate-800 pb-3">
-        <div className="flex items-center gap-2.5">
-          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-lg shadow-amber-500/20 shrink-0">
-            <Lightbulb className="w-5 h-5 text-white animate-pulse" />
-          </div>
-          <div>
-            <h3 className="text-sm sm:text-base font-black text-amber-300 tracking-tight flex items-center gap-1.5">
-              <span>{getTitleText()}</span>
-              <span className="px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                {suggestions.length}
-              </span>
-            </h3>
-            <p className="text-[11px] text-slate-300/90 mt-0.5 leading-snug">
-              {getSubtitleText()}
-            </p>
+    <div className="w-full mt-5 rounded-3xl overflow-hidden bg-gradient-to-br from-blue-50/95 via-white to-orange-50/90 dark:from-slate-900 dark:via-blue-950/70 dark:to-slate-900 border-2 border-[#0066FF]/25 dark:border-[#0066FF]/40 shadow-xl">
+      {/* LocoHelp Brand Header (#0066FF Blue + #FF8800 Orange) */}
+      <div className="bg-gradient-to-r from-[#0066FF] via-[#0052CC] to-indigo-700 px-4 py-3.5 sm:px-5 sm:py-4 text-white relative overflow-hidden">
+        <div className="absolute -right-6 -top-6 w-28 h-28 rounded-full bg-[#FF8800]/25 blur-xl pointer-events-none" />
+        <div className="flex items-center justify-between gap-3 relative z-10">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#FF8800] to-[#FF5500] flex items-center justify-center shadow-lg shadow-orange-500/30 border border-white/25 shrink-0">
+              <Lightbulb className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-sm sm:text-base font-black text-white tracking-tight flex items-center gap-1.5">
+                  <span>{getTitleText()}</span>
+                </h3>
+                <span className="px-2.5 py-0.5 text-[10px] font-black rounded-full bg-[#FF8800] text-white shadow-xs">
+                  {suggestions.length} {language === 'EN' ? 'Ideas' : 'सुझाव'}
+                </span>
+              </div>
+              <p className="text-[11px] text-blue-100 mt-0.5 leading-snug font-medium">
+                {getSubtitleText()}
+              </p>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Suggestion Form */}
-      <form onSubmit={handleSubmit} className="space-y-3 mb-5 bg-slate-950/60 p-3.5 sm:p-4 rounded-2xl border border-slate-800">
-        <div>
-          <textarea
-            value={contentInput}
-            onChange={(e) => setContentInput(e.target.value)}
-            rows={2}
-            placeholder={
-              language === 'EN'
-                ? 'Type your idea or suggestion here...'
-                : language === 'GU'
-                ? 'તમારો વિચાર અથવા સૂચન અહીં લખો...'
-                : 'अपना विचार या सुझाव यहाँ लिखें...'
-            }
-            className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700/80 text-xs sm:text-sm text-white placeholder-slate-400 focus:outline-none focus:border-amber-500 transition-colors resize-none"
-          />
-        </div>
-
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
-          <input
-            type="text"
-            value={nameInput}
-            onChange={(e) => setNameInput(e.target.value)}
-            placeholder={
-              language === 'EN'
-                ? 'Your Name (Optional)'
-                : language === 'GU'
-                ? 'તમારું નામ (મરજિયાત)'
-                : 'आपका नाम (ऐच्छिक)'
-            }
-            className="px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700/80 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-amber-500 sm:w-64"
-          />
-
-          <button
-            type="submit"
-            disabled={isSubmitting || !contentInput.trim()}
-            className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white font-black text-xs flex items-center justify-center gap-1.5 shadow-md shadow-amber-500/20 active:scale-95 transition-all cursor-pointer disabled:opacity-50 shrink-0"
-          >
-            <Send className="w-3.5 h-3.5" />
-            <span>
-              {isSubmitting
-                ? (language === 'EN' ? 'Sending...' : 'भेजा जा रहा है...')
-                : (language === 'EN' ? 'Submit Idea' : language === 'GU' ? 'સૂચન મોકલો' : 'सुझाव भेजें')}
+      <div className="p-4 sm:p-5 space-y-4">
+        {/* Suggestion Form (Requires Login) */}
+        <form
+          onSubmit={handleSubmit}
+          className="space-y-3 bg-white dark:bg-slate-900/90 p-3.5 sm:p-4 rounded-2xl border border-[#0066FF]/20 dark:border-blue-500/30 shadow-sm"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] font-extrabold text-[#0066FF] dark:text-blue-400 flex items-center gap-1">
+              <Sparkles className="w-3.5 h-3.5 text-[#FF8800]" />
+              <span>
+                {language === 'EN'
+                  ? 'Write Your Suggestion'
+                  : language === 'GU'
+                  ? 'તમારું સૂચન લખો'
+                  : 'अपना सुझाव लिखें'}
+              </span>
             </span>
-          </button>
-        </div>
-      </form>
-
-      {/* Public Suggestions Feed List */}
-      <div className="space-y-2.5">
-        <div className="flex items-center justify-between px-1">
-          <span className="text-xs font-black text-slate-300 uppercase tracking-wider flex items-center gap-1">
-            <MessageSquare className="w-3.5 h-3.5 text-amber-400" />
-            <span>
-              {language === 'EN' ? 'Recent Public Suggestions' : language === 'GU' ? 'તાજેતરના સૂચનો' : 'हाल के जन सुझाव'}
-            </span>
-          </span>
-          <span className="text-[10px] text-slate-400 font-bold">
-            {suggestions.length} Total
-          </span>
-        </div>
-
-        {isLoading ? (
-          <div className="p-4 text-center text-xs text-slate-400 font-medium">
-            ⏳ Loading suggestions...
-          </div>
-        ) : suggestions.length === 0 ? (
-          <div className="p-5 text-center bg-slate-950/40 rounded-2xl border border-dashed border-slate-800 text-slate-400 text-xs space-y-1">
-            <p className="font-bold text-slate-300">
-              {language === 'EN' ? 'No public suggestions yet' : language === 'GU' ? 'હજુ સુધી કોઈ સૂચન નથી' : 'अभी तक कोई सुझाव नहीं आया है'}
-            </p>
-            <p className="text-[11px] text-slate-500">
-              {language === 'EN' ? 'Be the first to share an idea above!' : 'पहला सुझाव आप लिखकर भेजें!'}
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1 scrollbar-hide">
-            {suggestions.map((s) => (
-              <div
-                key={s.id}
-                className="p-3 rounded-2xl bg-slate-950/70 border border-slate-800/90 hover:border-amber-500/40 transition-colors flex items-start gap-3"
+            {guestMode && (
+              <button
+                type="button"
+                onClick={handleRequireAuthIfGuest}
+                className="text-[10px] font-extrabold px-2.5 py-1 rounded-full bg-orange-50 dark:bg-orange-950/60 text-[#FF6600] dark:text-orange-300 border border-[#FF8800]/40 flex items-center gap-1 hover:bg-orange-100 transition-colors cursor-pointer"
               >
-                <img
-                  src={s.userAvatar || 'https://lh3.googleusercontent.com/a/default-user'}
-                  alt={s.userName}
-                  className="w-8 h-8 rounded-xl object-cover shrink-0 border border-slate-700"
-                />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-2 mb-1">
-                    <span className="text-xs font-black text-amber-300 truncate">
-                      {s.userName || 'Community Member'}
-                    </span>
-                    <span className="text-[10px] text-slate-400 font-medium shrink-0">
-                      {s.createdAt ? new Date(s.createdAt).toLocaleDateString() : 'Just now'}
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-200 leading-relaxed break-words font-medium">
-                    {s.content}
-                  </p>
-                  <div className="mt-2 flex items-center justify-end">
-                    <button
-                      type="button"
-                      onClick={() => handleLike(s.id)}
-                      className={`px-2 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer ${
-                        likedIds[s.id]
-                          ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
-                          : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-rose-400 border border-slate-800'
-                      }`}
-                    >
-                      <Heart className={`w-3 h-3 ${likedIds[s.id] ? 'fill-rose-500 text-rose-500' : ''}`} />
-                      <span>{s.likesCount || 0}</span>
-                    </button>
+                <LogIn className="w-3 h-3" />
+                <span>
+                  {language === 'EN'
+                    ? 'Login Required to Post'
+                    : language === 'GU'
+                    ? 'પોસ્ટ કરવા લોગિન કરો'
+                    : 'सुझाव देने के लिए लॉगिन आवश्यक'}
+                </span>
+              </button>
+            )}
+          </div>
+
+          <div>
+            <textarea
+              value={contentInput}
+              onFocus={() => {
+                if (guestMode) handleRequireAuthIfGuest();
+              }}
+              onChange={(e) => {
+                if (guestMode) {
+                  handleRequireAuthIfGuest();
+                  return;
+                }
+                setContentInput(e.target.value);
+              }}
+              rows={2}
+              placeholder={
+                language === 'EN'
+                  ? 'Type your idea or suggestion for LocoHelp here...'
+                  : language === 'GU'
+                  ? 'તમારો વિચાર અથવા સૂચન અહીં લખો...'
+                  : 'लोकोहेल्प के लिए अपना विचार या सुझाव यहाँ लिखें...'
+              }
+              className="w-full px-3.5 py-2.5 rounded-xl bg-blue-50/50 dark:bg-slate-800/90 border border-blue-200 dark:border-slate-700 text-xs sm:text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-400 focus:outline-none focus:border-[#0066FF] focus:ring-2 focus:ring-[#0066FF]/15 transition-all resize-none"
+            />
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+            <input
+              type="text"
+              value={nameInput}
+              onFocus={() => {
+                if (guestMode) handleRequireAuthIfGuest();
+              }}
+              onChange={(e) => {
+                if (guestMode) {
+                  handleRequireAuthIfGuest();
+                  return;
+                }
+                setNameInput(e.target.value);
+              }}
+              placeholder={
+                language === 'EN'
+                  ? 'Your Name'
+                  : language === 'GU'
+                  ? 'તમારું નામ'
+                  : 'आपका नाम'
+              }
+              className="px-3.5 py-2 rounded-xl bg-blue-50/50 dark:bg-slate-800/90 border border-blue-200 dark:border-slate-700 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-[#0066FF] sm:w-64 font-semibold"
+            />
+
+            {guestMode ? (
+              <button
+                type="button"
+                onClick={handleRequireAuthIfGuest}
+                className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#0066FF] to-[#FF8800] hover:opacity-95 text-white font-black text-xs flex items-center justify-center gap-1.5 shadow-md shadow-blue-500/20 active:scale-95 transition-all cursor-pointer shrink-0"
+              >
+                <LogIn className="w-3.5 h-3.5" />
+                <span>
+                  {language === 'EN'
+                    ? 'Login to Submit Idea'
+                    : language === 'GU'
+                    ? 'સૂચન મોકલવા લોગિન કરો'
+                    : 'सुझाव भेजने के लिए लॉगिन करें'}
+                </span>
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={isSubmitting || !contentInput.trim()}
+                className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#FF8800] to-[#FF5500] hover:from-[#FF7700] hover:to-[#E64A00] text-white font-black text-xs flex items-center justify-center gap-1.5 shadow-md shadow-orange-500/25 active:scale-95 transition-all cursor-pointer disabled:opacity-50 shrink-0"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>
+                  {isSubmitting
+                    ? (language === 'EN' ? 'Sending...' : 'भेजा जा रहा है...')
+                    : (language === 'EN' ? 'Submit Idea' : language === 'GU' ? 'સૂચન મોકલો' : 'सुझाव भेजें')}
+                </span>
+              </button>
+            )}
+          </div>
+        </form>
+
+        {/* Public Suggestions Feed List */}
+        <div className="space-y-2.5">
+          <div className="flex items-center justify-between px-1">
+            <span className="text-xs font-black text-[#0066FF] dark:text-blue-300 uppercase tracking-wider flex items-center gap-1.5">
+              <MessageSquare className="w-3.5 h-3.5 text-[#FF8800]" />
+              <span>
+                {language === 'EN' ? 'Recent Public Suggestions' : language === 'GU' ? 'તાજેતરના સૂચનો' : 'हाल के जन सुझाव'}
+              </span>
+            </span>
+            <span className="text-[10px] text-slate-500 dark:text-slate-400 font-extrabold">
+              {suggestions.length} Total
+            </span>
+          </div>
+
+          {isLoading ? (
+            <div className="p-4 text-center text-xs text-slate-500 dark:text-slate-400 font-semibold">
+              ⏳ Loading suggestions...
+            </div>
+          ) : suggestions.length === 0 ? (
+            <div className="p-5 text-center bg-white/80 dark:bg-slate-900/60 rounded-2xl border border-dashed border-[#0066FF]/30 dark:border-slate-700 text-slate-500 dark:text-slate-400 text-xs space-y-1">
+              <p className="font-extrabold text-slate-700 dark:text-slate-200">
+                {language === 'EN' ? 'No public suggestions yet' : language === 'GU' ? 'હજુ સુધી કોઈ સૂચન નથી' : 'अभी तक कोई सुझाव नहीं आया है'}
+              </p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                {language === 'EN' ? 'Be the first to share an idea above!' : 'पहला सुझाव आप लिखकर भेजें!'}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1 scrollbar-hide">
+              {suggestions.map((s) => (
+                <div
+                  key={s.id}
+                  className="p-3 rounded-2xl bg-white dark:bg-slate-900/85 border border-blue-100 dark:border-slate-800 hover:border-[#0066FF]/40 transition-colors flex items-start gap-3 shadow-2xs"
+                >
+                  <img
+                    src={s.userAvatar || 'https://lh3.googleusercontent.com/a/default-user'}
+                    alt={s.userName}
+                    className="w-8 h-8 rounded-xl object-cover shrink-0 border-2 border-[#0066FF]/20"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <span className="text-xs font-black text-[#0066FF] dark:text-blue-300 truncate">
+                        {s.userName || 'Community Member'}
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-semibold shrink-0">
+                        {s.createdAt ? new Date(s.createdAt).toLocaleDateString() : 'Just now'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-700 dark:text-slate-200 leading-relaxed break-words font-medium">
+                      {s.content}
+                    </p>
+                    <div className="mt-2 flex items-center justify-end">
+                      <button
+                        type="button"
+                        onClick={() => handleLike(s.id)}
+                        className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold flex items-center gap-1 transition-all cursor-pointer ${
+                          likedIds[s.id]
+                            ? 'bg-orange-500/15 text-[#FF6600] dark:text-orange-300 border border-[#FF8800]/40'
+                            : 'bg-slate-100 dark:bg-slate-800 hover:bg-orange-50 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 hover:text-[#FF6600] border border-slate-200 dark:border-slate-700'
+                        }`}
+                      >
+                        <Heart className={`w-3 h-3 ${likedIds[s.id] ? 'fill-[#FF6600] text-[#FF6600]' : ''}`} />
+                        <span>{s.likesCount || 0}</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        )}
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

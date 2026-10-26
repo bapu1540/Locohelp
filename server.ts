@@ -1832,6 +1832,25 @@ async function initPostgresTables(pool: pg.Pool): Promise<string[]> {
   await execSafeDDL(pool, `ALTER TABLE suggestions ADD COLUMN IF NOT EXISTS likes_count INTEGER DEFAULT 0`, "suggestions.likes_count");
   await execSafeDDL(pool, `ALTER TABLE suggestions ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()`, "suggestions.created_at");
 
+  // One-time cleanup of stale resurrected category images so only newly uploaded images appear
+  try {
+    const purgeCheck = await pool.query(
+      `SELECT value FROM app_settings WHERE key = 'category_images_purged_v2'`
+    ).catch(() => ({ rows: [] as any[] }));
+    if (purgeCheck.rows.length === 0) {
+      await pool.query(`UPDATE categories SET image_url = NULL, updated_at = NOW()`).catch(() => {});
+      await pool.query(`DELETE FROM category_images`).catch(() => {});
+      writeJsonFile(CATEGORY_IMAGES_FILE, {});
+      await pool.query(
+        `INSERT INTO app_settings (key, value, updated_at)
+         VALUES ('category_images_purged_v2', $1::jsonb, NOW())
+         ON CONFLICT (key) DO UPDATE SET value = $1::jsonb, updated_at = NOW()`,
+        [JSON.stringify({ purgedAt: new Date().toISOString() })]
+      ).catch(() => {});
+      console.log("✅ Purged stale category images (category_images_purged_v2)");
+    }
+  } catch (_e) {}
+
   // Verify live tables in public schema
   let liveTables: string[] = [];
   try {
@@ -1852,34 +1871,16 @@ async function initPostgresTables(pool: pg.Pool): Promise<string[]> {
 
 async function syncJsonFilesToPostgres(pool: pg.Pool) {
   try {
-    const catImgs = readJsonFile<Record<string, string>>(CATEGORY_IMAGES_FILE, {});
-    for (const [catId, imgUrl] of Object.entries(catImgs)) {
-      if (catId && imgUrl) {
-        await pool.query(
-          `INSERT INTO category_images (category_id, image_url, updated_at)
-           VALUES ($1, $2, NOW())
-           ON CONFLICT (category_id) DO UPDATE SET image_url = EXCLUDED.image_url, updated_at = NOW()`,
-          [catId, imgUrl]
-        ).catch(() => {});
-        await pool.query(
-          `INSERT INTO categories (id, name, image_url, updated_at)
-           VALUES ($1, $1, $2, NOW())
-           ON CONFLICT (id) DO UPDATE SET image_url = EXCLUDED.image_url, updated_at = NOW()`,
-          [catId, imgUrl]
-        ).catch(() => {});
-      }
-    }
-    const existingCatImgs = await pool.query("SELECT category_id, image_url FROM category_images").catch(() => ({ rows: [] as any[] }));
+    const existingCatImgs = await pool.query(
+      "SELECT id AS category_id, image_url FROM categories WHERE image_url IS NOT NULL AND image_url <> ''"
+    ).catch(() => ({ rows: [] as any[] }));
+    const dbImageMap: Record<string, string> = {};
     for (const r of existingCatImgs.rows) {
       if (r.category_id && r.image_url) {
-        await pool.query(
-          `INSERT INTO categories (id, name, image_url, updated_at)
-           VALUES ($1, $1, $2, NOW())
-           ON CONFLICT (id) DO UPDATE SET image_url = COALESCE(NULLIF(categories.image_url, ''), EXCLUDED.image_url)`,
-          [r.category_id, r.image_url]
-        ).catch(() => {});
+        dbImageMap[r.category_id] = r.image_url;
       }
     }
+    writeJsonFile(CATEGORY_IMAGES_FILE, dbImageMap);
 
     const authUsers = readJsonFile<Record<string, any>>(AUTH_USERS_FILE, {});
     for (const [emailKey, u] of Object.entries(authUsers)) {
@@ -2928,8 +2929,8 @@ async function startServer() {
     }
   });
 
-  // Submit a public suggestion
-  app.post("/api/suggestions", async (req, res) => {
+  // Submit a public suggestion (Requires logged-in user)
+  app.post("/api/suggestions", requireAuth, async (req, res) => {
     try {
       const { content, userName, userEmail, userAvatar } = req.body || {};
       const cleanContent = sanitizeServerText(String(content || '').trim(), 1000);
@@ -2938,7 +2939,7 @@ async function startServer() {
       }
 
       const id = "sug_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6);
-      const caller = extractRequestUser(req);
+      const caller = (req as any).user || extractRequestUser(req);
       const finalName = sanitizeServerText(userName || caller?.name || "Community Member", 120);
       const finalEmail = sanitizeServerText(userEmail || caller?.email || "", 150).toLowerCase();
       const finalAvatar = userAvatar || "https://lh3.googleusercontent.com/a/default-user";
@@ -4156,16 +4157,18 @@ async function startServer() {
               mergedMap.set(r.id, {
                 ...localMeta,
                 id: r.id,
-                authorId: r.author_id || localMeta.authorId,
+                authorId: r.author_id || localMeta.authorId || 'Community Member',
                 authorName: r.author_name || localMeta.authorName || 'Community Member',
                 authorAvatar: r.author_avatar || localMeta.authorAvatar,
-                description: r.description || localMeta.description,
-                category: r.category || localMeta.category,
-                tags: r.tags || localMeta.tags || [],
+                description: r.description || localMeta.description || '',
+                category: r.category || localMeta.category || 'General',
+                tags: r.tags || localMeta.tags || ['#General'],
                 status: r.status || localMeta.status || 'active',
-                city: localMeta.city || '',
+                city: localMeta.city || 'Gandhinagar',
                 area: localMeta.area || '',
-                location: localMeta.location || '',
+                location: localMeta.location || 'Gandhinagar',
+                imageUrl: localMeta.imageUrl || '',
+                attachmentUrl: localMeta.attachmentUrl || localMeta.imageUrl || '',
                 distance: r.distance ? Number(r.distance) : (localMeta.distance || 0.5),
                 hasLocationPin: r.has_location_pin !== false,
                 isVerifiedUser: r.is_verified_user !== false,
@@ -4280,75 +4283,71 @@ async function startServer() {
 
       // 1. PostgreSQL Insert into primary "posts", "listings", and "broadcast_posts" tables
       if (dbPool && isDbConnected) {
-        try {
-          await dbPool.query(`
-            INSERT INTO posts (id, user_id, author_name, content, image_url, category, city, raw_json, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            ON CONFLICT (id) DO UPDATE SET
-              author_name = EXCLUDED.author_name,
-              content = EXCLUDED.content,
-              image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), posts.image_url),
-              category = EXCLUDED.category,
-              city = EXCLUDED.city,
-              raw_json = EXCLUDED.raw_json
-          `, [
-            intentRecord.id,
-            intentRecord.authorId,
-            intentRecord.authorName,
-            intentRecord.description,
-            uploadedPostImageUrl,
-            intentRecord.category,
-            intentRecord.city || intentRecord.location,
-            JSON.stringify(intentRecord),
-            intentRecord.createdAt
-          ]);
+        await dbPool.query(`
+          INSERT INTO posts (id, user_id, author_name, content, image_url, category, city, raw_json, created_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          ON CONFLICT (id) DO UPDATE SET
+            author_name = EXCLUDED.author_name,
+            content = EXCLUDED.content,
+            image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), posts.image_url),
+            category = EXCLUDED.category,
+            city = EXCLUDED.city,
+            raw_json = EXCLUDED.raw_json
+        `, [
+          intentRecord.id,
+          intentRecord.authorId,
+          intentRecord.authorName,
+          intentRecord.description,
+          uploadedPostImageUrl,
+          intentRecord.category,
+          intentRecord.city || intentRecord.location,
+          JSON.stringify(intentRecord),
+          intentRecord.createdAt
+        ]).catch((err) => console.warn("DB posts insert note:", err?.message));
 
-          await dbPool.query(`
-            INSERT INTO listings (id, user_id, title, description, location, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            ON CONFLICT (id) DO UPDATE SET
-              title = EXCLUDED.title,
-              description = EXCLUDED.description,
-              location = EXCLUDED.location
-          `, [
-            intentRecord.id,
-            intentRecord.authorId,
-            intentRecord.title,
-            intentRecord.description,
-            intentRecord.location,
-            intentRecord.createdAt
-          ]);
+        await dbPool.query(`
+          INSERT INTO listings (id, user_id, title, description, location, created_at)
+          VALUES ($1, $2, $3, $4, $5, $6)
+          ON CONFLICT (id) DO UPDATE SET
+            title = EXCLUDED.title,
+            description = EXCLUDED.description,
+            location = EXCLUDED.location
+        `, [
+          intentRecord.id,
+          intentRecord.authorId,
+          intentRecord.title,
+          intentRecord.description,
+          intentRecord.location,
+          intentRecord.createdAt
+        ]).catch((err) => console.warn("DB listings insert note:", err?.message));
 
-          await dbPool.query(`
-            INSERT INTO broadcast_posts (id, author_id, author_name, author_avatar, description, category, tags, status, distance, has_location_pin, is_verified_user, expires_at, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-            ON CONFLICT (id) DO UPDATE SET
-              description = EXCLUDED.description,
-              tags = EXCLUDED.tags,
-              status = EXCLUDED.status
-          `, [
-            intentRecord.id,
-            intentRecord.authorId,
-            intentRecord.authorName,
-            intentRecord.authorAvatar,
-            intentRecord.description,
-            intentRecord.category,
-            intentRecord.tags,
-            intentRecord.status,
-            intentRecord.distance,
-            intentRecord.hasLocationPin,
-            intentRecord.isVerifiedUser,
-            intentRecord.expiresAt,
-            intentRecord.createdAt
-          ]);
-        } catch (dbErr) {
-          console.warn("DB posts/listings insert note:", dbErr);
-        }
+        await dbPool.query(`
+          INSERT INTO broadcast_posts (id, author_id, author_name, author_avatar, description, category, tags, status, distance, has_location_pin, is_verified_user, expires_at, created_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+          ON CONFLICT (id) DO UPDATE SET
+            description = EXCLUDED.description,
+            tags = EXCLUDED.tags,
+            status = EXCLUDED.status
+        `, [
+          intentRecord.id,
+          intentRecord.authorId,
+          intentRecord.authorName,
+          intentRecord.authorAvatar,
+          intentRecord.description,
+          intentRecord.category,
+          intentRecord.tags,
+          intentRecord.status,
+          intentRecord.distance,
+          intentRecord.hasLocationPin,
+          intentRecord.isVerifiedUser,
+          intentRecord.expiresAt,
+          intentRecord.createdAt
+        ]).catch((err) => console.warn("DB broadcast_posts insert note:", err?.message));
       }
 
       // 2. Local storage file
       const intents = readJsonFile<any[]>(INTENTS_FILE, []);
-      const updated = [intentRecord, ...intents.filter(i => i.id !== intentRecord.id && i.description !== intentRecord.description)];
+      const updated = [intentRecord, ...intents.filter(i => i.id !== intentRecord.id)];
       writeJsonFile(INTENTS_FILE, updated);
       await archiveToSecurityVault("help_post", intentRecord.id, intentRecord, "ACTIVE_REGISTERED");
 
@@ -4408,16 +4407,7 @@ async function startServer() {
 
           await dbPool.query("DELETE FROM posts WHERE id = $1", [id]);
           await dbPool.query("DELETE FROM listings WHERE id = $1", [id]);
-          if (targetDesc) {
-            await dbPool.query("DELETE FROM posts WHERE content = $1", [targetDesc.trim()]);
-            await dbPool.query("DELETE FROM listings WHERE description = $1", [targetDesc.trim()]);
-            await dbPool.query(
-              "DELETE FROM broadcast_posts WHERE id = $1 OR description = $2",
-              [id, targetDesc.trim()]
-            );
-          } else {
-            await dbPool.query("DELETE FROM broadcast_posts WHERE id = $1", [id]);
-          }
+          await dbPool.query("DELETE FROM broadcast_posts WHERE id = $1", [id]);
           await dbPool.query("DELETE FROM chats WHERE receiver_id = $1 OR sender_id = $1", [id]);
           await dbPool.query("DELETE FROM messages WHERE intent_id = $1", [id]);
         } catch (dbErr) {
@@ -4425,12 +4415,8 @@ async function startServer() {
         }
       }
 
-      // 2. Local file delete
-      const filtered = intents.filter(i => {
-        if (i.id === id) return false;
-        if (targetDesc && i.description && i.description.trim() === targetDesc.trim()) return false;
-        return true;
-      });
+      // 2. Local file delete (only by exact post ID)
+      const filtered = intents.filter(i => i.id !== id);
       writeJsonFile(INTENTS_FILE, filtered);
 
       // Record to permanent deleted IDs list
@@ -8427,8 +8413,7 @@ async function startServer() {
   const getCategoriesAndImagesHandler = async (_req: express.Request, res: express.Response) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
-      const fileImages = readJsonFile<Record<string, string>>(CATEGORY_IMAGES_FILE, {});
-      const mergedImages: Record<string, string> = { ...fileImages };
+      const mergedImages: Record<string, string> = {};
       const categoriesList: any[] = [];
 
       if (dbPool && isDbConnected) {
@@ -8436,14 +8421,15 @@ async function startServer() {
           const catRes = await dbPool.query("SELECT * FROM categories ORDER BY id ASC").catch(() => ({ rows: [] as any[] }));
           for (const row of catRes.rows) {
             if (row.id) {
-              if (row.image_url) {
-                mergedImages[row.id] = row.image_url;
+              const cleanImg = typeof row.image_url === 'string' ? row.image_url.trim() : '';
+              if (cleanImg) {
+                mergedImages[row.id] = cleanImg;
               }
               categoriesList.push({
                 id: row.id,
                 name: row.name || row.id,
                 icon: row.icon || '🛠️',
-                image_url: row.image_url || mergedImages[row.id] || '',
+                image_url: cleanImg,
                 registered_count: Number(row.registered_count || 0),
                 updated_at: row.updated_at
               });
@@ -8452,15 +8438,17 @@ async function startServer() {
 
           const dbRes = await dbPool.query("SELECT category_id, image_url FROM category_images").catch(() => ({ rows: [] as any[] }));
           for (const row of dbRes.rows) {
-            if (row.category_id && row.image_url) {
-              mergedImages[row.category_id] = row.image_url;
+            const cleanImg = typeof row.image_url === 'string' ? row.image_url.trim() : '';
+            if (row.category_id && cleanImg) {
+              mergedImages[row.category_id] = cleanImg;
             }
           }
-        } catch (_dbErr) {}
-      }
 
-      if (Object.keys(mergedImages).length > Object.keys(fileImages).length) {
-        writeJsonFile(CATEGORY_IMAGES_FILE, mergedImages);
+          writeJsonFile(CATEGORY_IMAGES_FILE, mergedImages);
+        } catch (_dbErr) {}
+      } else {
+        const fileImages = readJsonFile<Record<string, string>>(CATEGORY_IMAGES_FILE, {});
+        Object.assign(mergedImages, fileImages);
       }
 
       const responsePayload = { success: true, images: mergedImages, categories: categoriesList };
@@ -8574,11 +8562,6 @@ async function startServer() {
       if (body.user && typeof body.user === 'object') userList.push(body.user);
       if (Array.isArray(body.users)) userList.push(...body.users);
 
-      const categoryImagesInput: Record<string, string> = {
-        ...(body.categories && typeof body.categories === 'object' && !Array.isArray(body.categories) ? body.categories : {}),
-        ...(body.categoryImages && typeof body.categoryImages === 'object' && !Array.isArray(body.categoryImages) ? body.categoryImages : {})
-      };
-
       const helpersInput: any[] = [
         ...(Array.isArray(body.helpers) ? body.helpers : []),
         ...(Array.isArray(body.profiles) ? body.profiles : [])
@@ -8620,31 +8603,6 @@ async function startServer() {
           }
           syncedCount++;
         }
-      }
-
-      if (Object.keys(categoryImagesInput).length > 0) {
-        const fileImages = readJsonFile<Record<string, string>>(CATEGORY_IMAGES_FILE, {});
-        for (const [catId, imgUrl] of Object.entries(categoryImagesInput)) {
-          if (catId && typeof imgUrl === 'string' && imgUrl.trim()) {
-            fileImages[catId] = imgUrl.trim();
-            if (dbPool && isDbConnected) {
-              await dbPool.query(
-                `INSERT INTO categories (id, name, image_url, updated_at)
-                 VALUES ($1, $1, $2, NOW())
-                 ON CONFLICT (id) DO UPDATE SET image_url = EXCLUDED.image_url, updated_at = NOW()`,
-                [catId, imgUrl.trim()]
-              ).catch(() => {});
-              await dbPool.query(
-                `INSERT INTO category_images (category_id, image_url, updated_at)
-                 VALUES ($1, $2, NOW())
-                 ON CONFLICT (category_id) DO UPDATE SET image_url = EXCLUDED.image_url, updated_at = NOW()`,
-                [catId, imgUrl.trim()]
-              ).catch(() => {});
-            }
-            syncedCount++;
-          }
-        }
-        writeJsonFile(CATEGORY_IMAGES_FILE, fileImages);
       }
 
       if (helpersInput.length > 0) {
