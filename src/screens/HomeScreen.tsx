@@ -22,7 +22,6 @@ import PostResponsesModal from '../components/PostResponsesModal';
 import PanIndiaLocationModal from '../components/PanIndiaLocationModal';
 import { getSavedUserLocation, getConnectedTwinDistricts, UserManualLocation } from '../data/panIndiaLocations';
 import { isGuestUser } from '../lib/authUtils';
-import FeedbackBanner from '../components/FeedbackBanner';
 import InstallAppModal from '../components/InstallAppModal';
 import RedWarningTicker from '../components/RedWarningTicker';
 import PublicSuggestionsBanner from '../components/PublicSuggestionsBanner';
@@ -1821,9 +1820,6 @@ export default function HomeScreen({
               </button>
           </div>
           
-          {/* New Feedback Banner at the bottom of the feed */}
-          <FeedbackBanner />
-
           {/* Public Suggestions Banner Box at the Very Bottom of Main Page */}
           <PublicSuggestionsBanner
             language={language}
