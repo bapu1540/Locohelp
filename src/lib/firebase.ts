@@ -8,6 +8,8 @@ import {
   getDownloadURL,
   deleteObject
 } from 'firebase/storage';
+import { getMessaging, getToken, onMessage, isSupported, Messaging } from 'firebase/messaging';
+import { saveUserFcmTokenOnServer } from '../api';
 
 const metaEnv = (import.meta as any).env || {};
 
@@ -246,4 +248,170 @@ export async function signInWithGoogle(): Promise<{ success: boolean; user?: any
     };
   }
 }
+
+// ==========================================
+// FIREBASE CLOUD MESSAGING (FCM) WEB PUSH NOTIFICATIONS
+// ==========================================
+
+let cachedMessagingInstance: Messaging | null = null;
+
+export async function getFirebaseMessagingInstance(): Promise<Messaging | null> {
+  if (typeof window === 'undefined' || !('Notification' in window)) return null;
+  if (cachedMessagingInstance) return cachedMessagingInstance;
+  try {
+    const supported = await isSupported().catch(() => false);
+    if (!supported) return null;
+    cachedMessagingInstance = getMessaging(app);
+    return cachedMessagingInstance;
+  } catch (err) {
+    console.warn('[FCM] Messaging initialization notice:', err);
+    return null;
+  }
+}
+
+export async function requestAndRegisterFcmToken(options?: {
+  area?: string;
+  city?: string;
+  district?: string;
+  state?: string;
+  location?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  userId?: string;
+  email?: string;
+  name?: string;
+  silentIfDefault?: boolean;
+}): Promise<{
+  success: boolean;
+  token?: string;
+  permission?: NotificationPermission;
+  error?: string;
+}> {
+  if (typeof window === 'undefined' || !('Notification' in window)) {
+    return { success: false, error: 'Notifications are not supported in this browser.' };
+  }
+
+  try {
+    let permission = Notification.permission;
+    if (permission === 'default') {
+      if (options?.silentIfDefault) {
+        return { success: false, permission, error: 'Notification permission not granted yet.' };
+      }
+      permission = await Notification.requestPermission();
+    }
+
+    if (permission !== 'granted') {
+      return {
+        success: false,
+        permission,
+        error: permission === 'denied' ? 'Notification permission denied in browser settings.' : 'Notification permission not granted.'
+      };
+    }
+
+    let swRegistration: ServiceWorkerRegistration | undefined;
+    if ('serviceWorker' in navigator) {
+      try {
+        swRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', {
+          scope: '/'
+        });
+        await navigator.serviceWorker.ready.catch(() => {});
+      } catch (swErr) {
+        console.warn('[FCM] Service worker registration notice:', swErr);
+      }
+    }
+
+    const vapidKey =
+      (import.meta as any).env?.VITE_FIREBASE_VAPID_KEY ||
+      process.env.VITE_FIREBASE_VAPID_KEY ||
+      '';
+
+    const messaging = await getFirebaseMessagingInstance();
+    let fcmToken = '';
+
+    if (messaging) {
+      try {
+        fcmToken = await getToken(messaging, {
+          vapidKey: vapidKey || undefined,
+          serviceWorkerRegistration: swRegistration
+        });
+      } catch (tokenErr: any) {
+        console.warn('[FCM] getToken notice:', tokenErr?.message || tokenErr);
+      }
+    }
+
+    if (!fcmToken) {
+      try {
+        fcmToken = localStorage.getItem('locohelp_fcm_token') || '';
+      } catch {}
+    }
+
+    if (!fcmToken) {
+      return {
+        success: false,
+        permission,
+        error: 'FCM token could not be retrieved. Ensure VITE_FIREBASE_VAPID_KEY and Firebase project credentials are configured.'
+      };
+    }
+
+    const syncRes = await saveUserFcmTokenOnServer({
+      fcmToken,
+      area: options?.area,
+      city: options?.city || options?.district,
+      district: options?.district,
+      state: options?.state,
+      location: options?.location,
+      latitude: options?.latitude,
+      longitude: options?.longitude,
+      userId: options?.userId,
+      email: options?.email,
+      name: options?.name
+    });
+
+    try {
+      localStorage.setItem('locohelp_fcm_token', fcmToken);
+      localStorage.setItem('locohelp_push_enabled', 'true');
+    } catch {}
+
+    return {
+      success: syncRes.success,
+      token: fcmToken,
+      permission,
+      error: syncRes.error
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err?.message || 'Failed to enable push notifications'
+    };
+  }
+}
+
+export async function subscribeToForegroundPushMessages(
+  onNotificationReceived: (payload: { title: string; body: string; url?: string; postId?: string }) => void
+): Promise<(() => void) | null> {
+  try {
+    const messaging = await getFirebaseMessagingInstance();
+    if (!messaging) return null;
+
+    const unsubscribe = onMessage(messaging, (payload) => {
+      const title =
+        payload?.notification?.title ||
+        payload?.data?.title ||
+        '🔔 New Local Request on LocoHelp!';
+      const body =
+        payload?.notification?.body ||
+        payload?.data?.body ||
+        'Tap to view and help on LocoHelp';
+      const url = payload?.fcmOptions?.link || payload?.data?.url || '/';
+      const postId = payload?.data?.postId || '';
+
+      onNotificationReceived({ title, body, url, postId });
+    });
+
+    return unsubscribe;
+  } catch {
+    return null;
+  }
+}
+
 

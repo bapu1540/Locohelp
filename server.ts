@@ -113,6 +113,233 @@ function getServerFirebaseStorageInstance() {
   }
 }
 
+// ==========================================
+// FIREBASE ADMIN SDK & NATIVE FCM HTTP v1 PUSH ENGINE
+// Initialized safely from process.env.FIREBASE_SERVICE_ACCOUNT_JSON
+// Never crashes server startup even if firebase-admin package or env var is absent
+// ==========================================
+let firebaseAdminApp: any = null;
+let parsedServiceAccountCache: any = null;
+let cachedFcmAccessToken: { token: string; expiresAt: number } | null = null;
+
+function getParsedFirebaseServiceAccount(): any | null {
+  if (parsedServiceAccountCache) return parsedServiceAccountCache;
+  const rawServiceAccount = (process.env.FIREBASE_SERVICE_ACCOUNT_JSON || "").trim();
+  if (!rawServiceAccount) return null;
+  try {
+    let parsed: any = null;
+    if (rawServiceAccount.startsWith("{")) {
+      parsed = JSON.parse(rawServiceAccount);
+    } else {
+      const decoded = Buffer.from(rawServiceAccount, "base64").toString("utf8");
+      parsed = JSON.parse(decoded);
+    }
+    if (parsed && typeof parsed.private_key === "string") {
+      parsed.private_key = parsed.private_key.replace(/\\n/g, "\n");
+    }
+    if (parsed && parsed.client_email && parsed.private_key) {
+      parsedServiceAccountCache = parsed;
+      return parsed;
+    }
+  } catch (err: any) {
+    console.warn("[Firebase FCM] Could not parse FIREBASE_SERVICE_ACCOUNT_JSON:", err?.message || err);
+  }
+  return null;
+}
+
+async function getFirebaseAdminMessaging(): Promise<any | null> {
+  const serviceAccount = getParsedFirebaseServiceAccount();
+  if (!serviceAccount) return null;
+  try {
+    const adminMod: any = await import("firebase-admin".toString());
+    const adminSdk = adminMod?.default || adminMod;
+    if (adminSdk) {
+      if (!firebaseAdminApp && (!adminSdk.apps || adminSdk.apps.length === 0)) {
+        firebaseAdminApp = adminSdk.initializeApp({
+          credential: adminSdk.credential.cert(serviceAccount)
+        });
+      }
+      return adminSdk.messaging();
+    }
+  } catch {
+    // Fallback to native OAuth2 FCM HTTP v1 below if firebase-admin is not in node_modules
+  }
+  return null;
+}
+
+async function getFcmHttpV1AccessToken(serviceAccount: any): Promise<string | null> {
+  if (cachedFcmAccessToken && Date.now() < cachedFcmAccessToken.expiresAt - 60000) {
+    return cachedFcmAccessToken.token;
+  }
+  try {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const header = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url");
+    const claimSet = Buffer.from(
+      JSON.stringify({
+        iss: serviceAccount.client_email,
+        scope: "https://www.googleapis.com/auth/firebase.messaging",
+        aud: serviceAccount.token_uri || "https://oauth2.googleapis.com/token",
+        iat: nowSec,
+        exp: nowSec + 3600
+      })
+    ).toString("base64url");
+
+    const signer = crypto.createSign("RSA-SHA256");
+    signer.update(`${header}.${claimSet}`);
+    const signature = signer.sign(serviceAccount.private_key, "base64url");
+    const jwtAssertion = `${header}.${claimSet}.${signature}`;
+
+    const tokenRes = await fetch(serviceAccount.token_uri || "https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+        assertion: jwtAssertion
+      }).toString()
+    });
+
+    if (!tokenRes.ok) return null;
+    const tokenData: any = await tokenRes.json();
+    if (tokenData && tokenData.access_token) {
+      cachedFcmAccessToken = {
+        token: tokenData.access_token,
+        expiresAt: Date.now() + (Number(tokenData.expires_in) || 3600) * 1000
+      };
+      return tokenData.access_token;
+    }
+  } catch (err: any) {
+    console.warn("[Firebase FCM OAuth2] Token exchange notice:", err?.message || err);
+  }
+  return null;
+}
+
+async function sendFcmMulticastPush(payload: {
+  tokens: string[];
+  title: string;
+  body: string;
+  postUrl: string;
+  data: Record<string, string>;
+}): Promise<{ successCount: number; failureCount: number; invalidTokens: string[] }> {
+  const { tokens, title, body, postUrl, data } = payload;
+  const invalidTokens: string[] = [];
+  if (!tokens || tokens.length === 0) {
+    return { successCount: 0, failureCount: 0, invalidTokens };
+  }
+
+  // 1. Try firebase-admin sendEachForMulticast if available
+  const adminMessaging = await getFirebaseAdminMessaging();
+  if (adminMessaging && typeof adminMessaging.sendEachForMulticast === "function") {
+    const response = await adminMessaging.sendEachForMulticast({
+      tokens,
+      notification: { title, body },
+      data,
+      webpush: {
+        notification: {
+          title,
+          body,
+          icon: "/pwa-192x192.png",
+          badge: "/pwa-192x192.png"
+        },
+        fcmOptions: { link: postUrl }
+      }
+    });
+
+    if (response.failureCount > 0 && Array.isArray(response.responses)) {
+      response.responses.forEach((resp: any, idx: number) => {
+        if (!resp.success && resp.error) {
+          const code = resp.error.code || "";
+          if (
+            code === "messaging/registration-token-not-registered" ||
+            code === "messaging/invalid-registration-token"
+          ) {
+            invalidTokens.push(tokens[idx]);
+          }
+        }
+      });
+    }
+    return {
+      successCount: response.successCount || 0,
+      failureCount: response.failureCount || 0,
+      invalidTokens
+    };
+  }
+
+  // 2. Fallback to direct FCM HTTP v1 REST API using service account JWT
+  const serviceAccount = getParsedFirebaseServiceAccount();
+  if (!serviceAccount || !serviceAccount.project_id) {
+    return { successCount: 0, failureCount: 0, invalidTokens };
+  }
+  const accessToken = await getFcmHttpV1AccessToken(serviceAccount);
+  if (!accessToken) {
+    return { successCount: 0, failureCount: 0, invalidTokens };
+  }
+
+  let successCount = 0;
+  let failureCount = 0;
+  const endpoint = `https://fcm.googleapis.com/v1/projects/${encodeURIComponent(serviceAccount.project_id)}/messages:send`;
+
+  await Promise.all(
+    tokens.map(async (token) => {
+      try {
+        const res = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            message: {
+              token,
+              notification: { title, body },
+              data,
+              webpush: {
+                notification: {
+                  title,
+                  body,
+                  icon: "/pwa-192x192.png",
+                  badge: "/pwa-192x192.png"
+                },
+                fcm_options: { link: postUrl }
+              }
+            }
+          })
+        });
+        if (res.ok) {
+          successCount++;
+        } else {
+          failureCount++;
+          const errText = await res.text().catch(() => "");
+          if (errText.includes("UNREGISTERED") || errText.includes("INVALID_ARGUMENT")) {
+            invalidTokens.push(token);
+          }
+        }
+      } catch {
+        failureCount++;
+      }
+    })
+  );
+
+  return { successCount, failureCount, invalidTokens };
+}
+
+// ==========================================
+// REAL-TIME SERVER-SENT EVENTS (SSE) STREAM ENGINE
+// Broadcasts new_post and new_response events to all connected clients in 0ms
+// ==========================================
+const sseClients = new Set<express.Response>();
+
+function broadcastRealtimeEvent(eventName: string, payload: Record<string, any>): void {
+  const fullData = JSON.stringify({ type: eventName, ...payload, timestamp: Date.now() });
+  const sseFrame = `event: ${eventName}\ndata: ${fullData}\n\ndata: ${fullData}\n\n`;
+  for (const client of sseClients) {
+    try {
+      client.write(sseFrame);
+    } catch {
+      sseClients.delete(client);
+    }
+  }
+}
+
 function getExtFromMimeServer(mime: string, fallback = "webp"): string {
   const m = (mime || "").toLowerCase();
   if (m.includes("pdf")) return "pdf";
@@ -1294,6 +1521,13 @@ async function initPostgresTables(pool: pg.Pool): Promise<string[]> {
   await execSafeDDL(pool, `ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT`, "users.phone");
   await execSafeDDL(pool, `ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'user'`, "users.role");
   await execSafeDDL(pool, `ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT`, "users.avatar_url");
+  await execSafeDDL(pool, `ALTER TABLE users ADD COLUMN IF NOT EXISTS fcm_token TEXT`, "users.fcm_token");
+  await execSafeDDL(pool, `ALTER TABLE users ADD COLUMN IF NOT EXISTS area TEXT`, "users.area");
+  await execSafeDDL(pool, `ALTER TABLE users ADD COLUMN IF NOT EXISTS city TEXT`, "users.city");
+  await execSafeDDL(pool, `ALTER TABLE users ADD COLUMN IF NOT EXISTS location TEXT`, "users.location");
+  await execSafeDDL(pool, `ALTER TABLE users ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION`, "users.latitude");
+  await execSafeDDL(pool, `ALTER TABLE users ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION`, "users.longitude");
+  await execSafeDDL(pool, `ALTER TABLE users ADD COLUMN IF NOT EXISTS fcm_updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()`, "users.fcm_updated_at");
   await execSafeDDL(pool, `ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()`, "users.created_at");
 
   // Legacy "user" table compatibility
@@ -1618,6 +1852,8 @@ async function initPostgresTables(pool: pg.Pool): Promise<string[]> {
   await execSafeDDL(pool, `ALTER TABLE chats ADD COLUMN IF NOT EXISTS sender_email TEXT`, "chats.sender_email");
   await execSafeDDL(pool, `ALTER TABLE chats ADD COLUMN IF NOT EXISTS receiver_id TEXT`, "chats.receiver_id");
   await execSafeDDL(pool, `ALTER TABLE chats ADD COLUMN IF NOT EXISTS message TEXT`, "chats.message");
+  await execSafeDDL(pool, `ALTER TABLE chats ADD COLUMN IF NOT EXISTS post_id TEXT`, "chats.post_id");
+  await execSafeDDL(pool, `ALTER TABLE chats ADD COLUMN IF NOT EXISTS post_owner_id TEXT`, "chats.post_owner_id");
   await execSafeDDL(pool, `ALTER TABLE chats ADD COLUMN IF NOT EXISTS sent_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()`, "chats.sent_at");
 
   await execSafeDDL(
@@ -1625,6 +1861,8 @@ async function initPostgresTables(pool: pg.Pool): Promise<string[]> {
     `CREATE TABLE IF NOT EXISTS messages (
       id TEXT PRIMARY KEY,
       intent_id TEXT,
+      post_id TEXT,
+      post_owner_id TEXT,
       sender_id TEXT,
       sender_name TEXT,
       sender_email TEXT,
@@ -1644,6 +1882,8 @@ async function initPostgresTables(pool: pg.Pool): Promise<string[]> {
   await execSafeDDL(pool, `ALTER TABLE messages ALTER COLUMN id TYPE TEXT USING id::TEXT`, "messages.id type text");
   await execSafeDDL(pool, `ALTER TABLE messages ADD COLUMN IF NOT EXISTS intent_id TEXT`, "messages.intent_id");
   await execSafeDDL(pool, `ALTER TABLE messages ALTER COLUMN intent_id TYPE TEXT USING intent_id::TEXT`, "messages.intent_id type text");
+  await execSafeDDL(pool, `ALTER TABLE messages ADD COLUMN IF NOT EXISTS post_id TEXT`, "messages.post_id");
+  await execSafeDDL(pool, `ALTER TABLE messages ADD COLUMN IF NOT EXISTS post_owner_id TEXT`, "messages.post_owner_id");
   await execSafeDDL(pool, `ALTER TABLE messages ADD COLUMN IF NOT EXISTS sender_id TEXT`, "messages.sender_id");
   await execSafeDDL(pool, `ALTER TABLE messages ALTER COLUMN sender_id TYPE TEXT USING sender_id::TEXT`, "messages.sender_id type text");
   await execSafeDDL(pool, `ALTER TABLE messages ADD COLUMN IF NOT EXISTS sender_name TEXT`, "messages.sender_name");
@@ -1659,6 +1899,40 @@ async function initPostgresTables(pool: pg.Pool): Promise<string[]> {
   await execSafeDDL(pool, `ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_collaborator BOOLEAN DEFAULT false`, "messages.is_collaborator");
   await execSafeDDL(pool, `ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_read BOOLEAN DEFAULT false`, "messages.is_read");
   await execSafeDDL(pool, `ALTER TABLE messages ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()`, "messages.created_at");
+
+  await execSafeDDL(
+    pool,
+    `CREATE TABLE IF NOT EXISTS responses (
+      id TEXT PRIMARY KEY,
+      post_id TEXT,
+      post_owner_id TEXT,
+      sender_id TEXT,
+      sender_name TEXT,
+      sender_email TEXT,
+      sender_avatar TEXT,
+      receiver_id TEXT,
+      message TEXT,
+      attachment_url TEXT,
+      attachment_type TEXT,
+      is_collaborator BOOLEAN DEFAULT false,
+      is_read BOOLEAN DEFAULT false,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )`,
+    "create responses"
+  );
+  await execSafeDDL(pool, `ALTER TABLE responses ADD COLUMN IF NOT EXISTS post_id TEXT`, "responses.post_id");
+  await execSafeDDL(pool, `ALTER TABLE responses ADD COLUMN IF NOT EXISTS post_owner_id TEXT`, "responses.post_owner_id");
+  await execSafeDDL(pool, `ALTER TABLE responses ADD COLUMN IF NOT EXISTS sender_id TEXT`, "responses.sender_id");
+  await execSafeDDL(pool, `ALTER TABLE responses ADD COLUMN IF NOT EXISTS sender_name TEXT`, "responses.sender_name");
+  await execSafeDDL(pool, `ALTER TABLE responses ADD COLUMN IF NOT EXISTS sender_email TEXT`, "responses.sender_email");
+  await execSafeDDL(pool, `ALTER TABLE responses ADD COLUMN IF NOT EXISTS sender_avatar TEXT`, "responses.sender_avatar");
+  await execSafeDDL(pool, `ALTER TABLE responses ADD COLUMN IF NOT EXISTS receiver_id TEXT`, "responses.receiver_id");
+  await execSafeDDL(pool, `ALTER TABLE responses ADD COLUMN IF NOT EXISTS message TEXT`, "responses.message");
+  await execSafeDDL(pool, `ALTER TABLE responses ADD COLUMN IF NOT EXISTS attachment_url TEXT`, "responses.attachment_url");
+  await execSafeDDL(pool, `ALTER TABLE responses ADD COLUMN IF NOT EXISTS attachment_type TEXT`, "responses.attachment_type");
+  await execSafeDDL(pool, `ALTER TABLE responses ADD COLUMN IF NOT EXISTS is_collaborator BOOLEAN DEFAULT false`, "responses.is_collaborator");
+  await execSafeDDL(pool, `ALTER TABLE responses ADD COLUMN IF NOT EXISTS is_read BOOLEAN DEFAULT false`, "responses.is_read");
+  await execSafeDDL(pool, `ALTER TABLE responses ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()`, "responses.created_at");
 
   await execSafeDDL(
     pool,
@@ -2534,7 +2808,8 @@ async function ensureTablesExist(force = false): Promise<{ connected: boolean; t
 
 async function startServer() {
   const app = express();
-  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+  const isAiStudioEnv = fs.existsSync("/app/control-plane-api") || process.env.DISABLE_HMR === "true";
+  const PORT = isAiStudioEnv ? 3000 : (process.env.PORT ? parseInt(process.env.PORT, 10) : 3000);
 
   // Verify PostgreSQL connection (await pool.query('SELECT 1')) and create all tables BEFORE starting server routes
   const startupConnStr =
@@ -3571,6 +3846,86 @@ async function startServer() {
   app.post("/api/signup", authLoginLimiter, signupHandler);
   app.post("/api/users", authLoginLimiter, signupHandler);
 
+  // Save or update logged-in user's FCM Web Push token and current area/location in PostgreSQL
+  app.post("/api/users/fcm-token", requireAuth, async (req: express.Request, res: express.Response) => {
+    try {
+      const caller = (req as any).user || extractRequestUser(req);
+      const body = req.body || {};
+      const fcmToken = String(body.fcm_token || body.fcmToken || "").trim();
+      if (!fcmToken) {
+        return res.status(400).json({ error: "fcm_token is required" });
+      }
+
+      const uid = sanitizeServerText(caller?.uid || body.userId || body.uid || "", 150);
+      const email = sanitizeServerText(caller?.email || body.email || "", 150).toLowerCase();
+      const name = sanitizeServerText(caller?.name || body.name || "Community Member", 120);
+      const area = sanitizeServerText(body.area || "", 150);
+      const city = sanitizeServerText(body.city || body.district || "", 120);
+      const location = sanitizeServerText(
+        body.location || [area, city, body.state].filter(Boolean).join(", ") || "Local Area",
+        250
+      );
+      const latitude = typeof body.latitude === "number" && Number.isFinite(body.latitude) ? body.latitude : null;
+      const longitude = typeof body.longitude === "number" && Number.isFinite(body.longitude) ? body.longitude : null;
+
+      if (!uid && !email) {
+        return res.status(401).json({ error: "Authentication required to save FCM token" });
+      }
+
+      const resolvedId = uid || `email_${email.replace(/[^a-z0-9]/g, "_")}`;
+
+      if (dbPool && isDbConnected) {
+        await dbPool.query(
+          `INSERT INTO users (id, name, email, fcm_token, area, city, location, latitude, longitude, fcm_updated_at, created_at)
+           VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6, $7, $8, $9, NOW(), NOW())
+           ON CONFLICT (id) DO UPDATE SET
+             fcm_token = EXCLUDED.fcm_token,
+             area = COALESCE(NULLIF(EXCLUDED.area, ''), users.area),
+             city = COALESCE(NULLIF(EXCLUDED.city, ''), users.city),
+             location = COALESCE(NULLIF(EXCLUDED.location, ''), users.location),
+             latitude = COALESCE(EXCLUDED.latitude, users.latitude),
+             longitude = COALESCE(EXCLUDED.longitude, users.longitude),
+             fcm_updated_at = NOW()`,
+          [resolvedId, name, email, fcmToken, area, city, location, latitude, longitude]
+        ).catch(async () => {
+          // If email conflict occurs on a different id row, update by email or id directly
+          await dbPool!.query(
+            `UPDATE users
+             SET fcm_token = $1,
+                 area = COALESCE(NULLIF($2, ''), area),
+                 city = COALESCE(NULLIF($3, ''), city),
+                 location = COALESCE(NULLIF($4, ''), location),
+                 latitude = COALESCE($5, latitude),
+                 longitude = COALESCE($6, longitude),
+                 fcm_updated_at = NOW()
+             WHERE id = $7 OR (email IS NOT NULL AND LOWER(email) = LOWER($8))`,
+            [fcmToken, area, city, location, latitude, longitude, resolvedId, email]
+          ).catch(() => {});
+        });
+
+        // Also update profiles table if user has a profile row
+        await dbPool.query(
+          `UPDATE profiles
+           SET city = COALESCE(NULLIF($1, ''), city),
+               sector = COALESCE(NULLIF($2, ''), sector),
+               updated_at = NOW()
+           WHERE uid = $3 OR (email IS NOT NULL AND LOWER(email) = LOWER($4))`,
+          [city, area, resolvedId, email]
+        ).catch(() => {});
+      }
+
+      return res.json({
+        success: true,
+        fcmTokenSaved: true,
+        area: area || city || "Local Area",
+        location
+      });
+    } catch (err: any) {
+      console.error("[FCM Token Save Error]:", err?.message || err);
+      return res.status(500).json({ error: "Failed to save FCM token" });
+    }
+  });
+
   // Delete profile protected with strict authentication & ownership verification
   // Users cannot directly delete their profiles; non-admin requests mark status as deletion_requested for Admin review.
   app.delete("/api/profiles/:uid", requireAuth, async (req, res) => {
@@ -4298,16 +4653,22 @@ async function startServer() {
         }
       }
 
-      // Compute distinct response counts (repliers per post, excluding post owner and system)
+      // Compute distinct response counts and full responses/repliers list per post (excluding post owner and system)
       const responseSetsByIntent = new Map<string, Set<string>>();
-      const addResponder = (intentIdRaw: any, senderIdRaw: any, senderEmailRaw?: any) => {
+      const responsesListByIntent = new Map<string, any[]>();
+      const repliersByIntent = new Map<string, Map<string, any>>();
+      const seenRespIdsByIntent = new Map<string, Set<string>>();
+
+      const addResponderAndEntry = (intentIdRaw: any, rawEntry: any) => {
         const iId = String(intentIdRaw || '').trim();
         if (!iId) return;
         const postItem = mergedMap.get(iId);
         const ownerId = String(postItem?.authorId || '').trim().toLowerCase();
         const ownerEmail = String(postItem?.authorEmail || '').trim().toLowerCase();
-        const sId = String(senderIdRaw || '').trim().toLowerCase();
-        const sEmail = String(senderEmailRaw || '').trim().toLowerCase();
+        const senderId = String(rawEntry?.sender_id || rawEntry?.senderId || rawEntry?.authorId || '').trim();
+        const senderEmail = String(rawEntry?.sender_email || rawEntry?.senderEmail || rawEntry?.authorEmail || '').trim();
+        const sId = senderId.toLowerCase();
+        const sEmail = senderEmail.toLowerCase();
         if (!sId || sId === 'system' || sId === 'owner' || sId === 'me') return;
         if ((ownerId && sId === ownerId) || (ownerEmail && sEmail && sEmail === ownerEmail) || (ownerEmail && sId === ownerEmail)) return;
         const responderKey = sEmail || sId;
@@ -4315,6 +4676,54 @@ async function startServer() {
           responseSetsByIntent.set(iId, new Set());
         }
         responseSetsByIntent.get(iId)!.add(responderKey);
+
+        const msgText = String(rawEntry?.message || rawEntry?.text || rawEntry?.content || '').trim();
+        const senderName = String(rawEntry?.sender_name || rawEntry?.senderName || rawEntry?.authorName || 'Neighbor').trim();
+        const senderAvatar = String(rawEntry?.sender_avatar || rawEntry?.senderAvatar || rawEntry?.authorAvatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(senderName)}`).trim();
+        const createdAtIso = rawEntry?.created_at || rawEntry?.createdAt || rawEntry?.timestamp || new Date().toISOString();
+        const entryId = String(rawEntry?.id || `${iId}_${responderKey}_${createdAtIso}`);
+
+        if (!seenRespIdsByIntent.has(iId)) seenRespIdsByIntent.set(iId, new Set());
+        if (!seenRespIdsByIntent.get(iId)!.has(entryId) && msgText) {
+          seenRespIdsByIntent.get(iId)!.add(entryId);
+          if (!responsesListByIntent.has(iId)) responsesListByIntent.set(iId, []);
+          responsesListByIntent.get(iId)!.push({
+            id: entryId,
+            postId: iId,
+            postOwnerId: postItem?.authorId || '',
+            senderId: senderId || responderKey,
+            senderName,
+            senderEmail,
+            senderAvatar,
+            text: msgText,
+            message: msgText,
+            createdAt: createdAtIso
+          });
+        }
+
+        if (msgText) {
+          if (!repliersByIntent.has(iId)) repliersByIntent.set(iId, new Map());
+          const repMap = repliersByIntent.get(iId)!;
+          const existing = repMap.get(responderKey);
+          if (!existing) {
+            repMap.set(responderKey, {
+              senderId: senderId || responderKey,
+              senderName,
+              senderEmail,
+              senderAvatar,
+              lastMessage: msgText,
+              lastMessageAt: createdAtIso,
+              messageCount: 1
+            });
+          } else {
+            existing.messageCount += 1;
+            if (new Date(createdAtIso).getTime() >= new Date(existing.lastMessageAt || 0).getTime()) {
+              existing.lastMessage = msgText;
+              existing.lastMessageAt = createdAtIso;
+              if (senderName && senderName !== 'Neighbor') existing.senderName = senderName;
+            }
+          }
+        }
       };
 
       try {
@@ -4322,7 +4731,7 @@ async function startServer() {
         Object.entries(allLocalMsgs).forEach(([convKey, arr]) => {
           if (Array.isArray(arr)) {
             arr.forEach((m: any) => {
-              addResponder(convKey, m?.sender_id || m?.senderId || m?.authorId, m?.sender_email || m?.senderEmail || m?.authorEmail);
+              addResponderAndEntry(m?.post_id || m?.postId || m?.intent_id || m?.intentId || convKey, m);
             });
           }
         });
@@ -4330,17 +4739,25 @@ async function startServer() {
 
       if (dbPool && isDbConnected) {
         try {
+          const respTableRes = await dbPool.query(
+            "SELECT id, post_id, post_owner_id, sender_id, sender_name, sender_email, sender_avatar, message, created_at FROM responses ORDER BY created_at ASC"
+          ).catch(() => ({ rows: [] as any[] }));
+          respTableRes.rows.forEach((r: any) => {
+            addResponderAndEntry(r.post_id, r);
+          });
+
           const msgCountRes = await dbPool.query(
-            "SELECT intent_id, sender_id, sender_email FROM messages WHERE intent_id IS NOT NULL"
+            "SELECT id, COALESCE(post_id, intent_id) AS post_id, sender_id, sender_name, sender_email, sender_avatar, COALESCE(text, content) AS message, created_at FROM messages WHERE COALESCE(post_id, intent_id) IS NOT NULL ORDER BY created_at ASC"
           ).catch(() => ({ rows: [] as any[] }));
           msgCountRes.rows.forEach((r: any) => {
-            addResponder(r.intent_id, r.sender_id, r.sender_email);
+            addResponderAndEntry(r.post_id, r);
           });
+
           const chatCountRes = await dbPool.query(
-            "SELECT intent_id, receiver_id, sender_id, sender_email FROM chats"
+            "SELECT id, COALESCE(post_id, intent_id, receiver_id) AS post_id, sender_id, sender_name, sender_email, sender_avatar, message, created_at FROM chats ORDER BY created_at ASC"
           ).catch(() => ({ rows: [] as any[] }));
           chatCountRes.rows.forEach((r: any) => {
-            addResponder(r.intent_id || r.receiver_id, r.sender_id, r.sender_email);
+            addResponderAndEntry(r.post_id, r);
           });
         } catch {}
       }
@@ -4353,7 +4770,15 @@ async function startServer() {
         })
         .map(i => {
           const safe = redactBulkItemForPrivacy(i, isAuth, isAdmin);
-          safe.responseCount = responseSetsByIntent.get(i.id)?.size || 0;
+          const count = responseSetsByIntent.get(i.id)?.size || 0;
+          const postResponses = responsesListByIntent.get(i.id) || [];
+          const postRepliers = Array.from(repliersByIntent.get(i.id)?.values() || []).sort(
+            (a, b) => new Date(b.lastMessageAt || 0).getTime() - new Date(a.lastMessageAt || 0).getTime()
+          );
+          safe.responseCount = count;
+          safe.response_count = count;
+          safe.responses = postResponses;
+          safe.repliers = postRepliers;
           // Option B Privacy: Never expose broadcast post author's mobile number publicly (contact via Chat only; Admin sees all)
           if (!isAdmin) {
             delete safe.phone;
@@ -4384,6 +4809,34 @@ async function startServer() {
   app.get("/api/listings", getListingsHandler);
   app.get("/api/posts", getListingsHandler);
   app.get("/api/broadcast-posts", getListingsHandler);
+
+  // Real-Time Server-Sent Events (SSE) Stream for Instant Post & Response Sync
+  app.get("/api/stream", (req, res) => {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    if (typeof (res as any).flushHeaders === "function") {
+      (res as any).flushHeaders();
+    }
+
+    res.write(`event: connected\ndata: ${JSON.stringify({ ok: true, ts: Date.now() })}\n\n`);
+    sseClients.add(res);
+
+    const heartbeat = setInterval(() => {
+      try {
+        res.write(`: heartbeat ${Date.now()}\n\n`);
+      } catch {
+        clearInterval(heartbeat);
+        sseClients.delete(res);
+      }
+    }, 20000);
+
+    req.on("close", () => {
+      clearInterval(heartbeat);
+      sseClients.delete(res);
+    });
+  });
 
   // 2. Broadcast a New Listing / Intent (Enforces 30-second Anti-Spam Cooldown + XSS Sanitization)
   const createListingHandler = async (req: express.Request, res: express.Response) => {
@@ -4533,6 +4986,128 @@ async function startServer() {
       await archiveToSecurityVault("help_post", intentRecord.id, intentRecord, "ACTIVE_REGISTERED");
 
       console.log(`[Listing Created] ${intentRecord.id}: "${intentRecord.description.substring(0, 40)}..."`);
+
+      // Immediately broadcast new_post event to all connected SSE clients for 0ms real-time sync
+      broadcastRealtimeEvent("new_post", {
+        post: {
+          ...intentRecord,
+          responseCount: 0,
+          response_count: 0,
+          responses: [],
+          repliers: []
+        },
+        intent: {
+          ...intentRecord,
+          responseCount: 0,
+          response_count: 0,
+          responses: [],
+          repliers: []
+        }
+      });
+
+      // 3. Trigger 1: Background FCM Web Push Multicast to other users in the same area/location
+      (async () => {
+        try {
+          if (!dbPool || !isDbConnected) return;
+          if (!getParsedFirebaseServiceAccount()) return;
+
+          const postArea = (intentRecord.area || intentRecord.city || intentRecord.location || "Local Area").trim();
+          const postCity = (intentRecord.city || "").trim();
+          const postLoc = (intentRecord.location || "").trim();
+
+          const tokenQuery = await dbPool.query(
+            `SELECT DISTINCT u.fcm_token, u.area, u.city, u.location, p.city AS profile_city, p.sector AS profile_area
+             FROM users u
+             LEFT JOIN profiles p ON (p.uid = u.id OR (u.email IS NOT NULL AND u.email <> '' AND LOWER(p.email) = LOWER(u.email)))
+             WHERE u.fcm_token IS NOT NULL
+               AND TRIM(u.fcm_token) <> ''
+               AND u.id <> $1
+               AND ($2 = '' OR u.email IS NULL OR LOWER(u.email) <> LOWER($2))`,
+            [intentRecord.authorId || "", intentRecord.authorEmail || ""]
+          );
+
+          if (!tokenQuery.rows || tokenQuery.rows.length === 0) return;
+
+          const norm = (s: any) => String(s || "").trim().toLowerCase();
+          const pAreaNorm = norm(intentRecord.area);
+          const pCityNorm = norm(postCity);
+          const pLocNorm = norm(postLoc);
+
+          const matchedTokens = new Set<string>();
+          for (const row of tokenQuery.rows) {
+            const token = String(row.fcm_token || "").trim();
+            if (!token) continue;
+
+            const uArea = norm(row.area || row.profile_area);
+            const uCity = norm(row.city || row.profile_city);
+            const uLoc = norm(row.location);
+
+            // Match if user's area/city/location overlaps with post's area/city/location, or if either is generic "local area" / unset
+            const isGenericPostLoc = (!pAreaNorm && !pCityNorm) || pLocNorm === "local area";
+            const isGenericUserLoc = (!uArea && !uCity && !uLoc) || uLoc === "local area" || uArea === "local area";
+
+            const areaMatches =
+              isGenericPostLoc ||
+              isGenericUserLoc ||
+              (pAreaNorm && (uArea.includes(pAreaNorm) || pAreaNorm.includes(uArea) || uLoc.includes(pAreaNorm))) ||
+              (pCityNorm && (uCity.includes(pCityNorm) || pCityNorm.includes(uCity) || uLoc.includes(pCityNorm) || uArea.includes(pCityNorm))) ||
+              (pLocNorm && (uLoc.includes(pLocNorm) || pLocNorm.includes(uLoc)));
+
+            if (areaMatches) {
+              matchedTokens.add(token);
+            }
+          }
+
+          const tokens = Array.from(matchedTokens).slice(0, 500);
+          if (tokens.length === 0) return;
+
+          const displayArea = postArea || "Your Area";
+          const categoryOrTitle =
+            (intentRecord.category && intentRecord.category !== "General"
+              ? `${intentRecord.category}: ${intentRecord.title || intentRecord.description.slice(0, 60)}`
+              : intentRecord.title || intentRecord.description.slice(0, 60)
+            ).trim();
+
+          const originUrl =
+            (req.headers.origin && String(req.headers.origin).startsWith("http")
+              ? String(req.headers.origin)
+              : `${req.protocol || "https"}://${req.get("host") || "localhost:3000"}`
+            ).replace(/\/+$/, "");
+          const postUrl = `${originUrl}/?postId=${encodeURIComponent(intentRecord.id)}`;
+
+          const pushTitle = `🔔 New Request in ${displayArea}!`;
+          const pushBody = `${categoryOrTitle} - Tap to help on LocoHelp`;
+
+          const response = await sendFcmMulticastPush({
+            tokens,
+            title: pushTitle,
+            body: pushBody,
+            postUrl,
+            data: {
+              title: pushTitle,
+              body: pushBody,
+              postId: String(intentRecord.id),
+              area: displayArea,
+              category: String(intentRecord.category || "General"),
+              url: postUrl,
+              click_action: postUrl
+            }
+          });
+
+          console.log(
+            `[FCM Push Multicast] Sent for post ${intentRecord.id} in "${displayArea}": ${response.successCount} succeeded, ${response.failureCount} failed.`
+          );
+
+          if (response.invalidTokens.length > 0 && dbPool) {
+            await dbPool
+              .query(`UPDATE users SET fcm_token = NULL WHERE fcm_token = ANY($1::text[])`, [response.invalidTokens])
+              .catch(() => {});
+          }
+        } catch (pushErr: any) {
+          console.warn("[FCM Push Trigger Notice]:", pushErr?.message || pushErr);
+        }
+      })();
+
       res.status(201).json(intentRecord);
     } catch (e) {
       console.error("Failed to save listing:", e);
@@ -4851,7 +5426,7 @@ async function startServer() {
   app.get("/api/messages/:id", getChatMessagesHandler);
 
   // Get Post Reply Inbox (Grouped repliers with name, avatar, last message preview, timestamp, and unread count)
-  app.get("/api/intents/:id/inbox", async (req: express.Request, res: express.Response) => {
+  const getPostInboxHandler = async (req: express.Request, res: express.Response) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
       const intentId = req.params.id;
@@ -4859,17 +5434,27 @@ async function startServer() {
       const ownerIdParam = String(req.query.ownerId || req.query.owner_id || caller?.uid || '').trim();
       const ownerEmailParam = String(req.query.ownerEmail || req.query.owner_email || caller?.email || '').trim().toLowerCase();
 
-      // Lookup intent owner from DB if available
+      // Lookup intent owner from DB (posts, broadcast_posts, listings)
       let dbOwnerId = '';
       let dbOwnerEmail = '';
       if (dbPool && isDbConnected) {
         try {
-          const iRes = await dbPool.query(
-            "SELECT user_id, author_id FROM intents WHERE id = $1 UNION ALL SELECT user_id, user_id AS author_id FROM broadcast_posts WHERE id = $1 LIMIT 1",
+          const pRes = await dbPool.query(
+            "SELECT user_id, raw_json FROM posts WHERE id = $1 LIMIT 1",
             [intentId]
           ).catch(() => ({ rows: [] as any[] }));
-          if (iRes.rows.length > 0) {
-            dbOwnerId = String(iRes.rows[0].user_id || iRes.rows[0].author_id || '').trim();
+          if (pRes.rows.length > 0) {
+            dbOwnerId = String(pRes.rows[0].user_id || pRes.rows[0].raw_json?.authorId || '').trim();
+            dbOwnerEmail = String(pRes.rows[0].raw_json?.authorEmail || '').trim().toLowerCase();
+          }
+          if (!dbOwnerId) {
+            const bRes = await dbPool.query(
+              "SELECT author_id FROM broadcast_posts WHERE id = $1 LIMIT 1",
+              [intentId]
+            ).catch(() => ({ rows: [] as any[] }));
+            if (bRes.rows.length > 0) {
+              dbOwnerId = String(bRes.rows[0].author_id || '').trim();
+            }
           }
         } catch {}
       }
@@ -4885,15 +5470,15 @@ async function startServer() {
           .filter(Boolean)
       );
 
-      // Reuse getChatMessages logic to gather all messages for this intentId
+      // Gather all messages & responses for this postId / intentId
       const mergedMap = new Map<string, any>();
       if (dbPool && isDbConnected) {
         try {
-          const mRes = await dbPool.query(
-            "SELECT * FROM messages WHERE intent_id = $1 OR receiver_id = $1 ORDER BY created_at ASC",
+          const rRes = await dbPool.query(
+            "SELECT * FROM responses WHERE post_id = $1 ORDER BY created_at ASC",
             [intentId]
-          );
-          mRes.rows.forEach(r => {
+          ).catch(() => ({ rows: [] as any[] }));
+          rRes.rows.forEach(r => {
             mergedMap.set(r.id, {
               id: r.id,
               senderId: String(r.sender_id || '').trim(),
@@ -4901,7 +5486,7 @@ async function startServer() {
               senderEmail: String(r.sender_email || '').trim().toLowerCase(),
               senderAvatar: String(r.sender_avatar || '').trim(),
               receiverId: String(r.receiver_id || '').trim(),
-              text: r.text || r.content || '',
+              text: r.message || '',
               isCollaborator: Boolean(r.is_collaborator),
               isRead: Boolean(r.is_read),
               createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString()
@@ -4910,8 +5495,31 @@ async function startServer() {
         } catch {}
 
         try {
+          const mRes = await dbPool.query(
+            "SELECT * FROM messages WHERE intent_id = $1 OR post_id = $1 OR receiver_id = $1 ORDER BY created_at ASC",
+            [intentId]
+          );
+          mRes.rows.forEach(r => {
+            if (!mergedMap.has(r.id)) {
+              mergedMap.set(r.id, {
+                id: r.id,
+                senderId: String(r.sender_id || '').trim(),
+                senderName: String(r.sender_name || '').trim() || 'Community Helper',
+                senderEmail: String(r.sender_email || '').trim().toLowerCase(),
+                senderAvatar: String(r.sender_avatar || '').trim(),
+                receiverId: String(r.receiver_id || '').trim(),
+                text: r.text || r.content || '',
+                isCollaborator: Boolean(r.is_collaborator),
+                isRead: Boolean(r.is_read),
+                createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString()
+              });
+            }
+          });
+        } catch {}
+
+        try {
           const cRes = await dbPool.query(
-            "SELECT * FROM chats WHERE intent_id = $1 OR receiver_id = $1 ORDER BY sent_at ASC",
+            "SELECT * FROM chats WHERE intent_id = $1 OR post_id = $1 OR receiver_id = $1 ORDER BY sent_at ASC",
             [intentId]
           );
           cRes.rows.forEach(r => {
@@ -4988,7 +5596,6 @@ async function startServer() {
         const isOwner =
           (sIdLower && ownerIds.has(sIdLower)) ||
           (sEmailLower && ownerEmails.has(sEmailLower));
-
         if (isOwner || !msg.senderId || msg.senderId === 'system') return;
 
         const groupKey = sEmailLower || sIdLower;
@@ -5027,7 +5634,12 @@ async function startServer() {
     } catch (e) {
       res.status(500).json({ error: "Failed to load post inbox" });
     }
-  });
+  };
+
+  app.get("/api/intents/:id/inbox", getPostInboxHandler);
+  app.get("/api/posts/:id/inbox", getPostInboxHandler);
+  app.get("/api/posts/:id/responses", getPostInboxHandler);
+  app.get("/api/intents/:id/responses", getPostInboxHandler);
 
   // Mark messages in a post thread as read
   app.post("/api/intents/:id/mark-read", async (req: express.Request, res: express.Response) => {
@@ -5314,11 +5926,45 @@ async function startServer() {
         ? await uploadDataToFirebaseServer(message.attachmentUrl, "chat_attachments")
         : null;
 
+      // Resolve authoritative post_owner_id and post_owner_email from PostgreSQL posts/broadcast_posts
+      let postOwnerId = sanitizeServerText(message.post_owner_id || message.postOwnerId || "", 150);
+      let postOwnerEmail = sanitizeServerText(message.post_owner_email || message.postOwnerEmail || "", 150).toLowerCase();
+      if (dbPool && isDbConnected && conversationId && conversationId !== "general") {
+        try {
+          const postLookup = await dbPool.query(
+            "SELECT user_id, raw_json FROM posts WHERE id = $1 LIMIT 1",
+            [conversationId]
+          ).catch(() => ({ rows: [] as any[] }));
+          if (postLookup.rows.length > 0) {
+            postOwnerId = postOwnerId || String(postLookup.rows[0].user_id || postLookup.rows[0].raw_json?.authorId || "").trim();
+            postOwnerEmail = postOwnerEmail || String(postLookup.rows[0].raw_json?.authorEmail || "").trim().toLowerCase();
+          }
+          if (!postOwnerId) {
+            const bLookup = await dbPool.query(
+              "SELECT author_id FROM broadcast_posts WHERE id = $1 LIMIT 1",
+              [conversationId]
+            ).catch(() => ({ rows: [] as any[] }));
+            if (bLookup.rows.length > 0) {
+              postOwnerId = String(bLookup.rows[0].author_id || "").trim();
+            }
+          }
+        } catch {}
+      }
+
+      const resolvedReceiverId = sanitizeServerText(
+        message.receiverId || message.receiver_id || postOwnerId || conversationId,
+        150
+      );
+
       const newMsg = {
         id: sanitizeServerText(message.id || 'msg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6), 100),
         conversationId,
+        postId: conversationId,
+        post_id: conversationId,
         intentId: conversationId,
         intent_id: conversationId,
+        postOwnerId: postOwnerId || resolvedReceiverId,
+        post_owner_id: postOwnerId || resolvedReceiverId,
         authorId: senderIdVal,
         senderId: senderIdVal,
         sender_id: senderIdVal,
@@ -5332,8 +5978,8 @@ async function startServer() {
         senderAvatar: resolvedAvatar,
         sender_avatar: resolvedAvatar,
         authorAvatar: resolvedAvatar,
-        receiverId: sanitizeServerText(message.receiverId || message.receiver_id || conversationId, 150),
-        receiver_id: sanitizeServerText(message.receiverId || message.receiver_id || conversationId, 150),
+        receiverId: resolvedReceiverId,
+        receiver_id: resolvedReceiverId,
         text: safeText,
         content: safeText,
         message: safeText,
@@ -5347,16 +5993,40 @@ async function startServer() {
         createdAt: message.createdAt || message.sent_at || new Date().toISOString()
       };
 
-      // 1. PostgreSQL Insert into messages and chats tables (Independent try/catch so neither blocks the other)
+      // 1. PostgreSQL Insert into responses, messages, and chats tables (linked via post_id & post_owner_id)
       if (dbPool && isDbConnected) {
         try {
+          await dbPool.query(
+            `INSERT INTO responses (id, post_id, post_owner_id, sender_id, sender_name, sender_email, sender_avatar, receiver_id, message, attachment_url, attachment_type, is_read, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, FALSE, $12)
+             ON CONFLICT (id) DO NOTHING`,
+            [
+              newMsg.id,
+              conversationId,
+              newMsg.postOwnerId,
+              newMsg.senderId,
+              newMsg.authorName || 'Community Peer',
+              newMsg.senderEmail || null,
+              newMsg.senderAvatar || null,
+              newMsg.receiverId,
+              newMsg.text,
+              newMsg.attachmentUrl,
+              newMsg.attachmentType,
+              newMsg.createdAt
+            ]
+          );
+        } catch {}
+
+        try {
           await dbPool.query(`
-            INSERT INTO messages (id, intent_id, sender_id, sender_name, sender_email, sender_avatar, receiver_id, text, content, type, attachment_url, attachment_type, is_read, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, FALSE, $13)
+            INSERT INTO messages (id, intent_id, post_id, post_owner_id, sender_id, sender_name, sender_email, sender_avatar, receiver_id, text, content, type, attachment_url, attachment_type, is_read, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, FALSE, $15)
             ON CONFLICT (id) DO NOTHING
           `, [
             newMsg.id,
             conversationId,
+            conversationId,
+            newMsg.postOwnerId,
             newMsg.senderId,
             newMsg.authorName || 'Community Peer',
             newMsg.senderEmail || null,
@@ -5396,12 +6066,14 @@ async function startServer() {
 
         try {
           await dbPool.query(`
-            INSERT INTO chats (id, intent_id, sender_id, sender_name, sender_email, receiver_id, message, sent_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            INSERT INTO chats (id, intent_id, post_id, post_owner_id, sender_id, sender_name, sender_email, receiver_id, message, sent_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             ON CONFLICT (id) DO NOTHING
           `, [
             newMsg.id,
             conversationId,
+            conversationId,
+            newMsg.postOwnerId,
             newMsg.senderId,
             newMsg.authorName || 'Community Peer',
             newMsg.senderEmail || null,
@@ -5435,40 +6107,195 @@ async function startServer() {
         writeJsonFile(MESSAGES_FILE, allMessages);
       }
 
-      // Refresh post interaction timestamp so active conversations extend post expiry
+      // Refresh post interaction timestamp & compute updated response_count for this post
+      let updatedResponseCount = 1;
+      const replierGroupsMap = new Map<string, any>();
       if (conversationId && conversationId !== 'general') {
         try {
-          const localIntents = readJsonFile<any[]>(INTENTS_FILE, []);
-          let updatedIntents = false;
-          localIntents.forEach(i => {
-            if (i.id === conversationId) {
-              i.lastInteractionAt = new Date().toISOString();
-              i.expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-              updatedIntents = true;
-            }
-          });
-          if (updatedIntents) writeJsonFile(INTENTS_FILE, localIntents);
-
           if (dbPool && isDbConnected) {
             await dbPool.query(`
               UPDATE broadcast_posts 
               SET expires_at = NOW() + INTERVAL '1 hour'
               WHERE id = $1
             `, [conversationId]).catch(() => {});
+
+            const allPostMsgs = await dbPool.query(
+              `SELECT id, sender_id, sender_name, sender_email, sender_avatar, text, content, is_read, is_collaborator, created_at
+               FROM messages
+               WHERE intent_id = $1 OR post_id = $1
+               ORDER BY created_at ASC`,
+              [conversationId]
+            ).catch(() => ({ rows: [] as any[] }));
+
+            const ownerIdLower = String(postOwnerId || "").trim().toLowerCase();
+            const ownerEmailLower = String(postOwnerEmail || "").trim().toLowerCase();
+
+            allPostMsgs.rows.forEach((r: any) => {
+              const sId = String(r.sender_id || "").trim();
+              const sIdLower = sId.toLowerCase();
+              const sEmail = String(r.sender_email || "").trim().toLowerCase();
+              if (!sId || sIdLower === "system" || sIdLower === "owner" || sIdLower === "me") return;
+              if (
+                (ownerIdLower && sIdLower === ownerIdLower) ||
+                (ownerEmailLower && sEmail && sEmail === ownerEmailLower) ||
+                (ownerEmailLower && sIdLower === ownerEmailLower)
+              ) {
+                return;
+              }
+              const key = sEmail || sIdLower;
+              const sName = String(r.sender_name || "").trim() || "Community Helper";
+              const sAvatar = String(r.sender_avatar || "").trim();
+              const msgTxt = String(r.text || r.content || "").trim();
+              const cIso = r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString();
+
+              const existing = replierGroupsMap.get(key);
+              if (!existing) {
+                replierGroupsMap.set(key, {
+                  senderId: sId,
+                  senderName: sName,
+                  senderEmail: sEmail,
+                  senderAvatar: sAvatar,
+                  lastMessage: msgTxt || "📷 Attachment shared",
+                  updatedAt: cIso,
+                  count: 1,
+                  unreadCount: r.is_read ? 0 : 1,
+                  isCollaborator: Boolean(r.is_collaborator)
+                });
+              } else {
+                existing.count += 1;
+                if (!r.is_read) existing.unreadCount += 1;
+                if (r.is_collaborator) existing.isCollaborator = true;
+                existing.lastMessage = msgTxt || existing.lastMessage;
+                existing.updatedAt = cIso;
+              }
+            });
+
+            updatedResponseCount = Math.max(replierGroupsMap.size, 1);
           }
         } catch (syncErr) {
           console.warn("Post interaction refresh error:", syncErr);
         }
       }
 
-      res.status(201).json(newMsg);
+      const updatedRepliers = Array.from(replierGroupsMap.values()).sort(
+        (a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime()
+      );
+
+      const responseObject = {
+        ...newMsg,
+        responseCount: updatedResponseCount,
+        response_count: updatedResponseCount,
+        repliers: updatedRepliers
+      };
+
+      // Immediately broadcast new_response via SSE so post owner's "View Response" button & modal update in 0ms
+      if (conversationId && conversationId !== 'general') {
+        broadcastRealtimeEvent("new_response", {
+          postId: conversationId,
+          post_id: conversationId,
+          postOwnerId: postOwnerId || newMsg.receiverId,
+          post_owner_id: postOwnerId || newMsg.receiverId,
+          response: responseObject,
+          responseCount: updatedResponseCount,
+          response_count: updatedResponseCount,
+          repliers: updatedRepliers
+        });
+      }
+
+      // 3. Trigger 2: Instant FCM Push Notification to post_owner_id when someone replies to their post
+      (async () => {
+        try {
+          if (!dbPool || !isDbConnected) return;
+          if (!getParsedFirebaseServiceAccount()) return;
+          if (!conversationId || conversationId === "general") return;
+
+          const senderLower = String(newMsg.senderId || "").trim().toLowerCase();
+          const senderEmailLower = String(newMsg.senderEmail || "").trim().toLowerCase();
+          const targetOwnerId = String(postOwnerId || newMsg.receiverId || "").trim();
+          const targetOwnerEmail = String(postOwnerEmail || "").trim().toLowerCase();
+
+          if (!targetOwnerId && !targetOwnerEmail) return;
+          if (
+            (targetOwnerId && senderLower === targetOwnerId.toLowerCase()) ||
+            (targetOwnerEmail && senderEmailLower && senderEmailLower === targetOwnerEmail)
+          ) {
+            // Do not send "New Response on your Post" push when the post owner replies to their own thread
+            return;
+          }
+
+          const ownerTokenRes = await dbPool.query(
+            `SELECT DISTINCT fcm_token
+             FROM users
+             WHERE fcm_token IS NOT NULL
+               AND TRIM(fcm_token) <> ''
+               AND (
+                 LOWER(id) = LOWER($1)
+                 OR ($2 <> '' AND email IS NOT NULL AND LOWER(email) = LOWER($2))
+                 OR ($2 <> '' AND LOWER(id) = LOWER($3))
+               )`,
+            [
+              targetOwnerId,
+              targetOwnerEmail,
+              targetOwnerEmail ? `email_${targetOwnerEmail.replace(/[^a-z0-9]/g, "_")}` : ""
+            ]
+          ).catch(() => ({ rows: [] as any[] }));
+
+          const ownerTokens = Array.from(
+            new Set(
+              ownerTokenRes.rows
+                .map((r: any) => String(r.fcm_token || "").trim())
+                .filter(Boolean)
+            )
+          );
+          if (ownerTokens.length === 0) return;
+
+          const responderName = newMsg.authorName || newMsg.senderName || "A neighbor";
+          const originUrl =
+            (req.headers.origin && String(req.headers.origin).startsWith("http")
+              ? String(req.headers.origin)
+              : `${req.protocol || "https"}://${req.get("host") || "localhost:3000"}`
+            ).replace(/\/+$/, "");
+          const replyUrl = `${originUrl}/?postId=${encodeURIComponent(conversationId)}&viewResponses=1`;
+
+          const pushTitle = "💬 New Response on your Post!";
+          const pushBody = `${responderName} replied to your request. Tap to view response.`;
+
+          const pushRes = await sendFcmMulticastPush({
+            tokens: ownerTokens,
+            title: pushTitle,
+            body: pushBody,
+            postUrl: replyUrl,
+            data: {
+              title: pushTitle,
+              body: pushBody,
+              postId: String(conversationId),
+              responderName: String(responderName),
+              url: replyUrl,
+              click_action: replyUrl
+            }
+          });
+
+          if (pushRes.invalidTokens.length > 0 && dbPool) {
+            await dbPool
+              .query(`UPDATE users SET fcm_token = NULL WHERE fcm_token = ANY($1::text[])`, [pushRes.invalidTokens])
+              .catch(() => {});
+          }
+        } catch (err: any) {
+          console.warn("[FCM Reply Push Notice]:", err?.message || err);
+        }
+      })();
+
+      res.status(201).json(responseObject);
     } catch (e) {
       console.error("Failed to save message:", e);
       res.status(500).json({ error: "Failed to save message" });
     }
   };
 
+  app.post("/api/posts/:id/respond", chatMessageLimiter, sendChatMessageHandler);
+  app.post("/api/intents/:id/respond", chatMessageLimiter, sendChatMessageHandler);
   app.post("/api/intents/:id/messages", chatMessageLimiter, sendChatMessageHandler);
+  app.post("/api/posts/:id/messages", chatMessageLimiter, sendChatMessageHandler);
   app.post("/api/chats", chatMessageLimiter, sendChatMessageHandler);
   app.post("/api/messages", chatMessageLimiter, sendChatMessageHandler);
   app.post("/api/messages/:id", chatMessageLimiter, sendChatMessageHandler);
@@ -9601,6 +10428,30 @@ async function startServer() {
     );
   });
 
+  app.get("/firebase-messaging-sw.js", (_req, res) => {
+    res.setHeader("Content-Type", "application/javascript; charset=utf-8");
+    res.setHeader("Service-Worker-Allowed", "/");
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    try {
+      const fcmSwFile = path.join(publicDir, "firebase-messaging-sw.js");
+      const configScript = `self.__FIREBASE_CONFIG__ = ${JSON.stringify({
+        apiKey: firebaseServerConfig.apiKey || "AIzaSyDummyKeyForLocoHelpAuthInit2026",
+        authDomain: firebaseServerConfig.authDomain || "locohelp-app.firebaseapp.com",
+        projectId: firebaseServerConfig.projectId || "locohelp-app",
+        storageBucket: firebaseServerConfig.storageBucket || "locohelp-app.appspot.com",
+        messagingSenderId: firebaseServerConfig.messagingSenderId || "1029384756",
+        appId: firebaseServerConfig.appId || "1:1029384756:web:abc123def456"
+      })};\n`;
+      if (fs.existsSync(fcmSwFile)) {
+        const content = fs.readFileSync(fcmSwFile, "utf-8");
+        return res.status(200).send(configScript + content);
+      }
+    } catch (_e) {}
+    return res.status(200).send(
+      "self.addEventListener('install', () => self.skipWaiting()); self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));"
+    );
+  });
+
   // Browser cache headers for static assets: Cache-Control: public, max-age=86400 (1 day)
   app.use((req, res, next) => {
     const p = req.path.toLowerCase();
@@ -9664,8 +10515,16 @@ async function startServer() {
     });
   });
 
-  app.listen(PORT, "0.0.0.0", () => {
+  const httpServer = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
+  });
+  httpServer.on("error", (err: any) => {
+    if (err?.code === "EADDRINUSE" && PORT !== 3000) {
+      console.warn(`Port ${PORT} in use, falling back to port 3000...`);
+      app.listen(3000, "0.0.0.0", () => {
+        console.log("Server running on http://localhost:3000");
+      });
+    }
   });
 }
 

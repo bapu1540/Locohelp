@@ -4,6 +4,7 @@ import { X, ArrowRight, MessageCircle, Inbox, RefreshCw, Send } from 'lucide-rea
 import { Intent } from '../types';
 import { useLanguage } from '../i18n';
 import { getCurrentUser, getUserIdentitySet, isMessageSentByUser } from '../auth';
+import { subscribeToRealtimeStream } from '../api';
 
 interface PostResponsesModalProps {
   isOpen: boolean;
@@ -41,17 +42,93 @@ export default function PostResponsesModal({
     let isMounted = true;
     let initialLoad = true;
 
+    const currentUser = getCurrentUser();
+    const myIdentitySet = getUserIdentitySet(currentUser);
+    const ownerId = String(intent.authorId || currentUser?.uid || '').trim();
+    const ownerEmail = String((intent as any).authorEmail || currentUser?.email || '').trim().toLowerCase();
+
+    // 0. Instant 0ms seed from intent.repliers and intent.responses already attached on GET /api/posts
+    try {
+      const initialMap = new Map<string, ReplierGroup>();
+      const preRepliers = Array.isArray((intent as any).repliers) ? (intent as any).repliers : [];
+      const preResponses = Array.isArray((intent as any).responses) ? (intent as any).responses : [];
+
+      preRepliers.forEach((rep: any) => {
+        if (!rep) return;
+        const sId = String(rep.senderId || rep.sender_id || '').trim();
+        const sEmail = String(rep.senderEmail || rep.sender_email || '').trim().toLowerCase();
+        if (!sId || sId === 'system') return;
+        if (
+          isMessageSentByUser({ sender_id: sId, sender_email: sEmail }, currentUser) ||
+          (ownerId && sId.toLowerCase() === ownerId.toLowerCase()) ||
+          (ownerEmail && sEmail && sEmail === ownerEmail)
+        ) {
+          return;
+        }
+        const key = sEmail || sId.toLowerCase();
+        initialMap.set(key, {
+          senderId: sId,
+          senderName: rep.senderName || rep.sender_name || 'Community Helper',
+          senderEmail: sEmail,
+          senderAvatar: rep.senderAvatar || rep.sender_avatar || '',
+          lastMessage: rep.lastMessage || rep.message || rep.text || 'Sent a message',
+          updatedAt: rep.lastMessageAt || rep.updatedAt || rep.createdAt || new Date().toISOString(),
+          count: Number(rep.messageCount || rep.count) || 1,
+          unreadCount: Number(rep.unreadCount) || 0,
+          isCollaborator: Boolean(rep.isCollaborator)
+        });
+      });
+
+      preResponses.forEach((msg: any) => {
+        if (!msg) return;
+        const sId = String(msg.sender_id || msg.senderId || msg.authorId || '').trim();
+        const sEmail = String(msg.sender_email || msg.senderEmail || msg.authorEmail || '').trim().toLowerCase();
+        if (!sId || sId === 'system') return;
+        if (
+          isMessageSentByUser(msg, currentUser) ||
+          (ownerId && sId.toLowerCase() === ownerId.toLowerCase()) ||
+          (ownerEmail && sEmail && sEmail === ownerEmail)
+        ) {
+          return;
+        }
+        const key = sEmail || sId.toLowerCase();
+        const sName = msg.sender_name || msg.senderName || msg.authorName || (sEmail ? sEmail.split('@')[0] : 'Community Helper');
+        const msgText = msg.text || msg.message || msg.content || 'Sent a message';
+        const msgTime = msg.createdAt || msg.created_at || new Date().toISOString();
+        const existing = initialMap.get(key);
+        if (!existing) {
+          initialMap.set(key, {
+            senderId: sId,
+            senderName: sName,
+            senderEmail: sEmail,
+            senderAvatar: msg.sender_avatar || msg.senderAvatar || '',
+            lastMessage: msgText,
+            updatedAt: msgTime,
+            count: 1,
+            unreadCount: 0,
+            isCollaborator: Boolean(msg.isCollaborator)
+          });
+        } else if (new Date(msgTime).getTime() >= new Date(existing.updatedAt).getTime()) {
+          existing.lastMessage = msgText;
+          existing.updatedAt = msgTime;
+        }
+      });
+
+      if (initialMap.size > 0) {
+        const seeded = Array.from(initialMap.values()).sort(
+          (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+        );
+        setRepliers(seeded);
+        initialLoad = false;
+      }
+    } catch {}
+
     const loadResponses = async () => {
       if (initialLoad) {
         setIsLoading(true);
         initialLoad = false;
       }
       try {
-        const currentUser = getCurrentUser();
-        const myIdentitySet = getUserIdentitySet(currentUser);
-        const ownerId = String(intent.authorId || currentUser?.uid || '').trim();
-        const ownerEmail = String((intent as any).authorEmail || currentUser?.email || '').trim().toLowerCase();
-
         // 1. Fetch grouped inbox threads + raw messages in parallel for maximum reliability
         const token = localStorage.getItem('locohelp_token') || '';
         const headers: Record<string, string> = {};
@@ -59,7 +136,7 @@ export default function PostResponsesModal({
 
         const [inboxRes, messagesRes] = await Promise.all([
           fetch(
-            `/api/intents/${encodeURIComponent(intent.id)}/inbox?ownerId=${encodeURIComponent(ownerId)}&ownerEmail=${encodeURIComponent(ownerEmail)}&_t=${Date.now()}`,
+            `/api/posts/${encodeURIComponent(intent.id)}/inbox?ownerId=${encodeURIComponent(ownerId)}&ownerEmail=${encodeURIComponent(ownerEmail)}&_t=${Date.now()}`,
             { cache: 'no-store', headers }
           ).catch(() => null),
           fetch(`/api/messages/${encodeURIComponent(intent.id)}?_t=${Date.now()}`, {
@@ -78,6 +155,17 @@ export default function PostResponsesModal({
         if (messagesRes && messagesRes.ok) {
           const data = await messagesRes.json().catch(() => []);
           if (Array.isArray(data)) rawMessages = data;
+        }
+
+        // Also merge any responses attached to intent prop
+        if (Array.isArray((intent as any).responses)) {
+          const existingIds = new Set(rawMessages.map(m => m?.id).filter(Boolean));
+          (intent as any).responses.forEach((r: any) => {
+            if (r && r.id && !existingIds.has(r.id)) {
+              existingIds.add(r.id);
+              rawMessages.push(r);
+            }
+          });
         }
 
         // Also check localStorage chat cache in case an optimistic message was just sent
@@ -157,7 +245,6 @@ export default function PostResponsesModal({
               isCollaborator: Boolean(msg.isCollaborator || msg.is_collaborator)
             });
           } else if (inboxThreads.length === 0) {
-            // Only increment counts from rawMessages if inboxThreads didn't already aggregate them
             existing.lastMessage = msgText || existing.lastMessage;
             existing.updatedAt = msgTime || existing.updatedAt;
             existing.count += 1;
@@ -189,10 +276,18 @@ export default function PostResponsesModal({
 
     loadResponses();
     const pollInterval = setInterval(loadResponses, 2000);
+    const unsubStream = subscribeToRealtimeStream({
+      onNewResponse: (payload) => {
+        if (payload?.postId === intent.id) {
+          loadResponses();
+        }
+      }
+    });
 
     return () => {
       isMounted = false;
       clearInterval(pollInterval);
+      unsubStream();
     };
   }, [isOpen, intent]);
 

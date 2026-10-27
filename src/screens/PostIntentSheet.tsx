@@ -190,10 +190,27 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
         distance: Number((Math.random() * 0.4 + 0.1).toFixed(1)),
         isVerifiedUser: true,
         imageUrl: attachmentUrl || undefined,
-        attachmentUrl: attachmentUrl || undefined
+        attachmentUrl: attachmentUrl || undefined,
+        responseCount: 0,
+        response_count: 0,
+        responses: [],
+        repliers: []
       } as any;
 
-      // 1. Sync to central Express backend & PostgreSQL
+      try {
+        const myIds = JSON.parse(localStorage.getItem('locohelp_my_post_ids') || '[]');
+        if (!myIds.includes(newIntent.id)) {
+          myIds.push(newIntent.id);
+          localStorage.setItem('locohelp_my_post_ids', JSON.stringify(myIds));
+        }
+      } catch (e) {}
+
+      // 1. Optimistically prepend to creator's feed state right away (0ms delay)
+      if (onPostCreated) {
+        onPostCreated(newIntent);
+      }
+
+      // 2. Sync to central Express backend & PostgreSQL
       const serverResp: any = await broadcastIntentToServer(newIntent);
       if (serverResp && serverResp.error) {
         if (serverResp.cooldownRemaining) {
@@ -205,21 +222,17 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
         return;
       }
 
-      // 2. Record cooldown & post ID
+      // 3. Record cooldown & reconcile server response
       recordPostCreatedTimestamp();
       setCooldownRemaining(30);
 
-      try {
-        const myIds = JSON.parse(localStorage.getItem('locohelp_my_post_ids') || '[]');
-        if (!myIds.includes(newIntent.id)) {
-          myIds.push(newIntent.id);
-          localStorage.setItem('locohelp_my_post_ids', JSON.stringify(myIds));
-        }
-      } catch (e) {}
-
-      // 3. Update UI instantly
-      if (onPostCreated) {
-        onPostCreated(newIntent);
+      if (serverResp && serverResp.id && onPostCreated) {
+        onPostCreated({
+          ...newIntent,
+          ...serverResp,
+          responseCount: serverResp.responseCount ?? serverResp.response_count ?? 0,
+          response_count: serverResp.response_count ?? serverResp.responseCount ?? 0
+        });
       }
 
       onClose();

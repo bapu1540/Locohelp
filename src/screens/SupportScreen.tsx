@@ -150,10 +150,10 @@ export default function SupportScreen({ onBack }: { onBack: () => void }) {
         ? "11. How do I report a wrong post, fake listing, or suspicious user to the Admin?"
         : "11. किसी गलत पोस्ट, फर्जी लिस्टिंग या संदिग्ध यूजर की शिकायत (Report) एडमिन से कैसे करें?",
       a: language === 'GU'
-        ? "વેબસાઈટ પર 'Safety Rules & Report' બટન પર ક્લિક કરો અને ત્યાં 'એડમિનને રિપોર્ટ મોકલો' દબાવો. ફરિયાદનું કારણ પસંદ કરીને વિગત લખો. તમારી રિપોર્ટ સીધી એડમિન પાસે જશે અને ખોટી પોસ્ટ કે યુઝરને તરત જ હટાવવામાં આવશે."
+        ? "Settings (સેટિંગ્સ) માં જઈને 'સેવાની શરતો અને સુરક્ષા નિયમો' અથવા સીધા ચેટની અંદર 'Report' બટન પર ક્લિક કરો. ફરિયાદનું કારણ પસંદ કરીને વિગત લખો. તમારી રિપોર્ટ સીધી એડમિન પાસે જશે અને ખોટી પોસ્ટ કે યુઝરને તરત જ હટાવવામાં આવશે."
         : language === 'EN'
-        ? "Click on 'Safety Rules & Report' in the bottom black bar (or inside Settings), then tap 'Report Issue to Admin'. Select the reason (Fake Profile/Shop, Spam/Fraud, Inappropriate Content, etc.) and write the details. Your report goes directly to the Admin team for immediate action and blocking."
-        : "वेबसाइट के सबसे नीचे काली पट्टी में दिए गए 'सुरक्षा नियम व रिपोर्ट (Safety Rules & Report)' बटन पर क्लिक करें और वहाँ 'एडमिन को रिपोर्ट भेजें' दबाएं। शिकायत का कारण चुनें और विवरण लिखकर सबमिट करें। आपकी रिपोर्ट सीधे एडमिन के पास जाती है और गलत पोस्ट या यूजर को तुरंत हटाया/ब्लॉक किया जाता है।"
+        ? "Open Settings and tap 'Terms of Service & Safety Rules' (or use the Report button directly inside any chat), then tap 'Report Suspicious Activity'. Select the reason and submit details. Your report goes directly to the Admin team for immediate verification and action."
+        : "Settings (सेटिंग्स) में जाकर 'सेवा की शर्तें व सुरक्षा नियम' खोलें (या सीधे किसी भी चैट के अंदर ऊपर दिए गए Report बटन को दबाएं) और शिकायत का कारण चुनकर सबमिट करें। आपकी रिपोर्ट सीधे एडमिन टीम के पास जाती है और गलत पोस्ट या यूजर पर तुरंत कार्रवाई की जाती है।"
     },
     {
       q: language === 'GU'
@@ -166,6 +166,30 @@ export default function SupportScreen({ onBack }: { onBack: () => void }) {
         : language === 'EN'
         ? "Open www.locohelp.com in Google Chrome on your phone and tap the 'Install App' button in the top bar (or inside Settings). If you opened the link inside WhatsApp or Instagram, tap 'Open in Chrome' first so the official mobile app installs smoothly on your home screen."
         : "अपने फोन के Google Chrome ब्राउज़र में www.locohelp.com खोलें और ऊपर दिए गए 'Install App' बटन (या सेटिंग्स के अंदर इंस्टॉल विकल्प) पर क्लिक करें। यदि आपने व्हाट्सएप या इंस्टाग्राम के अंदर लिंक खोला है, तो पहले उसे 'Open in Chrome' करें, जिससे ऐप सीधे आपके फोन की होम स्क्रीन पर इंस्टॉल हो जाएगा।"
+    },
+    {
+      q: language === 'GU'
+        ? "13. ચેટમાં મોબાઈલ નંબરની ગોપનીયતા અને કોઈ યુઝરને Block (બ્લોક) કેવી રીતે કરવા?"
+        : language === 'EN'
+        ? "13. How does phone number privacy work in chat, and how can I Block a user?"
+        : "13. चैट में मोबाइल नंबर की गोपनीयता कैसी है और किसी यूज़र को Block (ब्लॉक) कैसे करें?",
+      a: language === 'GU'
+        ? "તમારી સુરક્ષા માટે કોઈપણ યુઝરનો મોબાઈલ નંબર જાહેરમાં બતાવવામાં આવતો નથી; જરૂર પડ્યે તમે સ્વેચ્છાએ ચેટમાં લખીને આપી શકો છો. જો કોઈ યુઝર ચેટમાં ખોટા મેસેજ કરે, તો ચેટમાં ઉપર આપેલા 'Block' બટનથી તમે તેને તરત જ બ્લોક કરી શકો છો જેથી તે તમને ફરી મેસેજ ન કરી શકે."
+        : language === 'EN'
+        ? "For complete privacy, phone numbers are hidden by default and only shared if you voluntarily type them in chat. If anyone sends unwanted messages or behaves inappropriately, tap the 'Block' button at the top of the chat window to immediately stop them from messaging you."
+        : "आपकी सुरक्षा के लिए किसी भी यूज़र का मोबाइल नंबर सार्वजनिक रूप से नहीं दिखाया जाता; आवश्यकता होने पर आप स्वेच्छा से चैट में लिखकर दे सकते हैं। यदि कोई यूज़र बार-बार अनचाहे मैसेज करे या अनुचित व्यवहार करे, तो चैट में ऊपर दिए गए 'Block' बटन से आप उसे तुरंत ब्लॉक कर सकते हैं।"
+    },
+    {
+      q: language === 'GU'
+        ? "14. મારું એકાઉન્ટ અને ડેટા કાયમી ધોરણે ડિલીટ (Delete Account) કેવી રીતે કરવું?"
+        : language === 'EN'
+        ? "14. How can I permanently close or delete my LocoHelp account and data?"
+        : "14. अपना अकाउंट और डेटा स्थायी रूप से बंद / डिलीट (Delete Account) कैसे करें?",
+      a: language === 'GU'
+        ? "Settings (સેટિંગ્સ) માં સૌથી નીચે આપેલા 'એકાઉન્ટ બંધ / ડિલીટ કરવાની વિનંતી (Request Account Closure / Delete Account)' વિકલ્પ પર ક્લિક કરીને કારણ લખો અને સબમિટ કરો. ચકાસણી બાદ તમારું એકાઉન્ટ અને વ્યક્તિગત ડેટા કાયમી ધોરણે હટાવી દેવામાં આવશે."
+        : language === 'EN'
+        ? "Go to Settings and tap 'Request Account Closure / Delete Account' at the bottom, enter your reason, and submit. Upon verification, your profile, posts, and personal data will be permanently deleted in accordance with our Privacy Policy."
+        : "Settings (सेटिंग्स) में सबसे नीचे दिए गए 'अकाउंट बंद / डिलीट करने का अनुरोध (Request Account Closure / Delete Account)' बटन पर क्लिक करें, कारण लिखें और सबमिट करें। सत्यापन के बाद आपकी प्रोफ़ाइल और व्यक्तिगत डेटा स्थायी रूप से हटा दिया जाएगा।"
     }
   ];
 
@@ -182,10 +206,10 @@ export default function SupportScreen({ onBack }: { onBack: () => void }) {
         </button>
         <div>
           <h2 className="text-base font-extrabold text-slate-900 dark:text-white tracking-tight">
-            {language === 'EN' ? 'Help & Support' : language === 'GU' ? 'મદદ અને સપોર્ટ' : 'सहायता और संपर्क'}
+            {language === 'EN' ? 'Support, Contact & FAQs' : language === 'GU' ? 'સપોર્ટ, સંપર્ક અને સવાલ-જવાબ' : 'सहायता, संपर्क और सवाल-जवाब'}
           </h2>
           <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
-            LocoHelp Official Support Center
+            LocoHelp Official Support & Contact Center
           </p>
         </div>
       </div>
@@ -213,15 +237,15 @@ export default function SupportScreen({ onBack }: { onBack: () => void }) {
           </h3>
           <p className="text-indigo-100 text-xs font-medium max-w-sm">
             {language === 'EN'
-              ? 'Find quick answers in FAQs below or send an inquiry to our dedicated business support email.'
+              ? 'Connect with us directly via Official Email or Instagram, or browse instant answers in the FAQs below.'
               : language === 'GU'
-              ? 'નીચે વારંવાર પૂછાતા પ્રશ્નો (FAQs) ના જવાબ જુઓ અથવા અમારા ઓફિશિયલ ઈમેલ પર સંપર્ક કરો.'
-              : 'नीचे अक्सर पूछे जाने वाले सवालों के उत्तर देखें या सीधे हमारे ऑफिशियल ईमेल पर संपर्क करें।'}
+              ? 'નીચે અમારા ઓફિશિયલ ઈમેલ અથવા ઈન્સ્ટાગ્રામ પર સીધો સંપર્ક કરો, અથવા FAQs માં ત્વરિત જવાબો જુઓ.'
+              : 'नीचे हमारे ऑफिशियल ईमेल या इंस्टाग्राम पर सीधे संपर्क करें, अथवा अक्सर पूछे जाने वाले सवालों (FAQs) में तुरंत उत्तर देखें।'}
           </p>
         </div>
 
         {/* ========================================================= */}
-        {/* BANNER 1: OFFICIAL BUSINESS EMAIL SUPPORT (ACTIVE)        */}
+        {/* BANNER 1: OFFICIAL BUSINESS EMAIL & INSTAGRAM CONTACT     */}
         {/* ========================================================= */}
         <div className="bg-white dark:bg-slate-800 border border-indigo-200 dark:border-indigo-900/60 rounded-3xl p-5 shadow-xs hover:shadow-md transition-all space-y-3.5">
           <div className="flex items-center justify-between">
@@ -231,10 +255,10 @@ export default function SupportScreen({ onBack }: { onBack: () => void }) {
               </div>
               <div>
                 <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">
-                  {language === 'EN' ? 'Official Email Support' : language === 'GU' ? 'ઓફિશિયલ ઈમેલ સપોર્ટ' : 'ऑफिशियल ईमेल सहायता'}
+                  {language === 'EN' ? 'Official Contact Channels' : language === 'GU' ? 'ઓફિશિયલ સંપર્ક માધ્યમ (Email & Instagram)' : 'आधिकारिक संपर्क माध्यम (Email व Instagram)'}
                 </h4>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  {language === 'EN' ? 'Verified Business Helpdesk' : language === 'GU' ? 'વેરિફાઈડ બિઝનેસ સહાયતા કેન્દ્ર' : 'सत्यापित बिजनेस सहायता केंद्र'}
+                  {language === 'EN' ? 'Verified Helpdesk & Social Connect' : language === 'GU' ? 'વેરિફાઈડ સહાયતા કેન્દ્ર અને સોશિયલ મીડિયા' : 'सत्यापित सहायता केंद्र और सोशल मीडिया'}
                 </p>
               </div>
             </div>
@@ -276,15 +300,42 @@ export default function SupportScreen({ onBack }: { onBack: () => void }) {
             </button>
           </div>
 
-          {/* Quick Action Button */}
-          <button
-            onClick={handleSendEmail}
-            className="w-full py-2.5 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98]"
-          >
-            <Mail className="w-4 h-4" />
-            <span>{language === 'EN' ? 'Write to support@locohelp.com' : language === 'GU' ? 'ઈમેલ મોકલો (support@locohelp.com)' : 'ईमेल भेजें (support@locohelp.com)'}</span>
-            <ExternalLink className="w-3.5 h-3.5 opacity-70" />
-          </button>
+          {/* Quick Action Buttons: Email + Real Instagram */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <button
+              onClick={handleSendEmail}
+              className="w-full py-2.5 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98]"
+            >
+              <Mail className="w-4 h-4 shrink-0" />
+              <span className="truncate">{language === 'EN' ? 'Email: support@locohelp.com' : language === 'GU' ? 'ઈમેલ: support@locohelp.com' : 'ईमेल: support@locohelp.com'}</span>
+              <ExternalLink className="w-3.5 h-3.5 opacity-70 shrink-0" />
+            </button>
+
+            <a
+              href="https://www.instagram.com/locohelpofficial?igsh=MWd2c282b2N6N250aA=="
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full py-2.5 px-4 bg-slate-50 hover:bg-pink-50/70 dark:bg-slate-900 dark:hover:bg-slate-800/90 text-slate-800 dark:text-slate-100 font-bold text-xs rounded-xl border border-pink-200 dark:border-pink-900/50 shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98]"
+            >
+              <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                  <radialGradient id="supportIgGrad" cx="30%" cy="107%" r="150%">
+                    <stop offset="0%" stopColor="#fdf497" />
+                    <stop offset="5%" stopColor="#fdf497" />
+                    <stop offset="45%" stopColor="#fd5949" />
+                    <stop offset="60%" stopColor="#d6249f" />
+                    <stop offset="90%" stopColor="#285AEB" />
+                  </radialGradient>
+                </defs>
+                <rect x="2" y="2" width="20" height="20" rx="5.5" fill="url(#supportIgGrad)" />
+                <rect x="4.2" y="4.2" width="15.6" height="15.6" rx="4" stroke="#fff" strokeWidth="1.6" fill="none" />
+                <circle cx="12" cy="12" r="3.6" stroke="#fff" strokeWidth="1.6" fill="none" />
+                <circle cx="16.3" cy="7.7" r="1.1" fill="#fff" />
+              </svg>
+              <span className="truncate">@locohelpofficial</span>
+              <ExternalLink className="w-3.5 h-3.5 text-pink-500 shrink-0" />
+            </a>
+          </div>
 
           <p className="text-[11px] text-center text-slate-400 font-medium">
             {language === 'EN' ? '⚡ Typical response time within 24 hours' : language === 'GU' ? '⚡ સામાન્ય રીતે 24 કલાકની અંદર પ્રતિસાદ' : '⚡ सामान्यतः 24 घंटे के भीतर प्रतिक्रिया'}

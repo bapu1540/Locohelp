@@ -361,18 +361,32 @@ export async function fetchChatMessages(conversationId: string): Promise<ChatMes
 }
 
 /**
- * Sends a message in a chat conversation to sync across devices (`messages` table via POST /api/messages).
+ * Sends a message / response on a post or chat conversation (`POST /api/posts/:id/respond` & `POST /api/messages`).
  */
-export async function sendChatMessage(conversationId: string, msg: Partial<ChatMessage> & { receiverId?: string; authorName?: string; senderEmail?: string; authorAvatar?: string }): Promise<ChatMessage> {
+export async function sendChatMessage(
+  conversationId: string,
+  msg: Partial<ChatMessage> & {
+    receiverId?: string;
+    postOwnerId?: string;
+    authorName?: string;
+    senderEmail?: string;
+    authorAvatar?: string;
+  }
+): Promise<ChatMessage & { responseCount?: number; response_count?: number; responses?: any[]; repliers?: any[] }> {
   const senderIdVal = sanitizeText(msg.authorId || (msg as any).senderId || (msg as any).sender_id || 'guest');
   const senderNameVal = sanitizeText((msg as any).authorName || (msg as any).senderName || '');
   const senderEmailVal = sanitizeText((msg as any).senderEmail || (msg as any).authorEmail || (msg as any).sender_email || '');
   const senderAvatarVal = (msg as any).authorAvatar || (msg as any).senderAvatar || '';
+  const postOwnerIdVal = sanitizeText((msg as any).postOwnerId || (msg as any).post_owner_id || (msg as any).receiverId || conversationId);
   const payload = {
     id: msg.id || 'msg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
     conversationId,
+    postId: conversationId,
+    post_id: conversationId,
     intentId: conversationId,
     intent_id: conversationId,
+    postOwnerId: postOwnerIdVal,
+    post_owner_id: postOwnerIdVal,
     authorId: senderIdVal,
     senderId: senderIdVal,
     sender_id: senderIdVal,
@@ -385,8 +399,8 @@ export async function sendChatMessage(conversationId: string, msg: Partial<ChatM
     sender_email: senderEmailVal,
     senderAvatar: senderAvatarVal,
     authorAvatar: senderAvatarVal,
-    receiverId: sanitizeText((msg as any).receiverId || conversationId),
-    receiver_id: sanitizeText((msg as any).receiverId || conversationId),
+    receiverId: sanitizeText((msg as any).receiverId || postOwnerIdVal || conversationId),
+    receiver_id: sanitizeText((msg as any).receiverId || postOwnerIdVal || conversationId),
     text: sanitizeText(msg.text || ''),
     content: sanitizeText(msg.text || ''),
     message: sanitizeText(msg.text || ''),
@@ -397,9 +411,9 @@ export async function sendChatMessage(conversationId: string, msg: Partial<ChatM
   };
 
   try {
-    const res = await fetch(`/api/messages?_t=${Date.now()}`, {
+    const res = await fetch(`/api/posts/${encodeURIComponent(conversationId)}/respond?_t=${Date.now()}`, {
       method: 'POST',
-      headers: { 
+      headers: {
         'Content-Type': 'application/json',
         'Cache-Control': 'no-cache',
         ...getAuthHeaders()
@@ -407,14 +421,29 @@ export async function sendChatMessage(conversationId: string, msg: Partial<ChatM
       body: JSON.stringify(payload)
     });
     if (res.ok) {
-      return await res.json();
+      const saved = await res.json();
+      try {
+        window.dispatchEvent(
+          new CustomEvent('locohelp_realtime_new_response', {
+            detail: {
+              postId: conversationId,
+              response: saved?.response || saved,
+              responseCount: saved?.responseCount ?? saved?.response_count,
+              repliers: saved?.repliers
+            }
+          })
+        );
+      } catch {}
+      return saved;
     }
   } catch (err) {
-    console.warn("Failed to send message to server:", err);
+    console.warn("Failed to send post response to server:", err);
   }
 
   return payload as ChatMessage;
 }
+
+export const respondToPostOnServer = sendChatMessage;
 
 /**
  * Posts safety & legal audit logs to the backend
@@ -1786,6 +1815,137 @@ export async function submitChatReportToServer(payload: {
   }
 }
 
+// ==========================================
+// FIREBASE CLOUD MESSAGING (FCM) WEB PUSH TOKEN SYNC
+// ==========================================
 
+export async function saveUserFcmTokenOnServer(payload: {
+  fcmToken: string;
+  area?: string;
+  city?: string;
+  district?: string;
+  state?: string;
+  location?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  userId?: string;
+  email?: string;
+  name?: string;
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    if (!payload.fcmToken || !payload.fcmToken.trim()) {
+      return { success: false, error: 'Missing FCM token' };
+    }
+    const res = await fetch('/api/users/fcm-token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders()
+      },
+      body: JSON.stringify({
+        fcmToken: payload.fcmToken.trim(),
+        fcm_token: payload.fcmToken.trim(),
+        area: payload.area ? sanitizeText(payload.area) : undefined,
+        city: payload.city ? sanitizeText(payload.city) : undefined,
+        district: payload.district ? sanitizeText(payload.district) : undefined,
+        state: payload.state ? sanitizeText(payload.state) : undefined,
+        location: payload.location ? sanitizeText(payload.location) : undefined,
+        latitude: typeof payload.latitude === 'number' ? payload.latitude : undefined,
+        longitude: typeof payload.longitude === 'number' ? payload.longitude : undefined,
+        userId: payload.userId ? sanitizeText(payload.userId) : undefined,
+        email: payload.email ? sanitizeText(payload.email).toLowerCase() : undefined,
+        name: payload.name ? sanitizeText(payload.name) : undefined
+      })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.success) {
+      try {
+        localStorage.setItem('locohelp_fcm_token', payload.fcmToken.trim());
+      } catch {}
+      return { success: true };
+    }
+    return { success: false, error: data.error || 'Failed to save FCM token on server' };
+  } catch (e: any) {
+    return { success: false, error: e?.message || 'Network error saving FCM token' };
+  }
+}
+
+// ==========================================
+// REAL-TIME SERVER-SENT EVENTS (SSE) STREAM (/api/stream)
+// ==========================================
+
+export function subscribeToRealtimeStream(handlers: {
+  onNewPost?: (payload: { post?: Intent; intent?: Intent }) => void;
+  onNewResponse?: (payload: {
+    postId: string;
+    postOwnerId?: string;
+    response?: any;
+    responseCount?: number;
+    response_count?: number;
+    repliers?: any[];
+  }) => void;
+}): () => void {
+  if (typeof window === 'undefined' || typeof EventSource === 'undefined') {
+    return () => {};
+  }
+
+  let es: EventSource | null = null;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let closed = false;
+
+  const connect = () => {
+    if (closed) return;
+    try {
+      es = new EventSource('/api/stream');
+
+      es.addEventListener('new_post', (event: MessageEvent) => {
+        try {
+          const data = JSON.parse(event.data || '{}');
+          handlers.onNewPost?.(data);
+        } catch {}
+      });
+
+      es.addEventListener('new_response', (event: MessageEvent) => {
+        try {
+          const data = JSON.parse(event.data || '{}');
+          handlers.onNewResponse?.(data);
+        } catch {}
+      });
+
+      es.onerror = () => {
+        try {
+          es?.close();
+        } catch {}
+        es = null;
+        if (!closed) {
+          reconnectTimer = setTimeout(connect, 3500);
+        }
+      };
+    } catch {
+      if (!closed) {
+        reconnectTimer = setTimeout(connect, 4000);
+      }
+    }
+  };
+
+  connect();
+
+  const localRespListener = (e: Event) => {
+    const custom = e as CustomEvent;
+    if (custom?.detail?.postId) {
+      handlers.onNewResponse?.(custom.detail);
+    }
+  };
+  window.addEventListener('locohelp_realtime_new_response', localRespListener);
+
+  return () => {
+    closed = true;
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    try {
+      es?.close();
+    } catch {}
+    window.removeEventListener('locohelp_realtime_new_response', localRespListener);
+  };
+}
 
 

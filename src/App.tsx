@@ -89,6 +89,12 @@ function AppContent() {
       if (!path || path === '') {
         if (hash) {
           const cleanHash = hash.replace(/^#\/?/, '');
+          if (['privacy', 'delete-account', 'about', 'features', 'contact'].includes(cleanHash)) {
+            return 'settings';
+          }
+          if (cleanHash === 'terms') {
+            return 'guidelines';
+          }
           const validScreens: Screen[] = [
             'home', 'categories', 'directory', 'chat', 'notifications',
             'pro', 'settings', 'guidelines', 'roadmap', 'profile',

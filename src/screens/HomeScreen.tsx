@@ -8,7 +8,7 @@ import { CATEGORIES, MASTER_CATEGORIES, getCategoryName, getFreeHelperProfiles }
 import UserProfileModal from './UserProfileModal';
 import AppGuideModal from './AppGuideModal';
 import PostIntentSheet from './PostIntentSheet';
-import { fetchLiveIntents, deleteIntentOnServer, getCachedCategoryImages, fetchCategoryImages } from '../api';
+import { fetchLiveIntents, deleteIntentOnServer, getCachedCategoryImages, fetchCategoryImages, subscribeToRealtimeStream } from '../api';
 import AdBannerSection from '../components/AdBannerSection';
 import LocoHelpLogo from '../components/LocoHelpLogo';
 import RegisterShopModal from '../components/RegisterShopModal';
@@ -22,6 +22,7 @@ import PostResponsesModal from '../components/PostResponsesModal';
 import PanIndiaLocationModal from '../components/PanIndiaLocationModal';
 import { getSavedUserLocation, getConnectedTwinDistricts, UserManualLocation } from '../data/panIndiaLocations';
 import { isGuestUser } from '../lib/authUtils';
+import { requestAndRegisterFcmToken, subscribeToForegroundPushMessages } from '../lib/firebase';
 import InstallAppModal from '../components/InstallAppModal';
 import RedWarningTicker from '../components/RedWarningTicker';
 import PublicSuggestionsBanner from '../components/PublicSuggestionsBanner';
@@ -163,6 +164,154 @@ export default function HomeScreen({
     window.addEventListener('locohelp_location_changed', handleLocationChanged);
     return () => window.removeEventListener('locohelp_location_changed', handleLocationChanged);
   }, []);
+
+  // ==========================================
+  // FIREBASE CLOUD MESSAGING (FCM) WEB PUSH NOTIFICATIONS
+  // ==========================================
+  const [notifPermission, setNotifPermission] = useState<NotificationPermission>(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      return Notification.permission;
+    }
+    return 'default';
+  });
+  const [pushBannerDismissed, setPushBannerDismissed] = useState<boolean>(() => {
+    try {
+      return sessionStorage.getItem('locohelp_push_banner_dismissed') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [isEnablingPush, setIsEnablingPush] = useState(false);
+
+  const syncUserPushToken = async (silentIfDefault: boolean) => {
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
+    if (isGuestUser()) return;
+
+    const currentUser = activeUser || getCurrentUser();
+    if (!currentUser || !currentUser.uid || currentUser.uid === 'guest_user') return;
+
+    const areaName = (userLocation?.area || '').trim();
+    const cityName = (userLocation?.district || '').trim();
+    const stateName = (userLocation?.state || '').trim();
+    const fullLocation = [areaName, cityName, stateName].filter(Boolean).join(', ') || 'Local Area';
+
+    const res = await requestAndRegisterFcmToken({
+      area: areaName || cityName || 'Local Area',
+      city: cityName,
+      district: cityName,
+      state: stateName,
+      location: fullLocation,
+      userId: currentUser.uid,
+      email: currentUser.email,
+      name: currentUser.displayName,
+      silentIfDefault
+    });
+
+    if (res.permission) {
+      setNotifPermission(res.permission);
+    } else if ('Notification' in window) {
+      setNotifPermission(Notification.permission);
+    }
+    return res;
+  };
+
+  // Automatically request / sync FCM token when a logged-in user visits the dashboard or updates their location
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
+    setNotifPermission(Notification.permission);
+    if (isGuestUser()) return;
+
+    if (Notification.permission === 'granted') {
+      syncUserPushToken(true).catch(() => {});
+    } else if (Notification.permission === 'default') {
+      // Attempt non-blocking permission request on dashboard visit for browsers that allow it
+      syncUserPushToken(false).catch(() => {});
+    }
+  }, [activeUser?.uid, activeUser?.email, userLocation?.district, userLocation?.area]);
+
+  // Listen for foreground FCM push notifications while dashboard is open
+  useEffect(() => {
+    let unsub: (() => void) | null = null;
+    subscribeToForegroundPushMessages((msg) => {
+      setCreatedToast(`${msg.title} — ${msg.body}`);
+      setTimeout(() => setCreatedToast(null), 6000);
+      fetchLiveIntents()
+        .then((fresh) => {
+          if (Array.isArray(fresh) && fresh.length > 0) {
+            setIntents(fresh);
+          }
+        })
+        .catch(() => {});
+    }).then((fn) => {
+      unsub = fn;
+    });
+    return () => {
+      if (unsub) unsub();
+    };
+  }, []);
+
+  // If user tapped a background push notification (?postId=...&viewResponses=1), highlight or open responses
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const pid = params.get('postId');
+      const viewResp = params.get('viewResponses');
+      if (pid) {
+        setNewlyCreatedId(pid);
+        if (viewResp === '1' && intents.length > 0) {
+          const found = intents.find(i => i.id === pid);
+          if (found) {
+            setSelectedIntentForResponses(found);
+            setIsResponsesModalOpen(true);
+          }
+        }
+      }
+    } catch {}
+  }, [intents.length]);
+
+  const handleEnablePushAlertsClick = async () => {
+    if (isGuestUser()) {
+      setLoginPromptTitle({
+        en: 'Sign In to Enable Local Alerts 🔔',
+        hi: 'लोकल अलर्ट चालू करने के लिए लॉगिन करें 🔔'
+      });
+      setLoginPromptDesc({
+        en: 'Sign in so we can send you instant background notifications whenever someone needs help or a service in your area.',
+        hi: 'लॉगिन करें ताकि जब भी आपके इलाके में किसी को मदद या सर्विस की ज़रूरत हो, आपको तुरंत नोटिफिकेशन मिल सके।'
+      });
+      setIsLoginPromptOpen(true);
+      return;
+    }
+
+    setIsEnablingPush(true);
+    try {
+      const res = await syncUserPushToken(false);
+      if (res && res.permission === 'granted') {
+        setNotifPermission('granted');
+        setPushBannerDismissed(true);
+        setCreatedToast(
+          language === 'EN'
+            ? `🔔 Local Alerts enabled for ${userLocation.area || userLocation.district || 'your area'}!`
+            : language === 'GU'
+            ? `🔔 ${userLocation.area || userLocation.district || 'તમારા વિસ્તાર'} માટે લોકલ એલર્ટ ચાલુ થઈ ગયા!`
+            : `🔔 ${userLocation.area || userLocation.district || 'आपके इलाके'} के लिए लोकल अलर्ट चालू हो गए हैं!`
+        );
+        setTimeout(() => setCreatedToast(null), 4000);
+      } else if (res && res.permission === 'denied') {
+        setNotifPermission('denied');
+        setCreatedToast(
+          language === 'EN'
+            ? '⚠️ Notifications are blocked in your browser settings. Please allow notifications for this site.'
+            : language === 'GU'
+            ? '⚠️ બ્રાઉઝર સેટિંગ્સમાં નોટિફિકેશન બ્લોક છે. કૃપા કરીને તેને Allow કરો.'
+            : '⚠️ आपके ब्राउज़र सेटिंग्स में नोटिफिकेशन ब्लॉक हैं। कृपया इस साइट के लिए Allow करें।'
+        );
+        setTimeout(() => setCreatedToast(null), 5000);
+      }
+    } finally {
+      setIsEnablingPush(false);
+    }
+  };
 
   // Push browser history state whenever any modal / popup / chat inbox opens on HomeScreen
   const isAnyHomeModalOpen = Boolean(
@@ -503,8 +652,28 @@ export default function HomeScreen({
   const activeHeaderDistrict = (userLocation.district || 'Gandhinagar').trim().toLowerCase();
   const connectedDistricts = getConnectedTwinDistricts(activeHeaderDistrict);
 
+  const myPostIdsList = useMemo(() => {
+    try {
+      const raw = localStorage.getItem('locohelp_my_post_ids');
+      return raw ? (JSON.parse(raw) as string[]) : [];
+    } catch {
+      return [];
+    }
+  }, [intents.length, newlyCreatedId]);
+
   const zoneFilteredIntents = baseCategoryIntents.filter(item => {
     if (!activeHeaderDistrict || activeHeaderDistrict === 'all') return true;
+    // Always show posts created by the current logged-in user so their own post never disappears
+    if (
+      item.id === newlyCreatedId ||
+      myPostIdsList.includes(item.id) ||
+      (activeUser?.uid && item.authorId === activeUser.uid) ||
+      (activeUser?.email &&
+        (item as any).authorEmail &&
+        String((item as any).authorEmail).toLowerCase() === String(activeUser.email).toLowerCase())
+    ) {
+      return true;
+    }
     const cityLower = (item.resolvedCity || '').trim().toLowerCase();
     const areaLower = (item.resolvedArea || '').trim().toLowerCase();
     const locLower = (item.location || '').trim().toLowerCase();
@@ -520,6 +689,10 @@ export default function HomeScreen({
   const displayIntents = zoneFilteredIntents
     .slice()
     .sort((a, b) => {
+      // Pin newly created post at the very top immediately
+      if (a.id === newlyCreatedId && b.id !== newlyCreatedId) return -1;
+      if (b.id === newlyCreatedId && a.id !== newlyCreatedId) return 1;
+
       const aCity = (a.resolvedCity || '').toLowerCase();
       const bCity = (b.resolvedCity || '').toLowerCase();
       const aArea = (a.resolvedArea || '').toLowerCase();
@@ -549,7 +722,11 @@ export default function HomeScreen({
         if (aAreaMatch !== bAreaMatch) return aAreaMatch - bAreaMatch;
       }
 
-      // 3. Newest / nearest priority
+      // 3. Newest posts first (strictly chronological so new posts appear immediately at the top)
+      const aTime = new Date(a.createdAt || (a as any).created_at || 0).getTime();
+      const bTime = new Date(b.createdAt || (b as any).created_at || 0).getTime();
+      if (bTime !== aTime) return bTime - aTime;
+
       return a.computedKm - b.computedKm;
     });
 
@@ -656,7 +833,7 @@ export default function HomeScreen({
     return { posts, helpers, shops, categories };
   }, [homeSearchQuery, displayIntents]);
 
-  // Unified Deduplicating Merger for Multi-Device Broadcast Sync
+  // Unified Deduplicating Merger for Multi-Device Broadcast Sync (Preserves responseCount, responses & repliers)
   const mergeAndDeduplicateIntents = (incoming: Intent[]) => {
     setIntents(prev => {
       let deletedIds: string[] = [];
@@ -679,19 +856,40 @@ export default function HomeScreen({
         console.warn("Deleted posts sync error:", e);
       }
 
-      const all = [...incoming, ...recentCustom, ...prev];
-      const seenIds = new Set<string>();
-      const result: Intent[] = [];
+      const byId = new Map<string, Intent>();
 
-      for (const item of all) {
+      const mergePostRecord = (existing: any, next: any): Intent => {
+        if (!existing) return next;
+        const existCount = Number(existing.responseCount ?? existing.response_count ?? 0);
+        const nextCount = Number(next.responseCount ?? next.response_count ?? 0);
+        const finalCount = Math.max(existCount, nextCount);
+
+        const existResponses = Array.isArray(existing.responses) ? existing.responses : [];
+        const nextResponses = Array.isArray(next.responses) ? next.responses : [];
+        const finalResponses = nextResponses.length >= existResponses.length ? nextResponses : existResponses;
+
+        const existRepliers = Array.isArray(existing.repliers) ? existing.repliers : [];
+        const nextRepliers = Array.isArray(next.repliers) ? next.repliers : [];
+        const finalRepliers = nextRepliers.length >= existRepliers.length ? nextRepliers : existRepliers;
+
+        return {
+          ...existing,
+          ...next,
+          responseCount: finalCount,
+          response_count: finalCount,
+          responses: finalResponses,
+          repliers: finalRepliers
+        };
+      };
+
+      // Order from oldest fallback to freshest incoming so incoming fields win while keeping max response counts
+      for (const item of [...recentCustom, ...prev, ...incoming]) {
         if (!item || !item.id) continue;
         if (deletedIds.includes(item.id)) continue;
-        if (seenIds.has(item.id)) continue;
-
-        seenIds.add(item.id);
-        result.push(item);
+        byId.set(item.id, mergePostRecord(byId.get(item.id), item));
       }
 
+      const result: Intent[] = Array.from(byId.values());
       result.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
 
       // Update instant offline local cache
@@ -719,7 +917,7 @@ export default function HomeScreen({
     }
   };
 
-  // Multi-device real-time sync across all phones (Supabase Realtime)
+  // Multi-device real-time sync across all phones (SSE /api/stream + 4s polling fallback)
   useEffect(() => {
     // 1. Instant local load for 0ms initial render
     try {
@@ -732,14 +930,78 @@ export default function HomeScreen({
       }
     } catch (e) {}
 
-    // 2. Real-time Express & PostgreSQL sync (frequent poll for instant multi-device responsiveness)
+    // 2. Initial fetch + 4-second polling fallback
     syncServerBroadcasts();
     const pollInterval = setInterval(() => {
       syncServerBroadcasts();
     }, 4000);
 
+    // 3. Real-Time Server-Sent Events (SSE) stream for 0ms instant post & response updates without refreshing
+    const unsubRealtime = subscribeToRealtimeStream({
+      onNewPost: (payload) => {
+        const newPost = payload?.post || payload?.intent;
+        if (newPost && newPost.id) {
+          mergeAndDeduplicateIntents([newPost]);
+        }
+      },
+      onNewResponse: (payload) => {
+        if (!payload?.postId) return;
+        const targetId = String(payload.postId);
+
+        setIntents((prev) =>
+          prev.map((item) => {
+            if (item.id !== targetId) return item;
+            const prevCount = Number((item as any).responseCount ?? (item as any).response_count ?? 0);
+            const incomingCount = Number(payload.responseCount ?? payload.response_count ?? 0);
+            const prevResponses = Array.isArray((item as any).responses) ? (item as any).responses : [];
+            const newResp = payload.response;
+            const updatedResponses =
+              newResp && !prevResponses.some((r: any) => r?.id === newResp.id)
+                ? [...prevResponses, newResp]
+                : prevResponses;
+            const updatedRepliers =
+              Array.isArray(payload.repliers) && payload.repliers.length > 0
+                ? payload.repliers
+                : (item as any).repliers || [];
+            const nextCount = Math.max(
+              prevCount,
+              incomingCount,
+              updatedRepliers.length,
+              newResp ? prevCount + 1 : prevCount
+            );
+
+            const updatedItem = {
+              ...item,
+              responseCount: nextCount,
+              response_count: nextCount,
+              responses: updatedResponses,
+              repliers: updatedRepliers
+            } as Intent;
+
+            setSelectedIntentForResponses((currSelected) =>
+              currSelected && currSelected.id === targetId ? updatedItem : currSelected
+            );
+
+            return updatedItem;
+          })
+        );
+
+        // If the current logged-in user owns this post and someone else replied, show a live toast
+        const currentUser = getCurrentUser();
+        const myUid = String(currentUser?.uid || '').trim().toLowerCase();
+        const senderId = String(payload.response?.senderId || payload.response?.sender_id || '').trim().toLowerCase();
+        const ownerId = String(payload.postOwnerId || '').trim().toLowerCase();
+        if (myUid && ownerId && myUid === ownerId && senderId && senderId !== myUid) {
+          const responderName = payload.response?.senderName || 'Someone';
+          setCreatedToast(`💬 New Response on your Post! ${responderName} replied to your request.`);
+          setTimeout(() => setCreatedToast(null), 5000);
+        }
+      }
+    });
+
     return () => {
       clearInterval(pollInterval);
+      unsubRealtime();
     };
   }, []);
 
@@ -1115,6 +1377,66 @@ export default function HomeScreen({
             </button>
           </motion.div>
         )}
+
+        {/* Clean "Enable Local Alerts 🔔" Push Notification Banner for Logged-In Users */}
+        {!isGuestUser() &&
+          typeof window !== 'undefined' &&
+          'Notification' in window &&
+          notifPermission === 'default' &&
+          !pushBannerDismissed && (
+            <div className="mx-3.5 sm:mx-5 mt-3 bg-gradient-to-r from-indigo-600 via-violet-600 to-purple-600 text-white px-3.5 py-2.5 rounded-2xl shadow-md flex items-center justify-between gap-2.5 border border-indigo-400/30">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-xl bg-white/15 flex items-center justify-center shrink-0 text-base">
+                  🔔
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-black leading-tight truncate">
+                    {language === 'EN'
+                      ? `Get Instant Alerts in ${userLocation.area || userLocation.district || 'Your Area'}`
+                      : language === 'GU'
+                      ? `${userLocation.area || userLocation.district || 'તમારા વિસ્તાર'} ની નવી પોસ્ટના એલર્ટ મેળવો`
+                      : `${userLocation.area || userLocation.district || 'अपने इलाके'} के तुरंत लोकल अलर्ट पाएं`}
+                  </p>
+                  <p className="text-[10px] text-indigo-100 font-medium truncate">
+                    {language === 'EN'
+                      ? 'Receive background push alerts when neighbors post requests nearby'
+                      : language === 'GU'
+                      ? 'જ્યારે કોઈ નજીકમાં મદદ કે સર્વિસ પોસ્ટ કરે ત્યારે તુરંત નોટિફિકેશન મેળવો'
+                      : 'जब कोई आपके पास मदद या सर्विस की पोस्ट डाले तो तुरंत नोटिफिकेशन पाएं'}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleEnablePushAlertsClick}
+                  disabled={isEnablingPush}
+                  className="px-3 py-1.5 rounded-xl bg-white text-indigo-700 hover:bg-indigo-50 font-black text-[11px] shadow-xs active:scale-95 transition-all cursor-pointer whitespace-nowrap disabled:opacity-60"
+                >
+                  {isEnablingPush
+                    ? '...'
+                    : language === 'EN'
+                    ? 'Enable Local Alerts 🔔'
+                    : language === 'GU'
+                    ? 'એલર્ટ ચાલુ કરો 🔔'
+                    : 'Enable Local Alerts 🔔'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPushBannerDismissed(true);
+                    try {
+                      sessionStorage.setItem('locohelp_push_banner_dismissed', 'true');
+                    } catch {}
+                  }}
+                  className="p-1 rounded-lg text-white/75 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                  aria-label="Dismiss notification banner"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
 
         <div className="px-3.5 sm:px-5 mt-3 sm:mt-4 space-y-3 max-w-full overflow-hidden">
           
@@ -1667,13 +1989,13 @@ export default function HomeScreen({
                                 </span>
                                 <span
                                   className={`px-1.5 py-0.5 rounded-full text-[10px] font-black leading-none ${
-                                    Number((intent as any).responseCount || 0) > 0
+                                    Number((intent as any).responseCount ?? (intent as any).response_count ?? 0) > 0
                                       ? 'bg-amber-400 text-slate-950 shadow-2xs animate-pulse'
                                       : 'bg-indigo-800/80 text-indigo-100'
                                   }`}
                                   title="Number of people who messaged on this post"
                                 >
-                                  {Number((intent as any).responseCount || 0)}
+                                  {Number((intent as any).responseCount ?? (intent as any).response_count ?? 0)}
                                 </span>
                               </button>
                               <button
@@ -1842,28 +2164,12 @@ export default function HomeScreen({
           />
         </div>
 
-        {/* Footer at the bottom of the scrollable page */}
-        <footer className="bg-slate-900 border-t border-slate-800/80 py-4 px-3 sm:px-4 mt-6 text-center text-xs sm:text-sm text-slate-400">
-          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-center sm:justify-between gap-2.5 text-center">
-            <span className="font-semibold text-xs sm:text-sm text-slate-200 text-center">
-              LocoHelp © 2026
+        {/* Sleek thin footer line at the bottom of the scrollable page */}
+        <footer className="bg-slate-900 border-t border-slate-800/80 py-2 px-3 sm:px-4 mt-6 text-center text-[11px] sm:text-xs text-slate-400">
+          <div className="max-w-7xl mx-auto flex items-center justify-center text-center">
+            <span className="font-semibold text-[11px] sm:text-xs text-slate-300 tracking-wide">
+              LocoHelp © 2026 • Made for Local India
             </span>
-            <div className="flex items-center justify-center gap-3 text-[11px] font-bold">
-              <button
-                onClick={() => onNavigate('guidelines')}
-                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700/80 transition-colors cursor-pointer flex items-center gap-1.5"
-              >
-                <Shield className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                <span>{t('footer.guidelines')}</span>
-              </button>
-              <button
-                onClick={() => onNavigate('support')}
-                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700/80 transition-colors cursor-pointer flex items-center gap-1.5"
-              >
-                <HelpCircle className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-                <span>{t('footer.support')}</span>
-              </button>
-            </div>
           </div>
         </footer>
 

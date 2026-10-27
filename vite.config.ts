@@ -17,6 +17,7 @@ export default defineConfig(({ mode }) => {
       'process.env.FIREBASE_STORAGE_BUCKET': JSON.stringify(env.FIREBASE_STORAGE_BUCKET || process.env.FIREBASE_STORAGE_BUCKET || env.VITE_FIREBASE_STORAGE_BUCKET || ''),
       'process.env.FIREBASE_MESSAGING_SENDER_ID': JSON.stringify(env.FIREBASE_MESSAGING_SENDER_ID || process.env.FIREBASE_MESSAGING_SENDER_ID || env.VITE_FIREBASE_MESSAGING_SENDER_ID || ''),
       'process.env.FIREBASE_APP_ID': JSON.stringify(env.FIREBASE_APP_ID || process.env.FIREBASE_APP_ID || env.VITE_FIREBASE_APP_ID || ''),
+      'process.env.VITE_FIREBASE_VAPID_KEY': JSON.stringify(env.VITE_FIREBASE_VAPID_KEY || process.env.VITE_FIREBASE_VAPID_KEY || env.FIREBASE_VAPID_KEY || process.env.FIREBASE_VAPID_KEY || ''),
     },
     resolve: {
       alias: {
@@ -25,7 +26,6 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       hmr: process.env.DISABLE_HMR !== 'true',
-      watch: process.env.DISABLE_HMR === 'true' ? null : {},
     },
     build: {
       minify: 'esbuild' as const,

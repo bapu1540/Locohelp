@@ -10,6 +10,7 @@ import { isGuestUser } from '../lib/authUtils';
 import {
   fetchChatMessages,
   sendChatMessage,
+  subscribeToRealtimeStream,
   fetchChatBlockStatus,
   blockUserInChatOnServer,
   unblockUserInChatOnServer,
@@ -224,10 +225,18 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
 
     syncChat();
     const pollInterval = setInterval(syncChat, 1200);
+    const unsubStream = subscribeToRealtimeStream({
+      onNewResponse: (payload) => {
+        if (payload?.postId === chatId) {
+          syncChat();
+        }
+      }
+    });
 
     return () => {
       isMounted = false;
       clearInterval(pollInterval);
+      unsubStream();
     };
   }, [chatId]);
 
@@ -359,7 +368,11 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
     const messageData: any = {
       id: 'msg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
       conversationId: chatId,
+      postId: chatId,
+      post_id: chatId,
       intent_id: chatId,
+      postOwnerId: intent?.authorId || chatId,
+      post_owner_id: intent?.authorId || chatId,
       authorId: activeUid,
       sender_id: activeUid,
       user_id: activeUid,
@@ -381,7 +394,7 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
     // Optimistic UI update
     setMessages(prev => [...prev, messageData]);
 
-    // Store in backend database (messages table via POST /api/messages)
+    // Store in backend database (responses + messages + chats via POST /api/posts/:id/respond)
     try {
       await sendChatMessage(chatId, messageData);
     } catch (e) {}

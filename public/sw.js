@@ -1,4 +1,4 @@
-const CACHE_NAME = 'locohelp-pwa-v6';
+const CACHE_NAME = 'locohelp-pwa-v7';
 const STATIC_ASSETS = [
   '/manifest.json',
   '/pwa-192x192.png',
