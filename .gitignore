@@ -8,3 +8,6 @@ coverage/
 !.env.example
 data/*.json
 data/*.enc
+bun.lock
+bun.lockb
+
