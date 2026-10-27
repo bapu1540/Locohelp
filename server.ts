@@ -67,12 +67,18 @@ const CATEGORY_IMAGES_FILE = path.join(DATA_DIR, "category_images.json");
 const AUTH_USERS_FILE = path.join(DATA_DIR, "auth_users.json");
 const SECURITY_VAULT_FILE = path.join(DATA_DIR, "security_vault.enc");
 
-function readJsonFile<T>(_filePath: string, fallback: T): T {
+const inMemoryJsonCache = new Map<string, any>();
+
+function readJsonFile<T>(filePath: string, fallback: T): T {
+  if (inMemoryJsonCache.has(filePath)) {
+    return inMemoryJsonCache.get(filePath) as T;
+  }
   return fallback;
 }
 
-function writeJsonFile<T>(_filePath: string, _data: T): void {
-  // No-op: All persistence strictly uses live Railway PostgreSQL database and Firebase Storage
+function writeJsonFile<T>(filePath: string, data: T): void {
+  // Zero local disk writes: keep an in-memory cache for preview / transient fallback while Railway PostgreSQL is primary
+  inMemoryJsonCache.set(filePath, data);
 }
 
 // ==========================================
@@ -1858,8 +1864,43 @@ async function initPostgresTables(pool: pg.Pool): Promise<string[]> {
 
   await execSafeDDL(
     pool,
+    `CREATE TABLE IF NOT EXISTS conversations (
+      id TEXT PRIMARY KEY,
+      post_id TEXT NOT NULL,
+      poster_id TEXT NOT NULL,
+      poster_name TEXT,
+      poster_email TEXT,
+      poster_avatar TEXT,
+      helper_id TEXT NOT NULL,
+      helper_name TEXT,
+      helper_email TEXT,
+      helper_avatar TEXT,
+      last_message TEXT,
+      last_message_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+      unread_poster_count INTEGER DEFAULT 0,
+      unread_helper_count INTEGER DEFAULT 0,
+      is_collaborator BOOLEAN DEFAULT FALSE,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+      UNIQUE (post_id, poster_id, helper_id)
+    )`,
+    "create conversations"
+  );
+  await execSafeDDL(pool, `ALTER TABLE conversations ADD COLUMN IF NOT EXISTS poster_name TEXT`, "conversations.poster_name");
+  await execSafeDDL(pool, `ALTER TABLE conversations ADD COLUMN IF NOT EXISTS poster_email TEXT`, "conversations.poster_email");
+  await execSafeDDL(pool, `ALTER TABLE conversations ADD COLUMN IF NOT EXISTS poster_avatar TEXT`, "conversations.poster_avatar");
+  await execSafeDDL(pool, `ALTER TABLE conversations ADD COLUMN IF NOT EXISTS helper_name TEXT`, "conversations.helper_name");
+  await execSafeDDL(pool, `ALTER TABLE conversations ADD COLUMN IF NOT EXISTS helper_email TEXT`, "conversations.helper_email");
+  await execSafeDDL(pool, `ALTER TABLE conversations ADD COLUMN IF NOT EXISTS helper_avatar TEXT`, "conversations.helper_avatar");
+  await execSafeDDL(pool, `ALTER TABLE conversations ADD COLUMN IF NOT EXISTS is_collaborator BOOLEAN DEFAULT FALSE`, "conversations.is_collaborator");
+  await execSafeDDL(pool, `CREATE INDEX IF NOT EXISTS idx_conversations_post_id ON conversations(post_id)`, "idx_conversations_post_id");
+  await execSafeDDL(pool, `CREATE INDEX IF NOT EXISTS idx_conversations_poster_id ON conversations(poster_id)`, "idx_conversations_poster_id");
+  await execSafeDDL(pool, `CREATE INDEX IF NOT EXISTS idx_conversations_helper_id ON conversations(helper_id)`, "idx_conversations_helper_id");
+
+  await execSafeDDL(
+    pool,
     `CREATE TABLE IF NOT EXISTS messages (
       id TEXT PRIMARY KEY,
+      conversation_id TEXT,
       intent_id TEXT,
       post_id TEXT,
       post_owner_id TEXT,
@@ -1880,6 +1921,8 @@ async function initPostgresTables(pool: pg.Pool): Promise<string[]> {
     "create messages"
   );
   await execSafeDDL(pool, `ALTER TABLE messages ALTER COLUMN id TYPE TEXT USING id::TEXT`, "messages.id type text");
+  await execSafeDDL(pool, `ALTER TABLE messages ADD COLUMN IF NOT EXISTS conversation_id TEXT`, "messages.conversation_id");
+  await execSafeDDL(pool, `CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id)`, "idx_messages_conversation_id");
   await execSafeDDL(pool, `ALTER TABLE messages ADD COLUMN IF NOT EXISTS intent_id TEXT`, "messages.intent_id");
   await execSafeDDL(pool, `ALTER TABLE messages ALTER COLUMN intent_id TYPE TEXT USING intent_id::TEXT`, "messages.intent_id type text");
   await execSafeDDL(pool, `ALTER TABLE messages ADD COLUMN IF NOT EXISTS post_id TEXT`, "messages.post_id");
@@ -4739,6 +4782,24 @@ async function startServer() {
 
       if (dbPool && isDbConnected) {
         try {
+          const convTableRes = await dbPool.query(
+            `SELECT id, post_id, poster_id, helper_id, helper_name, helper_email, helper_avatar, last_message, last_message_at, unread_poster_count, is_collaborator
+             FROM conversations
+             WHERE last_message IS NOT NULL AND TRIM(last_message) <> ''
+             ORDER BY last_message_at ASC`
+          ).catch(() => ({ rows: [] as any[] }));
+          convTableRes.rows.forEach((c: any) => {
+            addResponderAndEntry(c.post_id, {
+              id: c.id,
+              sender_id: c.helper_id,
+              sender_name: c.helper_name,
+              sender_email: c.helper_email,
+              sender_avatar: c.helper_avatar,
+              message: c.last_message,
+              created_at: c.last_message_at
+            });
+          });
+
           const respTableRes = await dbPool.query(
             "SELECT id, post_id, post_owner_id, sender_id, sender_name, sender_email, sender_avatar, message, created_at FROM responses ORDER BY created_at ASC"
           ).catch(() => ({ rows: [] as any[] }));
@@ -4754,7 +4815,7 @@ async function startServer() {
           });
 
           const chatCountRes = await dbPool.query(
-            "SELECT id, COALESCE(post_id, intent_id, receiver_id) AS post_id, sender_id, sender_name, sender_email, sender_avatar, message, created_at FROM chats ORDER BY created_at ASC"
+            "SELECT id, COALESCE(post_id, intent_id, receiver_id) AS post_id, sender_id, sender_name, sender_email, message, sent_at AS created_at FROM chats ORDER BY sent_at ASC"
           ).catch(() => ({ rows: [] as any[] }));
           chatCountRes.rows.forEach((r: any) => {
             addResponderAndEntry(r.post_id, r);
@@ -4885,12 +4946,25 @@ async function startServer() {
         ? await uploadDataToFirebaseServer(rawPostAttachment, "help_requests")
         : "";
 
+      const resolvedAuthorId = sanitizeServerText(
+        caller?.uid ||
+          newIntent.authorId ||
+          newIntent.userId ||
+          newIntent.user_id ||
+          newIntent.author_id ||
+          newIntent.posterId ||
+          newIntent.poster_id ||
+          (isAdminCaller ? 'admin_published' : 'anonymous_user'),
+        150
+      );
       const intentRecord = {
         id: sanitizeServerText(newIntent.id || 'intent_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7), 100),
-        authorId: sanitizeServerText(caller?.uid || newIntent.authorId || newIntent.user_id || newIntent.author_id || (isAdminCaller ? 'admin_published' : 'anonymous_user'), 150),
-        authorEmail: sanitizeServerText(newIntent.authorEmail || newIntent.email || newIntent.author_email || (!isAdminCaller ? caller?.email : '') || '', 150),
+        authorId: resolvedAuthorId,
+        userId: resolvedAuthorId,
+        user_id: resolvedAuthorId,
+        authorEmail: sanitizeServerText(newIntent.authorEmail || newIntent.userEmail || newIntent.email || newIntent.author_email || (!isAdminCaller ? caller?.email : '') || '', 150),
         authorPhone: sanitizeServerText(newIntent.authorPhone || newIntent.phone || '', 30),
-        authorName: sanitizeServerText(newIntent.authorName || newIntent.author_name || 'Community Member', 120),
+        authorName: sanitizeServerText(newIntent.authorName || newIntent.userName || newIntent.author_name || 'Community Member', 120),
         authorAvatar: newIntent.authorAvatar || newIntent.author_avatar || '',
         title: sanitizeServerText(newIntent.title || newIntent.category || (newIntent.tags && newIntent.tags[0] ? String(newIntent.tags[0]).replace('#', '') : 'General'), 120),
         description: sanitizeServerText((newIntent.description || newIntent.title || '').trim(), 1000),
@@ -5199,47 +5273,193 @@ async function startServer() {
   // Strict Privacy: Private 1:1 chats can ONLY be fetched by the two participants (or Admin)
   // ==========================================
 
-  // 4. Get Chat Messages (GET /api/messages/:conversationId and GET /api/intents/:id/messages)
+  // Helper: deterministic 1-on-1 conversation ID per (postId, helperId)
+  const buildConversationId = (postId: string, helperId: string): string => {
+    const cleanPost = String(postId || "general").trim();
+    const cleanHelper = String(helperId || "peer").trim().toLowerCase();
+    return `conv_${cleanPost}__${cleanHelper}`;
+  };
+
+  const parseConversationId = (rawConvId: string): { postId: string; helperId: string } | null => {
+    const clean = String(rawConvId || "").trim();
+    if (!clean.startsWith("conv_")) return null;
+    const withoutPrefix = clean.slice(5);
+    const sepIdx = withoutPrefix.lastIndexOf("__");
+    if (sepIdx > 0) {
+      return {
+        postId: withoutPrefix.slice(0, sepIdx),
+        helperId: withoutPrefix.slice(sepIdx + 2)
+      };
+    }
+    return null;
+  };
+
+  // Helper: resolve authoritative poster_id, poster_name, poster_email, poster_avatar for a postId
+  const resolvePostOwnerInfo = async (
+    postId: string
+  ): Promise<{ posterId: string; posterName: string; posterEmail: string; posterAvatar: string }> => {
+    let posterId = "";
+    let posterName = "";
+    let posterEmail = "";
+    let posterAvatar = "";
+    const cleanPostId = String(postId || "").trim();
+    if (!cleanPostId || cleanPostId === "general") {
+      return { posterId, posterName, posterEmail, posterAvatar };
+    }
+
+    if (dbPool && isDbConnected) {
+      try {
+        const pRes = await dbPool
+          .query("SELECT user_id, raw_json FROM posts WHERE id = $1 LIMIT 1", [cleanPostId])
+          .catch(() => ({ rows: [] as any[] }));
+        if (pRes.rows.length > 0) {
+          const r = pRes.rows[0];
+          const raw = r.raw_json && typeof r.raw_json === "object" ? r.raw_json : {};
+          posterId = String(r.user_id || raw.authorId || raw.user_id || "").trim();
+          posterName = String(raw.authorName || raw.sellerName || "").trim();
+          posterEmail = String(raw.authorEmail || "").trim().toLowerCase();
+          posterAvatar = String(raw.authorAvatar || "").trim();
+        }
+        if (!posterId) {
+          const bRes = await dbPool
+            .query("SELECT author_id, author_name, author_avatar FROM broadcast_posts WHERE id = $1 LIMIT 1", [cleanPostId])
+            .catch(() => ({ rows: [] as any[] }));
+          if (bRes.rows.length > 0) {
+            posterId = String(bRes.rows[0].author_id || "").trim();
+            posterName = posterName || String(bRes.rows[0].author_name || "").trim();
+            posterAvatar = posterAvatar || String(bRes.rows[0].author_avatar || "").trim();
+          }
+        }
+      } catch {}
+    }
+
+    if (!posterId) {
+      try {
+        const fileIntents = readJsonFile<any[]>(INTENTS_FILE, []);
+        const found = fileIntents.find((i: any) => i && String(i.id) === cleanPostId);
+        if (found) {
+          posterId = String(found.authorId || found.user_id || "").trim();
+          posterName = posterName || String(found.authorName || "").trim();
+          posterEmail = posterEmail || String(found.authorEmail || "").trim().toLowerCase();
+          posterAvatar = posterAvatar || String(found.authorAvatar || "").trim();
+        }
+      } catch {}
+    }
+
+    return { posterId, posterName, posterEmail, posterAvatar };
+  };
+
+  // 4. Get 1-on-1 Chat Messages (GET /api/chat/messages, GET /api/messages/:conversationId, GET /api/intents/:id/messages)
   const getChatMessagesHandler = async (req: express.Request, res: express.Response) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
       res.setHeader("Pragma", "no-cache");
       res.setHeader("Expires", "0");
-      const { id } = req.params;
-      const conversationId = (req.query?.conversationId as string) || (req.query?.intentId as string) || (req.query?.intent_id as string) || id || 'general';
-      const userId = (req.query?.userId as string) || (req.query?.user_id as string) || '';
-      const otherUserId = (req.query?.otherUserId as string) || (req.query?.other_user_id as string) || '';
-      const targetChatKey = conversationId && conversationId !== 'general' ? conversationId : (userId && otherUserId ? [userId, otherUserId].sort().join('_') : (id || 'general'));
+
+      const caller = extractRequestUser(req);
+      const rawParamId = String(req.params.id || "").trim();
+      const queryConvId = String(req.query?.conversationId || req.query?.conversation_id || "").trim();
+      const queryPostId = String(req.query?.postId || req.query?.post_id || req.query?.intentId || req.query?.intent_id || "").trim();
+      const userId = String(req.query?.userId || req.query?.user_id || caller?.uid || "").trim();
+      const userEmail = String(req.query?.userEmail || req.query?.user_email || caller?.email || "").trim().toLowerCase();
+      const queryHelperId = String(
+        req.query?.helperId || req.query?.helper_id || req.query?.otherUserId || req.query?.other_user_id || ""
+      ).trim();
+
+      const parsedFromQuery = parseConversationId(queryConvId);
+      const parsedFromParam = parseConversationId(rawParamId);
+
+      const postId =
+        queryPostId ||
+        parsedFromQuery?.postId ||
+        parsedFromParam?.postId ||
+        (!rawParamId.startsWith("conv_") ? rawParamId : "") ||
+        (!queryConvId.startsWith("conv_") ? queryConvId : "");
+
+      const ownerInfo = await resolvePostOwnerInfo(postId);
+      const posterId = ownerInfo.posterId;
+      const posterEmail = ownerInfo.posterEmail;
+
+      const isCallerPostOwner =
+        Boolean(posterId && userId && userId.toLowerCase() === posterId.toLowerCase()) ||
+        Boolean(posterEmail && userEmail && userEmail === posterEmail.toLowerCase());
+
+      // Determine the exact helperId for this 1-on-1 thread
+      let helperId =
+        queryHelperId ||
+        parsedFromQuery?.helperId ||
+        parsedFromParam?.helperId ||
+        (!isCallerPostOwner && userId && userId !== "guest_user" ? userId : "");
+
+      // If conversationId was passed directly in DB (e.g. UUID or custom conv_ ID), look up conversations row
+      let activeConvId =
+        (queryConvId.startsWith("conv_") ? queryConvId : "") ||
+        (rawParamId.startsWith("conv_") ? rawParamId : "") ||
+        (postId && helperId ? buildConversationId(postId, helperId) : "");
+
+      if (dbPool && isDbConnected && (queryConvId || rawParamId) && !helperId) {
+        try {
+          const convLookup = await dbPool
+            .query("SELECT id, post_id, poster_id, helper_id FROM conversations WHERE id = $1 LIMIT 1", [queryConvId || rawParamId])
+            .catch(() => ({ rows: [] as any[] }));
+          if (convLookup.rows.length > 0) {
+            activeConvId = convLookup.rows[0].id;
+            helperId = String(convLookup.rows[0].helper_id || "").trim();
+          }
+        } catch {}
+      }
+
+      // STRICT RULE: If the caller is the Post Owner and no specific helperId/conversationId was selected,
+      // return an empty array (Post Owner must select a specific Helper from View Responses first).
+      if (isCallerPostOwner && !helperId && (!activeConvId || activeConvId === postId)) {
+        return res.json([]);
+      }
 
       const mergedMap = new Map<string, any>();
 
       if (dbPool && isDbConnected) {
         try {
-          // 1. Query messages table by conversationId (intent_id) or participant IDs
           let result;
-          if (userId && otherUserId && (!conversationId || conversationId === 'general')) {
+          if (activeConvId && postId && helperId) {
             result = await dbPool.query(
-              "SELECT * FROM messages WHERE (sender_id = $1 AND receiver_id = $2) OR (sender_id = $2 AND receiver_id = $1) OR intent_id = $3 ORDER BY created_at ASC",
-              [userId, otherUserId, targetChatKey]
+              `SELECT * FROM messages
+               WHERE conversation_id = $1
+                  OR (
+                    (post_id = $2 OR intent_id = $2)
+                    AND (LOWER(sender_id) = LOWER($3) OR LOWER(receiver_id) = LOWER($3))
+                  )
+               ORDER BY created_at ASC`,
+              [activeConvId, postId, helperId]
             );
-          } else {
+          } else if (activeConvId) {
             result = await dbPool.query(
-              "SELECT * FROM messages WHERE intent_id = $1 OR receiver_id = $1 ORDER BY created_at ASC",
-              [conversationId]
+              `SELECT * FROM messages WHERE conversation_id = $1 ORDER BY created_at ASC`,
+              [activeConvId]
+            );
+          } else if (userId && queryHelperId) {
+            result = await dbPool.query(
+              `SELECT * FROM messages
+               WHERE (LOWER(sender_id) = LOWER($1) AND LOWER(receiver_id) = LOWER($2))
+                  OR (LOWER(sender_id) = LOWER($2) AND LOWER(receiver_id) = LOWER($1))
+               ORDER BY created_at ASC`,
+              [userId, queryHelperId]
             );
           }
 
           if (result && result.rows.length > 0) {
-            result.rows.forEach(r => {
-              const sId = String(r.sender_id || '').trim();
-              const sName = String(r.sender_name || '').trim() || 'Community Peer';
-              const sEmail = String(r.sender_email || '').trim().toLowerCase();
-              const sAvatar = String(r.sender_avatar || '').trim();
+            result.rows.forEach((r: any) => {
+              const sId = String(r.sender_id || "").trim();
+              const sName = String(r.sender_name || "").trim() || "Community Peer";
+              const sEmail = String(r.sender_email || "").trim().toLowerCase();
+              const sAvatar = String(r.sender_avatar || "").trim();
               mergedMap.set(r.id, {
                 id: r.id,
-                conversationId: r.intent_id || conversationId,
-                intent_id: r.intent_id || conversationId,
-                intentId: r.intent_id || conversationId,
+                conversationId: r.conversation_id || activeConvId || r.intent_id || postId,
+                conversation_id: r.conversation_id || activeConvId || r.intent_id || postId,
+                postId: r.post_id || r.intent_id || postId,
+                post_id: r.post_id || r.intent_id || postId,
+                intent_id: r.intent_id || postId,
+                intentId: r.intent_id || postId,
                 authorId: sId,
                 senderId: sId,
                 sender_id: sId,
@@ -5255,10 +5475,10 @@ async function startServer() {
                 authorAvatar: sAvatar,
                 receiverId: r.receiver_id,
                 receiver_id: r.receiver_id,
-                text: r.text || r.content || '',
-                content: r.content || r.text || '',
-                message: r.text || r.content || '',
-                type: r.type || 'text',
+                text: r.text || r.content || "",
+                content: r.content || r.text || "",
+                message: r.text || r.content || "",
+                type: r.type || "text",
                 attachmentUrl: r.attachment_url,
                 attachment_url: r.attachment_url,
                 attachmentType: r.attachment_type,
@@ -5271,97 +5491,69 @@ async function startServer() {
               });
             });
           }
+
+          // Mark unread messages as read for the viewing userId and reset unread counter in conversations
+          if (userId && (activeConvId || (postId && helperId))) {
+            const targetConv = activeConvId || buildConversationId(postId, helperId);
+            await dbPool
+              .query(
+                `UPDATE messages
+                 SET is_read = TRUE
+                 WHERE (conversation_id = $1 OR ((post_id = $2 OR intent_id = $2) AND LOWER(sender_id) = LOWER($3)))
+                   AND LOWER(sender_id) <> LOWER($4)
+                   AND is_read = FALSE`,
+                [targetConv, postId, helperId, userId]
+              )
+              .catch(() => {});
+
+            if (isCallerPostOwner) {
+              await dbPool
+                .query(
+                  `UPDATE conversations SET unread_poster_count = 0 WHERE id = $1 OR (post_id = $2 AND LOWER(helper_id) = LOWER($3))`,
+                  [targetConv, postId, helperId]
+                )
+                .catch(() => {});
+            } else {
+              await dbPool
+                .query(
+                  `UPDATE conversations SET unread_helper_count = 0 WHERE id = $1 OR (post_id = $2 AND LOWER(helper_id) = LOWER($3))`,
+                  [targetConv, postId, helperId]
+                )
+                .catch(() => {});
+            }
+          }
         } catch (dbErr) {
-          console.warn("DB messages query error:", dbErr);
+          console.warn("DB 1-on-1 messages query error:", dbErr);
         }
 
-        try {
-          // 2. Also query chats table for any 1:1 or intent messages
-          let chatRes;
-          if (userId && otherUserId && (!conversationId || conversationId === 'general')) {
-            chatRes = await dbPool.query(
-              "SELECT * FROM chats WHERE (sender_id = $1 AND receiver_id = $2) OR (sender_id = $2 AND receiver_id = $1) ORDER BY sent_at ASC",
-              [userId, otherUserId]
-            );
-          } else {
-            chatRes = await dbPool.query(
-              "SELECT * FROM chats WHERE intent_id = $1 OR receiver_id = $1 OR sender_id = $1 ORDER BY sent_at ASC",
-              [conversationId]
-            );
-          }
-
-          if (chatRes && chatRes.rows.length > 0) {
-            chatRes.rows.forEach(r => {
-              if (!mergedMap.has(r.id)) {
-                const sId = String(r.sender_id || '').trim();
-                const sName = String(r.sender_name || '').trim() || 'Community Peer';
-                const sEmail = String(r.sender_email || '').trim().toLowerCase();
-                mergedMap.set(r.id, {
-                  id: r.id,
-                  conversationId: r.intent_id || conversationId,
-                  intent_id: r.intent_id || conversationId,
-                  intentId: r.intent_id || conversationId,
-                  authorId: sId,
-                  senderId: sId,
-                  sender_id: sId,
-                  user_id: sId,
-                  authorName: sName,
-                  senderName: sName,
-                  sender_name: sName,
-                  senderEmail: sEmail,
-                  sender_email: sEmail,
-                  authorEmail: sEmail,
-                  receiverId: r.receiver_id,
-                  receiver_id: r.receiver_id,
-                  text: r.message || '',
-                  content: r.message || '',
-                  message: r.message || '',
-                  type: 'text',
-                  createdAt: r.sent_at ? new Date(r.sent_at).toISOString() : new Date().toISOString()
-                });
-              }
-            });
-          }
-        } catch (chatErr) {
-          console.warn("DB chats query error:", chatErr);
-        }
-
-        // 3. Enrich any missing sender names, emails, or avatars from users / profiles tables
+        // Enrich any missing sender names, emails, or avatars from users / profiles tables
         try {
           const senderIds = Array.from(
             new Set(
               Array.from(mergedMap.values())
-                .map(m => String(m.sender_id || m.senderId || m.authorId || '').trim())
+                .map((m) => String(m.sender_id || m.senderId || m.authorId || "").trim())
                 .filter(Boolean)
             )
           );
           if (senderIds.length > 0) {
             const userMap = new Map<string, { name?: string; email?: string; avatar?: string }>();
-            const uRes = await dbPool.query(
-              "SELECT id::text AS id, name, email, avatar_url FROM users WHERE id::text = ANY($1::text[]) OR LOWER(email) = ANY($1::text[])",
-              [senderIds.map(s => s.toLowerCase())]
-            ).catch(() => ({ rows: [] as any[] }));
-            uRes.rows.forEach(u => {
+            const uRes = await dbPool
+              .query(
+                "SELECT id::text AS id, name, email, avatar_url FROM users WHERE LOWER(id::text) = ANY($1::text[]) OR LOWER(email) = ANY($1::text[])",
+                [senderIds.map((s) => s.toLowerCase())]
+              )
+              .catch(() => ({ rows: [] as any[] }));
+            uRes.rows.forEach((u: any) => {
               if (u.id) userMap.set(String(u.id).toLowerCase(), { name: u.name, email: u.email, avatar: u.avatar_url });
               if (u.email) userMap.set(String(u.email).toLowerCase(), { name: u.name, email: u.email, avatar: u.avatar_url });
             });
 
-            const pRes = await dbPool.query(
-              "SELECT id::text AS id, full_name, email, avatar_url FROM profiles WHERE id::text = ANY($1::text[]) OR LOWER(email) = ANY($1::text[])",
-              [senderIds.map(s => s.toLowerCase())]
-            ).catch(() => ({ rows: [] as any[] }));
-            pRes.rows.forEach(p => {
-              const entry = { name: p.full_name, email: p.email, avatar: p.avatar_url };
-              if (p.id && !userMap.has(String(p.id).toLowerCase())) userMap.set(String(p.id).toLowerCase(), entry);
-              if (p.email && !userMap.has(String(p.email).toLowerCase())) userMap.set(String(p.email).toLowerCase(), entry);
-            });
-
             mergedMap.forEach((m) => {
-              const keyId = String(m.sender_id || m.senderId || m.authorId || '').toLowerCase();
-              const keyEmail = String(m.sender_email || m.senderEmail || '').toLowerCase();
+              const keyId = String(m.sender_id || m.senderId || m.authorId || "").toLowerCase();
+              const keyEmail = String(m.sender_email || m.senderEmail || "").toLowerCase();
               const info = userMap.get(keyId) || (keyEmail ? userMap.get(keyEmail) : undefined);
               if (info) {
-                if ((!m.senderName || m.senderName === 'Community Peer' || m.senderName === 'Community Member') && info.name) {
+                if ((!m.senderName || m.senderName === "Community Peer" || m.senderName === "Community Member") && info.name) {
                   m.senderName = info.name;
                   m.authorName = info.name;
                   m.sender_name = info.name;
@@ -5379,37 +5571,41 @@ async function startServer() {
               }
             });
           }
-        } catch (enrichErr) {
-          // Non-fatal enrichment error
-        }
+        } catch {}
       }
 
-      const allMessages = readJsonFile<Record<string, any[]>>(MESSAGES_FILE, {});
-      const fileMessages = allMessages[targetChatKey] || allMessages[conversationId] || (id ? allMessages[id] : []) || [];
-      fileMessages.forEach((m: any) => {
-        if (m && m.id && !mergedMap.has(m.id)) {
-          const sId = String(m.sender_id || m.senderId || m.authorId || m.user_id || '').trim();
-          const sName = String(m.sender_name || m.senderName || m.authorName || 'Community Peer').trim();
-          const sEmail = String(m.sender_email || m.senderEmail || m.authorEmail || '').trim().toLowerCase();
-          const sAvatar = String(m.sender_avatar || m.senderAvatar || m.authorAvatar || '').trim();
+      // Fallback file check filtered strictly by 1-on-1 participant helperId
+      if (activeConvId || (postId && helperId)) {
+        const allMessages = readJsonFile<Record<string, any[]>>(MESSAGES_FILE, {});
+        const candidates = [
+          ...(activeConvId && allMessages[activeConvId] ? allMessages[activeConvId] : []),
+          ...(postId && allMessages[postId] ? allMessages[postId] : [])
+        ];
+        const helperLower = String(helperId || "").toLowerCase();
+        candidates.forEach((m: any) => {
+          if (!m || !m.id || mergedMap.has(m.id)) return;
+          const sId = String(m.sender_id || m.senderId || m.authorId || "").trim();
+          const rId = String(m.receiver_id || m.receiverId || "").trim();
+          const mConv = String(m.conversationId || m.conversation_id || "").trim();
+          const matchesConv =
+            (activeConvId && mConv === activeConvId) ||
+            (helperLower && (sId.toLowerCase() === helperLower || rId.toLowerCase() === helperLower));
+          if (!matchesConv) return;
+
+          if (userId && sId.toLowerCase() !== userId.toLowerCase()) {
+            m.isRead = true;
+            m.is_read = true;
+          }
+
           mergedMap.set(m.id, {
             ...m,
+            conversationId: mConv || activeConvId,
             sender_id: sId,
             senderId: sId,
-            authorId: sId,
-            user_id: sId,
-            sender_name: sName,
-            senderName: sName,
-            authorName: sName,
-            sender_email: sEmail,
-            senderEmail: sEmail,
-            authorEmail: sEmail,
-            sender_avatar: sAvatar,
-            senderAvatar: sAvatar,
-            authorAvatar: sAvatar
+            authorId: sId
           });
-        }
-      });
+        });
+      }
 
       const finalMessages = Array.from(mergedMap.values()).sort(
         (a, b) => new Date(a.createdAt || a.sent_at || 0).getTime() - new Date(b.createdAt || b.sent_at || 0).getTime()
@@ -5420,243 +5616,362 @@ async function startServer() {
     }
   };
 
+  app.get("/api/chat/messages", getChatMessagesHandler);
   app.get("/api/intents/:id/messages", getChatMessagesHandler);
   app.get("/api/chats/:id", getChatMessagesHandler);
   app.get("/api/messages", getChatMessagesHandler);
   app.get("/api/messages/:id", getChatMessagesHandler);
 
-  // Get Post Reply Inbox (Grouped repliers with name, avatar, last message preview, timestamp, and unread count)
+  // Get 1-on-1 Conversations / Post Reply Inbox (GET /api/chat/conversations, GET /api/posts/:id/inbox)
   const getPostInboxHandler = async (req: express.Request, res: express.Response) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
-      const intentId = req.params.id;
+      const postId = String(req.params.id || req.query.postId || req.query.post_id || req.query.intentId || "").trim();
       const caller = extractRequestUser(req);
-      const ownerIdParam = String(req.query.ownerId || req.query.owner_id || caller?.uid || '').trim();
-      const ownerEmailParam = String(req.query.ownerEmail || req.query.owner_email || caller?.email || '').trim().toLowerCase();
+      const userIdParam = String(req.query.userId || req.query.user_id || req.query.ownerId || req.query.owner_id || caller?.uid || "").trim();
+      const userEmailParam = String(req.query.userEmail || req.query.ownerEmail || req.query.owner_email || caller?.email || "").trim().toLowerCase();
 
-      // Lookup intent owner from DB (posts, broadcast_posts, listings)
-      let dbOwnerId = '';
-      let dbOwnerEmail = '';
-      if (dbPool && isDbConnected) {
-        try {
-          const pRes = await dbPool.query(
-            "SELECT user_id, raw_json FROM posts WHERE id = $1 LIMIT 1",
-            [intentId]
-          ).catch(() => ({ rows: [] as any[] }));
-          if (pRes.rows.length > 0) {
-            dbOwnerId = String(pRes.rows[0].user_id || pRes.rows[0].raw_json?.authorId || '').trim();
-            dbOwnerEmail = String(pRes.rows[0].raw_json?.authorEmail || '').trim().toLowerCase();
-          }
-          if (!dbOwnerId) {
-            const bRes = await dbPool.query(
-              "SELECT author_id FROM broadcast_posts WHERE id = $1 LIMIT 1",
-              [intentId]
-            ).catch(() => ({ rows: [] as any[] }));
-            if (bRes.rows.length > 0) {
-              dbOwnerId = String(bRes.rows[0].author_id || '').trim();
-            }
-          }
-        } catch {}
-      }
-
+      const ownerInfo = postId ? await resolvePostOwnerInfo(postId) : { posterId: "", posterName: "", posterEmail: "", posterAvatar: "" };
       const ownerIds = new Set<string>(
-        [ownerIdParam, dbOwnerId, 'owner', 'me', 'system']
-          .map(s => String(s || '').trim().toLowerCase())
+        [ownerInfo.posterId, "owner", "me", "system"]
+          .map((s) => String(s || "").trim().toLowerCase())
           .filter(Boolean)
       );
       const ownerEmails = new Set<string>(
-        [ownerEmailParam, dbOwnerEmail]
-          .map(s => String(s || '').trim().toLowerCase())
+        [ownerInfo.posterEmail]
+          .map((s) => String(s || "").trim().toLowerCase())
           .filter(Boolean)
       );
 
-      // Gather all messages & responses for this postId / intentId
-      const mergedMap = new Map<string, any>();
+      const conversationsMap = new Map<string, any>();
+
       if (dbPool && isDbConnected) {
+        // 1. Query dedicated conversations table first
         try {
-          const rRes = await dbPool.query(
-            "SELECT * FROM responses WHERE post_id = $1 ORDER BY created_at ASC",
-            [intentId]
-          ).catch(() => ({ rows: [] as any[] }));
-          rRes.rows.forEach(r => {
-            mergedMap.set(r.id, {
-              id: r.id,
-              senderId: String(r.sender_id || '').trim(),
-              senderName: String(r.sender_name || '').trim() || 'Community Helper',
-              senderEmail: String(r.sender_email || '').trim().toLowerCase(),
-              senderAvatar: String(r.sender_avatar || '').trim(),
-              receiverId: String(r.receiver_id || '').trim(),
-              text: r.message || '',
-              isCollaborator: Boolean(r.is_collaborator),
-              isRead: Boolean(r.is_read),
-              createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString()
+          let convRes;
+          if (postId) {
+            convRes = await dbPool.query(
+              `SELECT * FROM conversations
+               WHERE post_id = $1
+                 AND last_message IS NOT NULL
+                 AND TRIM(last_message) <> ''
+                 AND LOWER(helper_id) <> LOWER(poster_id)
+               ORDER BY last_message_at DESC`,
+              [postId]
+            );
+          } else if (userIdParam) {
+            convRes = await dbPool.query(
+              `SELECT * FROM conversations
+               WHERE (LOWER(poster_id) = LOWER($1) OR LOWER(helper_id) = LOWER($1))
+                 AND last_message IS NOT NULL
+                 AND TRIM(last_message) <> ''
+                 AND LOWER(helper_id) <> LOWER(poster_id)
+               ORDER BY last_message_at DESC`,
+              [userIdParam]
+            );
+          }
+
+          if (convRes && convRes.rows.length > 0) {
+            convRes.rows.forEach((c: any) => {
+              const hId = String(c.helper_id || "").trim();
+              const hEmail = String(c.helper_email || "").trim().toLowerCase();
+              if (!hId || ownerIds.has(hId.toLowerCase()) || (hEmail && ownerEmails.has(hEmail))) return;
+
+              const key = `${c.post_id}__${hEmail || hId.toLowerCase()}`;
+              const lastIso = c.last_message_at ? new Date(c.last_message_at).toISOString() : new Date().toISOString();
+              const isViewerHelper = userIdParam && hId.toLowerCase() === userIdParam.toLowerCase();
+              const unreadForViewer = isViewerHelper
+                ? Number(c.unread_helper_count || 0)
+                : Number(c.unread_poster_count || 0);
+
+              conversationsMap.set(key, {
+                id: c.id || buildConversationId(c.post_id, hId),
+                conversationId: c.id || buildConversationId(c.post_id, hId),
+                postId: c.post_id,
+                post_id: c.post_id,
+                posterId: c.poster_id,
+                poster_id: c.poster_id,
+                posterName: c.poster_name || ownerInfo.posterName || "Post Owner",
+                helperId: hId,
+                helper_id: hId,
+                helperName: c.helper_name || "Community Helper",
+                helperEmail: hEmail,
+                helperAvatar: c.helper_avatar || "",
+                // Backward-compatible fields for PostResponsesModal & HomeScreen
+                senderId: hId,
+                senderName: c.helper_name || "Community Helper",
+                senderEmail: hEmail,
+                senderAvatar: c.helper_avatar || "",
+                lastMessage: c.last_message || "Sent a message",
+                last_message: c.last_message || "Sent a message",
+                lastMessageAt: lastIso,
+                last_message_at: lastIso,
+                updatedAt: lastIso,
+                unreadPosterCount: Number(c.unread_poster_count || 0),
+                unread_poster_count: Number(c.unread_poster_count || 0),
+                unreadHelperCount: Number(c.unread_helper_count || 0),
+                unread_helper_count: Number(c.unread_helper_count || 0),
+                unreadCount: unreadForViewer,
+                count: Math.max(unreadForViewer, 1),
+                isCollaborator: Boolean(c.is_collaborator)
+              });
             });
-          });
-        } catch {}
-
-        try {
-          const mRes = await dbPool.query(
-            "SELECT * FROM messages WHERE intent_id = $1 OR post_id = $1 OR receiver_id = $1 ORDER BY created_at ASC",
-            [intentId]
-          );
-          mRes.rows.forEach(r => {
-            if (!mergedMap.has(r.id)) {
-              mergedMap.set(r.id, {
-                id: r.id,
-                senderId: String(r.sender_id || '').trim(),
-                senderName: String(r.sender_name || '').trim() || 'Community Helper',
-                senderEmail: String(r.sender_email || '').trim().toLowerCase(),
-                senderAvatar: String(r.sender_avatar || '').trim(),
-                receiverId: String(r.receiver_id || '').trim(),
-                text: r.text || r.content || '',
-                isCollaborator: Boolean(r.is_collaborator),
-                isRead: Boolean(r.is_read),
-                createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString()
-              });
-            }
-          });
-        } catch {}
-
-        try {
-          const cRes = await dbPool.query(
-            "SELECT * FROM chats WHERE intent_id = $1 OR post_id = $1 OR receiver_id = $1 ORDER BY sent_at ASC",
-            [intentId]
-          );
-          cRes.rows.forEach(r => {
-            if (!mergedMap.has(r.id)) {
-              mergedMap.set(r.id, {
-                id: r.id,
-                senderId: String(r.sender_id || '').trim(),
-                senderName: String(r.sender_name || '').trim() || 'Community Helper',
-                senderEmail: String(r.sender_email || '').trim().toLowerCase(),
-                senderAvatar: '',
-                receiverId: String(r.receiver_id || '').trim(),
-                text: r.message || '',
-                isCollaborator: false,
-                isRead: false,
-                createdAt: r.sent_at ? new Date(r.sent_at).toISOString() : new Date().toISOString()
-              });
-            }
-          });
-        } catch {}
-      }
-
-      const allMessages = readJsonFile<Record<string, any[]>>(MESSAGES_FILE, {});
-      const fileMessages = allMessages[intentId] || [];
-      fileMessages.forEach((m: any) => {
-        if (m && m.id && !mergedMap.has(m.id)) {
-          mergedMap.set(m.id, {
-            id: m.id,
-            senderId: String(m.sender_id || m.senderId || m.authorId || '').trim(),
-            senderName: String(m.sender_name || m.senderName || m.authorName || 'Community Helper').trim(),
-            senderEmail: String(m.sender_email || m.senderEmail || m.authorEmail || '').trim().toLowerCase(),
-            senderAvatar: String(m.sender_avatar || m.senderAvatar || m.authorAvatar || '').trim(),
-            receiverId: String(m.receiver_id || m.receiverId || '').trim(),
-            text: m.text || m.content || m.message || '',
-            isCollaborator: Boolean(m.isCollaborator || m.is_collaborator),
-            isRead: Boolean(m.isRead || m.is_read),
-            createdAt: m.createdAt || m.sent_at || new Date().toISOString()
-          });
+          }
+        } catch (convErr) {
+          console.warn("Conversations table query notice:", convErr);
         }
-      });
 
-      // Enrich user names/avatars from users/profiles
-      if (dbPool && isDbConnected && mergedMap.size > 0) {
+        // 2. Reconcile from messages & responses tables for postId so any existing replies are automatically included & backfilled
+        if (postId) {
+          try {
+            const mRes = await dbPool
+              .query(
+                "SELECT * FROM messages WHERE post_id = $1 OR intent_id = $1 ORDER BY created_at ASC",
+                [postId]
+              )
+              .catch(() => ({ rows: [] as any[] }));
+
+            for (const r of mRes.rows) {
+              const sId = String(r.sender_id || "").trim();
+              const sIdLower = sId.toLowerCase();
+              const sEmail = String(r.sender_email || "").trim().toLowerCase();
+              const rId = String(r.receiver_id || "").trim();
+              if (!sId || sIdLower === "system") continue;
+
+              const isSenderOwner =
+                ownerIds.has(sIdLower) ||
+                (sEmail && ownerEmails.has(sEmail));
+
+              // Determine the helper for this message
+              const hId = isSenderOwner ? rId : sId;
+              if (!hId || hId === postId || ownerIds.has(hId.toLowerCase())) continue;
+
+              const hEmail = isSenderOwner ? "" : sEmail;
+              const key = `${postId}__${hEmail || hId.toLowerCase()}`;
+              const msgTime = r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString();
+              const msgText = String(r.text || r.content || "").trim() || "📷 Attachment shared";
+              const convId = r.conversation_id || buildConversationId(postId, hId);
+
+              const existing = conversationsMap.get(key);
+              if (!existing) {
+                const unread = !isSenderOwner && !r.is_read ? 1 : 0;
+                const hName = !isSenderOwner ? (String(r.sender_name || "").trim() || "Community Helper") : "Community Helper";
+                const hAvatar = !isSenderOwner ? String(r.sender_avatar || "").trim() : "";
+                conversationsMap.set(key, {
+                  id: convId,
+                  conversationId: convId,
+                  postId,
+                  post_id: postId,
+                  posterId: ownerInfo.posterId || r.post_owner_id || "",
+                  poster_id: ownerInfo.posterId || r.post_owner_id || "",
+                  posterName: ownerInfo.posterName || "Post Owner",
+                  helperId: hId,
+                  helper_id: hId,
+                  helperName: hName,
+                  helperEmail: hEmail,
+                  helperAvatar: hAvatar,
+                  senderId: hId,
+                  senderName: hName,
+                  senderEmail: hEmail,
+                  senderAvatar: hAvatar,
+                  lastMessage: msgText,
+                  last_message: msgText,
+                  lastMessageAt: msgTime,
+                  last_message_at: msgTime,
+                  updatedAt: msgTime,
+                  unreadPosterCount: unread,
+                  unread_poster_count: unread,
+                  unreadHelperCount: 0,
+                  unread_helper_count: 0,
+                  unreadCount: unread,
+                  count: 1,
+                  isCollaborator: Boolean(r.is_collaborator)
+                });
+              } else {
+                existing.count = (existing.count || 1) + 1;
+                if (new Date(msgTime).getTime() >= new Date(existing.lastMessageAt).getTime()) {
+                  existing.lastMessage = msgText;
+                  existing.last_message = msgText;
+                  existing.lastMessageAt = msgTime;
+                  existing.last_message_at = msgTime;
+                  existing.updatedAt = msgTime;
+                }
+                if (!isSenderOwner && r.sender_name && existing.helperName === "Community Helper") {
+                  existing.helperName = r.sender_name;
+                  existing.senderName = r.sender_name;
+                }
+              }
+            }
+          } catch {}
+        }
+
+        // 3. Enrich helper names/avatars from users table if any are generic
         try {
-          const sIds = Array.from(new Set(Array.from(mergedMap.values()).map(m => m.senderId.toLowerCase()).filter(Boolean)));
-          if (sIds.length > 0) {
+          const helperIds = Array.from(
+            new Set(
+              Array.from(conversationsMap.values())
+                .map((c) => String(c.helperId || "").toLowerCase())
+                .filter(Boolean)
+            )
+          );
+          if (helperIds.length > 0) {
+            const uRes = await dbPool
+              .query(
+                "SELECT id::text AS id, name, email, avatar_url FROM users WHERE LOWER(id::text) = ANY($1::text[]) OR LOWER(email) = ANY($1::text[])",
+                [helperIds]
+              )
+              .catch(() => ({ rows: [] as any[] }));
             const uMap = new Map<string, { name?: string; email?: string; avatar?: string }>();
-            const uRes = await dbPool.query(
-              "SELECT id::text AS id, name, email, avatar_url FROM users WHERE LOWER(id::text) = ANY($1::text[]) OR LOWER(email) = ANY($1::text[])",
-              [sIds]
-            ).catch(() => ({ rows: [] as any[] }));
-            uRes.rows.forEach(u => {
+            uRes.rows.forEach((u: any) => {
               if (u.id) uMap.set(String(u.id).toLowerCase(), { name: u.name, email: u.email, avatar: u.avatar_url });
               if (u.email) uMap.set(String(u.email).toLowerCase(), { name: u.name, email: u.email, avatar: u.avatar_url });
             });
-            mergedMap.forEach(m => {
-              const info = uMap.get(m.senderId.toLowerCase()) || (m.senderEmail ? uMap.get(m.senderEmail.toLowerCase()) : undefined);
+            conversationsMap.forEach((c) => {
+              const info = uMap.get(String(c.helperId || "").toLowerCase()) || (c.helperEmail ? uMap.get(String(c.helperEmail).toLowerCase()) : undefined);
               if (info) {
-                if ((!m.senderName || m.senderName === 'Community Helper' || m.senderName === 'Community Peer') && info.name) {
-                  m.senderName = info.name;
+                if ((!c.helperName || c.helperName === "Community Helper" || c.helperName === "Community Peer") && info.name) {
+                  c.helperName = info.name;
+                  c.senderName = info.name;
                 }
-                if (!m.senderEmail && info.email) m.senderEmail = String(info.email).toLowerCase();
-                if (!m.senderAvatar && info.avatar) m.senderAvatar = info.avatar;
+                if (!c.helperEmail && info.email) {
+                  c.helperEmail = String(info.email).toLowerCase();
+                  c.senderEmail = String(info.email).toLowerCase();
+                }
+                if (!c.helperAvatar && info.avatar) {
+                  c.helperAvatar = info.avatar;
+                  c.senderAvatar = info.avatar;
+                }
               }
             });
           }
         } catch {}
       }
 
-      // Group threads by unique replier (excluding post owner)
-      const groupsMap = new Map<string, any>();
-      Array.from(mergedMap.values()).forEach(msg => {
-        const sIdLower = String(msg.senderId || '').toLowerCase();
-        const sEmailLower = String(msg.senderEmail || '').toLowerCase();
-        const isOwner =
-          (sIdLower && ownerIds.has(sIdLower)) ||
-          (sEmailLower && ownerEmails.has(sEmailLower));
-        if (isOwner || !msg.senderId || msg.senderId === 'system') return;
-
-        const groupKey = sEmailLower || sIdLower;
-        const existing = groupsMap.get(groupKey);
-        if (!existing) {
-          groupsMap.set(groupKey, {
-            senderId: msg.senderId,
-            senderName: msg.senderName || 'Community Helper',
-            senderEmail: msg.senderEmail || '',
-            senderAvatar: msg.senderAvatar || '',
-            lastMessage: msg.text || '📷 Attachment shared',
-            updatedAt: msg.createdAt,
-            count: 1,
-            unreadCount: msg.isRead ? 0 : 1,
-            isCollaborator: Boolean(msg.isCollaborator)
-          });
-        } else {
-          existing.lastMessage = msg.text || existing.lastMessage;
-          existing.updatedAt = msg.createdAt || existing.updatedAt;
-          existing.count += 1;
-          if (!msg.isRead) existing.unreadCount += 1;
-          if (msg.isCollaborator) existing.isCollaborator = true;
-          if ((!existing.senderName || existing.senderName === 'Community Helper') && msg.senderName) {
-            existing.senderName = msg.senderName;
-          }
-          if (!existing.senderAvatar && msg.senderAvatar) {
-            existing.senderAvatar = msg.senderAvatar;
+      // Reconcile any in-memory / fallback messages so 1-on-1 conversations work even if DB is temporarily unreachable
+      try {
+        const allMessages = readJsonFile<Record<string, any[]>>(MESSAGES_FILE, {});
+        for (const [convKey, msgArr] of Object.entries(allMessages)) {
+          if (!Array.isArray(msgArr) || msgArr.length === 0) continue;
+          for (const m of msgArr) {
+            if (!m) continue;
+            const mPostId = String(m.postId || m.post_id || m.intentId || m.intent_id || "").trim();
+            if (postId && mPostId !== postId) continue;
+            const sId = String(m.senderId || m.sender_id || m.authorId || "").trim();
+            const rId = String(m.receiverId || m.receiver_id || "").trim();
+            const hId = String(
+              m.helperId ||
+                m.helper_id ||
+                (ownerIds.has(sId.toLowerCase()) ? rId : sId)
+            ).trim();
+            if (!hId || hId === mPostId || ownerIds.has(hId.toLowerCase())) continue;
+            if (
+              !postId &&
+              userIdParam &&
+              sId.toLowerCase() !== userIdParam.toLowerCase() &&
+              rId.toLowerCase() !== userIdParam.toLowerCase() &&
+              String(m.posterId || m.postOwnerId || "").toLowerCase() !== userIdParam.toLowerCase()
+            ) {
+              continue;
+            }
+            const hEmail = ownerIds.has(sId.toLowerCase())
+              ? ""
+              : String(m.senderEmail || m.sender_email || "").trim().toLowerCase();
+            const key = `${mPostId}__${hEmail || hId.toLowerCase()}`;
+            const convId = String(m.conversationId || m.conversation_id || convKey || buildConversationId(mPostId, hId));
+            const msgTime = m.createdAt || m.sent_at || new Date().toISOString();
+            const msgText = String(m.text || m.content || "").trim() || "📷 Attachment shared";
+            const isSenderHelper = sId.toLowerCase() === hId.toLowerCase();
+            const existing = conversationsMap.get(key);
+            if (!existing) {
+              const unread = isSenderHelper && !m.isRead && !m.is_read ? 1 : 0;
+              const hName = isSenderHelper
+                ? String(m.senderName || m.authorName || "Community Helper").trim()
+                : "Community Helper";
+              const hAvatar = isSenderHelper ? String(m.senderAvatar || m.authorAvatar || "").trim() : "";
+              conversationsMap.set(key, {
+                id: convId,
+                conversationId: convId,
+                postId: mPostId,
+                post_id: mPostId,
+                posterId: ownerInfo.posterId || m.posterId || m.postOwnerId || "",
+                poster_id: ownerInfo.posterId || m.posterId || m.postOwnerId || "",
+                posterName: ownerInfo.posterName || "Post Owner",
+                helperId: hId,
+                helper_id: hId,
+                helperName: hName,
+                helperEmail: hEmail,
+                helperAvatar: hAvatar,
+                senderId: hId,
+                senderName: hName,
+                senderEmail: hEmail,
+                senderAvatar: hAvatar,
+                lastMessage: msgText,
+                last_message: msgText,
+                lastMessageAt: msgTime,
+                last_message_at: msgTime,
+                updatedAt: msgTime,
+                unreadPosterCount: unread,
+                unread_poster_count: unread,
+                unreadHelperCount: !isSenderHelper && !m.isRead && !m.is_read ? 1 : 0,
+                unread_helper_count: !isSenderHelper && !m.isRead && !m.is_read ? 1 : 0,
+                unreadCount: unread,
+                count: 1,
+                isCollaborator: Boolean(m.isCollaborator)
+              });
+            } else {
+              existing.count = (existing.count || 1) + 1;
+              if (isSenderHelper && !m.isRead && !m.is_read) {
+                existing.unreadPosterCount = (existing.unreadPosterCount || 0) + 1;
+                existing.unread_poster_count = existing.unreadPosterCount;
+                existing.unreadCount = existing.unreadPosterCount;
+              }
+              if (new Date(msgTime).getTime() >= new Date(existing.lastMessageAt).getTime()) {
+                existing.lastMessage = msgText;
+                existing.last_message = msgText;
+                existing.lastMessageAt = msgTime;
+                existing.last_message_at = msgTime;
+                existing.updatedAt = msgTime;
+              }
+            }
           }
         }
-      });
+      } catch {}
 
-      const list = Array.from(groupsMap.values()).sort(
-        (a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime()
+      const list = Array.from(conversationsMap.values()).sort(
+        (a, b) => new Date(b.lastMessageAt || b.updatedAt || 0).getTime() - new Date(a.lastMessageAt || a.updatedAt || 0).getTime()
       );
       res.json(list);
     } catch (e) {
-      res.status(500).json({ error: "Failed to load post inbox" });
+      res.status(500).json({ error: "Failed to load post conversations" });
     }
   };
 
+  app.get("/api/chat/conversations", getPostInboxHandler);
   app.get("/api/intents/:id/inbox", getPostInboxHandler);
   app.get("/api/posts/:id/inbox", getPostInboxHandler);
   app.get("/api/posts/:id/responses", getPostInboxHandler);
   app.get("/api/intents/:id/responses", getPostInboxHandler);
 
-  // Mark messages in a post thread as read
+  // Mark messages in a 1-on-1 conversation thread as read
   app.post("/api/intents/:id/mark-read", async (req: express.Request, res: express.Response) => {
     try {
       const intentId = req.params.id;
-      const { senderId } = req.body || {};
+      const { senderId, conversationId, userId } = req.body || {};
       if (dbPool && isDbConnected) {
-        if (senderId) {
-          await dbPool.query(
-            "UPDATE messages SET is_read = TRUE WHERE intent_id = $1 AND sender_id = $2",
-            [intentId, senderId]
-          ).catch(() => {});
-        } else {
-          await dbPool.query(
-            "UPDATE messages SET is_read = TRUE WHERE intent_id = $1",
-            [intentId]
-          ).catch(() => {});
+        if (conversationId) {
+          await dbPool
+            .query("UPDATE messages SET is_read = TRUE WHERE conversation_id = $1", [conversationId])
+            .catch(() => {});
+          await dbPool
+            .query("UPDATE conversations SET unread_poster_count = 0 WHERE id = $1", [conversationId])
+            .catch(() => {});
+        } else if (senderId) {
+          await dbPool
+            .query("UPDATE messages SET is_read = TRUE WHERE (intent_id = $1 OR post_id = $1) AND LOWER(sender_id) = LOWER($2)", [intentId, senderId])
+            .catch(() => {});
+          await dbPool
+            .query("UPDATE conversations SET unread_poster_count = 0 WHERE post_id = $1 AND LOWER(helper_id) = LOWER($2)", [intentId, senderId])
+            .catch(() => {});
         }
       }
       res.json({ success: true });
@@ -5842,7 +6157,7 @@ async function startServer() {
     }
   });
 
-  // 5. Send Chat Message (POST /api/messages & POST /api/intents/:id/messages)
+  // 5. Send 1-on-1 Chat Message (POST /api/chat/send, POST /api/posts/:id/respond, POST /api/messages)
   const sendChatMessageHandler = async (req: express.Request, res: express.Response) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
@@ -5855,15 +6170,22 @@ async function startServer() {
       if (!message) {
         return res.status(400).json({ error: "Message payload required" });
       }
-      const conversationId = sanitizeServerText(
-        req.params.id ||
-        message.conversationId ||
-        message.conversation_id ||
-        message.intentId ||
-        message.intent_id ||
-        message.receiver_id ||
-        message.receiverId ||
-        'general',
+
+      const rawParamId = sanitizeServerText(req.params.id || "", 150);
+      const rawConvId = sanitizeServerText(message.conversationId || message.conversation_id || "", 150);
+      const parsedParam = parseConversationId(rawParamId);
+      const parsedBody = parseConversationId(rawConvId);
+
+      const postId = sanitizeServerText(
+        message.postId ||
+          message.post_id ||
+          message.intentId ||
+          message.intent_id ||
+          parsedBody?.postId ||
+          parsedParam?.postId ||
+          (!rawParamId.startsWith("conv_") ? rawParamId : "") ||
+          (!rawConvId.startsWith("conv_") ? rawConvId : "") ||
+          "general",
         150
       );
 
@@ -5875,19 +6197,108 @@ async function startServer() {
         }
       }
 
-      const safeText = sanitizeServerText(message.message || message.text || message.content || '', 2000);
+      const safeText = sanitizeServerText(message.message || message.text || message.content || "", 2000);
       const caller = extractRequestUser(req);
       const senderIdVal = sanitizeServerText(
-        message.sender_id || message.senderId || message.authorId || message.user_id || caller?.uid || 'guest',
-        150
-      );
-      const receiverIdVal = sanitizeServerText(
-        message.receiverId || message.receiver_id || conversationId,
+        message.sender_id || message.senderId || message.authorId || message.user_id || caller?.uid || "guest",
         150
       );
 
+      let resolvedName = sanitizeServerText(
+        message.sender_name || message.senderName || message.authorName || caller?.name || "",
+        120
+      );
+      let resolvedEmail = sanitizeServerText(
+        message.sender_email || message.senderEmail || message.authorEmail || caller?.email || message.email || "",
+        150
+      ).toLowerCase();
+      let resolvedAvatar = sanitizeServerText(
+        message.sender_avatar || message.senderAvatar || message.authorAvatar || "",
+        500
+      );
+
+      if (dbPool && isDbConnected && (!resolvedName || resolvedName === "Community Peer" || !resolvedEmail)) {
+        try {
+          const uLookup = await dbPool
+            .query(
+              "SELECT name, email, avatar_url FROM users WHERE id::text = $1 OR LOWER(email) = LOWER($2) LIMIT 1",
+              [senderIdVal, resolvedEmail || senderIdVal]
+            )
+            .catch(() => ({ rows: [] as any[] }));
+          if (uLookup.rows.length > 0) {
+            if (!resolvedName || resolvedName === "Community Peer") resolvedName = uLookup.rows[0].name || resolvedName;
+            if (!resolvedEmail && uLookup.rows[0].email) resolvedEmail = String(uLookup.rows[0].email).toLowerCase();
+            if (!resolvedAvatar && uLookup.rows[0].avatar_url) resolvedAvatar = uLookup.rows[0].avatar_url;
+          }
+        } catch {}
+      }
+
+      // Resolve authoritative poster_id, poster_name, poster_email from PostgreSQL posts/broadcast_posts
+      const ownerInfo = await resolvePostOwnerInfo(postId);
+      const postOwnerId = sanitizeServerText(
+        ownerInfo.posterId || message.post_owner_id || message.postOwnerId || message.posterId || message.poster_id || "",
+        150
+      );
+      const postOwnerEmail = sanitizeServerText(
+        ownerInfo.posterEmail || message.post_owner_email || message.postOwnerEmail || "",
+        150
+      ).toLowerCase();
+      const postOwnerName = sanitizeServerText(ownerInfo.posterName || "Post Owner", 120);
+      const postOwnerAvatar = sanitizeServerText(ownerInfo.posterAvatar || "", 500);
+
+      const isSenderPostOwner =
+        Boolean(postOwnerId && senderIdVal.toLowerCase() === postOwnerId.toLowerCase()) ||
+        Boolean(postOwnerEmail && resolvedEmail && resolvedEmail === postOwnerEmail.toLowerCase());
+
+      // Resolve helperId and receiverId strictly for 1-on-1 isolation
+      const rawReceiverId = sanitizeServerText(
+        message.receiverId || message.receiver_id || message.helperId || message.helper_id || parsedBody?.helperId || parsedParam?.helperId || "",
+        150
+      );
+
+      const helperId = isSenderPostOwner
+        ? sanitizeServerText(
+            message.helperId ||
+              message.helper_id ||
+              parsedBody?.helperId ||
+              parsedParam?.helperId ||
+              (rawReceiverId && rawReceiverId !== postId && rawReceiverId.toLowerCase() !== postOwnerId.toLowerCase() ? rawReceiverId : ""),
+            150
+          )
+        : senderIdVal;
+
+      // STRICT RULE: A Post Owner can NEVER send an untargeted message on their own post without selecting a specific Helper
+      if (
+        isSenderPostOwner &&
+        (!helperId ||
+          helperId === postId ||
+          helperId.toLowerCase() === senderIdVal.toLowerCase() ||
+          (postOwnerId && helperId.toLowerCase() === postOwnerId.toLowerCase()))
+      ) {
+        return res.status(400).json({
+          error: "Post Owner must select a specific responder from View Responses before sending a message.",
+          code: "MISSING_HELPER_TARGET"
+        });
+      }
+
+      const resolvedReceiverId = isSenderPostOwner
+        ? helperId
+        : sanitizeServerText(postOwnerId || rawReceiverId || postId, 150);
+
+      // Validate senderId !== receiverId (when receiverId is a real user ID, not a fallback postId)
+      if (
+        resolvedReceiverId &&
+        resolvedReceiverId !== postId &&
+        senderIdVal.toLowerCase() === resolvedReceiverId.toLowerCase()
+      ) {
+        return res.status(400).json({
+          error: "Sender and receiver cannot be the same user.",
+          code: "SELF_MESSAGE_NOT_ALLOWED"
+        });
+      }
+
       // Enforce User-to-User Chat Block
-      const blockCheck = await checkChatBlockState(conversationId, senderIdVal, receiverIdVal);
+      const blockCheck = await checkChatBlockState(postId, senderIdVal, resolvedReceiverId);
       if (blockCheck.isBlocked) {
         return res.status(403).json({
           error: "इस चैट में संदेश भेजना ब्लॉक किया गया है। (Messaging is blocked in this conversation.)",
@@ -5895,83 +6306,47 @@ async function startServer() {
         });
       }
 
-      let resolvedName = sanitizeServerText(
-        message.sender_name || message.senderName || message.authorName || caller?.name || '',
-        120
-      );
-      let resolvedEmail = sanitizeServerText(
-        message.sender_email || message.senderEmail || message.authorEmail || caller?.email || message.email || '',
-        150
-      ).toLowerCase();
-      let resolvedAvatar = sanitizeServerText(
-        message.sender_avatar || message.senderAvatar || message.authorAvatar || '',
-        500
-      );
-
-      if (dbPool && isDbConnected && (!resolvedName || resolvedName === 'Community Peer' || !resolvedEmail)) {
-        try {
-          const uLookup = await dbPool.query(
-            "SELECT name, email, avatar_url FROM users WHERE id::text = $1 OR LOWER(email) = LOWER($2) LIMIT 1",
-            [senderIdVal, resolvedEmail || senderIdVal]
-          ).catch(() => ({ rows: [] as any[] }));
-          if (uLookup.rows.length > 0) {
-            if (!resolvedName || resolvedName === 'Community Peer') resolvedName = uLookup.rows[0].name || resolvedName;
-            if (!resolvedEmail && uLookup.rows[0].email) resolvedEmail = String(uLookup.rows[0].email).toLowerCase();
-            if (!resolvedAvatar && uLookup.rows[0].avatar_url) resolvedAvatar = uLookup.rows[0].avatar_url;
-          }
-        } catch {}
-      }
-
       const uploadedChatAttachment = message.attachmentUrl
         ? await uploadDataToFirebaseServer(message.attachmentUrl, "chat_attachments")
         : null;
 
-      // Resolve authoritative post_owner_id and post_owner_email from PostgreSQL posts/broadcast_posts
-      let postOwnerId = sanitizeServerText(message.post_owner_id || message.postOwnerId || "", 150);
-      let postOwnerEmail = sanitizeServerText(message.post_owner_email || message.postOwnerEmail || "", 150).toLowerCase();
-      if (dbPool && isDbConnected && conversationId && conversationId !== "general") {
-        try {
-          const postLookup = await dbPool.query(
-            "SELECT user_id, raw_json FROM posts WHERE id = $1 LIMIT 1",
-            [conversationId]
-          ).catch(() => ({ rows: [] as any[] }));
-          if (postLookup.rows.length > 0) {
-            postOwnerId = postOwnerId || String(postLookup.rows[0].user_id || postLookup.rows[0].raw_json?.authorId || "").trim();
-            postOwnerEmail = postOwnerEmail || String(postLookup.rows[0].raw_json?.authorEmail || "").trim().toLowerCase();
-          }
-          if (!postOwnerId) {
-            const bLookup = await dbPool.query(
-              "SELECT author_id FROM broadcast_posts WHERE id = $1 LIMIT 1",
-              [conversationId]
-            ).catch(() => ({ rows: [] as any[] }));
-            if (bLookup.rows.length > 0) {
-              postOwnerId = String(bLookup.rows[0].author_id || "").trim();
-            }
-          }
-        } catch {}
-      }
+      const effectivePosterId = postOwnerId || (isSenderPostOwner ? senderIdVal : resolvedReceiverId);
+      const effectiveConvId =
+        postId && postId !== "general" && helperId
+          ? buildConversationId(postId, helperId)
+          : rawConvId || postId;
 
-      const resolvedReceiverId = sanitizeServerText(
-        message.receiverId || message.receiver_id || postOwnerId || conversationId,
-        150
-      );
+      const helperNameVal = isSenderPostOwner
+        ? sanitizeServerText(message.helperName || message.receiverName || "Community Helper", 120)
+        : resolvedName || "Community Helper";
+      const helperEmailVal = isSenderPostOwner
+        ? sanitizeServerText(message.helperEmail || message.receiverEmail || "", 150).toLowerCase()
+        : resolvedEmail;
+      const helperAvatarVal = isSenderPostOwner
+        ? sanitizeServerText(message.helperAvatar || "", 500)
+        : resolvedAvatar;
 
       const newMsg = {
-        id: sanitizeServerText(message.id || 'msg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6), 100),
-        conversationId,
-        postId: conversationId,
-        post_id: conversationId,
-        intentId: conversationId,
-        intent_id: conversationId,
-        postOwnerId: postOwnerId || resolvedReceiverId,
-        post_owner_id: postOwnerId || resolvedReceiverId,
+        id: sanitizeServerText(message.id || "msg_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6), 100),
+        conversationId: effectiveConvId,
+        conversation_id: effectiveConvId,
+        postId,
+        post_id: postId,
+        intentId: postId,
+        intent_id: postId,
+        postOwnerId: effectivePosterId,
+        post_owner_id: effectivePosterId,
+        posterId: effectivePosterId,
+        poster_id: effectivePosterId,
+        helperId,
+        helper_id: helperId,
         authorId: senderIdVal,
         senderId: senderIdVal,
         sender_id: senderIdVal,
         user_id: senderIdVal,
-        authorName: resolvedName || 'Community Peer',
-        senderName: resolvedName || 'Community Peer',
-        sender_name: resolvedName || 'Community Peer',
+        authorName: resolvedName || "Community Peer",
+        senderName: resolvedName || "Community Peer",
+        sender_name: resolvedName || "Community Peer",
         senderEmail: resolvedEmail,
         sender_email: resolvedEmail,
         authorEmail: resolvedEmail,
@@ -5983,7 +6358,7 @@ async function startServer() {
         text: safeText,
         content: safeText,
         message: safeText,
-        type: sanitizeServerText(message.type || 'text', 40),
+        type: sanitizeServerText(message.type || "text", 40),
         attachmentUrl: uploadedChatAttachment,
         attachment_url: uploadedChatAttachment,
         attachmentType: message.attachmentType ? sanitizeServerText(message.attachmentType, 40) : null,
@@ -5993,8 +6368,55 @@ async function startServer() {
         createdAt: message.createdAt || message.sent_at || new Date().toISOString()
       };
 
-      // 1. PostgreSQL Insert into responses, messages, and chats tables (linked via post_id & post_owner_id)
+      const previewText = safeText || (uploadedChatAttachment ? "📷 Photo / Attachment" : "Sent a message");
+
+      // 1. PostgreSQL Upsert into conversations & Insert into messages, responses, and chats
       if (dbPool && isDbConnected) {
+        if (postId && postId !== "general" && helperId) {
+          try {
+            const unreadPosterDelta = isSenderPostOwner ? 0 : 1;
+            const unreadHelperDelta = isSenderPostOwner ? 1 : 0;
+            await dbPool.query(
+              `INSERT INTO conversations (
+                 id, post_id, poster_id, poster_name, poster_email, poster_avatar,
+                 helper_id, helper_name, helper_email, helper_avatar,
+                 last_message, last_message_at, unread_poster_count, unread_helper_count, created_at
+               )
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $12)
+               ON CONFLICT (post_id, poster_id, helper_id) DO UPDATE SET
+                 last_message = EXCLUDED.last_message,
+                 last_message_at = EXCLUDED.last_message_at,
+                 unread_poster_count = conversations.unread_poster_count + $13,
+                 unread_helper_count = conversations.unread_helper_count + $14,
+                 helper_name = CASE
+                   WHEN EXCLUDED.helper_name <> '' AND EXCLUDED.helper_name <> 'Community Helper'
+                   THEN EXCLUDED.helper_name
+                   ELSE conversations.helper_name
+                 END,
+                 helper_email = COALESCE(NULLIF(EXCLUDED.helper_email, ''), conversations.helper_email),
+                 helper_avatar = COALESCE(NULLIF(EXCLUDED.helper_avatar, ''), conversations.helper_avatar)`,
+              [
+                effectiveConvId,
+                postId,
+                effectivePosterId,
+                isSenderPostOwner ? resolvedName || postOwnerName : postOwnerName,
+                isSenderPostOwner ? resolvedEmail || postOwnerEmail : postOwnerEmail,
+                isSenderPostOwner ? resolvedAvatar || postOwnerAvatar : postOwnerAvatar,
+                helperId,
+                helperNameVal,
+                helperEmailVal || null,
+                helperAvatarVal || null,
+                previewText,
+                newMsg.createdAt,
+                unreadPosterDelta,
+                unreadHelperDelta
+              ]
+            );
+          } catch (convUpsertErr) {
+            console.warn("Conversations upsert notice:", convUpsertErr);
+          }
+        }
+
         try {
           await dbPool.query(
             `INSERT INTO responses (id, post_id, post_owner_id, sender_id, sender_name, sender_email, sender_avatar, receiver_id, message, attachment_url, attachment_type, is_read, created_at)
@@ -6002,10 +6424,10 @@ async function startServer() {
              ON CONFLICT (id) DO NOTHING`,
             [
               newMsg.id,
-              conversationId,
+              postId,
               newMsg.postOwnerId,
               newMsg.senderId,
-              newMsg.authorName || 'Community Peer',
+              newMsg.authorName || "Community Peer",
               newMsg.senderEmail || null,
               newMsg.senderAvatar || null,
               newMsg.receiverId,
@@ -6018,39 +6440,20 @@ async function startServer() {
         } catch {}
 
         try {
-          await dbPool.query(`
-            INSERT INTO messages (id, intent_id, post_id, post_owner_id, sender_id, sender_name, sender_email, sender_avatar, receiver_id, text, content, type, attachment_url, attachment_type, is_read, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, FALSE, $15)
-            ON CONFLICT (id) DO NOTHING
-          `, [
-            newMsg.id,
-            conversationId,
-            conversationId,
-            newMsg.postOwnerId,
-            newMsg.senderId,
-            newMsg.authorName || 'Community Peer',
-            newMsg.senderEmail || null,
-            newMsg.senderAvatar || null,
-            newMsg.receiverId,
-            newMsg.text,
-            newMsg.content,
-            newMsg.type,
-            newMsg.attachmentUrl,
-            newMsg.attachmentType,
-            newMsg.createdAt
-          ]);
-        } catch (dbErr) {
-          console.warn("DB messages insert fallback attempt:", dbErr);
-          try {
-            await dbPool.query(`
-              INSERT INTO messages (id, intent_id, sender_id, sender_name, receiver_id, text, content, type, attachment_url, attachment_type, created_at)
-              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-              ON CONFLICT (id) DO NOTHING
-            `, [
+          await dbPool.query(
+            `INSERT INTO messages (id, conversation_id, intent_id, post_id, post_owner_id, sender_id, sender_name, sender_email, sender_avatar, receiver_id, text, content, type, attachment_url, attachment_type, is_read, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, FALSE, $16)
+             ON CONFLICT (id) DO NOTHING`,
+            [
               newMsg.id,
-              conversationId,
+              effectiveConvId,
+              postId,
+              postId,
+              newMsg.postOwnerId,
               newMsg.senderId,
-              newMsg.authorName || 'Community Peer',
+              newMsg.authorName || "Community Peer",
+              newMsg.senderEmail || null,
+              newMsg.senderAvatar || null,
               newMsg.receiverId,
               newMsg.text,
               newMsg.content,
@@ -6058,116 +6461,110 @@ async function startServer() {
               newMsg.attachmentUrl,
               newMsg.attachmentType,
               newMsg.createdAt
-            ]);
-          } catch (innerErr) {
-            console.warn("DB messages fallback error:", innerErr);
-          }
+            ]
+          );
+        } catch (dbErr) {
+          console.warn("DB messages insert fallback attempt:", dbErr);
+          try {
+            await dbPool.query(
+              `INSERT INTO messages (id, intent_id, sender_id, sender_name, receiver_id, text, content, type, attachment_url, attachment_type, created_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+               ON CONFLICT (id) DO NOTHING`,
+              [
+                newMsg.id,
+                postId,
+                newMsg.senderId,
+                newMsg.authorName || "Community Peer",
+                newMsg.receiverId,
+                newMsg.text,
+                newMsg.content,
+                newMsg.type,
+                newMsg.attachmentUrl,
+                newMsg.attachmentType,
+                newMsg.createdAt
+              ]
+            );
+          } catch {}
         }
 
         try {
-          await dbPool.query(`
-            INSERT INTO chats (id, intent_id, post_id, post_owner_id, sender_id, sender_name, sender_email, receiver_id, message, sent_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-            ON CONFLICT (id) DO NOTHING
-          `, [
-            newMsg.id,
-            conversationId,
-            conversationId,
-            newMsg.postOwnerId,
-            newMsg.senderId,
-            newMsg.authorName || 'Community Peer',
-            newMsg.senderEmail || null,
-            newMsg.receiverId,
-            newMsg.message,
-            newMsg.createdAt
-          ]);
-        } catch (chatInsertErr) {
-          try {
-            await dbPool.query(`
-              INSERT INTO chats (id, sender_id, receiver_id, message, sent_at)
-              VALUES ($1, $2, $3, $4, $5)
-              ON CONFLICT (id) DO NOTHING
-            `, [
+          await dbPool.query(
+            `INSERT INTO chats (id, intent_id, post_id, post_owner_id, sender_id, sender_name, sender_email, receiver_id, message, sent_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+             ON CONFLICT (id) DO NOTHING`,
+            [
               newMsg.id,
+              postId,
+              postId,
+              newMsg.postOwnerId,
               newMsg.senderId,
+              newMsg.authorName || "Community Peer",
+              newMsg.senderEmail || null,
               newMsg.receiverId,
               newMsg.message,
               newMsg.createdAt
-            ]);
-          } catch {}
-        }
+            ]
+          );
+        } catch {}
       }
 
-      // 2. Local file backup & refresh post interaction time
+      // 2. Local file backup keyed by 1-on-1 conversationId
       const allMessages = readJsonFile<Record<string, any[]>>(MESSAGES_FILE, {});
-      const chatMessages = allMessages[conversationId] || [];
+      const chatMessages = allMessages[effectiveConvId] || [];
       if (!chatMessages.some((m: any) => m.id === newMsg.id)) {
         chatMessages.push(newMsg);
-        allMessages[conversationId] = chatMessages;
+        allMessages[effectiveConvId] = chatMessages;
         writeJsonFile(MESSAGES_FILE, allMessages);
       }
 
-      // Refresh post interaction timestamp & compute updated response_count for this post
+      // Refresh post interaction timestamp & compute updated response_count / repliers for this post from conversations
       let updatedResponseCount = 1;
       const replierGroupsMap = new Map<string, any>();
-      if (conversationId && conversationId !== 'general') {
+      if (postId && postId !== "general") {
         try {
           if (dbPool && isDbConnected) {
-            await dbPool.query(`
-              UPDATE broadcast_posts 
-              SET expires_at = NOW() + INTERVAL '1 hour'
-              WHERE id = $1
-            `, [conversationId]).catch(() => {});
+            await dbPool
+              .query(`UPDATE broadcast_posts SET expires_at = NOW() + INTERVAL '1 hour' WHERE id = $1`, [postId])
+              .catch(() => {});
 
-            const allPostMsgs = await dbPool.query(
-              `SELECT id, sender_id, sender_name, sender_email, sender_avatar, text, content, is_read, is_collaborator, created_at
-               FROM messages
-               WHERE intent_id = $1 OR post_id = $1
-               ORDER BY created_at ASC`,
-              [conversationId]
-            ).catch(() => ({ rows: [] as any[] }));
+            const convRowsRes = await dbPool
+              .query(
+                `SELECT * FROM conversations
+                 WHERE post_id = $1
+                   AND last_message IS NOT NULL
+                   AND TRIM(last_message) <> ''
+                   AND LOWER(helper_id) <> LOWER(poster_id)
+                 ORDER BY last_message_at DESC`,
+                [postId]
+              )
+              .catch(() => ({ rows: [] as any[] }));
 
-            const ownerIdLower = String(postOwnerId || "").trim().toLowerCase();
-            const ownerEmailLower = String(postOwnerEmail || "").trim().toLowerCase();
-
-            allPostMsgs.rows.forEach((r: any) => {
-              const sId = String(r.sender_id || "").trim();
-              const sIdLower = sId.toLowerCase();
-              const sEmail = String(r.sender_email || "").trim().toLowerCase();
-              if (!sId || sIdLower === "system" || sIdLower === "owner" || sIdLower === "me") return;
-              if (
-                (ownerIdLower && sIdLower === ownerIdLower) ||
-                (ownerEmailLower && sEmail && sEmail === ownerEmailLower) ||
-                (ownerEmailLower && sIdLower === ownerEmailLower)
-              ) {
-                return;
-              }
-              const key = sEmail || sIdLower;
-              const sName = String(r.sender_name || "").trim() || "Community Helper";
-              const sAvatar = String(r.sender_avatar || "").trim();
-              const msgTxt = String(r.text || r.content || "").trim();
-              const cIso = r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString();
-
-              const existing = replierGroupsMap.get(key);
-              if (!existing) {
-                replierGroupsMap.set(key, {
-                  senderId: sId,
-                  senderName: sName,
-                  senderEmail: sEmail,
-                  senderAvatar: sAvatar,
-                  lastMessage: msgTxt || "📷 Attachment shared",
-                  updatedAt: cIso,
-                  count: 1,
-                  unreadCount: r.is_read ? 0 : 1,
-                  isCollaborator: Boolean(r.is_collaborator)
-                });
-              } else {
-                existing.count += 1;
-                if (!r.is_read) existing.unreadCount += 1;
-                if (r.is_collaborator) existing.isCollaborator = true;
-                existing.lastMessage = msgTxt || existing.lastMessage;
-                existing.updatedAt = cIso;
-              }
+            convRowsRes.rows.forEach((c: any) => {
+              const hId = String(c.helper_id || "").trim();
+              const hEmail = String(c.helper_email || "").trim().toLowerCase();
+              if (!hId) return;
+              const key = hEmail || hId.toLowerCase();
+              const lastIso = c.last_message_at ? new Date(c.last_message_at).toISOString() : new Date().toISOString();
+              replierGroupsMap.set(key, {
+                id: c.id || buildConversationId(postId, hId),
+                conversationId: c.id || buildConversationId(postId, hId),
+                helperId: hId,
+                senderId: hId,
+                helperName: c.helper_name || "Community Helper",
+                senderName: c.helper_name || "Community Helper",
+                helperEmail: hEmail,
+                senderEmail: hEmail,
+                helperAvatar: c.helper_avatar || "",
+                senderAvatar: c.helper_avatar || "",
+                lastMessage: c.last_message || previewText,
+                lastMessageAt: lastIso,
+                updatedAt: lastIso,
+                count: Math.max(Number(c.unread_poster_count || 0), 1),
+                unreadCount: Number(c.unread_poster_count || 0),
+                unreadPosterCount: Number(c.unread_poster_count || 0),
+                unreadHelperCount: Number(c.unread_helper_count || 0),
+                isCollaborator: Boolean(c.is_collaborator)
+              });
             });
 
             updatedResponseCount = Math.max(replierGroupsMap.size, 1);
@@ -6188,13 +6585,18 @@ async function startServer() {
         repliers: updatedRepliers
       };
 
-      // Immediately broadcast new_response via SSE so post owner's "View Response" button & modal update in 0ms
-      if (conversationId && conversationId !== 'general') {
+      // Immediately broadcast new_response & new_chat_message via SSE so both Post Owner and Helper sync in 0ms
+      if (postId && postId !== "general") {
         broadcastRealtimeEvent("new_response", {
-          postId: conversationId,
-          post_id: conversationId,
-          postOwnerId: postOwnerId || newMsg.receiverId,
-          post_owner_id: postOwnerId || newMsg.receiverId,
+          postId,
+          post_id: postId,
+          conversationId: effectiveConvId,
+          conversation_id: effectiveConvId,
+          helperId,
+          helper_id: helperId,
+          postOwnerId: effectivePosterId,
+          post_owner_id: effectivePosterId,
+          receiverId: resolvedReceiverId,
           response: responseObject,
           responseCount: updatedResponseCount,
           response_count: updatedResponseCount,
@@ -6202,74 +6604,69 @@ async function startServer() {
         });
       }
 
-      // 3. Trigger 2: Instant FCM Push Notification to post_owner_id when someone replies to their post
+      // 3. Trigger FCM Push Notification to receiverId (either Post Owner when Helper replies, or Helper when Post Owner replies)
       (async () => {
         try {
           if (!dbPool || !isDbConnected) return;
           if (!getParsedFirebaseServiceAccount()) return;
-          if (!conversationId || conversationId === "general") return;
+          if (!postId || postId === "general" || !resolvedReceiverId) return;
 
-          const senderLower = String(newMsg.senderId || "").trim().toLowerCase();
-          const senderEmailLower = String(newMsg.senderEmail || "").trim().toLowerCase();
-          const targetOwnerId = String(postOwnerId || newMsg.receiverId || "").trim();
-          const targetOwnerEmail = String(postOwnerEmail || "").trim().toLowerCase();
+          const targetReceiverId = String(resolvedReceiverId || "").trim();
+          const targetReceiverEmail = isSenderPostOwner ? helperEmailVal : postOwnerEmail;
+          if (!targetReceiverId && !targetReceiverEmail) return;
 
-          if (!targetOwnerId && !targetOwnerEmail) return;
-          if (
-            (targetOwnerId && senderLower === targetOwnerId.toLowerCase()) ||
-            (targetOwnerEmail && senderEmailLower && senderEmailLower === targetOwnerEmail)
-          ) {
-            // Do not send "New Response on your Post" push when the post owner replies to their own thread
-            return;
-          }
+          const tokenRes = await dbPool
+            .query(
+              `SELECT DISTINCT fcm_token
+               FROM users
+               WHERE fcm_token IS NOT NULL
+                 AND TRIM(fcm_token) <> ''
+                 AND (
+                   LOWER(id) = LOWER($1)
+                   OR ($2 <> '' AND email IS NOT NULL AND LOWER(email) = LOWER($2))
+                   OR ($2 <> '' AND LOWER(id) = LOWER($3))
+                 )`,
+              [
+                targetReceiverId,
+                targetReceiverEmail || "",
+                targetReceiverEmail ? `email_${targetReceiverEmail.replace(/[^a-z0-9]/g, "_")}` : ""
+              ]
+            )
+            .catch(() => ({ rows: [] as any[] }));
 
-          const ownerTokenRes = await dbPool.query(
-            `SELECT DISTINCT fcm_token
-             FROM users
-             WHERE fcm_token IS NOT NULL
-               AND TRIM(fcm_token) <> ''
-               AND (
-                 LOWER(id) = LOWER($1)
-                 OR ($2 <> '' AND email IS NOT NULL AND LOWER(email) = LOWER($2))
-                 OR ($2 <> '' AND LOWER(id) = LOWER($3))
-               )`,
-            [
-              targetOwnerId,
-              targetOwnerEmail,
-              targetOwnerEmail ? `email_${targetOwnerEmail.replace(/[^a-z0-9]/g, "_")}` : ""
-            ]
-          ).catch(() => ({ rows: [] as any[] }));
-
-          const ownerTokens = Array.from(
+          const receiverTokens = Array.from(
             new Set(
-              ownerTokenRes.rows
+              tokenRes.rows
                 .map((r: any) => String(r.fcm_token || "").trim())
                 .filter(Boolean)
             )
           );
-          if (ownerTokens.length === 0) return;
+          if (receiverTokens.length === 0) return;
 
-          const responderName = newMsg.authorName || newMsg.senderName || "A neighbor";
-          const originUrl =
-            (req.headers.origin && String(req.headers.origin).startsWith("http")
+          const senderDisplay = newMsg.authorName || newMsg.senderName || "A neighbor";
+          const originUrl = (
+            req.headers.origin && String(req.headers.origin).startsWith("http")
               ? String(req.headers.origin)
               : `${req.protocol || "https"}://${req.get("host") || "localhost:3000"}`
-            ).replace(/\/+$/, "");
-          const replyUrl = `${originUrl}/?postId=${encodeURIComponent(conversationId)}&viewResponses=1`;
+          ).replace(/\/+$/, "");
+          const replyUrl = `${originUrl}/?postId=${encodeURIComponent(postId)}&viewResponses=1`;
 
-          const pushTitle = "💬 New Response on your Post!";
-          const pushBody = `${responderName} replied to your request. Tap to view response.`;
+          const pushTitle = isSenderPostOwner ? `💬 Reply from ${senderDisplay}` : "💬 New Response on your Post!";
+          const pushBody = isSenderPostOwner
+            ? `${senderDisplay}: ${previewText.slice(0, 90)}`
+            : `${senderDisplay} replied to your request. Tap to view response.`;
 
           const pushRes = await sendFcmMulticastPush({
-            tokens: ownerTokens,
+            tokens: receiverTokens,
             title: pushTitle,
             body: pushBody,
             postUrl: replyUrl,
             data: {
               title: pushTitle,
               body: pushBody,
-              postId: String(conversationId),
-              responderName: String(responderName),
+              postId: String(postId),
+              conversationId: String(effectiveConvId),
+              responderName: String(senderDisplay),
               url: replyUrl,
               click_action: replyUrl
             }
@@ -6292,6 +6689,7 @@ async function startServer() {
     }
   };
 
+  app.post("/api/chat/send", chatMessageLimiter, sendChatMessageHandler);
   app.post("/api/posts/:id/respond", chatMessageLimiter, sendChatMessageHandler);
   app.post("/api/intents/:id/respond", chatMessageLimiter, sendChatMessageHandler);
   app.post("/api/intents/:id/messages", chatMessageLimiter, sendChatMessageHandler);

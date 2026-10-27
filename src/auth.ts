@@ -236,6 +236,7 @@ export function getUserIdentitySet(user?: { uid?: string; id?: string; email?: s
   const email = String(target.email || (!user ? localStorage.getItem('locohelp_last_logged_in_email') || '' : '')).trim().toLowerCase();
   if (email) {
     addCandidate(email);
+    addCandidate(ensureValidUUID(email));
     addCandidate(`email_${email.replace(/[^a-z0-9]/g, '_')}`);
     addCandidate(`otp_${email.replace(/[^a-z0-9]/g, '_')}`);
   }

@@ -338,11 +338,54 @@ export async function deleteIntentOnServer(id: string, description?: string): Pr
 }
 
 /**
- * Fetches messages for a chat / conversation from the central server (`messages` table via GET /api/messages/:conversationId).
+ * Fetches active 1-on-1 conversations for a post or user (`GET /api/chat/conversations`).
  */
-export async function fetchChatMessages(conversationId: string): Promise<ChatMessage[]> {
+export async function fetchPostConversations(params: {
+  postId?: string;
+  userId?: string;
+  userEmail?: string;
+}): Promise<any[]> {
   try {
-    const res = await fetch(`/api/messages/${encodeURIComponent(conversationId)}?_t=${Date.now()}`, {
+    const qs = new URLSearchParams();
+    if (params.postId) qs.set('postId', params.postId);
+    if (params.userId) qs.set('userId', params.userId);
+    if (params.userEmail) qs.set('userEmail', params.userEmail);
+    qs.set('_t', String(Date.now()));
+    const res = await fetch(`/api/chat/conversations?${qs.toString()}`, {
+      cache: 'no-store',
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        ...getAuthHeaders()
+      }
+    });
+    if (res.ok) {
+      const list = await res.json();
+      return Array.isArray(list) ? list : [];
+    }
+  } catch (err) {
+    console.warn("Failed to fetch post conversations:", err);
+  }
+  return [];
+}
+
+/**
+ * Fetches messages for a strict 1-on-1 chat conversation from the central server (`GET /api/chat/messages`).
+ */
+export async function fetchChatMessages(
+  conversationId: string,
+  options?: { postId?: string; helperId?: string; userId?: string; userEmail?: string }
+): Promise<ChatMessage[]> {
+  try {
+    const qs = new URLSearchParams();
+    qs.set('conversationId', conversationId);
+    if (options?.postId) qs.set('postId', options.postId);
+    if (options?.helperId) qs.set('helperId', options.helperId);
+    if (options?.userId) qs.set('userId', options.userId);
+    if (options?.userEmail) qs.set('userEmail', options.userEmail);
+    qs.set('_t', String(Date.now()));
+
+    const res = await fetch(`/api/chat/messages?${qs.toString()}`, {
       cache: 'no-store',
       headers: { 
         'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -361,11 +404,17 @@ export async function fetchChatMessages(conversationId: string): Promise<ChatMes
 }
 
 /**
- * Sends a message / response on a post or chat conversation (`POST /api/posts/:id/respond` & `POST /api/messages`).
+ * Sends a 1-on-1 message / response on a post conversation (`POST /api/chat/send`).
  */
 export async function sendChatMessage(
-  conversationId: string,
+  postIdOrConvId: string,
   msg: Partial<ChatMessage> & {
+    conversationId?: string;
+    postId?: string;
+    helperId?: string;
+    helperName?: string;
+    helperEmail?: string;
+    helperAvatar?: string;
     receiverId?: string;
     postOwnerId?: string;
     authorName?: string;
@@ -373,20 +422,35 @@ export async function sendChatMessage(
     authorAvatar?: string;
   }
 ): Promise<ChatMessage & { responseCount?: number; response_count?: number; responses?: any[]; repliers?: any[] }> {
+  const postIdVal = sanitizeText((msg as any).postId || (msg as any).post_id || (msg as any).intentId || postIdOrConvId);
   const senderIdVal = sanitizeText(msg.authorId || (msg as any).senderId || (msg as any).sender_id || 'guest');
   const senderNameVal = sanitizeText((msg as any).authorName || (msg as any).senderName || '');
   const senderEmailVal = sanitizeText((msg as any).senderEmail || (msg as any).authorEmail || (msg as any).sender_email || '');
   const senderAvatarVal = (msg as any).authorAvatar || (msg as any).senderAvatar || '';
-  const postOwnerIdVal = sanitizeText((msg as any).postOwnerId || (msg as any).post_owner_id || (msg as any).receiverId || conversationId);
+  const postOwnerIdVal = sanitizeText((msg as any).postOwnerId || (msg as any).post_owner_id || '');
+  const helperIdVal = sanitizeText((msg as any).helperId || (msg as any).helper_id || '');
+  const receiverIdVal = sanitizeText((msg as any).receiverId || (msg as any).receiver_id || postOwnerIdVal || postIdVal);
+  const convIdVal = sanitizeText(
+    (msg as any).conversationId ||
+      (msg as any).conversation_id ||
+      (postIdVal && helperIdVal ? `conv_${postIdVal}__${helperIdVal.toLowerCase()}` : postIdOrConvId)
+  );
+
   const payload = {
     id: msg.id || 'msg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
-    conversationId,
-    postId: conversationId,
-    post_id: conversationId,
-    intentId: conversationId,
-    intent_id: conversationId,
+    conversationId: convIdVal,
+    conversation_id: convIdVal,
+    postId: postIdVal,
+    post_id: postIdVal,
+    intentId: postIdVal,
+    intent_id: postIdVal,
     postOwnerId: postOwnerIdVal,
     post_owner_id: postOwnerIdVal,
+    helperId: helperIdVal,
+    helper_id: helperIdVal,
+    helperName: sanitizeText((msg as any).helperName || ''),
+    helperEmail: sanitizeText((msg as any).helperEmail || ''),
+    helperAvatar: (msg as any).helperAvatar || '',
     authorId: senderIdVal,
     senderId: senderIdVal,
     sender_id: senderIdVal,
@@ -399,8 +463,8 @@ export async function sendChatMessage(
     sender_email: senderEmailVal,
     senderAvatar: senderAvatarVal,
     authorAvatar: senderAvatarVal,
-    receiverId: sanitizeText((msg as any).receiverId || postOwnerIdVal || conversationId),
-    receiver_id: sanitizeText((msg as any).receiverId || postOwnerIdVal || conversationId),
+    receiverId: receiverIdVal,
+    receiver_id: receiverIdVal,
     text: sanitizeText(msg.text || ''),
     content: sanitizeText(msg.text || ''),
     message: sanitizeText(msg.text || ''),
@@ -411,7 +475,7 @@ export async function sendChatMessage(
   };
 
   try {
-    const res = await fetch(`/api/posts/${encodeURIComponent(conversationId)}/respond?_t=${Date.now()}`, {
+    const res = await fetch(`/api/chat/send?_t=${Date.now()}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -426,7 +490,8 @@ export async function sendChatMessage(
         window.dispatchEvent(
           new CustomEvent('locohelp_realtime_new_response', {
             detail: {
-              postId: conversationId,
+              postId: postIdVal,
+              conversationId: saved?.conversationId || convIdVal,
               response: saved?.response || saved,
               responseCount: saved?.responseCount ?? saved?.response_count,
               repliers: saved?.repliers
@@ -437,7 +502,7 @@ export async function sendChatMessage(
       return saved;
     }
   } catch (err) {
-    console.warn("Failed to send post response to server:", err);
+    console.warn("Failed to send 1-on-1 chat message to server:", err);
   }
 
   return payload as ChatMessage;

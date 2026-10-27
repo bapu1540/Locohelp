@@ -14,6 +14,7 @@ interface PostResponsesModalProps {
 }
 
 interface ReplierGroup {
+  conversationId?: string;
   senderId: string;
   senderName: string;
   senderEmail?: string;
@@ -55,8 +56,8 @@ export default function PostResponsesModal({
 
       preRepliers.forEach((rep: any) => {
         if (!rep) return;
-        const sId = String(rep.senderId || rep.sender_id || '').trim();
-        const sEmail = String(rep.senderEmail || rep.sender_email || '').trim().toLowerCase();
+        const sId = String(rep.helperId || rep.helper_id || rep.senderId || rep.sender_id || '').trim();
+        const sEmail = String(rep.helperEmail || rep.senderEmail || rep.sender_email || '').trim().toLowerCase();
         if (!sId || sId === 'system') return;
         if (
           isMessageSentByUser({ sender_id: sId, sender_email: sEmail }, currentUser) ||
@@ -67,14 +68,15 @@ export default function PostResponsesModal({
         }
         const key = sEmail || sId.toLowerCase();
         initialMap.set(key, {
+          conversationId: rep.conversationId || rep.id || `conv_${intent.id}__${sId.toLowerCase()}`,
           senderId: sId,
-          senderName: rep.senderName || rep.sender_name || 'Community Helper',
+          senderName: rep.helperName || rep.senderName || rep.sender_name || 'Community Helper',
           senderEmail: sEmail,
-          senderAvatar: rep.senderAvatar || rep.sender_avatar || '',
-          lastMessage: rep.lastMessage || rep.message || rep.text || 'Sent a message',
-          updatedAt: rep.lastMessageAt || rep.updatedAt || rep.createdAt || new Date().toISOString(),
+          senderAvatar: rep.helperAvatar || rep.senderAvatar || rep.sender_avatar || '',
+          lastMessage: rep.lastMessage || rep.last_message || rep.message || rep.text || 'Sent a message',
+          updatedAt: rep.lastMessageAt || rep.last_message_at || rep.updatedAt || rep.createdAt || new Date().toISOString(),
           count: Number(rep.messageCount || rep.count) || 1,
-          unreadCount: Number(rep.unreadCount) || 0,
+          unreadCount: Number(rep.unreadPosterCount ?? rep.unreadCount) || 0,
           isCollaborator: Boolean(rep.isCollaborator)
         });
       });
@@ -98,6 +100,7 @@ export default function PostResponsesModal({
         const existing = initialMap.get(key);
         if (!existing) {
           initialMap.set(key, {
+            conversationId: msg.conversationId || msg.conversation_id || `conv_${intent.id}__${sId.toLowerCase()}`,
             senderId: sId,
             senderName: sName,
             senderEmail: sEmail,
@@ -129,134 +132,48 @@ export default function PostResponsesModal({
         initialLoad = false;
       }
       try {
-        // 1. Fetch grouped inbox threads + raw messages in parallel for maximum reliability
         const token = localStorage.getItem('locohelp_token') || '';
         const headers: Record<string, string> = {};
         if (token) headers['Authorization'] = `Bearer ${token}`;
 
-        const [inboxRes, messagesRes] = await Promise.all([
-          fetch(
-            `/api/posts/${encodeURIComponent(intent.id)}/inbox?ownerId=${encodeURIComponent(ownerId)}&ownerEmail=${encodeURIComponent(ownerEmail)}&_t=${Date.now()}`,
-            { cache: 'no-store', headers }
-          ).catch(() => null),
-          fetch(`/api/messages/${encodeURIComponent(intent.id)}?_t=${Date.now()}`, {
-            cache: 'no-store',
-            headers
-          }).catch(() => null)
-        ]);
+        const convRes = await fetch(
+          `/api/chat/conversations?postId=${encodeURIComponent(intent.id)}&userId=${encodeURIComponent(ownerId)}&ownerEmail=${encodeURIComponent(ownerEmail)}&_t=${Date.now()}`,
+          { cache: 'no-store', headers }
+        ).catch(() => null);
 
         let inboxThreads: any[] = [];
-        if (inboxRes && inboxRes.ok) {
-          const data = await inboxRes.json().catch(() => []);
+        if (convRes && convRes.ok) {
+          const data = await convRes.json().catch(() => []);
           if (Array.isArray(data)) inboxThreads = data;
         }
 
-        let rawMessages: any[] = [];
-        if (messagesRes && messagesRes.ok) {
-          const data = await messagesRes.json().catch(() => []);
-          if (Array.isArray(data)) rawMessages = data;
-        }
-
-        // Also merge any responses attached to intent prop
-        if (Array.isArray((intent as any).responses)) {
-          const existingIds = new Set(rawMessages.map(m => m?.id).filter(Boolean));
-          (intent as any).responses.forEach((r: any) => {
-            if (r && r.id && !existingIds.has(r.id)) {
-              existingIds.add(r.id);
-              rawMessages.push(r);
-            }
-          });
-        }
-
-        // Also check localStorage chat cache in case an optimistic message was just sent
-        try {
-          const cached = JSON.parse(localStorage.getItem(`locohelp_chat_${intent.id}`) || '[]');
-          if (Array.isArray(cached) && cached.length > 0) {
-            const existingIds = new Set(rawMessages.map(m => m?.id).filter(Boolean));
-            cached.forEach(c => {
-              if (c && c.id && !existingIds.has(c.id)) rawMessages.push(c);
-            });
-          }
-        } catch {}
-
         const groupsMap = new Map<string, ReplierGroup>();
 
-        // Seed from backend /inbox endpoint
+        // Seed from backend /api/chat/conversations endpoint
         inboxThreads.forEach(item => {
-          if (!item || !item.senderId) return;
-          const isFromMe = isMessageSentByUser(
-            { sender_id: item.senderId, sender_email: item.senderEmail },
-            currentUser
-          );
+          const hId = String(item?.helperId || item?.helper_id || item?.senderId || '').trim();
+          const hEmail = String(item?.helperEmail || item?.senderEmail || '').trim().toLowerCase();
+          if (!hId) return;
+          const isFromMe =
+            isMessageSentByUser({ sender_id: hId, sender_email: hEmail }, currentUser) ||
+            (ownerId && hId.toLowerCase() === ownerId.toLowerCase()) ||
+            (ownerEmail && hEmail && hEmail === ownerEmail) ||
+            myIdentitySet.has(hId.toLowerCase());
           if (isFromMe) return;
 
-          const key = String(item.senderEmail || item.senderId).toLowerCase();
+          const key = String(hEmail || hId).toLowerCase();
           groupsMap.set(key, {
-            senderId: String(item.senderId),
-            senderName: item.senderName || 'Community Helper',
-            senderEmail: item.senderEmail || '',
-            senderAvatar: item.senderAvatar || '',
-            lastMessage: item.lastMessage || 'Sent a message',
-            updatedAt: item.updatedAt || new Date().toISOString(),
+            conversationId: item.conversationId || item.id || `conv_${intent.id}__${hId.toLowerCase()}`,
+            senderId: hId,
+            senderName: item.helperName || item.senderName || 'Community Helper',
+            senderEmail: hEmail,
+            senderAvatar: item.helperAvatar || item.senderAvatar || '',
+            lastMessage: item.lastMessage || item.last_message || 'Sent a message',
+            updatedAt: item.lastMessageAt || item.last_message_at || item.updatedAt || new Date().toISOString(),
             count: Number(item.count) || 1,
-            unreadCount: Number(item.unreadCount) || 0,
+            unreadCount: Number(item.unreadPosterCount ?? item.unreadCount) || 0,
             isCollaborator: Boolean(item.isCollaborator)
           });
-        });
-
-        // Merge/reconcile from rawMessages so no replier is ever missed
-        rawMessages.forEach(msg => {
-          if (!msg) return;
-          const sId = String(msg.sender_id || msg.senderId || msg.authorId || msg.user_id || '').trim();
-          const sEmail = String(msg.sender_email || msg.senderEmail || msg.authorEmail || '').trim().toLowerCase();
-          if (!sId || sId === 'system' || msg.type === 'task_completed') return;
-
-          const isFromOwner =
-            isMessageSentByUser(msg, currentUser) ||
-            (ownerId && sId.toLowerCase() === ownerId.toLowerCase()) ||
-            (ownerEmail && sEmail && sEmail === ownerEmail) ||
-            myIdentitySet.has(sId.toLowerCase()) ||
-            (sEmail && myIdentitySet.has(sEmail));
-
-          if (isFromOwner) return;
-
-          const key = sEmail || sId.toLowerCase();
-          const sName =
-            msg.sender_name ||
-            msg.senderName ||
-            msg.authorName ||
-            (sEmail ? sEmail.split('@')[0] : 'Community Helper');
-          const sAvatar = msg.sender_avatar || msg.senderAvatar || msg.authorAvatar || '';
-          const msgText = msg.text || msg.content || msg.message || (msg.attachmentUrl ? '📷 Photo / Attachment' : 'Sent a message');
-          const msgTime = msg.createdAt || msg.created_at || msg.sent_at || new Date().toISOString();
-          const isRead = Boolean(msg.isRead || msg.is_read);
-
-          const existing = groupsMap.get(key);
-          if (!existing) {
-            groupsMap.set(key, {
-              senderId: sId,
-              senderName: sName,
-              senderEmail: sEmail,
-              senderAvatar: sAvatar,
-              lastMessage: msgText,
-              updatedAt: msgTime,
-              count: 1,
-              unreadCount: isRead ? 0 : 1,
-              isCollaborator: Boolean(msg.isCollaborator || msg.is_collaborator)
-            });
-          } else if (inboxThreads.length === 0) {
-            existing.lastMessage = msgText || existing.lastMessage;
-            existing.updatedAt = msgTime || existing.updatedAt;
-            existing.count += 1;
-            if (!isRead) existing.unreadCount += 1;
-            if (msg.isCollaborator || msg.is_collaborator) existing.isCollaborator = true;
-            if ((!existing.senderName || existing.senderName === 'Community Helper') && sName) {
-              existing.senderName = sName;
-            }
-            if (!existing.senderAvatar && sAvatar) {
-              existing.senderAvatar = sAvatar;
-            }
-          }
         });
 
         const list = Array.from(groupsMap.values());
@@ -313,17 +230,19 @@ export default function PostResponsesModal({
   };
 
   const handleOpenReplierThread = async (rep: ReplierGroup) => {
+    const convId = rep.conversationId || (intent?.id ? `conv_${intent.id}__${rep.senderId.toLowerCase()}` : '');
     if (intent?.id) {
       fetch(`/api/intents/${encodeURIComponent(intent.id)}/mark-read`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ senderId: rep.senderId })
+        body: JSON.stringify({ senderId: rep.senderId, conversationId: convId })
       }).catch(() => {});
     }
     onClose();
     if (intent) {
       onOpenChat({
         ...intent,
+        conversationId: convId,
         selectedReplierId: rep.senderId,
         selectedReplierName: rep.senderName,
         selectedReplierEmail: rep.senderEmail,
@@ -382,27 +301,16 @@ export default function PostResponsesModal({
                 </div>
                 <div>
                   <h4 className="text-sm font-black text-slate-900 dark:text-white">
-                    {language === 'EN' ? 'No Replies Yet' : language === 'GU' ? 'હજુ સુધી કોઈ જવાબ આવ્યો નથી' : 'अभी तक कोई जवाब नहीं आया'}
+                    {language === 'EN' ? 'No Responses Yet' : language === 'GU' ? 'હજુ સુધી કોઈ જવાબ આવ્યો નથી' : 'अभी तक कोई जवाब नहीं आया'}
                   </h4>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mt-1 max-w-xs mx-auto">
+                  <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mt-1 max-w-xs mx-auto leading-relaxed">
                     {language === 'EN'
-                      ? 'When nearby neighbors or helpers reply to your post, their messages appear here in a clean chat list so you can review and choose who to collaborate with!'
+                      ? 'No responses yet. When someone messages you about this post, their chat will appear here.'
                       : language === 'GU'
-                      ? 'જ્યારે આસપાસના લોકો કે સર્વિસ એક્સપર્ટ્સ તમારી પોસ્ટ પર જવાબ આપશે, ત્યારે તેમની ચેટ યાદી અહીં લાઈવ દેખાશે!'
-                      : 'जब आस-पास के लोग या हेल्पर्स आपकी पोस्ट पर जवाब देंगे, तब उनकी चैट लिस्ट यहाँ दिखेगी ताकि आप बात कर सकें और सहयोगी चुन सकें।'}
+                      ? 'હજુ સુધી કોઈ જવાબ નથી. જ્યારે કોઈ તમારી આ પોસ્ટ પર મેસેજ કરશે, ત્યારે તેમની ચેટ અહીં દેખાશે.'
+                      : 'अभी तक किसी ने संदेश नहीं भेजा है। जब कोई आपकी इस पोस्ट पर मैसेज करेगा, तो उनकी 1-on-1 चैट यहाँ दिखाई देगी।'}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onClose();
-                    onOpenChat(intent);
-                  }}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black px-4 py-2 rounded-xl shadow-md cursor-pointer inline-flex items-center gap-1.5 active:scale-95 transition-all mt-2"
-                >
-                  <Send className="w-3.5 h-3.5" />
-                  <span>{language === 'EN' ? 'Open Post Chat Room' : language === 'GU' ? 'ચેટ રૂમ ખોલો' : 'पोस्ट चैट रूम खोलें'}</span>
-                </button>
               </div>
             ) : (
               <div className="space-y-2.5">

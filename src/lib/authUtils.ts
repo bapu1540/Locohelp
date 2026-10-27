@@ -1,4 +1,4 @@
-import { ensureValidUUID } from '../auth';
+import { getCurrentUser } from '../auth';
 
 /**
  * Helper utility to check if current user is a Guest or Authenticated.
@@ -32,44 +32,25 @@ export function isGuestUser(): boolean {
 }
 
 /**
- * Gets current user profile object
+ * Gets current user profile object with canonical UID matching getCurrentUser()
  */
 export function getUserProfile(): { uid: string; displayName: string; email: string; photoURL?: string; isGuest: boolean } {
-  // 1. Local Storage User
-  try {
-    const raw = localStorage.getItem('locohelp_user');
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw);
-        if (parsed) {
-          const isGuest = !parsed.email && (parsed.uid?.startsWith('guest_') || parsed.isGuest === true);
-          return {
-            uid: isGuest ? 'guest_user' : ensureValidUUID(parsed.uid || parsed.email || 'user'),
-            displayName: parsed.displayName || parsed.email?.split('@')[0] || 'Community Member',
-            email: parsed.email || '',
-            photoURL: parsed.photoURL || undefined,
-            isGuest
-          };
-        }
-      } catch (err) {
-        console.warn("getUserProfile parse error:", err);
+  const current = getCurrentUser();
+  if (current && !current.isGuest && current.uid !== 'guest_user') {
+    let photo = current.photoURL;
+    try {
+      if (!photo) {
+        photo = localStorage.getItem('locohelp_profile_photo') || localStorage.getItem('locohelp_last_logged_in_photo') || undefined;
       }
-    }
-
-    // 2. Check fallback recorded email
-    const lastEmail = localStorage.getItem('locohelp_last_logged_in_email');
-    const lastName = localStorage.getItem('locohelp_last_logged_in_name');
-    const lastPhoto = localStorage.getItem('locohelp_last_logged_in_photo');
-    if (lastEmail) {
-      return {
-        uid: ensureValidUUID(lastEmail),
-        displayName: lastName || lastEmail.split('@')[0] || 'Community Member',
-        email: lastEmail,
-        photoURL: lastPhoto || undefined,
-        isGuest: false
-      };
-    }
-  } catch (e) {}
+    } catch {}
+    return {
+      uid: current.uid,
+      displayName: current.displayName || (current.email ? current.email.split('@')[0] : 'Community Member'),
+      email: current.email || '',
+      photoURL: photo,
+      isGuest: false
+    };
+  }
 
   return {
     uid: 'guest_user',

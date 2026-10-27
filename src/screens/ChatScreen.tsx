@@ -38,7 +38,50 @@ interface ChatScreenProps {
 export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps) {
   const { t } = useLanguage();
   const chatId = intent?.id || 'chat_community_helper';
-  
+  const currentUser = getCurrentUser();
+
+  // Determine whether the logged-in user is the Post Owner (User A) or a Helper/Responder (User B)
+  const isPostOwner = React.useMemo(() => {
+    if (!intent?.authorId && !(intent as any)?.authorEmail) return false;
+    return isMessageSentByUser(
+      {
+        sender_id: intent.authorId,
+        sender_email: (intent as any).authorEmail
+      },
+      currentUser
+    );
+  }, [intent?.authorId, (intent as any)?.authorEmail, currentUser]);
+
+  const [selectedReplierId, setSelectedReplierId] = useState<string | null>(
+    (intent as any)?.selectedReplierId || null
+  );
+  const [selectedReplierName, setSelectedReplierName] = useState<string | null>(
+    (intent as any)?.selectedReplierName || null
+  );
+  const [selectedReplierEmail, setSelectedReplierEmail] = useState<string | null>(
+    (intent as any)?.selectedReplierEmail || null
+  );
+  const [selectedReplierAvatar, setSelectedReplierAvatar] = useState<string | null>(
+    (intent as any)?.selectedReplierAvatar || null
+  );
+
+  // For Helper (User B), helperId is their own UID; for Post Owner (User A), helperId MUST be selectedReplierId
+  const activeHelperId = isPostOwner
+    ? (selectedReplierId || '')
+    : (currentUser?.uid && currentUser.uid !== 'guest_user' ? currentUser.uid : '');
+
+  // Deterministic 1-on-1 conversation ID per (post_id, helper_id)
+  const activeConversationId = React.useMemo(() => {
+    if (isPostOwner) {
+      if (!selectedReplierId) return '';
+      return `conv_${chatId}__${String(selectedReplierId).toLowerCase()}`;
+    }
+    if ((intent as any)?.conversationId) return String((intent as any).conversationId);
+    if (activeHelperId) return `conv_${chatId}__${String(activeHelperId).toLowerCase()}`;
+    return chatId;
+  }, [isPostOwner, selectedReplierId, chatId, activeHelperId, (intent as any)?.conversationId]);
+
+  const [inboxConversations, setInboxConversations] = useState<any[]>([]);
   const [messages, setMessages] = useState<{
     id: string;
     text: string;
@@ -56,28 +99,7 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
     attachmentUrl?: string;
     attachmentType?: string;
     createdAt?: string;
-  }[]>(() => {
-    try {
-      const deletedIds = JSON.parse(localStorage.getItem('locohelp_deleted_chats') || '[]');
-      if (deletedIds.includes(chatId)) {
-        return [];
-      }
-      const stored = localStorage.getItem(`locohelp_chat_${chatId}`);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch (e) {}
-
-    return [];
-  });
-  
-  const [selectedReplierId, setSelectedReplierId] = useState<string | null>(
-    (intent as any)?.selectedReplierId || null
-  );
-  const [selectedReplierName, setSelectedReplierName] = useState<string | null>(
-    (intent as any)?.selectedReplierName || null
-  );
+  }[]>([]);
   const [collaboratorId, setCollaboratorId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [showTracker, setShowTracker] = useState(false);
@@ -122,24 +144,56 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const initialLoadRef = useRef(true);
 
-  // Sync selected replier if intent prop changes (e.g., opened from Inbox modal)
+  // Sync selected replier if intent prop changes (e.g., opened from View Responses modal)
   useEffect(() => {
     if ((intent as any)?.selectedReplierId) {
       setSelectedReplierId((intent as any).selectedReplierId);
       setSelectedReplierName((intent as any).selectedReplierName || null);
+      setSelectedReplierEmail((intent as any).selectedReplierEmail || null);
+      setSelectedReplierAvatar((intent as any).selectedReplierAvatar || null);
     }
-  }, [(intent as any)?.selectedReplierId, (intent as any)?.selectedReplierName]);
+  }, [
+    (intent as any)?.selectedReplierId,
+    (intent as any)?.selectedReplierName,
+    (intent as any)?.selectedReplierEmail,
+    (intent as any)?.selectedReplierAvatar
+  ]);
+
+  // Load cached 1-on-1 messages when switching activeConversationId
+  useEffect(() => {
+    if (!activeConversationId) {
+      setMessages([]);
+      return;
+    }
+    try {
+      const deletedIds = JSON.parse(localStorage.getItem('locohelp_deleted_chats') || '[]');
+      if (deletedIds.includes(activeConversationId)) {
+        setMessages([]);
+        return;
+      }
+      const stored = localStorage.getItem(`locohelp_chat_${activeConversationId}`);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          setMessages(parsed);
+          return;
+        }
+      }
+    } catch {}
+    setMessages([]);
+  }, [activeConversationId]);
 
   // Check if either user has blocked the other in this chat
   useEffect(() => {
     const activeUser = getCurrentUser();
     const myId = activeUser?.uid || activeUser?.email || '';
-    const peerTargetId = selectedReplierId || intent?.authorId || '';
+    const peerTargetId = isPostOwner ? (selectedReplierId || '') : (intent?.authorId || '');
+    if (!peerTargetId) return;
     fetchChatBlockStatus({ chatId, userId: myId, peerId: peerTargetId }).then(status => {
       setIsChatBlocked(status.isBlocked);
       setBlockedByMe(status.blockedByMe);
     });
-  }, [chatId, selectedReplierId, intent?.authorId]);
+  }, [chatId, isPostOwner, selectedReplierId, intent?.authorId]);
 
   // Auto scroll message list
   useEffect(() => {
@@ -160,20 +214,53 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
     }
   }, [messages]);
 
-  // Persist locally
+  // Persist 1-on-1 conversation locally
   useEffect(() => {
+    if (!activeConversationId) return;
     try {
-      localStorage.setItem(`locohelp_chat_${chatId}`, JSON.stringify(messages));
+      localStorage.setItem(`locohelp_chat_${activeConversationId}`, JSON.stringify(messages));
     } catch (e) {}
-  }, [messages, chatId]);
+  }, [messages, activeConversationId]);
 
-  // Real-time cross-device server sync with 1.2-second polling while chat is open
+  // Real-time cross-device server sync for 1-on-1 conversation & Post Owner Inbox list
   useEffect(() => {
     let isMounted = true;
 
     const syncChat = async () => {
       try {
-        const serverMessages = await fetchChatMessages(chatId);
+        const activeUser = getCurrentUser();
+        const myUid = activeUser?.uid || '';
+        const myEmail = (activeUser?.email || '').toLowerCase();
+
+        // If Post Owner, also keep the list of responders synced so they can switch or select a helper
+        if (isPostOwner) {
+          try {
+            const convRes = await fetch(
+              `/api/chat/conversations?postId=${encodeURIComponent(chatId)}&userId=${encodeURIComponent(myUid)}&ownerEmail=${encodeURIComponent(myEmail)}&_t=${Date.now()}`,
+              { cache: 'no-store' }
+            );
+            if (convRes.ok) {
+              const convList = await convRes.json();
+              if (isMounted && Array.isArray(convList)) {
+                setInboxConversations(convList);
+              }
+            }
+          } catch {}
+        }
+
+        // STRICT RULE: If Post Owner has not selected a specific Helper yet, do NOT load a mixed chat feed
+        if (isPostOwner && !selectedReplierId) {
+          return;
+        }
+        if (!activeConversationId) return;
+
+        const serverMessages = await fetchChatMessages(activeConversationId, {
+          postId: chatId,
+          helperId: activeHelperId,
+          userId: myUid,
+          userEmail: myEmail
+        });
+
         if (isMounted && Array.isArray(serverMessages)) {
           setMessages(prev => {
             const map = new Map<string, any>();
@@ -238,7 +325,7 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
       clearInterval(pollInterval);
       unsubStream();
     };
-  }, [chatId]);
+  }, [chatId, isPostOwner, selectedReplierId, activeConversationId, activeHelperId]);
 
   const handleToggleBlockPeer = async () => {
     if (isGuestUser()) {
@@ -248,8 +335,8 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
     const activeUser = getCurrentUser();
     const myId = activeUser?.uid || activeUser?.email || 'my_user';
     const myEmail = (activeUser?.email || localStorage.getItem('locohelp_last_logged_in_email') || '').trim().toLowerCase();
-    const peerTargetId = selectedReplierId || intent?.authorId || chatId;
-    const peerTargetName = selectedReplierName || (intent as any)?.authorName || 'User';
+    const peerTargetId = isPostOwner ? (selectedReplierId || '') : (intent?.authorId || chatId);
+    const peerTargetName = isPostOwner ? (selectedReplierName || 'User') : ((intent as any)?.authorName || 'User');
 
     if (isChatBlocked && blockedByMe) {
       const res = await unblockUserInChatOnServer({
@@ -295,8 +382,8 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
         activeUser?.displayName ||
         localStorage.getItem('locohelp_profile_name') ||
         (myEmail ? myEmail.split('@')[0] : 'Verified User');
-      const peerTargetId = selectedReplierId || intent?.authorId || chatId;
-      const peerTargetName = selectedReplierName || (intent as any)?.authorName || 'Community Peer';
+      const peerTargetId = isPostOwner ? (selectedReplierId || '') : (intent?.authorId || chatId);
+      const peerTargetName = isPostOwner ? (selectedReplierName || 'Community Peer') : ((intent as any)?.authorName || 'Community Peer');
 
       const snapshotToSave = visibleMessages.map(m => ({
         id: m.id,
@@ -347,6 +434,11 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
       setIsLoginPromptOpen(true);
       return;
     }
+    if (isPostOwner && !selectedReplierId) {
+      setReportStatusBanner('⚠️ कृपया जवाब देने के लिए पहले ऊपर सूची से किसी हेल्पर (Responder) को चुनें।');
+      setTimeout(() => setReportStatusBanner(null), 4000);
+      return;
+    }
     if (isChatBlocked) {
       setReportStatusBanner('🚫 यह चैट ब्लॉक है। संदेश भेजने के लिए पहले अनब्लॉक करें।');
       setTimeout(() => setReportStatusBanner(null), 4000);
@@ -365,14 +457,26 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
       (activeEmail ? activeEmail.split('@')[0] : 'Verified User');
     const activeAvatar = activeUser?.photoURL || localStorage.getItem('locohelp_profile_photo') || '';
 
+    const targetReceiverId = isPostOwner
+      ? String(selectedReplierId || '').trim()
+      : String(intent?.authorId || chatId).trim();
+    const targetHelperId = isPostOwner ? String(selectedReplierId || '').trim() : activeUid;
+    const convIdToUse = activeConversationId || `conv_${chatId}__${targetHelperId.toLowerCase()}`;
+
     const messageData: any = {
       id: 'msg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
-      conversationId: chatId,
+      conversationId: convIdToUse,
+      conversation_id: convIdToUse,
       postId: chatId,
       post_id: chatId,
       intent_id: chatId,
-      postOwnerId: intent?.authorId || chatId,
-      post_owner_id: intent?.authorId || chatId,
+      postOwnerId: intent?.authorId || (isPostOwner ? activeUid : targetReceiverId),
+      post_owner_id: intent?.authorId || (isPostOwner ? activeUid : targetReceiverId),
+      helperId: targetHelperId,
+      helper_id: targetHelperId,
+      helperName: isPostOwner ? (selectedReplierName || 'Community Helper') : activeName,
+      helperEmail: isPostOwner ? (selectedReplierEmail || '') : activeEmail,
+      helperAvatar: isPostOwner ? (selectedReplierAvatar || '') : activeAvatar,
       authorId: activeUid,
       sender_id: activeUid,
       user_id: activeUid,
@@ -381,8 +485,8 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
       senderEmail: activeEmail,
       sender_email: activeEmail,
       senderAvatar: activeAvatar,
-      receiverId: selectedReplierId || intent?.authorId || chatId,
-      receiver_id: selectedReplierId || intent?.authorId || chatId,
+      receiverId: targetReceiverId,
+      receiver_id: targetReceiverId,
       text: trimmed,
       type,
       createdAt: new Date().toISOString()
@@ -394,7 +498,7 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
     // Optimistic UI update
     setMessages(prev => [...prev, messageData]);
 
-    // Store in backend database (responses + messages + chats via POST /api/posts/:id/respond)
+    // Store in backend PostgreSQL conversations + messages via POST /api/chat/send
     try {
       await sendChatMessage(chatId, messageData);
     } catch (e) {}
@@ -606,7 +710,6 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
     }, 1200);
   };
 
-  const currentUser = getCurrentUser();
   const savedProfileName = (() => {
     try {
       const p = localStorage.getItem('locohelp_profile_name');
@@ -615,10 +718,12 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
     } catch(e) { return null; }
   })();
 
-  const rawSeller = selectedReplierName || (intent as any)?.sellerName || (intent as any)?.authorName || (intent as any)?.name;
+  const rawSeller = isPostOwner
+    ? (selectedReplierName || 'Select a Responder')
+    : (selectedReplierName || (intent as any)?.sellerName || (intent as any)?.authorName || (intent as any)?.name);
   const validSeller = rawSeller && rawSeller !== 'Ramesh Sharma' ? rawSeller : null;
 
-  const peerName = validSeller || savedProfileName || (currentUser?.displayName !== 'Ramesh Sharma' ? currentUser?.displayName : null) || "Community Peer";
+  const peerName = validSeller || (!isPostOwner ? savedProfileName : null) || "Community Peer";
   const peerBadge = (intent as any)?.badge || "Verified Community Peer";
   const peerDistance = intent?.distance || 0.5;
   const rawLocation = (intent as any)?.location || (intent as any)?.area || (intent as any)?.city || (() => {
@@ -630,18 +735,52 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
   const topicDesc = intent?.description || (intent as any)?.title || "LocoHelp Direct Broadcast & Service Inquiry";
 
   const distinctRepliers = React.useMemo(() => {
-    const map = new Map<string, { id: string; name: string; count: number; isCollaborator?: boolean }>();
+    const map = new Map<string, {
+      id: string;
+      name: string;
+      email?: string;
+      avatar?: string;
+      lastMessage?: string;
+      updatedAt?: string;
+      count: number;
+      unreadCount: number;
+      isCollaborator?: boolean;
+    }>();
+
+    inboxConversations.forEach((c: any) => {
+      const hId = String(c?.helperId || c?.helper_id || c?.senderId || '').trim();
+      if (!hId || hId === 'system') return;
+      if (isMessageSentByUser({ sender_id: hId, sender_email: c?.helperEmail || c?.senderEmail }, currentUser)) return;
+      map.set(hId.toLowerCase(), {
+        id: hId,
+        name: c.helperName || c.senderName || 'Community Helper',
+        email: c.helperEmail || c.senderEmail || '',
+        avatar: c.helperAvatar || c.senderAvatar || '',
+        lastMessage: c.lastMessage || c.last_message || 'Sent a message',
+        updatedAt: c.lastMessageAt || c.updatedAt || new Date().toISOString(),
+        count: Number(c.count) || 1,
+        unreadCount: Number(c.unreadPosterCount ?? c.unreadCount) || 0,
+        isCollaborator: Boolean(c.isCollaborator)
+      });
+    });
+
     messages.forEach(m => {
       const sId = String(m.sender_id || m.authorId || '').trim();
       if (!sId || sId === 'system' || m.type === 'task_completed') return;
       const sentByMe = isMessageSentByUser(m, currentUser);
       if (!sentByMe) {
-        const existing = map.get(sId);
+        const key = sId.toLowerCase();
+        const existing = map.get(key);
         if (!existing) {
-          map.set(sId, {
+          map.set(key, {
             id: sId,
             name: m.authorName || m.sender_name || 'Community Helper',
+            email: m.senderEmail || m.sender_email || '',
+            avatar: m.senderAvatar || '',
+            lastMessage: m.text || 'Sent a message',
+            updatedAt: m.createdAt || new Date().toISOString(),
             count: 1,
+            unreadCount: 0,
             isCollaborator: Boolean(m.isCollaborator)
           });
         } else {
@@ -651,9 +790,10 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
       }
     });
     return Array.from(map.values());
-  }, [messages, currentUser]);
+  }, [inboxConversations, messages, currentUser]);
 
   const visibleMessages = React.useMemo(() => {
+    if (isPostOwner && !selectedReplierId) return [];
     if (!selectedReplierId) return messages;
     const targetLower = String(selectedReplierId).toLowerCase();
     return messages.filter(m => {
@@ -664,10 +804,10 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
       return (
         sId === targetLower ||
         rId === targetLower ||
-        (sentByMe && (!rId || rId === String(chatId).toLowerCase() || rId === targetLower))
+        (sentByMe && rId === targetLower)
       );
     });
-  }, [messages, selectedReplierId, currentUser, chatId]);
+  }, [messages, isPostOwner, selectedReplierId, currentUser]);
 
   return (
     <div className="flex flex-col h-full bg-[#FCFAF5] dark:bg-slate-900 relative overflow-hidden transition-colors">
@@ -787,26 +927,12 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
         </div>
       )}
 
-      {/* WhatsApp-Style Replier Thread Switcher (When multiple users reply to this post) */}
-      {distinctRepliers.length > 0 && (
+      {/* WhatsApp-Style 1-on-1 Replier Thread Switcher (Only for Post Owner when switching between Helpers) */}
+      {isPostOwner && distinctRepliers.length > 0 && (
         <div className="px-3 py-2 bg-emerald-50/80 dark:bg-slate-800/90 border-b border-emerald-200/70 dark:border-slate-700 flex items-center gap-2 overflow-x-auto scrollbar-hide">
           <span className="text-[10px] font-black uppercase text-emerald-800 dark:text-emerald-300 shrink-0">
-            💬 Replies ({distinctRepliers.length}):
+            💬 1-on-1 Chats ({distinctRepliers.length}):
           </span>
-          <button
-            type="button"
-            onClick={() => {
-              setSelectedReplierId(null);
-              setSelectedReplierName(null);
-            }}
-            className={`px-2.5 py-1 rounded-xl text-[11px] font-black shrink-0 transition-all cursor-pointer ${
-              !selectedReplierId
-                ? 'bg-emerald-600 text-white shadow-xs'
-                : 'bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-600'
-            }`}
-          >
-            All Replies
-          </button>
           {distinctRepliers.map(rep => (
             <button
               key={rep.id}
@@ -814,6 +940,8 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
               onClick={() => {
                 setSelectedReplierId(rep.id);
                 setSelectedReplierName(rep.name);
+                setSelectedReplierEmail(rep.email || null);
+                setSelectedReplierAvatar(rep.avatar || null);
               }}
               className={`px-2.5 py-1 rounded-xl text-[11px] font-black shrink-0 flex items-center gap-1.5 transition-all cursor-pointer ${
                 selectedReplierId === rep.id
@@ -823,7 +951,7 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
             >
               <span>{rep.name}</span>
               <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-black/15">
-                {rep.count}
+                {rep.unreadCount > 0 ? `${rep.unreadCount} new` : rep.count}
               </span>
               {(rep.isCollaborator || collaboratorId === rep.id) && <span>🤝</span>}
             </button>
@@ -847,21 +975,70 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
         )}
       </AnimatePresence>
 
-      {/* 2. MESSAGES VIEWPORT */}
+      {/* 2. MESSAGES VIEWPORT (Or Responder Selection Inbox if Post Owner hasn't picked a Helper) */}
       <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-3.5 bg-[#F8F6F0] dark:bg-slate-950">
-        {visibleMessages.length === 0 && (
+        {isPostOwner && !selectedReplierId ? (
+          <div className="py-8 max-w-md mx-auto space-y-3">
+            {distinctRepliers.length === 0 ? (
+              <div className="py-10 px-4 text-center space-y-3 bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 shadow-xs">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 mx-auto flex items-center justify-center text-xl">
+                  💬
+                </div>
+                <h4 className="text-sm font-black text-slate-900 dark:text-white">
+                  No responses yet / अभी तक कोई जवाब नहीं आया
+                </h4>
+                <p className="text-xs text-slate-500 dark:text-slate-400 font-medium leading-relaxed">
+                  No responses yet. When someone messages you about this post, their chat will appear here.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                <p className="text-xs font-black text-slate-700 dark:text-slate-200 px-1">
+                  💬 Select a person below to open your 1-on-1 chat (बातचीत शुरू करने के लिए किसी एक व्यक्ति को चुनें):
+                </p>
+                {distinctRepliers.map(rep => (
+                  <div
+                    key={rep.id}
+                    onClick={() => {
+                      setSelectedReplierId(rep.id);
+                      setSelectedReplierName(rep.name);
+                      setSelectedReplierEmail(rep.email || null);
+                      setSelectedReplierAvatar(rep.avatar || null);
+                    }}
+                    className="p-3.5 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-emerald-500 shadow-xs cursor-pointer flex items-center justify-between gap-3 transition-all"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-10 h-10 rounded-full bg-emerald-600 text-white font-black text-sm flex items-center justify-center shrink-0">
+                        {rep.name[0]?.toUpperCase() || 'U'}
+                      </div>
+                      <div className="min-w-0">
+                        <h4 className="text-xs font-black text-slate-900 dark:text-white truncate">{rep.name}</h4>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                          {rep.lastMessage || 'Tap to view 1-on-1 chat'}
+                        </p>
+                      </div>
+                    </div>
+                    <span className="px-3 py-1.5 rounded-xl bg-emerald-600 text-white text-[11px] font-black shrink-0">
+                      Open Chat →
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : visibleMessages.length === 0 ? (
           <div className="py-12 text-center space-y-2">
             <div className="w-12 h-12 rounded-2xl bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 mx-auto flex items-center justify-center text-xl shadow-inner">
               💬
             </div>
             <p className="text-xs font-black text-slate-800 dark:text-slate-200">
-              Start Conversation / बातचीत शुरू करें
+              Start 1-on-1 Conversation / बातचीत शुरू करें
             </p>
             <p className="text-[11px] text-slate-500 dark:text-slate-400 max-w-xs mx-auto font-medium">
-              Type your message below to start chatting directly with {peerName}.
+              Type your message below to start chatting privately with {peerName}.
             </p>
           </div>
-        )}
+        ) : null}
         {visibleMessages.map((msg) => {
           const activeUser = getCurrentUser();
           const isMe = isMessageSentByUser(msg, activeUser);
@@ -973,7 +1150,11 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
 
       {/* 3. CLEAN BOTTOM ACTION BAR & INPUT */}
       <div className="p-3 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 flex flex-col gap-2 shadow-lg">
-        {isChatBlocked ? (
+        {isPostOwner && !selectedReplierId ? (
+          <div className="p-3 rounded-2xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-center text-xs font-bold text-slate-600 dark:text-slate-300">
+            🔒 Select a responder from the list above to open a 1-on-1 private chat. (चैट करने के लिए पहले किसी जवाब देने वाले व्यक्ति को चुनें)
+          </div>
+        ) : isChatBlocked ? (
           <div className="p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 flex flex-col sm:flex-row items-center justify-between gap-2 text-center sm:text-left">
             <div className="flex items-center gap-2 text-xs font-extrabold text-rose-700 dark:text-rose-300">
               <Ban className="w-4 h-4 shrink-0" />
