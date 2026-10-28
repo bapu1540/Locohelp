@@ -5111,25 +5111,7 @@ async function startServer() {
           for (const row of tokenQuery.rows) {
             const token = String(row.fcm_token || "").trim();
             if (!token) continue;
-
-            const uArea = norm(row.area || row.profile_area);
-            const uCity = norm(row.city || row.profile_city);
-            const uLoc = norm(row.location);
-
-            // Match if user's area/city/location overlaps with post's area/city/location, or if either is generic "local area" / unset
-            const isGenericPostLoc = (!pAreaNorm && !pCityNorm) || pLocNorm === "local area";
-            const isGenericUserLoc = (!uArea && !uCity && !uLoc) || uLoc === "local area" || uArea === "local area";
-
-            const areaMatches =
-              isGenericPostLoc ||
-              isGenericUserLoc ||
-              (pAreaNorm && (uArea.includes(pAreaNorm) || pAreaNorm.includes(uArea) || uLoc.includes(pAreaNorm))) ||
-              (pCityNorm && (uCity.includes(pCityNorm) || pCityNorm.includes(uCity) || uLoc.includes(pCityNorm) || uArea.includes(pCityNorm))) ||
-              (pLocNorm && (uLoc.includes(pLocNorm) || pLocNorm.includes(uLoc)));
-
-            if (areaMatches) {
-              matchedTokens.add(token);
-            }
+            matchedTokens.add(token);
           }
 
           const tokens = Array.from(matchedTokens).slice(0, 500);
@@ -5297,40 +5279,86 @@ async function startServer() {
     return null;
   };
 
-  // Helper: resolve authoritative poster_id, poster_name, poster_email, poster_avatar for a postId
+  // Helper: resolve authoritative poster_id, poster_name, poster_email, poster_avatar, postDescription for a postId
+  // Works even after a post has been deleted from the public feed (falls back to conversations, messages, and security_vault)
   const resolvePostOwnerInfo = async (
     postId: string
-  ): Promise<{ posterId: string; posterName: string; posterEmail: string; posterAvatar: string }> => {
+  ): Promise<{ posterId: string; posterName: string; posterEmail: string; posterAvatar: string; postDescription?: string }> => {
     let posterId = "";
     let posterName = "";
     let posterEmail = "";
     let posterAvatar = "";
+    let postDescription = "";
     const cleanPostId = String(postId || "").trim();
     if (!cleanPostId || cleanPostId === "general") {
-      return { posterId, posterName, posterEmail, posterAvatar };
+      return { posterId, posterName, posterEmail, posterAvatar, postDescription };
     }
 
     if (dbPool && isDbConnected) {
       try {
         const pRes = await dbPool
-          .query("SELECT user_id, raw_json FROM posts WHERE id = $1 LIMIT 1", [cleanPostId])
+          .query("SELECT user_id, author_name, content, raw_json FROM posts WHERE id = $1 LIMIT 1", [cleanPostId])
           .catch(() => ({ rows: [] as any[] }));
         if (pRes.rows.length > 0) {
           const r = pRes.rows[0];
           const raw = r.raw_json && typeof r.raw_json === "object" ? r.raw_json : {};
           posterId = String(r.user_id || raw.authorId || raw.user_id || "").trim();
-          posterName = String(raw.authorName || raw.sellerName || "").trim();
+          posterName = String(r.author_name || raw.authorName || raw.sellerName || "").trim();
           posterEmail = String(raw.authorEmail || "").trim().toLowerCase();
           posterAvatar = String(raw.authorAvatar || "").trim();
+          postDescription = String(r.content || raw.description || "").trim();
         }
         if (!posterId) {
           const bRes = await dbPool
-            .query("SELECT author_id, author_name, author_avatar FROM broadcast_posts WHERE id = $1 LIMIT 1", [cleanPostId])
+            .query("SELECT author_id, author_name, author_avatar, description FROM broadcast_posts WHERE id = $1 LIMIT 1", [cleanPostId])
             .catch(() => ({ rows: [] as any[] }));
           if (bRes.rows.length > 0) {
             posterId = String(bRes.rows[0].author_id || "").trim();
             posterName = posterName || String(bRes.rows[0].author_name || "").trim();
             posterAvatar = posterAvatar || String(bRes.rows[0].author_avatar || "").trim();
+            postDescription = postDescription || String(bRes.rows[0].description || "").trim();
+          }
+        }
+        // Fallback 1: If post was deleted from public feed, check conversations table
+        if (!posterId) {
+          const cRes = await dbPool
+            .query(
+              "SELECT poster_id, poster_name, poster_email, poster_avatar FROM conversations WHERE post_id = $1 AND poster_id IS NOT NULL AND TRIM(poster_id) <> '' LIMIT 1",
+              [cleanPostId]
+            )
+            .catch(() => ({ rows: [] as any[] }));
+          if (cRes.rows.length > 0) {
+            posterId = String(cRes.rows[0].poster_id || "").trim();
+            posterName = posterName || String(cRes.rows[0].poster_name || "").trim();
+            posterEmail = posterEmail || String(cRes.rows[0].poster_email || "").trim().toLowerCase();
+            posterAvatar = posterAvatar || String(cRes.rows[0].poster_avatar || "").trim();
+          }
+        }
+        // Fallback 2: Check messages table for post_owner_id
+        if (!posterId) {
+          const mRes = await dbPool
+            .query(
+              "SELECT post_owner_id FROM messages WHERE (post_id = $1 OR intent_id = $1) AND post_owner_id IS NOT NULL AND TRIM(post_owner_id) <> '' LIMIT 1",
+              [cleanPostId]
+            )
+            .catch(() => ({ rows: [] as any[] }));
+          if (mRes.rows.length > 0) {
+            posterId = String(mRes.rows[0].post_owner_id || "").trim();
+          }
+        }
+        // Fallback 3: Check security_vault for archived post metadata
+        if (!posterId || !postDescription) {
+          const vRes = await dbPool
+            .query("SELECT encrypted_payload FROM security_vault WHERE id = $1 LIMIT 1", [`help_post__${cleanPostId}`])
+            .catch(() => ({ rows: [] as any[] }));
+          if (vRes.rows.length > 0 && vRes.rows[0].encrypted_payload) {
+            const dec = decryptVaultPayload(String(vRes.rows[0].encrypted_payload));
+            if (dec) {
+              if (!posterId) posterId = String(dec.authorId || dec.userId || "").trim();
+              if (!posterName) posterName = String(dec.name || dec.authorName || "").trim();
+              if (!posterEmail) posterEmail = String(dec.email || dec.authorEmail || "").trim().toLowerCase();
+              if (!postDescription) postDescription = String(dec.skillsOrDescription || dec.description || "").trim();
+            }
           }
         }
       } catch {}
@@ -5345,11 +5373,12 @@ async function startServer() {
           posterName = posterName || String(found.authorName || "").trim();
           posterEmail = posterEmail || String(found.authorEmail || "").trim().toLowerCase();
           posterAvatar = posterAvatar || String(found.authorAvatar || "").trim();
+          postDescription = postDescription || String(found.description || "").trim();
         }
       } catch {}
     }
 
-    return { posterId, posterName, posterEmail, posterAvatar };
+    return { posterId, posterName, posterEmail, posterAvatar, postDescription };
   };
 
   // 4. Get 1-on-1 Chat Messages (GET /api/chat/messages, GET /api/messages/:conversationId, GET /api/intents/:id/messages)
@@ -5372,7 +5401,7 @@ async function startServer() {
       const parsedFromQuery = parseConversationId(queryConvId);
       const parsedFromParam = parseConversationId(rawParamId);
 
-      const postId =
+      let postId =
         queryPostId ||
         parsedFromQuery?.postId ||
         parsedFromParam?.postId ||
@@ -5380,34 +5409,41 @@ async function startServer() {
         (!queryConvId.startsWith("conv_") ? queryConvId : "");
 
       const ownerInfo = await resolvePostOwnerInfo(postId);
-      const posterId = ownerInfo.posterId;
-      const posterEmail = ownerInfo.posterEmail;
+      let posterId = ownerInfo.posterId;
+      let posterEmail = ownerInfo.posterEmail;
 
       const isCallerPostOwner =
         Boolean(posterId && userId && userId.toLowerCase() === posterId.toLowerCase()) ||
         Boolean(posterEmail && userEmail && userEmail === posterEmail.toLowerCase());
 
-      // Determine the exact helperId for this 1-on-1 thread
+      // Authoritative helperId: prefer parsed conv_ ID or explicit queryHelperId (as long as it's not the poster's own ID)
       let helperId =
-        queryHelperId ||
         parsedFromQuery?.helperId ||
         parsedFromParam?.helperId ||
+        (queryHelperId && (!posterId || queryHelperId.toLowerCase() !== posterId.toLowerCase()) ? queryHelperId : "") ||
         (!isCallerPostOwner && userId && userId !== "guest_user" ? userId : "");
+      let helperEmail = "";
 
-      // If conversationId was passed directly in DB (e.g. UUID or custom conv_ ID), look up conversations row
+      // If conversationId was passed directly in DB, look up conversations row for authoritative postId, posterId, helperId
       let activeConvId =
         (queryConvId.startsWith("conv_") ? queryConvId : "") ||
         (rawParamId.startsWith("conv_") ? rawParamId : "") ||
         (postId && helperId ? buildConversationId(postId, helperId) : "");
 
-      if (dbPool && isDbConnected && (queryConvId || rawParamId) && !helperId) {
+      if (dbPool && isDbConnected && (activeConvId || queryConvId || rawParamId)) {
         try {
+          const lookupTarget = activeConvId || queryConvId || rawParamId;
           const convLookup = await dbPool
-            .query("SELECT id, post_id, poster_id, helper_id FROM conversations WHERE id = $1 LIMIT 1", [queryConvId || rawParamId])
+            .query("SELECT id, post_id, poster_id, poster_email, helper_id, helper_email FROM conversations WHERE LOWER(id) = LOWER($1) LIMIT 1", [lookupTarget])
             .catch(() => ({ rows: [] as any[] }));
           if (convLookup.rows.length > 0) {
-            activeConvId = convLookup.rows[0].id;
-            helperId = String(convLookup.rows[0].helper_id || "").trim();
+            const cRow = convLookup.rows[0];
+            activeConvId = cRow.id;
+            if (!postId && cRow.post_id) postId = String(cRow.post_id).trim();
+            if (!posterId && cRow.poster_id) posterId = String(cRow.poster_id).trim();
+            if (!posterEmail && cRow.poster_email) posterEmail = String(cRow.poster_email).trim().toLowerCase();
+            if (cRow.helper_id) helperId = String(cRow.helper_id).trim();
+            if (cRow.helper_email) helperEmail = String(cRow.helper_email).trim().toLowerCase();
           }
         } catch {}
       }
@@ -5426,17 +5462,22 @@ async function startServer() {
           if (activeConvId && postId && helperId) {
             result = await dbPool.query(
               `SELECT * FROM messages
-               WHERE conversation_id = $1
+               WHERE LOWER(conversation_id) = LOWER($1)
                   OR (
                     (post_id = $2 OR intent_id = $2)
-                    AND (LOWER(sender_id) = LOWER($3) OR LOWER(receiver_id) = LOWER($3))
+                    AND (
+                      LOWER(sender_id) = LOWER($3)
+                      OR LOWER(receiver_id) = LOWER($3)
+                      OR LOWER(sender_email) = LOWER($3)
+                      OR ($4 <> '' AND (LOWER(sender_email) = LOWER($4) OR LOWER(sender_id) = LOWER($4) OR LOWER(receiver_id) = LOWER($4)))
+                    )
                   )
                ORDER BY created_at ASC`,
-              [activeConvId, postId, helperId]
+              [activeConvId, postId, helperId, helperEmail]
             );
           } else if (activeConvId) {
             result = await dbPool.query(
-              `SELECT * FROM messages WHERE conversation_id = $1 ORDER BY created_at ASC`,
+              `SELECT * FROM messages WHERE LOWER(conversation_id) = LOWER($1) ORDER BY created_at ASC`,
               [activeConvId]
             );
           } else if (userId && queryHelperId) {
@@ -5502,7 +5543,7 @@ async function startServer() {
               .query(
                 `UPDATE messages
                  SET is_read = TRUE
-                 WHERE (conversation_id = $1 OR ((post_id = $2 OR intent_id = $2) AND LOWER(sender_id) = LOWER($3)))
+                 WHERE (LOWER(conversation_id) = LOWER($1) OR ((post_id = $2 OR intent_id = $2) AND LOWER(sender_id) = LOWER($3)))
                    AND LOWER(sender_id) <> LOWER($4)
                    AND is_read = FALSE`,
                 [targetConv, postId, helperId, userId]
@@ -5512,14 +5553,14 @@ async function startServer() {
             if (isCallerPostOwner) {
               await dbPool
                 .query(
-                  `UPDATE conversations SET unread_poster_count = 0 WHERE id = $1 OR (post_id = $2 AND LOWER(helper_id) = LOWER($3))`,
+                  `UPDATE conversations SET unread_poster_count = 0 WHERE LOWER(id) = LOWER($1) OR (post_id = $2 AND LOWER(helper_id) = LOWER($3))`,
                   [targetConv, postId, helperId]
                 )
                 .catch(() => {});
             } else {
               await dbPool
                 .query(
-                  `UPDATE conversations SET unread_helper_count = 0 WHERE id = $1 OR (post_id = $2 AND LOWER(helper_id) = LOWER($3))`,
+                  `UPDATE conversations SET unread_helper_count = 0 WHERE LOWER(id) = LOWER($1) OR (post_id = $2 AND LOWER(helper_id) = LOWER($3))`,
                   [targetConv, postId, helperId]
                 )
                 .catch(() => {});
@@ -5591,7 +5632,7 @@ async function startServer() {
           const rId = String(m.receiver_id || m.receiverId || "").trim();
           const mConv = String(m.conversationId || m.conversation_id || "").trim();
           const matchesConv =
-            (activeConvId && mConv === activeConvId) ||
+            (activeConvId && mConv.toLowerCase() === activeConvId.toLowerCase()) ||
             (helperLower && (sId.toLowerCase() === helperLower || rId.toLowerCase() === helperLower));
           if (!matchesConv) return;
 
@@ -5634,7 +5675,7 @@ async function startServer() {
       const userIdParam = String(req.query.userId || req.query.user_id || req.query.ownerId || req.query.owner_id || caller?.uid || "").trim();
       const userEmailParam = String(req.query.userEmail || req.query.ownerEmail || req.query.owner_email || caller?.email || "").trim().toLowerCase();
 
-      const ownerInfo = postId ? await resolvePostOwnerInfo(postId) : { posterId: "", posterName: "", posterEmail: "", posterAvatar: "" };
+      const ownerInfo = postId ? await resolvePostOwnerInfo(postId) : { posterId: "", posterName: "", posterEmail: "", posterAvatar: "", postDescription: "" };
       const ownerIds = new Set<string>(
         [ownerInfo.posterId, "owner", "me", "system"]
           .map((s) => String(s || "").trim().toLowerCase())
@@ -5645,6 +5686,9 @@ async function startServer() {
           .map((s) => String(s || "").trim().toLowerCase())
           .filter(Boolean)
       );
+
+      // Normalized key helper so conversations table and messages table rows for the same (postId, helperId) ALWAYS merge into one thread
+      const getThreadKey = (pId: string, hId: string) => `${String(pId || "general").trim().toLowerCase()}__${String(hId || "").trim().toLowerCase()}`;
 
       const conversationsMap = new Map<string, any>();
 
@@ -5663,16 +5707,21 @@ async function startServer() {
                ORDER BY last_message_at DESC`,
               [postId]
             );
-          } else if (userIdParam) {
+          } else if (userIdParam || userEmailParam) {
+            const emailDerivedId = userEmailParam ? `email_${userEmailParam.replace(/[^a-z0-9]/g, "_")}` : "";
             convRes = await dbPool.query(
               `SELECT * FROM conversations
-               WHERE (LOWER(poster_id) = LOWER($1) OR LOWER(helper_id) = LOWER($1))
+               WHERE (
+                 ($1 <> '' AND (LOWER(poster_id) = LOWER($1) OR LOWER(helper_id) = LOWER($1) OR LOWER(poster_email) = LOWER($1) OR LOWER(helper_email) = LOWER($1)))
+                 OR ($2 <> '' AND (LOWER(poster_email) = LOWER($2) OR LOWER(helper_email) = LOWER($2) OR LOWER(poster_id) = LOWER($2) OR LOWER(helper_id) = LOWER($2)))
+                 OR ($3 <> '' AND (LOWER(poster_id) = LOWER($3) OR LOWER(helper_id) = LOWER($3)))
+               )
                  AND last_message IS NOT NULL
                  AND TRIM(last_message) <> ''
                  AND LOWER(helper_id) <> LOWER(poster_id)
                  AND (last_message_at IS NULL OR last_message_at >= NOW() - INTERVAL '7 days')
                ORDER BY last_message_at DESC`,
-              [userIdParam]
+              [userIdParam, userEmailParam, emailDerivedId]
             );
           }
 
@@ -5680,11 +5729,14 @@ async function startServer() {
             convRes.rows.forEach((c: any) => {
               const hId = String(c.helper_id || "").trim();
               const hEmail = String(c.helper_email || "").trim().toLowerCase();
+              const pEmail = String(c.poster_email || "").trim().toLowerCase();
               if (!hId || ownerIds.has(hId.toLowerCase()) || (hEmail && ownerEmails.has(hEmail))) return;
 
-              const key = `${c.post_id}__${hEmail || hId.toLowerCase()}`;
+              const key = getThreadKey(c.post_id, hId);
               const lastIso = c.last_message_at ? new Date(c.last_message_at).toISOString() : new Date().toISOString();
-              const isViewerHelper = userIdParam && hId.toLowerCase() === userIdParam.toLowerCase();
+              const isViewerHelper =
+                (userIdParam && hId.toLowerCase() === userIdParam.toLowerCase()) ||
+                (userEmailParam && hEmail && hEmail === userEmailParam.toLowerCase());
               const unreadForViewer = isViewerHelper
                 ? Number(c.unread_helper_count || 0)
                 : Number(c.unread_poster_count || 0);
@@ -5694,15 +5746,16 @@ async function startServer() {
                 conversationId: c.id || buildConversationId(c.post_id, hId),
                 postId: c.post_id,
                 post_id: c.post_id,
-                posterId: c.poster_id,
-                poster_id: c.poster_id,
+                posterId: c.poster_id || ownerInfo.posterId || "",
+                poster_id: c.poster_id || ownerInfo.posterId || "",
                 posterName: c.poster_name || ownerInfo.posterName || "Post Owner",
+                posterEmail: pEmail || ownerInfo.posterEmail || "",
+                posterAvatar: c.poster_avatar || ownerInfo.posterAvatar || "",
                 helperId: hId,
                 helper_id: hId,
                 helperName: c.helper_name || "Community Helper",
                 helperEmail: hEmail,
                 helperAvatar: c.helper_avatar || "",
-                // Backward-compatible fields for PostResponsesModal & HomeScreen
                 senderId: hId,
                 senderName: c.helper_name || "Community Helper",
                 senderEmail: hEmail,
@@ -5718,6 +5771,7 @@ async function startServer() {
                 unread_helper_count: Number(c.unread_helper_count || 0),
                 unreadCount: unreadForViewer,
                 count: Math.max(unreadForViewer, 1),
+                messageCount: 0,
                 isCollaborator: Boolean(c.is_collaborator)
               });
             });
@@ -5726,50 +5780,75 @@ async function startServer() {
           console.warn("Conversations table query notice:", convErr);
         }
 
-        // 2. Reconcile from messages & responses tables for postId so any existing replies are automatically included & backfilled
-        if (postId) {
+        // 2. Reconcile from messages table for postId OR for user's My Chats (last 7 days) so any existing replies & full message counts are included
+        if (postId || userIdParam || userEmailParam) {
           try {
-            const mRes = await dbPool
-              .query(
-                "SELECT * FROM messages WHERE post_id = $1 OR intent_id = $1 ORDER BY created_at ASC",
-                [postId]
-              )
-              .catch(() => ({ rows: [] as any[] }));
+            const emailDerivedId = userEmailParam ? `email_${userEmailParam.replace(/[^a-z0-9]/g, "_")}` : "";
+            const mRes = postId
+              ? await dbPool
+                  .query(
+                    "SELECT * FROM messages WHERE (post_id = $1 OR intent_id = $1) AND (created_at IS NULL OR created_at >= NOW() - INTERVAL '7 days') ORDER BY created_at ASC",
+                    [postId]
+                  )
+                  .catch(() => ({ rows: [] as any[] }))
+              : await dbPool
+                  .query(
+                    `SELECT * FROM messages
+                     WHERE (
+                       ($1 <> '' AND (LOWER(sender_id) = LOWER($1) OR LOWER(receiver_id) = LOWER($1) OR LOWER(post_owner_id) = LOWER($1) OR LOWER(sender_email) = LOWER($1)))
+                       OR ($2 <> '' AND (LOWER(sender_email) = LOWER($2) OR LOWER(sender_id) = LOWER($2) OR LOWER(receiver_id) = LOWER($2) OR LOWER(post_owner_id) = LOWER($2)))
+                       OR ($3 <> '' AND (LOWER(sender_id) = LOWER($3) OR LOWER(receiver_id) = LOWER($3) OR LOWER(post_owner_id) = LOWER($3)))
+                     )
+                     AND (created_at IS NULL OR created_at >= NOW() - INTERVAL '7 days')
+                     ORDER BY created_at ASC`,
+                    [userIdParam, userEmailParam, emailDerivedId]
+                  )
+                  .catch(() => ({ rows: [] as any[] }));
 
             for (const r of mRes.rows) {
               const sId = String(r.sender_id || "").trim();
               const sIdLower = sId.toLowerCase();
               const sEmail = String(r.sender_email || "").trim().toLowerCase();
               const rId = String(r.receiver_id || "").trim();
+              const parsedRowConv = parseConversationId(String(r.conversation_id || ""));
+              const rowPostId = String(r.post_id || r.intent_id || parsedRowConv?.postId || postId || "general").trim();
+              const rowPostOwnerId = String(r.post_owner_id || ownerInfo.posterId || "").trim();
               if (!sId || sIdLower === "system") continue;
 
               const isSenderOwner =
                 ownerIds.has(sIdLower) ||
-                (sEmail && ownerEmails.has(sEmail));
+                (sEmail && ownerEmails.has(sEmail)) ||
+                (rowPostOwnerId && sIdLower === rowPostOwnerId.toLowerCase()) ||
+                (parsedRowConv?.helperId && sIdLower !== parsedRowConv.helperId.toLowerCase());
 
               // Determine the helper for this message
-              const hId = isSenderOwner ? rId : sId;
-              if (!hId || hId === postId || ownerIds.has(hId.toLowerCase())) continue;
+              let hId = parsedRowConv?.helperId || (isSenderOwner ? rId : sId);
+              if (!hId || hId === rowPostId || ownerIds.has(hId.toLowerCase())) continue;
 
               const hEmail = isSenderOwner ? "" : sEmail;
-              const key = `${postId}__${hEmail || hId.toLowerCase()}`;
+              const key = getThreadKey(rowPostId, hId);
               const msgTime = r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString();
               const msgText = String(r.text || r.content || "").trim() || "📷 Attachment shared";
-              const convId = r.conversation_id || buildConversationId(postId, hId);
+              const convId = r.conversation_id || buildConversationId(rowPostId, hId);
 
               const existing = conversationsMap.get(key);
               if (!existing) {
                 const unread = !isSenderOwner && !r.is_read ? 1 : 0;
                 const hName = !isSenderOwner ? (String(r.sender_name || "").trim() || "Community Helper") : "Community Helper";
                 const hAvatar = !isSenderOwner ? String(r.sender_avatar || "").trim() : "";
+                const resolvedPosterId = rowPostOwnerId || (isSenderOwner ? sId : rId);
+                const resolvedPosterName = isSenderOwner
+                  ? (String(r.sender_name || "").trim() || ownerInfo.posterName || "Post Owner")
+                  : (ownerInfo.posterName || "Post Owner");
                 conversationsMap.set(key, {
                   id: convId,
                   conversationId: convId,
-                  postId,
-                  post_id: postId,
-                  posterId: ownerInfo.posterId || r.post_owner_id || "",
-                  poster_id: ownerInfo.posterId || r.post_owner_id || "",
-                  posterName: ownerInfo.posterName || "Post Owner",
+                  postId: rowPostId,
+                  post_id: rowPostId,
+                  posterId: resolvedPosterId,
+                  poster_id: resolvedPosterId,
+                  posterName: resolvedPosterName,
+                  posterEmail: isSenderOwner ? sEmail : ownerInfo.posterEmail || "",
                   helperId: hId,
                   helper_id: hId,
                   helperName: hName,
@@ -5790,10 +5869,12 @@ async function startServer() {
                   unread_helper_count: 0,
                   unreadCount: unread,
                   count: 1,
+                  messageCount: 1,
                   isCollaborator: Boolean(r.is_collaborator)
                 });
               } else {
-                existing.count = (existing.count || 1) + 1;
+                existing.messageCount = (existing.messageCount || 0) + 1;
+                existing.count = Math.max(existing.count || 1, existing.messageCount);
                 if (new Date(msgTime).getTime() >= new Date(existing.lastMessageAt).getTime()) {
                   existing.lastMessage = msgText;
                   existing.last_message = msgText;
@@ -5805,25 +5886,40 @@ async function startServer() {
                   existing.helperName = r.sender_name;
                   existing.senderName = r.sender_name;
                 }
+                if (!isSenderOwner && sEmail && !existing.helperEmail) {
+                  existing.helperEmail = sEmail;
+                  existing.senderEmail = sEmail;
+                }
+                if (isSenderOwner && r.sender_name && (!existing.posterName || existing.posterName === "Post Owner")) {
+                  existing.posterName = r.sender_name;
+                }
+                if (isSenderOwner && sEmail && !existing.posterEmail) {
+                  existing.posterEmail = sEmail;
+                }
               }
             }
           } catch {}
         }
 
-        // 3. Enrich helper names/avatars from users table if any are generic
+        // 3. Enrich BOTH poster and helper names/emails/avatars from users table if any are generic
         try {
-          const helperIds = Array.from(
+          const allUserLookupKeys = Array.from(
             new Set(
               Array.from(conversationsMap.values())
-                .map((c) => String(c.helperId || "").toLowerCase())
+                .flatMap((c) => [
+                  String(c.helperId || "").toLowerCase(),
+                  String(c.helperEmail || "").toLowerCase(),
+                  String(c.posterId || "").toLowerCase(),
+                  String(c.posterEmail || "").toLowerCase()
+                ])
                 .filter(Boolean)
             )
           );
-          if (helperIds.length > 0) {
+          if (allUserLookupKeys.length > 0) {
             const uRes = await dbPool
               .query(
                 "SELECT id::text AS id, name, email, avatar_url FROM users WHERE LOWER(id::text) = ANY($1::text[]) OR LOWER(email) = ANY($1::text[])",
-                [helperIds]
+                [allUserLookupKeys]
               )
               .catch(() => ({ rows: [] as any[] }));
             const uMap = new Map<string, { name?: string; email?: string; avatar?: string }>();
@@ -5832,19 +5928,31 @@ async function startServer() {
               if (u.email) uMap.set(String(u.email).toLowerCase(), { name: u.name, email: u.email, avatar: u.avatar_url });
             });
             conversationsMap.forEach((c) => {
-              const info = uMap.get(String(c.helperId || "").toLowerCase()) || (c.helperEmail ? uMap.get(String(c.helperEmail).toLowerCase()) : undefined);
-              if (info) {
-                if ((!c.helperName || c.helperName === "Community Helper" || c.helperName === "Community Peer") && info.name) {
-                  c.helperName = info.name;
-                  c.senderName = info.name;
+              const hInfo = uMap.get(String(c.helperId || "").toLowerCase()) || (c.helperEmail ? uMap.get(String(c.helperEmail).toLowerCase()) : undefined);
+              if (hInfo) {
+                if ((!c.helperName || c.helperName === "Community Helper" || c.helperName === "Community Peer") && hInfo.name) {
+                  c.helperName = hInfo.name;
+                  c.senderName = hInfo.name;
                 }
-                if (!c.helperEmail && info.email) {
-                  c.helperEmail = String(info.email).toLowerCase();
-                  c.senderEmail = String(info.email).toLowerCase();
+                if (!c.helperEmail && hInfo.email) {
+                  c.helperEmail = String(hInfo.email).toLowerCase();
+                  c.senderEmail = String(hInfo.email).toLowerCase();
                 }
-                if (!c.helperAvatar && info.avatar) {
-                  c.helperAvatar = info.avatar;
-                  c.senderAvatar = info.avatar;
+                if (!c.helperAvatar && hInfo.avatar) {
+                  c.helperAvatar = hInfo.avatar;
+                  c.senderAvatar = hInfo.avatar;
+                }
+              }
+              const pInfo = uMap.get(String(c.posterId || "").toLowerCase()) || (c.posterEmail ? uMap.get(String(c.posterEmail).toLowerCase()) : undefined);
+              if (pInfo) {
+                if ((!c.posterName || c.posterName === "Post Owner" || c.posterName === "Community Member") && pInfo.name) {
+                  c.posterName = pInfo.name;
+                }
+                if (!c.posterEmail && pInfo.email) {
+                  c.posterEmail = String(pInfo.email).toLowerCase();
+                }
+                if (!c.posterAvatar && pInfo.avatar) {
+                  c.posterAvatar = pInfo.avatar;
                 }
               }
             });
@@ -5881,7 +5989,7 @@ async function startServer() {
             const hEmail = ownerIds.has(sId.toLowerCase())
               ? ""
               : String(m.senderEmail || m.sender_email || "").trim().toLowerCase();
-            const key = `${mPostId}__${hEmail || hId.toLowerCase()}`;
+            const key = getThreadKey(mPostId, hId);
             const convId = String(m.conversationId || m.conversation_id || convKey || buildConversationId(mPostId, hId));
             const msgTime = m.createdAt || m.sent_at || new Date().toISOString();
             if (Date.now() - new Date(msgTime).getTime() > 7 * 24 * 60 * 60 * 1000) {

@@ -194,13 +194,32 @@ function AppContent() {
     };
   }, []);
 
-  // Initialize base history entry so mobile/tablet hardware Back button stays inside the app
+  // Initialize base history entry and arm on user gesture so mobile Chrome/Android Back button never exits the website
+  const historyGuardArmedRef = React.useRef(false);
   useEffect(() => {
     try {
       const initialScreen = checkAdminRoute() ? 'admin' : 'home';
       window.history.replaceState({ locohelpScreen: initialScreen, locohelpBase: true }, '');
       window.history.pushState({ locohelpScreen: initialScreen }, '');
     } catch (e) {}
+
+    const armUserGestureHistoryGuard = () => {
+      if (historyGuardArmedRef.current) return;
+      historyGuardArmedRef.current = true;
+      try {
+        const activeScr = checkAdminRoute() ? 'admin' : 'home';
+        window.history.pushState({ locohelpScreen: activeScr, userGestureGuard: true }, '');
+      } catch (e) {}
+    };
+
+    window.addEventListener('pointerdown', armUserGestureHistoryGuard, { passive: true });
+    window.addEventListener('touchstart', armUserGestureHistoryGuard, { passive: true });
+    window.addEventListener('click', armUserGestureHistoryGuard, { passive: true });
+    return () => {
+      window.removeEventListener('pointerdown', armUserGestureHistoryGuard);
+      window.removeEventListener('touchstart', armUserGestureHistoryGuard);
+      window.removeEventListener('click', armUserGestureHistoryGuard);
+    };
   }, []);
 
   // Push history state when report modal opens
@@ -223,6 +242,9 @@ function AppContent() {
       // 1. Close ReportModal if open
       if (isReportModalOpen) {
         setIsReportModalOpen(false);
+        try {
+          window.history.pushState({ locohelpScreen: currentScreen }, '');
+        } catch (e) {}
         return;
       }
 
@@ -230,14 +252,28 @@ function AppContent() {
       const closeModalEvent = new CustomEvent('locohelp_close_active_modal', { cancelable: true });
       window.dispatchEvent(closeModalEvent);
       if (closeModalEvent.defaultPrevented) {
+        try {
+          window.history.pushState({ locohelpScreen: currentScreen }, '');
+        } catch (e) {}
         return;
       }
 
-      // 3. If on any sub-screen (profile, categories, chat, directory, settings, admin, etc.), return to Home
+      // 3. If on Chat screen opened from Profile, return to Profile first; otherwise return to Home from any sub-screen
       if (currentScreen !== 'home') {
-        setCurrentScreen('home');
+        const targetBackScreen: Screen =
+          currentScreen === 'chat' && prevScreen === 'profile'
+            ? 'profile'
+            : currentScreen === 'guidelines' && prevScreen === 'settings'
+            ? 'settings'
+            : 'home';
+        if (targetBackScreen === 'home') {
+          setPrevScreen('home');
+        } else {
+          setPrevScreen('home');
+        }
+        setCurrentScreen(targetBackScreen);
         try {
-          window.history.pushState({ locohelpScreen: 'home' }, '', '/');
+          window.history.pushState({ locohelpScreen: targetBackScreen }, '');
         } catch (e) {}
         return;
       }
@@ -261,7 +297,7 @@ function AppContent() {
     return () => {
       window.removeEventListener('popstate', handlePopState);
     };
-  }, [currentScreen, isReportModalOpen, selectedCategory]);
+  }, [currentScreen, prevScreen, isReportModalOpen, selectedCategory]);
 
   const navigate = (screen: Screen) => {
     setPrevScreen(currentScreen);
@@ -324,8 +360,22 @@ function AppContent() {
           />
         )}
         {currentScreen === 'directory' && <SearchDirectoryScreen onBack={() => navigate('home')} onOpenChat={() => navigate('chat')} />}
-        {currentScreen === 'chat' && <ChatScreen intent={activeIntent} onBack={() => navigate('home')} onReport={() => setIsReportModalOpen(true)} />}
-        {currentScreen === 'notifications' && <NotificationsScreen onBack={() => navigate('home')} />}
+        {currentScreen === 'chat' && (
+          <ChatScreen
+            intent={activeIntent}
+            onBack={() => navigate(prevScreen === 'profile' ? 'profile' : 'home')}
+            onReport={() => setIsReportModalOpen(true)}
+          />
+        )}
+        {currentScreen === 'notifications' && (
+          <NotificationsScreen
+            onBack={() => navigate('home')}
+            onOpenChat={(intent) => {
+              setActiveIntent(intent);
+              navigate('chat');
+            }}
+          />
+        )}
         {currentScreen === 'pro' && <ProScreen onBack={() => navigate('home')} />}
         {currentScreen === 'settings' && <SettingsMenu onNavigate={navigate} onBack={() => navigate('home')} />}
         {currentScreen === 'guidelines' && (

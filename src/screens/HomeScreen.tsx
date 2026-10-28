@@ -748,11 +748,14 @@ export default function HomeScreen({
   const handleStartVoiceSearch = () => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      alert(language === 'EN' 
-        ? 'Voice search is not supported in this browser. Please type to search.' 
-        : language === 'GU'
-        ? 'તમારા બ્રાઉઝરમાં વોઈસ સર્ચ સપોર્ટ નથી. કૃપા કરીને ટાઈપ કરીને શોધો.'
-        : 'आपके ब्राउज़र में वॉइस सर्च सपोर्ट नहीं है। कृपया टाइप करके खोजें।');
+      setCreatedToast(
+        language === 'EN'
+          ? 'Voice search is not supported in this browser. Please type to search.'
+          : language === 'GU'
+          ? 'તમારા બ્રાઉઝરમાં વોઈસ સર્ચ સપોર્ટ નથી. કૃપા કરીને ટાઈપ કરીને શોધો.'
+          : 'आपके ब्राउज़र में वॉइस सर्च सपोर्ट नहीं है। कृपया टाइप करके खोजें।'
+      );
+      setTimeout(() => setCreatedToast(null), 4000);
       return;
     }
     try {
@@ -929,11 +932,112 @@ export default function HomeScreen({
     });
   };
 
+  const notifyAndRecordNewPost = (newPost: any) => {
+    if (!newPost || !newPost.id) return;
+    try {
+      const postIdStr = String(newPost.id).trim();
+      const notifiedIds: string[] = JSON.parse(localStorage.getItem('locohelp_notified_post_ids') || '[]');
+      if (notifiedIds.includes(postIdStr)) return;
+
+      const currentUser = getCurrentUser();
+      const myUid = String(currentUser?.uid || '').trim().toLowerCase();
+      const myEmail = String(currentUser?.email || localStorage.getItem('locohelp_last_logged_in_email') || '').trim().toLowerCase();
+      const myEmailUid = myEmail ? 'email_' + myEmail.replace(/[^a-z0-9]/g, '_') : '';
+      const postAuthorId = String(newPost.authorId || newPost.userId || '').trim().toLowerCase();
+      const postAuthorEmail = String(newPost.authorEmail || '').trim().toLowerCase();
+      const myPostIds: string[] = JSON.parse(localStorage.getItem('locohelp_my_post_ids') || '[]');
+
+      const isMyOwnPost = Boolean(
+        myPostIds.includes(postIdStr) ||
+        (myUid && postAuthorId && myUid === postAuthorId) ||
+        (myEmailUid && postAuthorId && myEmailUid === postAuthorId) ||
+        (myEmail && postAuthorEmail && myEmail === postAuthorEmail) ||
+        (myEmail && postAuthorId && myEmail === postAuthorId)
+      );
+
+      const nextNotified = [postIdStr, ...notifiedIds].slice(0, 150);
+      localStorage.setItem('locohelp_notified_post_ids', JSON.stringify(nextNotified));
+
+      if (isMyOwnPost) return;
+
+      const areaLabel = newPost.area || newPost.city || newPost.location || 'Local Area';
+      const catLabel = newPost.category || newPost.title || 'New Request';
+      const descSnippet = String(newPost.description || newPost.title || '').slice(0, 80);
+      const notifTitle = `🔔 New Request in ${areaLabel}!`;
+      const notifBody = `${catLabel}: ${descSnippet}`;
+
+      setCreatedToast(`${notifTitle} ${notifBody}`);
+      setTimeout(() => setCreatedToast(null), 6000);
+
+      try {
+        const existingNotifs = JSON.parse(localStorage.getItem('locohelp_notifications') || '[]');
+        const notifId = `notif_post_${postIdStr}`;
+        if (!existingNotifs.some((n: any) => n && n.id === notifId)) {
+          const updatedNotifs = [
+            {
+              id: notifId,
+              type: 'new_post',
+              title: notifTitle,
+              body: notifBody,
+              postId: postIdStr,
+              post: newPost,
+              createdAt: new Date().toISOString(),
+              isRead: false
+            },
+            ...existingNotifs
+          ].slice(0, 50);
+          localStorage.setItem('locohelp_notifications', JSON.stringify(updatedNotifs));
+          window.dispatchEvent(new CustomEvent('locohelp_notifications_updated'));
+        }
+      } catch {}
+
+      try {
+        if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.ready
+              .then((reg) => {
+                reg.showNotification(notifTitle, {
+                  body: notifBody,
+                  icon: '/pwa-192x192.png',
+                  badge: '/pwa-192x192.png',
+                  data: { url: `/?postId=${encodeURIComponent(postIdStr)}` }
+                });
+              })
+              .catch(() => {
+                new Notification(notifTitle, { body: notifBody, icon: '/pwa-192x192.png' });
+              });
+          } else {
+            new Notification(notifTitle, { body: notifBody, icon: '/pwa-192x192.png' });
+          }
+        }
+      } catch {}
+    } catch {}
+  };
+
   const syncServerBroadcasts = async (isManual = false) => {
     if (isManual) setIsSyncing(true);
     try {
+      const isInitialFetch = initialLoadRef.current;
       const serverIntents = await fetchLiveIntents();
       if (serverIntents && Array.isArray(serverIntents)) {
+        if (isInitialFetch) {
+          initialLoadRef.current = false;
+          try {
+            const existingNotified: string[] = JSON.parse(localStorage.getItem('locohelp_notified_post_ids') || '[]');
+            const seeded = Array.from(new Set([...serverIntents.map((p: any) => String(p?.id || '')).filter(Boolean), ...existingNotified])).slice(0, 150);
+            localStorage.setItem('locohelp_notified_post_ids', JSON.stringify(seeded));
+          } catch {}
+        } else {
+          // Notify for any newly discovered post created within the last 3 minutes (polling fallback if SSE was buffered)
+          const nowMs = Date.now();
+          for (const item of serverIntents) {
+            if (!item || !item.id) continue;
+            const createdMs = new Date(item.createdAt || (item as any).created_at || 0).getTime();
+            if (createdMs > 0 && nowMs - createdMs <= 3 * 60 * 1000) {
+              notifyAndRecordNewPost(item);
+            }
+          }
+        }
         mergeAndDeduplicateIntents(serverIntents, true);
       }
     } catch (err) {
@@ -970,6 +1074,7 @@ export default function HomeScreen({
         const newPost = payload?.post || payload?.intent;
         if (newPost && newPost.id) {
           mergeAndDeduplicateIntents([newPost], false);
+          notifyAndRecordNewPost(newPost);
         }
       },
       onPostDeleted: (payload) => {
@@ -1049,15 +1154,61 @@ export default function HomeScreen({
           })
         );
 
-        // If the current logged-in user owns this post and someone else replied, show a live toast
+        // If the current logged-in user is the recipient of this message/response, show live toast & save notification
         const currentUser = getCurrentUser();
         const myUid = String(currentUser?.uid || '').trim().toLowerCase();
+        const myEmail = String(currentUser?.email || localStorage.getItem('locohelp_last_logged_in_email') || '').trim().toLowerCase();
         const senderId = String(payload.response?.senderId || payload.response?.sender_id || '').trim().toLowerCase();
+        const senderEmail = String(payload.response?.senderEmail || payload.response?.sender_email || '').trim().toLowerCase();
         const ownerId = String(payload.postOwnerId || '').trim().toLowerCase();
-        if (myUid && ownerId && myUid === ownerId && senderId && senderId !== myUid) {
-          const responderName = payload.response?.senderName || 'Someone';
-          setCreatedToast(`💬 New Response on your Post! ${responderName} replied to your request.`);
-          setTimeout(() => setCreatedToast(null), 5000);
+        const receiverId = String(payload.receiverId || payload.response?.receiverId || '').trim().toLowerCase();
+
+        const isFromMe = (myUid && senderId === myUid) || (myEmail && senderEmail === myEmail);
+        const isForMe =
+          !isFromMe &&
+          Boolean(
+            (myUid && (ownerId === myUid || receiverId === myUid)) ||
+              (myEmail && (ownerId === myEmail || receiverId === myEmail))
+          );
+
+        if (isForMe) {
+          const responderName = payload.response?.senderName || payload.response?.authorName || 'Someone';
+          const msgPreview = String(payload.response?.text || payload.response?.message || 'Sent a message').slice(0, 80);
+          const notifTitle = `💬 New Message from ${responderName}`;
+          const notifBody = msgPreview;
+
+          setCreatedToast(`${notifTitle}: "${notifBody}"`);
+          setTimeout(() => setCreatedToast(null), 5500);
+
+          try {
+            const existingNotifs = JSON.parse(localStorage.getItem('locohelp_notifications') || '[]');
+            const notifId = `notif_msg_${payload.response?.id || Date.now()}`;
+            if (!existingNotifs.some((n: any) => n && n.id === notifId)) {
+              const updatedNotifs = [
+                {
+                  id: notifId,
+                  type: 'new_response',
+                  title: notifTitle,
+                  body: notifBody,
+                  postId: targetId,
+                  conversationId: payload.conversationId,
+                  senderId: payload.response?.senderId || payload.helperId,
+                  senderName: responderName,
+                  createdAt: new Date().toISOString(),
+                  isRead: false
+                },
+                ...existingNotifs
+              ].slice(0, 50);
+              localStorage.setItem('locohelp_notifications', JSON.stringify(updatedNotifs));
+              window.dispatchEvent(new CustomEvent('locohelp_notifications_updated'));
+            }
+          } catch {}
+
+          try {
+            if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+              new Notification(notifTitle, { body: notifBody, icon: '/pwa-192x192.png' });
+            }
+          } catch {}
         }
       }
     });
@@ -1165,8 +1316,7 @@ export default function HomeScreen({
         const arr = JSON.parse(storedCached).filter((i: any) => i.id !== intentId);
         localStorage.setItem('locohelp_cached_intents', JSON.stringify(arr));
       }
-      const myIds = JSON.parse(localStorage.getItem('locohelp_my_post_ids') || '[]');
-      localStorage.setItem('locohelp_my_post_ids', JSON.stringify(myIds.filter((id: string) => id !== intentId)));
+      // Note: Keep intentId in locohelp_my_post_ids so 7-day saved chats in Profile -> My Chats continue to recognize post ownership
     } catch (e) {}
 
     // 4. Background server & Railway PostgreSQL delete
@@ -1324,6 +1474,27 @@ export default function HomeScreen({
                           ? 'प्रोफ़ाइल'
                           : 'Profile'}
                       </span>
+                    </button>
+
+                    {/* Option 1.5: Notifications */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsHeaderMenuOpen(false);
+                        onNavigate('notifications');
+                      }}
+                      className="w-full flex items-center justify-between gap-2.5 px-3 py-2.5 rounded-xl text-xs font-extrabold text-slate-800 dark:text-slate-200 hover:bg-violet-50 dark:hover:bg-slate-800 transition-colors cursor-pointer text-left"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <Bell className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                        <span>
+                          {language === 'GU'
+                            ? 'નોટિફિકેશન'
+                            : language === 'HI'
+                            ? 'नोटिफिकेशन'
+                            : 'Notifications'}
+                        </span>
+                      </div>
                     </button>
 
                     {/* Option 2: Settings */}
@@ -1565,8 +1736,18 @@ export default function HomeScreen({
                           try {
                             myPostIds = JSON.parse(localStorage.getItem('locohelp_my_post_ids') || '[]');
                           } catch (e) {}
-                          const currentUid = activeUser?.uid || getCurrentUser()?.uid;
-                          const isOwn = Boolean((currentUid && post.authorId === currentUid) || myPostIds.includes(post.id));
+                          const currentUserObj = activeUser || getCurrentUser();
+                          const currentUid = String(currentUserObj?.uid || '').trim().toLowerCase();
+                          const currentEmail = String(currentUserObj?.email || localStorage.getItem('locohelp_last_logged_in_email') || '').trim().toLowerCase();
+                          const currentEmailUid = currentEmail ? 'email_' + currentEmail.replace(/[^a-z0-9]/g, '_') : '';
+                          const postAuthorId = String(post.authorId || (post as any).userId || '').trim().toLowerCase();
+                          const postAuthorEmail = String((post as any).authorEmail || '').trim().toLowerCase();
+                          const isOwn = Boolean(
+                            (currentUid && postAuthorId === currentUid) ||
+                            (currentEmailUid && postAuthorId === currentEmailUid) ||
+                            (currentEmail && (postAuthorEmail === currentEmail || postAuthorId === currentEmail)) ||
+                            myPostIds.includes(post.id)
+                          );
                           return (
                             <div
                               key={post.id}
@@ -1917,9 +2098,16 @@ export default function HomeScreen({
                   try {
                     myPostIds = JSON.parse(localStorage.getItem('locohelp_my_post_ids') || '[]');
                   } catch (e) {}
-                  const currentUid = activeUser?.uid || getCurrentUser()?.uid;
+                  const currentUserObj = activeUser || getCurrentUser();
+                  const currentUid = String(currentUserObj?.uid || '').trim().toLowerCase();
+                  const currentEmail = String(currentUserObj?.email || localStorage.getItem('locohelp_last_logged_in_email') || '').trim().toLowerCase();
+                  const currentEmailUid = currentEmail ? 'email_' + currentEmail.replace(/[^a-z0-9]/g, '_') : '';
+                  const intentAuthorId = String(intent.authorId || (intent as any).userId || '').trim().toLowerCase();
+                  const intentAuthorEmail = String((intent as any).authorEmail || '').trim().toLowerCase();
                   const isMyOwnPost = Boolean(
-                    (currentUid && intent.authorId === currentUid) ||
+                    (currentUid && intentAuthorId === currentUid) ||
+                    (currentEmailUid && intentAuthorId === currentEmailUid) ||
+                    (currentEmail && (intentAuthorEmail === currentEmail || intentAuthorId === currentEmail)) ||
                     myPostIds.includes(intent.id) ||
                     intent.id === newlyCreatedId
                   );

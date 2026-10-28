@@ -11,7 +11,7 @@ import {
 } from '../auth';
 import { isGuestUser } from '../lib/authUtils';
 import IdentityVerificationModal from '../components/IdentityVerificationModal';
-import { getVerificationStatus, submitVerification, fetchPostConversations, deleteConversationOnServer } from '../api';
+import { getVerificationStatus, submitVerification, fetchPostConversations, deleteConversationOnServer, subscribeToRealtimeStream } from '../api';
 import { CATEGORIES, getCategoryName, saveFreeHelperProfile, getFreeHelperProfiles, FreeHelperProfile } from '../data/categories';
 import { RegisteredShop, SHOP_TYPES } from '../components/RegisterShopModal';
 import { applyIdWatermark } from '../lib/watermark';
@@ -66,43 +66,48 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
   const [recentConversations, setRecentConversations] = useState<any[]>([]);
   const [isLoadingChats, setIsLoadingChats] = useState(false);
   const [isDeletingChat, setIsDeletingChat] = useState(false);
+  const [convIdToDelete, setConvIdToDelete] = useState<string | null>(null);
 
-  const loadRecentChats = async () => {
+  const loadRecentChats = async (silent = false) => {
     const user = getCurrentUser();
     if (!user || !user.uid || isGuestUser()) {
       setRecentConversations([]);
       return;
     }
-    setIsLoadingChats(true);
+    if (!silent) setIsLoadingChats(true);
     try {
       const list = await fetchPostConversations({ userId: user.uid, userEmail: user.email });
       setRecentConversations(list || []);
     } catch {
-      setRecentConversations([]);
+      if (!silent) setRecentConversations([]);
     } finally {
-      setIsLoadingChats(false);
+      if (!silent) setIsLoadingChats(false);
     }
   };
 
   useEffect(() => {
     loadRecentChats();
+    if (activeTab !== 'user') return;
+    const unsub = subscribeToRealtimeStream({
+      onNewResponse: () => {
+        loadRecentChats(true);
+      }
+    });
+    return () => {
+      unsub();
+    };
   }, [activeTab]);
 
   const handleDeleteConversation = async (convId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!window.confirm(
-      language === 'EN'
-        ? 'Are you sure you want to delete this chat permanently?'
-        : language === 'GU'
-        ? 'શું તમે ખરેખર આ ચેટ હંમેશા માટે ડિલીટ કરવા માંગો છો?'
-        : 'क्या आप वाकई इस चैट को हमेशा के लिए डिलीट करना चाहते हैं?'
-    )) {
-      return;
-    }
     setIsDeletingChat(true);
     try {
       await deleteConversationOnServer(convId);
+      try {
+        localStorage.removeItem(`locohelp_chat_${convId}`);
+      } catch {}
       setRecentConversations(prev => prev.filter(c => (c.id || c.conversationId) !== convId));
+      setConvIdToDelete(null);
     } catch (err) {
       console.warn("Delete conversation error:", err);
     } finally {
@@ -113,20 +118,57 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
   const handleOpenConversation = (conv: any) => {
     if (!onOpenChat) return;
     const user = getCurrentUser();
-    const isOwner = user?.uid && conv.posterId && String(conv.posterId).toLowerCase() === String(user.uid).toLowerCase();
-    const partnerId = isOwner ? conv.helperId : conv.posterId;
-    const partnerName = isOwner ? (conv.helperName || 'Community Helper') : (conv.posterName || 'Post Owner');
+    const myUid = String(user?.uid || '').trim().toLowerCase();
+    const myEmail = String(user?.email || localStorage.getItem('locohelp_last_logged_in_email') || '').trim().toLowerCase();
+    const myEmailUid = myEmail ? 'email_' + myEmail.replace(/[^a-z0-9]/g, '_') : '';
+
+    const rawConvId = String(conv.conversationId || conv.id || '').trim();
+    let parsedPostId = '';
+    let parsedHelperId = '';
+    if (rawConvId.toLowerCase().startsWith('conv_') && rawConvId.includes('__')) {
+      const idx = rawConvId.indexOf('__');
+      parsedPostId = rawConvId.slice(5, idx).trim();
+      parsedHelperId = rawConvId.slice(idx + 2).trim();
+    }
+
+    const cleanPostId = String(conv.postId || conv.post_id || parsedPostId || 'general').trim();
+    const posterIdStr = String(conv.posterId || conv.poster_id || '').trim();
+    const posterEmailStr = String(conv.posterEmail || conv.poster_email || '').trim().toLowerCase();
+    const helperIdStr = String(conv.helperId || conv.helper_id || conv.senderId || parsedHelperId || '').trim();
+    const helperEmailStr = String(conv.helperEmail || conv.senderEmail || '').trim().toLowerCase();
+
+    const helperIdLower = helperIdStr.toLowerCase();
+    const isHelperMe = Boolean(
+      (myUid && helperIdLower === myUid) ||
+      (myEmailUid && helperIdLower === myEmailUid) ||
+      (myEmail && (helperEmailStr === myEmail || helperIdLower === myEmail))
+    );
+    // In a user's 1-on-1 chat inbox, if the logged-in user is not the helper, they are the post owner
+    const isOwner = !isHelperMe;
+
+    const partnerName = isOwner
+      ? (conv.helperName || conv.senderName || (helperEmailStr ? helperEmailStr.split('@')[0] : 'Community Helper'))
+      : (conv.posterName || (posterEmailStr ? posterEmailStr.split('@')[0] : 'Post Owner'));
+
+    const resolvedConvId =
+      rawConvId && rawConvId.toLowerCase().startsWith('conv_')
+        ? rawConvId
+        : `conv_${cleanPostId}__${helperIdLower}`;
 
     const intentPayload: any = {
-      id: conv.postId || conv.post_id || 'general',
+      id: cleanPostId,
       title: conv.category || 'Local Request',
-      description: conv.lastMessage || 'Direct Chat',
+      description: conv.lastMessage || conv.last_message || 'Direct Chat',
       category: conv.category || 'General',
-      authorId: conv.posterId || conv.poster_id || user?.uid,
-      authorName: conv.posterName || 'Post Owner',
-      selectedReplierId: partnerId,
+      authorId: isOwner ? (user?.uid || posterIdStr) : (posterIdStr || 'post_owner'),
+      authorEmail: isOwner ? (myEmail || posterEmailStr) : posterEmailStr,
+      authorName: isOwner ? (user?.displayName || conv.posterName || 'You') : partnerName,
+      helperId: helperIdStr,
+      selectedReplierId: helperIdStr,
       selectedReplierName: partnerName,
-      conversationId: conv.id || conv.conversationId
+      selectedReplierEmail: isOwner ? helperEmailStr : posterEmailStr,
+      selectedReplierAvatar: isOwner ? conv.helperAvatar : conv.posterAvatar,
+      conversationId: resolvedConvId
     };
     onOpenChat(intentPayload);
   };
@@ -1049,7 +1091,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
 
                 <button
                   type="button"
-                  onClick={loadRecentChats}
+                  onClick={() => loadRecentChats(false)}
                   disabled={isLoadingChats}
                   className="p-1.5 rounded-xl text-slate-500 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                   title="Refresh Chats"
@@ -1082,8 +1124,21 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   {recentConversations.map((conv) => {
                     const convId = conv.id || conv.conversationId;
                     const currentUser = getCurrentUser();
-                    const isOwner = currentUser?.uid && conv.posterId && String(conv.posterId).toLowerCase() === String(currentUser.uid).toLowerCase();
-                    const partnerName = isOwner ? (conv.helperName || 'Community Helper') : (conv.posterName || 'Post Owner');
+                    const myUid = String(currentUser?.uid || '').trim().toLowerCase();
+                    const myEmail = String(currentUser?.email || localStorage.getItem('locohelp_last_logged_in_email') || '').trim().toLowerCase();
+                    const myEmailUid = myEmail ? 'email_' + myEmail.replace(/[^a-z0-9]/g, '_') : '';
+                    const helperIdStr = String(conv.helperId || conv.helper_id || conv.senderId || '').trim().toLowerCase();
+                    const helperEmailStr = String(conv.helperEmail || conv.senderEmail || '').trim().toLowerCase();
+                    const posterEmailStr = String(conv.posterEmail || conv.poster_email || '').trim().toLowerCase();
+                    const isHelperMe = Boolean(
+                      (myUid && helperIdStr === myUid) ||
+                      (myEmailUid && helperIdStr === myEmailUid) ||
+                      (myEmail && (helperEmailStr === myEmail || helperIdStr === myEmail))
+                    );
+                    const isOwner = !isHelperMe;
+                    const partnerName = isOwner
+                      ? (conv.helperName || conv.senderName || (helperEmailStr ? helperEmailStr.split('@')[0] : 'Community Helper'))
+                      : (conv.posterName || (posterEmailStr ? posterEmailStr.split('@')[0] : 'Post Owner'));
                     const partnerAvatar = isOwner ? conv.helperAvatar : conv.posterAvatar;
                     const lastMsg = conv.lastMessage || conv.last_message || 'Sent a message';
                     const lastTime = conv.lastMessageAt || conv.last_message_at || conv.updatedAt;
@@ -1121,22 +1176,50 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                         </div>
 
                         <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenConversation(conv)}
-                            className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-black shadow-2xs active:scale-95 transition-all cursor-pointer"
-                          >
-                            {language === 'EN' ? 'Open Chat' : language === 'GU' ? 'ચેટ ખોલો' : 'चैट खोलें'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => handleDeleteConversation(convId, e)}
-                            disabled={isDeletingChat}
-                            className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer"
-                            title="Delete Chat"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          {convIdToDelete === convId ? (
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={(e) => handleDeleteConversation(convId, e)}
+                                disabled={isDeletingChat}
+                                className="px-2 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-black shadow-2xs active:scale-95 transition-all cursor-pointer"
+                              >
+                                {language === 'EN' ? 'Delete' : language === 'GU' ? 'ડિલીટ' : 'डिलीट'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setConvIdToDelete(null);
+                                }}
+                                className="px-2 py-1 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-[10px] font-bold cursor-pointer"
+                              >
+                                {language === 'EN' ? 'Cancel' : 'रद्द'}
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenConversation(conv)}
+                                className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-black shadow-2xs active:scale-95 transition-all cursor-pointer"
+                              >
+                                {language === 'EN' ? 'Open Chat' : language === 'GU' ? 'ચેટ ખોલો' : 'चैट खोलें'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setConvIdToDelete(convId);
+                                }}
+                                disabled={isDeletingChat}
+                                className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer"
+                                title="Delete Chat"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </>
+                          )}
                         </div>
                       </div>
                     );

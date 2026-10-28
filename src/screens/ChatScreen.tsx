@@ -42,6 +42,10 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
 
   // Determine whether the logged-in user is the Post Owner (User A) or a Helper/Responder (User B)
   const isPostOwner = React.useMemo(() => {
+    try {
+      const myPostIds: string[] = JSON.parse(localStorage.getItem('locohelp_my_post_ids') || '[]');
+      if (chatId && myPostIds.includes(chatId)) return true;
+    } catch {}
     if (!intent?.authorId && !(intent as any)?.authorEmail) return false;
     return isMessageSentByUser(
       {
@@ -50,10 +54,10 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
       },
       currentUser
     );
-  }, [intent?.authorId, (intent as any)?.authorEmail, currentUser]);
+  }, [chatId, intent?.authorId, (intent as any)?.authorEmail, currentUser]);
 
   const [selectedReplierId, setSelectedReplierId] = useState<string | null>(
-    (intent as any)?.selectedReplierId || null
+    (intent as any)?.selectedReplierId || (intent as any)?.helperId || null
   );
   const [selectedReplierName, setSelectedReplierName] = useState<string | null>(
     (intent as any)?.selectedReplierName || null
@@ -65,18 +69,25 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
     (intent as any)?.selectedReplierAvatar || null
   );
 
-  // For Helper (User B), helperId is their own UID; for Post Owner (User A), helperId MUST be selectedReplierId
+  // For Helper (User B), helperId is the conversation's helperId or their own UID; for Post Owner (User A), helperId MUST be selectedReplierId
   const activeHelperId = isPostOwner
-    ? (selectedReplierId || '')
-    : (currentUser?.uid && currentUser.uid !== 'guest_user' ? currentUser.uid : '');
+    ? (selectedReplierId || (intent as any)?.helperId || '')
+    : ((intent as any)?.helperId || (currentUser?.uid && currentUser.uid !== 'guest_user' ? currentUser.uid : '') || selectedReplierId || '');
 
   // Deterministic 1-on-1 conversation ID per (post_id, helper_id)
   const activeConversationId = React.useMemo(() => {
+    const passedConvId = String((intent as any)?.conversationId || '').trim();
     if (isPostOwner) {
+      if (!selectedReplierId && passedConvId) {
+        return passedConvId;
+      }
       if (!selectedReplierId) return '';
+      if (passedConvId && passedConvId.toLowerCase().endsWith(`__${String(selectedReplierId).toLowerCase()}`)) {
+        return passedConvId;
+      }
       return `conv_${chatId}__${String(selectedReplierId).toLowerCase()}`;
     }
-    if ((intent as any)?.conversationId) return String((intent as any).conversationId);
+    if (passedConvId) return passedConvId;
     if (activeHelperId) return `conv_${chatId}__${String(activeHelperId).toLowerCase()}`;
     return chatId;
   }, [isPostOwner, selectedReplierId, chatId, activeHelperId, (intent as any)?.conversationId]);
@@ -159,6 +170,40 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
     (intent as any)?.selectedReplierAvatar
   ]);
 
+  // Push history state and listen for hardware Back button when any modal is open inside ChatScreen
+  const isAnyChatModalOpen = Boolean(
+    isCameraOpen ||
+    isMapModalOpen ||
+    isReportChatModalOpen ||
+    isProfileModalOpen ||
+    zoomedImage ||
+    isRatingOpen ||
+    isLoginPromptOpen
+  );
+  const prevChatModalRef = useRef(false);
+  useEffect(() => {
+    if (isAnyChatModalOpen && !prevChatModalRef.current) {
+      try {
+        window.history.pushState({ locohelpScreen: 'chat', locohelpModal: true }, '');
+      } catch (e) {}
+    }
+    prevChatModalRef.current = isAnyChatModalOpen;
+  }, [isAnyChatModalOpen]);
+
+  useEffect(() => {
+    const handleCloseChatModal = (e: Event) => {
+      if (zoomedImage) { e.preventDefault(); setZoomedImage(null); return; }
+      if (isCameraOpen) { e.preventDefault(); stopCamera(); return; }
+      if (isMapModalOpen) { e.preventDefault(); setIsMapModalOpen(false); return; }
+      if (isReportChatModalOpen) { e.preventDefault(); setIsReportChatModalOpen(false); return; }
+      if (isProfileModalOpen) { e.preventDefault(); setIsProfileModalOpen(false); return; }
+      if (isRatingOpen) { e.preventDefault(); setIsRatingOpen(false); return; }
+      if (isLoginPromptOpen) { e.preventDefault(); setIsLoginPromptOpen(false); return; }
+    };
+    window.addEventListener('locohelp_close_active_modal', handleCloseChatModal);
+    return () => window.removeEventListener('locohelp_close_active_modal', handleCloseChatModal);
+  }, [zoomedImage, isCameraOpen, isMapModalOpen, isReportChatModalOpen, isProfileModalOpen, isRatingOpen, isLoginPromptOpen]);
+
   // Load cached 1-on-1 messages when switching activeConversationId
   useEffect(() => {
     if (!activeConversationId) {
@@ -166,11 +211,6 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
       return;
     }
     try {
-      const deletedIds = JSON.parse(localStorage.getItem('locohelp_deleted_chats') || '[]');
-      if (deletedIds.includes(activeConversationId)) {
-        setMessages([]);
-        return;
-      }
       const stored = localStorage.getItem(`locohelp_chat_${activeConversationId}`);
       if (stored) {
         const parsed = JSON.parse(stored);
@@ -235,9 +275,13 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
         // If Post Owner, also keep the list of responders synced so they can switch or select a helper
         if (isPostOwner) {
           try {
+            const token = localStorage.getItem('locohelp_token');
             const convRes = await fetch(
               `/api/chat/conversations?postId=${encodeURIComponent(chatId)}&userId=${encodeURIComponent(myUid)}&ownerEmail=${encodeURIComponent(myEmail)}&_t=${Date.now()}`,
-              { cache: 'no-store' }
+              {
+                cache: 'no-store',
+                headers: token ? { Authorization: `Bearer ${token}` } : undefined
+              }
             );
             if (convRes.ok) {
               const convList = await convRes.json();
@@ -794,20 +838,8 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
 
   const visibleMessages = React.useMemo(() => {
     if (isPostOwner && !selectedReplierId) return [];
-    if (!selectedReplierId) return messages;
-    const targetLower = String(selectedReplierId).toLowerCase();
-    return messages.filter(m => {
-      if (m.type === 'task_completed' || m.authorId === 'system') return true;
-      const sId = String(m.sender_id || m.authorId || '').toLowerCase();
-      const rId = String(m.receiverId || '').toLowerCase();
-      const sentByMe = isMessageSentByUser(m, currentUser);
-      return (
-        sId === targetLower ||
-        rId === targetLower ||
-        (sentByMe && rId === targetLower)
-      );
-    });
-  }, [messages, isPostOwner, selectedReplierId, currentUser]);
+    return messages;
+  }, [messages, isPostOwner, selectedReplierId]);
 
   return (
     <div className="flex flex-col h-full bg-[#FCFAF5] dark:bg-slate-900 relative overflow-hidden transition-colors">
@@ -878,14 +910,6 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
             title="Complete Task"
           >
             <CheckCircle2 className="w-4 h-4" />
-          </button>
-
-          <button 
-            onClick={() => setIsDeleteConfirmOpen(true)}
-            className="p-2 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-xl transition-colors cursor-pointer"
-            title="Delete Chat"
-          >
-            <Trash2 className="w-4 h-4" />
           </button>
 
           <button 
@@ -1132,15 +1156,6 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
                   <span className={`text-[9px] font-semibold ${isMe ? 'text-indigo-100' : 'text-slate-400'}`}>
                     {msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Just now'}
                   </span>
-                  {isMe && (
-                    <button 
-                      onClick={() => handleDeleteMessage(msg.id)}
-                      className="text-[10px] text-indigo-100 hover:text-white px-1.5 py-0.5 rounded bg-indigo-700/60 hover:bg-rose-600 transition-colors cursor-pointer flex items-center gap-1"
-                      title="Delete message"
-                    >
-                      <span>🗑️ Delete</span>
-                    </button>
-                  )}
                 </div>
               </motion.div>
             </div>
