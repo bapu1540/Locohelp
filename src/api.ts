@@ -370,6 +370,24 @@ export async function fetchPostConversations(params: {
 }
 
 /**
+ * Manually deletes a 1-on-1 chat conversation from server
+ */
+export async function deleteConversationOnServer(conversationId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/chat/conversations/${encodeURIComponent(conversationId)}?_t=${Date.now()}`, {
+      method: 'DELETE',
+      headers: {
+        'Cache-Control': 'no-cache',
+        ...getAuthHeaders()
+      }
+    });
+    return res.ok;
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
  * Fetches messages for a strict 1-on-1 chat conversation from the central server (`GET /api/chat/messages`).
  */
 export async function fetchChatMessages(
@@ -1941,6 +1959,7 @@ export async function saveUserFcmTokenOnServer(payload: {
 
 export function subscribeToRealtimeStream(handlers: {
   onNewPost?: (payload: { post?: Intent; intent?: Intent }) => void;
+  onPostDeleted?: (payload: { postId?: string; id?: string }) => void;
   onNewResponse?: (payload: {
     postId: string;
     postOwnerId?: string;
@@ -1967,6 +1986,13 @@ export function subscribeToRealtimeStream(handlers: {
         try {
           const data = JSON.parse(event.data || '{}');
           handlers.onNewPost?.(data);
+        } catch {}
+      });
+
+      es.addEventListener('post_deleted', (event: MessageEvent) => {
+        try {
+          const data = JSON.parse(event.data || '{}');
+          handlers.onPostDeleted?.(data);
         } catch {}
       });
 

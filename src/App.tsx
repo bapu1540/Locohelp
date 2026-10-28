@@ -334,9 +334,16 @@ function AppContent() {
             onReport={() => setIsReportModalOpen(true)}
           />
         )}
-        {currentScreen === 'roadmap' && <RoadmapScreen onBack={() => navigate(prevScreen === 'settings' ? 'settings' : 'home')} />}
-        {currentScreen === 'profile' && <ProfileScreen onBack={() => navigate('home')} onNavigate={navigate} />}
-        {currentScreen === 'support' && <SupportScreen onBack={() => navigate(prevScreen === 'settings' ? 'settings' : 'home')} />}
+        {currentScreen === 'profile' && (
+          <ProfileScreen
+            onBack={() => navigate('home')}
+            onNavigate={navigate}
+            onOpenChat={(intent) => {
+              setActiveIntent(intent);
+              navigate('chat');
+            }}
+          />
+        )}
         {currentScreen === 'mesh' && <MeshScreen onBack={() => navigate('settings')} />}
         {currentScreen === 'leaderboard' && <LeaderboardScreen onBack={() => navigate('home')} />}
         {currentScreen === 'professionals' && <ProfessionalsScreen onBack={() => navigate('home')} onHire={() => navigate('chat')} />}

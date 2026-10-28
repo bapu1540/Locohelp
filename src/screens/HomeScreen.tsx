@@ -833,11 +833,11 @@ export default function HomeScreen({
     return { posts, helpers, shops, categories };
   }, [homeSearchQuery, displayIntents]);
 
-  // Unified Deduplicating Merger for Multi-Device Broadcast Sync (Preserves responseCount, responses & repliers)
-  const mergeAndDeduplicateIntents = (incoming: Intent[]) => {
+  // Unified Deduplicating Merger for Multi-Device Broadcast Sync (Preserves responseCount, responses & repliers while removing server-deleted posts)
+  const mergeAndDeduplicateIntents = (incoming: Intent[], isAuthoritativeServerList = false) => {
     setIntents(prev => {
       let deletedIds: string[] = [];
-      let recentCustom: Intent[] = [];
+      let justCreatedCustom: Intent[] = [];
       try {
         const idRaw = localStorage.getItem('locohelp_deleted_posts');
         if (idRaw) deletedIds = JSON.parse(idRaw);
@@ -845,18 +845,23 @@ export default function HomeScreen({
         if (customRaw) {
           const parsed: Intent[] = JSON.parse(customRaw);
           const now = Date.now();
-          // Preserve newly created user posts (within last 60 minutes) so background polls never wipe them
-          recentCustom = parsed.filter(item => {
+          // Only preserve in-flight posts created on this phone within the last 15 seconds
+          justCreatedCustom = parsed.filter(item => {
             if (!item || !item.id || deletedIds.includes(item.id)) return false;
             const createdMs = new Date(item.createdAt || 0).getTime();
-            return now - createdMs < 60 * 60 * 1000;
+            return now - createdMs < 15 * 1000;
           });
         }
       } catch (e) {
         console.warn("Deleted posts sync error:", e);
       }
 
-      const byId = new Map<string, Intent>();
+      const prevById = new Map<string, Intent>();
+      for (const p of prev) {
+        if (p && p.id && !deletedIds.includes(p.id)) {
+          prevById.set(p.id, p);
+        }
+      }
 
       const mergePostRecord = (existing: any, next: any): Intent => {
         if (!existing) return next;
@@ -882,19 +887,42 @@ export default function HomeScreen({
         };
       };
 
-      // Order from oldest fallback to freshest incoming so incoming fields win while keeping max response counts
-      for (const item of [...recentCustom, ...prev, ...incoming]) {
-        if (!item || !item.id) continue;
-        if (deletedIds.includes(item.id)) continue;
-        byId.set(item.id, mergePostRecord(byId.get(item.id), item));
+      const byId = new Map<string, Intent>();
+
+      if (isAuthoritativeServerList) {
+        // Authoritative sync from GET /api/intents: any post deleted on the server is omitted from incoming and removed from all phones
+        for (const item of justCreatedCustom) {
+          if (!item || !item.id || deletedIds.includes(item.id)) continue;
+          byId.set(item.id, mergePostRecord(prevById.get(item.id), item));
+        }
+        for (const item of incoming) {
+          if (!item || !item.id || deletedIds.includes(item.id)) continue;
+          byId.set(item.id, mergePostRecord(prevById.get(item.id), item));
+        }
+      } else {
+        // Incremental merge (e.g., SSE new_post or optimistic creation)
+        for (const item of [...justCreatedCustom, ...prev, ...incoming]) {
+          if (!item || !item.id) continue;
+          if (deletedIds.includes(item.id)) continue;
+          byId.set(item.id, mergePostRecord(byId.get(item.id), item));
+        }
       }
 
       const result: Intent[] = Array.from(byId.values());
       result.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
 
-      // Update instant offline local cache
+      // Update instant offline local cache and prune any server-deleted posts from custom cache
       try {
         localStorage.setItem('locohelp_cached_intents', JSON.stringify(result.slice(0, 50)));
+        if (isAuthoritativeServerList) {
+          const activeIds = new Set(result.map(r => r.id));
+          const customRaw = localStorage.getItem('locohelp_custom_intents');
+          if (customRaw) {
+            const parsedCustom: Intent[] = JSON.parse(customRaw);
+            const cleanedCustom = parsedCustom.filter(c => c && c.id && activeIds.has(c.id));
+            localStorage.setItem('locohelp_custom_intents', JSON.stringify(cleanedCustom));
+          }
+        }
       } catch (e) {}
 
       return result;
@@ -906,7 +934,7 @@ export default function HomeScreen({
     try {
       const serverIntents = await fetchLiveIntents();
       if (serverIntents && Array.isArray(serverIntents)) {
-        mergeAndDeduplicateIntents(serverIntents);
+        mergeAndDeduplicateIntents(serverIntents, true);
       }
     } catch (err) {
       console.warn("Live broadcast sync notice:", err);
@@ -925,7 +953,7 @@ export default function HomeScreen({
       if (stored) {
         const localItems: Intent[] = JSON.parse(stored);
         if (localItems.length > 0) {
-          mergeAndDeduplicateIntents(localItems);
+          mergeAndDeduplicateIntents(localItems, false);
         }
       }
     } catch (e) {}
@@ -936,13 +964,48 @@ export default function HomeScreen({
       syncServerBroadcasts();
     }, 4000);
 
-    // 3. Real-Time Server-Sent Events (SSE) stream for 0ms instant post & response updates without refreshing
+    // 3. Real-Time Server-Sent Events (SSE) stream for 0ms instant post, delete & response updates without refreshing
     const unsubRealtime = subscribeToRealtimeStream({
       onNewPost: (payload) => {
         const newPost = payload?.post || payload?.intent;
         if (newPost && newPost.id) {
-          mergeAndDeduplicateIntents([newPost]);
+          mergeAndDeduplicateIntents([newPost], false);
         }
+      },
+      onPostDeleted: (payload) => {
+        const deletedId = String(payload?.postId || payload?.id || '').trim();
+        if (!deletedId) return;
+
+        try {
+          const deletedIds: string[] = JSON.parse(localStorage.getItem('locohelp_deleted_posts') || '[]');
+          if (!deletedIds.includes(deletedId)) {
+            deletedIds.push(deletedId);
+            localStorage.setItem('locohelp_deleted_posts', JSON.stringify(deletedIds));
+          }
+          const storedCustom = localStorage.getItem('locohelp_custom_intents');
+          if (storedCustom) {
+            localStorage.setItem(
+              'locohelp_custom_intents',
+              JSON.stringify(JSON.parse(storedCustom).filter((i: any) => i && i.id !== deletedId))
+            );
+          }
+          const storedCached = localStorage.getItem('locohelp_cached_intents');
+          if (storedCached) {
+            localStorage.setItem(
+              'locohelp_cached_intents',
+              JSON.stringify(JSON.parse(storedCached).filter((i: any) => i && i.id !== deletedId))
+            );
+          }
+        } catch {}
+
+        setIntents((prev) => prev.filter((item) => item.id !== deletedId));
+        setSelectedIntentForResponses((curr) => {
+          if (curr && curr.id === deletedId) {
+            setIsResponsesModalOpen(false);
+            return null;
+          }
+          return curr;
+        });
       },
       onNewResponse: (payload) => {
         if (!payload?.postId) return;
@@ -1656,12 +1719,12 @@ export default function HomeScreen({
             onClick={handleSafeOpenPostSheet}
             style={{ background: 'linear-gradient(135deg, #FF8800 0%, #FF6600 100%)' }}
             className="w-full rounded-2xl p-3.5 text-white shadow-lg shadow-orange-500/25 cursor-pointer active:scale-[0.98] transition-all border-2 border-orange-300 dark:border-orange-400 hover:brightness-105 flex items-center justify-between gap-3"
-            title={language === 'EN' ? 'Create Post' : language === 'GU' ? 'પોસ્ટ કરો' : 'पोस्ट करें'}
+            title={language === 'EN' ? 'Create Post' : language === 'GU' ? 'પોસ્ટ બનાવો' : 'पोस्ट बनाएं'}
           >
             <div className="flex items-center gap-2.5">
               <span className="text-xl shrink-0">📢</span>
               <span className="text-sm sm:text-base font-black tracking-wide text-white drop-shadow-xs">
-                {language === 'EN' ? 'Create Post' : language === 'GU' ? 'પોસ્ટ કરો' : 'पोस्ट करें'}
+                {language === 'EN' ? 'Create Post' : language === 'GU' ? 'પોસ્ટ બનાવો' : 'पोस्ट बनाएं'}
               </span>
             </div>
             <div className="w-8 h-8 rounded-xl bg-white text-slate-900 flex items-center justify-center shrink-0 shadow-xs">
@@ -1803,16 +1866,6 @@ export default function HomeScreen({
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-indigo-600' : ''}`} />
                 </button>
-
-                {/* Quick + Post Broadcast Button in Header */}
-                <button
-                  type="button"
-                  onClick={handleSafeOpenPostSheet}
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-black shadow-xs active:scale-95 transition-all cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-                  <span>{language === 'EN' ? 'Post Broadcast' : language === 'GU' ? 'પોસ્ટ કરો' : 'पोस्ट करें'}</span>
-                </button>
               </div>
             </div>
 
@@ -1843,10 +1896,10 @@ export default function HomeScreen({
                 </p>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 max-w-md mx-auto">
                   {language === 'EN'
-                    ? 'Need a Plumber, Electrician, Mechanic, or Local Help right now? Broadcast your post to alert nearby people!'
+                    ? 'Need a Plumber, Electrician, Mechanic, or Local Help right now? Create a post to alert nearby people!'
                     : language === 'GU'
-                    ? 'પ્લમ્બર, ઈલેક્ટ્રિશિયન, મિકેનિક કે કોઈ મદદ જોઈએ છે? અત્યારે જ બ્રોડકાસ્ટ પોસ્ટ કરો!'
-                    : 'प्लंबर, इलेक्ट्रीशियन, मैकेनिक या किसी भी मदद के लिए अभी अपनी ब्रॉडकास्ट पोस्ट डालें!'}
+                    ? 'પ્લમ્બર, ઈલેક્ટ્રિશિયન, મિકેનિક કે કોઈ મદદ જોઈએ છે? અત્યારે જ પોસ્ટ બનાવો!'
+                    : 'प्लंबर, इलेक्ट्रीशियन, मैकेनिक या किसी भी मदद के लिए अभी अपनी पोस्ट बनाएं!'}
                 </p>
                 <button
                   type="button"
@@ -1854,7 +1907,7 @@ export default function HomeScreen({
                   className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black shadow-sm active:scale-95 transition-all cursor-pointer"
                 >
                   <Plus className="w-4 h-4" />
-                  <span>{language === 'EN' ? 'Post Broadcast Now' : language === 'GU' ? 'બ્રોડકાસ્ટ પોસ્ટ કરો' : 'अभी ब्रॉडकास्ट पोस्ट करें'}</span>
+                  <span>{language === 'EN' ? 'Create Post' : language === 'GU' ? 'પોસ્ટ બનાવો' : 'पोस्ट बनाएं'}</span>
                 </button>
               </div>
             ) : (

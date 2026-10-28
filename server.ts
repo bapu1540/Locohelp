@@ -5227,25 +5227,22 @@ async function startServer() {
         await deleteFilesFromFirebaseStorage(existingPost);
       }
 
-      // 1. PostgreSQL Delete from posts, listings, broadcast_posts, chats, messages & clean up Firebase Storage attachments
+      // 1. PostgreSQL Delete from public feed (posts, listings, broadcast_posts) & clean up post attachments
+      // NOTE: 1-on-1 conversations & messages are preserved for 7 days in users' My Chats history
       if (dbPool && isDbConnected) {
         try {
           const postRows = await dbPool.query("SELECT image_url, raw_json FROM posts WHERE id = $1", [id]).catch(() => ({ rows: [] as any[] }));
-          const msgRows = await dbPool.query("SELECT attachment_url FROM messages WHERE intent_id = $1", [id]).catch(() => ({ rows: [] as any[] }));
           await deleteFilesFromFirebaseStorage(postRows.rows);
-          await deleteFilesFromFirebaseStorage(msgRows.rows);
 
           await dbPool.query("DELETE FROM posts WHERE id = $1", [id]);
           await dbPool.query("DELETE FROM listings WHERE id = $1", [id]);
           await dbPool.query("DELETE FROM broadcast_posts WHERE id = $1", [id]);
-          await dbPool.query("DELETE FROM chats WHERE receiver_id = $1 OR sender_id = $1", [id]);
-          await dbPool.query("DELETE FROM messages WHERE intent_id = $1", [id]);
         } catch (dbErr) {
           console.warn("DB listings delete error:", dbErr);
         }
       }
 
-      // 2. Local file delete (only by exact post ID)
+      // 2. Local / in-memory cache delete from public feed
       const filtered = intents.filter(i => i.id !== id);
       writeJsonFile(INTENTS_FILE, filtered);
 
@@ -5256,8 +5253,14 @@ async function startServer() {
         writeJsonFile(DELETED_INTENTS_FILE, deletedIds);
       }
 
+      // 3. Broadcast post_deleted event immediately via SSE so all other phones remove it in 0ms without refresh
+      broadcastRealtimeEvent("post_deleted", {
+        postId: id,
+        id
+      });
+
       console.log(`[Listing Deleted Permanently] ID: ${id}`);
-      res.json({ success: true });
+      res.json({ success: true, deletedId: id });
     } catch (e) {
       res.status(500).json({ error: "Failed to delete listing" });
     }
@@ -5656,6 +5659,7 @@ async function startServer() {
                  AND last_message IS NOT NULL
                  AND TRIM(last_message) <> ''
                  AND LOWER(helper_id) <> LOWER(poster_id)
+                 AND (last_message_at IS NULL OR last_message_at >= NOW() - INTERVAL '7 days')
                ORDER BY last_message_at DESC`,
               [postId]
             );
@@ -5666,6 +5670,7 @@ async function startServer() {
                  AND last_message IS NOT NULL
                  AND TRIM(last_message) <> ''
                  AND LOWER(helper_id) <> LOWER(poster_id)
+                 AND (last_message_at IS NULL OR last_message_at >= NOW() - INTERVAL '7 days')
                ORDER BY last_message_at DESC`,
               [userIdParam]
             );
@@ -5879,6 +5884,9 @@ async function startServer() {
             const key = `${mPostId}__${hEmail || hId.toLowerCase()}`;
             const convId = String(m.conversationId || m.conversation_id || convKey || buildConversationId(mPostId, hId));
             const msgTime = m.createdAt || m.sent_at || new Date().toISOString();
+            if (Date.now() - new Date(msgTime).getTime() > 7 * 24 * 60 * 60 * 1000) {
+              continue;
+            }
             const msgText = String(m.text || m.content || "").trim() || "📷 Attachment shared";
             const isSenderHelper = sId.toLowerCase() === hId.toLowerCase();
             const existing = conversationsMap.get(key);
@@ -5977,6 +5985,37 @@ async function startServer() {
       res.json({ success: true });
     } catch {
       res.json({ success: false });
+    }
+  });
+
+  // Manual Delete Conversation by User (PostgreSQL + In-Memory)
+  app.delete("/api/chat/conversations/:id", async (req: express.Request, res: express.Response) => {
+    try {
+      const convId = sanitizeServerText(req.params.id, 150);
+      const parsed = parseConversationId(convId);
+      if (dbPool && isDbConnected) {
+        await dbPool.query("DELETE FROM conversations WHERE id = $1", [convId]).catch(() => {});
+        if (parsed) {
+          await dbPool
+            .query(
+              "DELETE FROM messages WHERE conversation_id = $1 OR ((post_id = $2 OR intent_id = $2) AND (LOWER(sender_id) = LOWER($3) OR LOWER(receiver_id) = LOWER($3)))",
+              [convId, parsed.postId, parsed.helperId]
+            )
+            .catch(() => {});
+        } else {
+          await dbPool.query("DELETE FROM messages WHERE conversation_id = $1", [convId]).catch(() => {});
+        }
+      }
+      try {
+        const allMessages = readJsonFile<Record<string, any[]>>(MESSAGES_FILE, {});
+        if (allMessages[convId]) {
+          delete allMessages[convId];
+          writeJsonFile(MESSAGES_FILE, allMessages);
+        }
+      } catch {}
+      res.json({ success: true, deletedId: convId });
+    } catch {
+      res.status(500).json({ error: "Failed to delete conversation" });
     }
   });
 

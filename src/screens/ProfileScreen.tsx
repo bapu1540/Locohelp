@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   ArrowLeft, User, Camera, MapPin, Briefcase, Award, CheckCircle2, Star, Wrench, 
   ChevronRight, Trash2, Store, Mail, CloudCheck, Sparkles, ShieldCheck, Lock, 
-  FileCheck2, ShieldAlert, Check, Building2, Phone, Tag, Upload, AlertCircle, Plus, Search, ExternalLink, Clock, Edit3, LogOut
+  FileCheck2, ShieldAlert, Check, Building2, Phone, Tag, Upload, AlertCircle, Plus, Search, ExternalLink, Clock, Edit3, LogOut, MessageSquare, RefreshCw
 } from 'lucide-react';
 import { useLanguage } from '../i18n';
 import { 
@@ -11,7 +11,7 @@ import {
 } from '../auth';
 import { isGuestUser } from '../lib/authUtils';
 import IdentityVerificationModal from '../components/IdentityVerificationModal';
-import { getVerificationStatus, submitVerification } from '../api';
+import { getVerificationStatus, submitVerification, fetchPostConversations, deleteConversationOnServer } from '../api';
 import { CATEGORIES, getCategoryName, saveFreeHelperProfile, getFreeHelperProfiles, FreeHelperProfile } from '../data/categories';
 import { RegisteredShop, SHOP_TYPES } from '../components/RegisterShopModal';
 import { applyIdWatermark } from '../lib/watermark';
@@ -22,10 +22,11 @@ import { Screen } from '../types';
 interface ProfileScreenProps {
   onBack: () => void;
   onNavigate?: (screen: Screen) => void;
+  onOpenChat?: (intent: any) => void;
   initialTab?: 'user' | 'helper' | 'business';
 }
 
-export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' }: ProfileScreenProps) {
+export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialTab = 'user' }: ProfileScreenProps) {
   const { language, t } = useLanguage();
   
   // Tab State: 'user' (Simple Profile) | 'helper' (Helper Profile) | 'business' (Business Registration)
@@ -58,6 +59,77 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
   const [closureReason, setClosureReason] = useState('');
   const [closureSubmitted, setClosureSubmitted] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // -------------------------------------------------------------
+  // 7-DAY RECENT CHATS (MY CHATS) STATE & HANDLERS
+  // -------------------------------------------------------------
+  const [recentConversations, setRecentConversations] = useState<any[]>([]);
+  const [isLoadingChats, setIsLoadingChats] = useState(false);
+  const [isDeletingChat, setIsDeletingChat] = useState(false);
+
+  const loadRecentChats = async () => {
+    const user = getCurrentUser();
+    if (!user || !user.uid || isGuestUser()) {
+      setRecentConversations([]);
+      return;
+    }
+    setIsLoadingChats(true);
+    try {
+      const list = await fetchPostConversations({ userId: user.uid, userEmail: user.email });
+      setRecentConversations(list || []);
+    } catch {
+      setRecentConversations([]);
+    } finally {
+      setIsLoadingChats(false);
+    }
+  };
+
+  useEffect(() => {
+    loadRecentChats();
+  }, [activeTab]);
+
+  const handleDeleteConversation = async (convId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm(
+      language === 'EN'
+        ? 'Are you sure you want to delete this chat permanently?'
+        : language === 'GU'
+        ? 'શું તમે ખરેખર આ ચેટ હંમેશા માટે ડિલીટ કરવા માંગો છો?'
+        : 'क्या आप वाकई इस चैट को हमेशा के लिए डिलीट करना चाहते हैं?'
+    )) {
+      return;
+    }
+    setIsDeletingChat(true);
+    try {
+      await deleteConversationOnServer(convId);
+      setRecentConversations(prev => prev.filter(c => (c.id || c.conversationId) !== convId));
+    } catch (err) {
+      console.warn("Delete conversation error:", err);
+    } finally {
+      setIsDeletingChat(false);
+    }
+  };
+
+  const handleOpenConversation = (conv: any) => {
+    if (!onOpenChat) return;
+    const user = getCurrentUser();
+    const isOwner = user?.uid && conv.posterId && String(conv.posterId).toLowerCase() === String(user.uid).toLowerCase();
+    const partnerId = isOwner ? conv.helperId : conv.posterId;
+    const partnerName = isOwner ? (conv.helperName || 'Community Helper') : (conv.posterName || 'Post Owner');
+
+    const intentPayload: any = {
+      id: conv.postId || conv.post_id || 'general',
+      title: conv.category || 'Local Request',
+      description: conv.lastMessage || 'Direct Chat',
+      category: conv.category || 'General',
+      authorId: conv.posterId || conv.poster_id || user?.uid,
+      authorName: conv.posterName || 'Post Owner',
+      selectedReplierId: partnerId,
+      selectedReplierName: partnerName,
+      conversationId: conv.id || conv.conversationId
+    };
+    onOpenChat(intentPayload);
+  };
 
   // -------------------------------------------------------------
   // TAB 2: HELPER PROFILE FORM STATES
@@ -943,6 +1015,132 @@ export default function ProfileScreen({ onBack, onNavigate, initialTab = 'user' 
                 <div className="mt-3 p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-extrabold flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
                   <span>{uploadErrorMsg}</span>
+                </div>
+              )}
+            </div>
+
+            {/* 7-DAY RECENT CHATS (MY CHATS) SECTION */}
+            <div className="bg-white dark:bg-slate-850 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-4 shadow-xs space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center text-white shadow-xs shrink-0">
+                    <MessageSquare className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <h3 className="text-xs sm:text-sm font-black text-slate-900 dark:text-white">
+                        {language === 'EN' ? 'My Chats (Last 7 Days)' : language === 'GU' ? 'મારી વાતચીત (છેલ્લા 7 દિવસ)' : 'मेरी बातचीत (पिछले 7 दिन)'}
+                      </h3>
+                      {recentConversations.length > 0 && (
+                        <span className="text-[10px] bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 font-extrabold px-2 py-0.5 rounded-full border border-indigo-200 dark:border-indigo-800">
+                          {recentConversations.length}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium leading-tight mt-0.5">
+                      {language === 'EN'
+                        ? 'Conversations auto-saved for 7 days • Delete anytime'
+                        : language === 'GU'
+                        ? 'વાતચીત 7 દિવસ માટે સુરક્ષિત • ગમે ત્યારે ડિલીટ કરી શકો છો'
+                        : 'बातचीत 7 दिनों तक सुरक्षित • जब चाहें डिलीट करें'}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={loadRecentChats}
+                  disabled={isLoadingChats}
+                  className="p-1.5 rounded-xl text-slate-500 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                  title="Refresh Chats"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingChats ? 'animate-spin text-indigo-600' : ''}`} />
+                </button>
+              </div>
+
+              {/* Chat Items List */}
+              {isLoadingChats ? (
+                <div className="py-6 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                  <span>Loading recent chats...</span>
+                </div>
+              ) : recentConversations.length === 0 ? (
+                <div className="py-5 text-center bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 p-3 space-y-1">
+                  <p className="text-xs font-bold text-slate-600 dark:text-slate-300">
+                    {language === 'EN' ? 'No chats in the last 7 days' : language === 'GU' ? 'છેલ્લા 7 દિવસમાં કોઈ વાતચીત નથી' : 'पिछले 7 दिनों में कोई बातचीत नहीं है'}
+                  </p>
+                  <p className="text-[11px] text-slate-400 dark:text-slate-500 max-w-xs mx-auto">
+                    {language === 'EN'
+                      ? 'When you chat with a helper or neighbor, your conversation will appear here for 7 days.'
+                      : language === 'GU'
+                      ? 'જ્યારે તમે કોઈ મદદગાર કે પડોશી સાથે ચેટ કરશો, તે અહીં 7 દિવસ સુધી દેખાશે.'
+                      : 'जब आप किसी हेल्पर या पड़ोसी से चैट करेंगे, तो वह 7 दिनों तक यहाँ दिखाई देगी।'}
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {recentConversations.map((conv) => {
+                    const convId = conv.id || conv.conversationId;
+                    const currentUser = getCurrentUser();
+                    const isOwner = currentUser?.uid && conv.posterId && String(conv.posterId).toLowerCase() === String(currentUser.uid).toLowerCase();
+                    const partnerName = isOwner ? (conv.helperName || 'Community Helper') : (conv.posterName || 'Post Owner');
+                    const partnerAvatar = isOwner ? conv.helperAvatar : conv.posterAvatar;
+                    const lastMsg = conv.lastMessage || conv.last_message || 'Sent a message';
+                    const lastTime = conv.lastMessageAt || conv.last_message_at || conv.updatedAt;
+                    
+                    const daysAgo = lastTime ? Math.floor((Date.now() - new Date(lastTime).getTime()) / (1000 * 60 * 60 * 24)) : 0;
+                    const daysLeft = Math.max(7 - daysAgo, 1);
+
+                    return (
+                      <div
+                        key={convId}
+                        onClick={() => handleOpenConversation(conv)}
+                        className="p-3 rounded-xl border border-slate-200 dark:border-slate-700/80 bg-slate-50/50 dark:bg-slate-900/40 hover:bg-indigo-50/40 dark:hover:bg-slate-800/60 transition-all flex items-center justify-between gap-2.5 cursor-pointer group"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                          <div className="w-9 h-9 rounded-full bg-indigo-100 dark:bg-slate-800 text-indigo-700 dark:text-indigo-300 font-black text-xs flex items-center justify-center shrink-0 border border-indigo-200 dark:border-slate-700 overflow-hidden">
+                            {partnerAvatar ? (
+                              <img src={partnerAvatar} alt={partnerName} className="w-full h-full object-cover" />
+                            ) : (
+                              partnerName.slice(0, 2).toUpperCase()
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="text-xs font-black text-slate-900 dark:text-white truncate">
+                                {partnerName}
+                              </span>
+                              <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold shrink-0 bg-amber-50 dark:bg-amber-950/60 px-1.5 py-0.5 rounded-md border border-amber-200 dark:border-amber-800">
+                                ⏳ {daysLeft} {language === 'EN' ? 'd left' : 'दिन बाकी'}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-full">
+                              {lastMsg}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenConversation(conv)}
+                            className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-black shadow-2xs active:scale-95 transition-all cursor-pointer"
+                          >
+                            {language === 'EN' ? 'Open Chat' : language === 'GU' ? 'ચેટ ખોલો' : 'चैट खोलें'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => handleDeleteConversation(convId, e)}
+                            disabled={isDeletingChat}
+                            className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer"
+                            title="Delete Chat"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
