@@ -10997,24 +10997,33 @@ async function startServer() {
     );
   });
 
-  // Browser cache headers for static assets: Cache-Control: public, max-age=86400 (1 day)
+  // Browser cache headers: never cache CSS/JS/HTML/Vite modules so style updates apply immediately on mobile
   app.use((req, res, next) => {
     const p = req.path.toLowerCase();
     if (
+      p.startsWith('/src/') ||
+      p.startsWith('/@') ||
+      p.startsWith('/node_modules/') ||
+      p.endsWith('.css') ||
+      p.endsWith('.js') ||
+      p.endsWith('.ts') ||
+      p.endsWith('.tsx') ||
+      p.endsWith('.html') ||
+      p.includes('sw.js') ||
+      p.includes('manifest.json')
+    ) {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    } else if (
       p.endsWith('.webp') ||
       p.endsWith('.png') ||
       p.endsWith('.jpg') ||
       p.endsWith('.jpeg') ||
       p.endsWith('.svg') ||
-      p.endsWith('.css') ||
-      p.endsWith('.js') ||
       p.endsWith('.woff') ||
       p.endsWith('.woff2') ||
       p.endsWith('.ico')
     ) {
-      if (!p.includes('sw.js')) {
-        res.setHeader('Cache-Control', 'public, max-age=86400');
-      }
+      res.setHeader('Cache-Control', 'public, max-age=86400');
     }
     next();
   });
@@ -11022,8 +11031,14 @@ async function startServer() {
   const staticCacheOptions = {
     maxAge: 86400000,
     setHeaders: (res: express.Response, filePath: string) => {
-      if (filePath.endsWith('.html') || filePath.endsWith('sw.js') || filePath.endsWith('manifest.json')) {
-        res.setHeader('Cache-Control', 'no-cache');
+      if (
+        filePath.endsWith('.html') ||
+        filePath.endsWith('.css') ||
+        filePath.endsWith('.js') ||
+        filePath.endsWith('sw.js') ||
+        filePath.endsWith('manifest.json')
+      ) {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
       } else {
         res.setHeader('Cache-Control', 'public, max-age=86400');
       }

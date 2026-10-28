@@ -22,7 +22,7 @@ export default function FreeHelperRegisterModal({
   onSuccess,
   defaultCategory = 'plumber',
 }: FreeHelperRegisterModalProps) {
-  const { language, t } = useLanguage();
+  const { language, t, tr } = useLanguage();
 
   const [existingProfile, setExistingProfile] = useState<FreeHelperProfile | null>(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -147,7 +147,7 @@ export default function FreeHelperRegisterModal({
     const uid = activeUser?.uid || '';
     const userEmail = (formEmail.trim() || activeUser?.email || localStorage.getItem('locohelp_last_logged_in_email') || '').toLowerCase();
     if (!userEmail || !userEmail.includes('@')) {
-      setFileError(language === 'EN' ? 'Valid Email ID is mandatory for helper profile verification.' : 'प्रोफाइल सत्यापन के लिए मान्य ईमेल आईडी अनिवार्य है।');
+      setFileError(tr('Valid Email ID is mandatory for helper profile verification.', 'प्रोफाइल सत्यापन के लिए मान्य ईमेल आईडी अनिवार्य है।', 'પ્રોફાઈલ વેરિફિકેશન માટે માન્ય ઈમેલ આઈડી ફરજિયાત છે.'));
       setIsSubmitting(false);
       return;
     }
@@ -233,7 +233,10 @@ export default function FreeHelperRegisterModal({
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
+      <div
+        className="fixed inset-x-0 bottom-0 top-[52px] z-50 flex items-center justify-center p-3 sm:p-4"
+        style={{ position: 'fixed', top: '52px', left: 0, right: 0, bottom: 0, zIndex: 5000 }}
+      >
         {/* Backdrop */}
         <motion.div 
           initial={{ opacity: 0 }} 
@@ -249,7 +252,7 @@ export default function FreeHelperRegisterModal({
           animate={{ opacity: 1, scale: 1, y: 0 }} 
           exit={{ opacity: 0, scale: 0.92, y: 12 }}
           transition={{ type: 'spring', damping: 25, stiffness: 220 }}
-          className="relative w-full max-w-md bg-white dark:bg-slate-800 rounded-3xl p-5 sm:p-6 shadow-2xl z-10 max-h-[90vh] overflow-y-auto"
+          className="relative w-full max-w-md bg-white dark:bg-slate-800 rounded-3xl p-5 sm:p-6 shadow-2xl z-10 max-h-[85vh] overflow-y-auto"
         >
           {/* Header */}
           <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-700 mb-4">
@@ -259,13 +262,13 @@ export default function FreeHelperRegisterModal({
               </div>
               <div>
                 <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-1.5">
-                  <span>{existingProfile && !isEditing ? (language === 'EN' ? 'My Service Expert Profile' : 'मेरी सर्विस एक्सपर्ट प्रोफाइल') : t('cat.modalTitle')}</span>
+                  <span>{existingProfile && !isEditing ? tr('My Service Expert Profile', 'मेरी सर्विस एक्सपर्ट प्रोफाइल', 'મારી સર્વિસ એક્સપર્ટ પ્રોફાઈલ') : t('cat.modalTitle')}</span>
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
                   {existingProfile && !isEditing
                     ? (isApproved
-                        ? (language === 'EN' ? 'Active & Approved on LocoHelp' : 'लोकोहेल्प पर सक्रिय और स्वीकृत')
-                        : (language === 'EN' ? 'Under Admin Review' : 'एडमिन समीक्षा के अधीन'))
+                        ? tr('Active & Approved on LocoHelp', 'लोकोहेल्प पर सक्रिय और स्वीकृत', 'લોકોહેલ્પ પર સક્રિય અને મંજૂર')
+                        : tr('Under Admin Review', 'एडमिन समीक्षा के अधीन', 'એડમિન સમીક્ષા હેઠળ'))
                     : t('cat.modalSub')}
                 </p>
               </div>
@@ -289,18 +292,18 @@ export default function FreeHelperRegisterModal({
                   <div>
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <h4 className="text-sm font-black text-emerald-950 dark:text-emerald-200">
-                        {language === 'GU' ? 'મંજૂર અને લાઈવ પ્રોફાઈલ' : language === 'EN' ? 'Approved & Live Profile' : 'स्वीकृत और लाइव प्रोफाइल'}
+                        {tr('Approved & Live Profile', 'स्वीकृत और लाइव प्रोफाइल', 'મંજૂર અને લાઈવ પ્રોફાઈલ')}
                       </h4>
                       <span className="text-[10px] bg-emerald-600 text-white font-extrabold px-2 py-0.5 rounded-full">
-                        ✓ Verified
+                        ✓ {tr('Verified', 'सत्यापित', 'વેરિફાઈડ')}
                       </span>
                     </div>
                     <p className="text-xs text-emerald-800 dark:text-emerald-300 font-medium mt-1">
-                      {language === 'GU'
-                        ? 'તમારી સર્વિસ એક્સપર્ટ પ્રોફાઈલ એડમિન દ્વારા મંજૂર કરવામાં આવી છે અને સર્વિસ એક્સપર્ટ્સ ડિરેક્ટરીમાં લાઈવ દેખાઈ રહી છે!'
-                        : language === 'EN'
-                        ? 'Your Service Expert profile is approved by Admin and visible to everyone in Browse Service Experts!'
-                        : 'आपकी प्रोफाइल एडमिन द्वारा स्वीकृत है और सर्विस एक्सपर्ट्स डायरेक्टरी में लाइव दिख रही है!'}
+                      {tr(
+                        'Your Service Expert profile is approved by Admin and visible to everyone in Browse Service Experts!',
+                        'आपकी प्रोफाइल एडमिन द्वारा स्वीकृत है और सर्विस एक्सपर्ट्स डायरेक्टरी में लाइव दिख रही है!',
+                        'તમારી સર્વિસ એક્સપર્ટ પ્રોફાઈલ એડમિન દ્વારા મંજૂર કરવામાં આવી છે અને સર્વિસ એક્સપર્ટ્સ ડિરેક્ટરીમાં લાઈવ દેખાઈ રહી છે!'
+                      )}
                     </p>
                   </div>
                 </div>
@@ -312,18 +315,18 @@ export default function FreeHelperRegisterModal({
                   <div>
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <h4 className="text-sm font-black text-amber-950 dark:text-amber-200">
-                        {language === 'GU' ? 'એડમિન સમીક્ષા હેઠળ (Under Admin Review)' : language === 'EN' ? 'Under Admin Review' : 'एडमिन समीक्षा के अधीन (Under Admin Review)'}
+                        {tr('Under Admin Review', 'एडमिन समीक्षा के अधीन (Under Admin Review)', 'એડમિન સમીક્ષા હેઠળ (Under Admin Review)')}
                       </h4>
                       <span className="text-[10px] bg-amber-500 text-white font-extrabold px-2 py-0.5 rounded-full">
-                        ⏳ Pending Approval
+                        ⏳ {tr('Pending Approval', 'अप्रूवल पेंडिंग', 'મંજૂરી પેન્ડિંગ')}
                       </span>
                     </div>
                     <p className="text-xs text-amber-800 dark:text-amber-300 font-medium mt-1">
-                      {language === 'GU'
-                        ? 'તમે પ્રોફાઈલ બનાવી લીધી છે અને તે હાલમાં એડમિન મંજૂરી માટે પેન્ડિંગ છે. મંજૂર થતાં જ તે પબ્લિક યાદીમાં દેખાશે.'
-                        : language === 'EN'
-                        ? 'Your profile has already been created and is currently Under Admin Review. Once approved by Admin, it will be visible in the public directory.'
-                        : 'आपने पहले से प्रोफाइल बना ली है और यह अभी एडमिन अप्रूवल के लिए पेंडिंग है। अप्रूव होते ही यह पब्लिक लिस्ट में दिखेगी।'}
+                      {tr(
+                        'Your profile has already been created and is currently Under Admin Review. Once approved by Admin, it will be visible in the public directory.',
+                        'आपने पहले से प्रोफाइल बना ली है और यह अभी एडमिन अप्रूवल के लिए पेंडिंग है। अप्रूव होते ही यह पब्लिक लिस्ट में दिखेगी।',
+                        'તમે પ્રોફાઈલ બનાવી લીધી છે અને તે હાલમાં એડમિન મંજૂરી માટે પેન્ડિંગ છે. મંજૂર થતાં જ તે પબ્લિક યાદીમાં દેખાશે.'
+                      )}
                     </p>
                   </div>
                 </div>
@@ -357,7 +360,7 @@ export default function FreeHelperRegisterModal({
 
                 <div>
                   <span className="text-[11px] font-bold text-slate-400 uppercase block mb-1">
-                    {language === 'EN' ? 'Skills & Work Details' : 'कौशल और कार्य विवरण'}
+                    {tr('Skills & Work Details', 'कौशल और कार्य विवरण', 'કૌશલ્ય અને કામની વિગતો')}
                   </span>
                   <div className="flex flex-wrap gap-1.5">
                     {(Array.isArray(existingProfile.skills) ? existingProfile.skills : []).map((skill, idx) => (
@@ -379,7 +382,7 @@ export default function FreeHelperRegisterModal({
                   onClick={onClose}
                   className="flex-1 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 text-slate-700 dark:text-slate-200 py-3 rounded-xl font-bold text-xs cursor-pointer transition-all"
                 >
-                  {language === 'EN' ? 'Close' : 'बंद करें'}
+                  {tr('Close', 'बंद करें', 'બંધ કરો')}
                 </button>
                 <button
                   type="button"
@@ -387,7 +390,7 @@ export default function FreeHelperRegisterModal({
                   className="flex-[2] bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-xl font-black text-xs shadow-md flex items-center justify-center gap-1.5 cursor-pointer transition-all"
                 >
                   <Edit3 className="w-4 h-4" />
-                  <span>{language === 'EN' ? 'Edit / Update Profile' : 'प्रोफाइल एडिट / अपडेट करें'}</span>
+                  <span>{tr('Edit / Update Profile', 'प्रोफाइल एडिट / अपडेट करें', 'પ્રોફાઈલ એડિટ / અપડેટ કરો')}</span>
                 </button>
               </div>
             </div>
@@ -440,12 +443,12 @@ export default function FreeHelperRegisterModal({
                 {formCategory === 'other' && (
                   <div className="mt-2.5">
                     <label className="block text-[11px] font-extrabold text-emerald-700 dark:text-emerald-400 mb-1">
-                      {language === 'EN' ? 'Enter Your Custom Category / Work / Skill *' : 'अपनी खुद की केटेगरी / कार्य / हुनर का नाम लिखें *'}
+                      {tr('Enter Your Custom Category / Work / Skill *', 'अपनी खुद की केटेगरी / कार्य / हुनर का नाम लिखें *', 'તમારી પોતાની કેટેગરી / કામ / કૌશલ્યનું નામ લખો *')}
                     </label>
                     <input
                       type="text"
                       required
-                      placeholder={language === 'EN' ? 'e.g. Solar Installer, Tax Consultant, Mehndi Artist, Hospital' : 'उदा. सोलर इंस्टॉलर, टैक्स सलाहकार, मेहंदी आर्टिस्ट'}
+                      placeholder={tr('e.g. Solar Installer, Tax Consultant, Mehndi Artist, Hospital', 'उदा. सोलर इंस्टॉलर, टैक्स सलाहकार, मेहंदी आर्टिस्ट', 'દા.ત. સોલાર ઇન્સ્ટોલર, ટેક્સ સલાહકાર, મહેંદી આર્ટિસ્ટ')}
                       value={customCategoryName}
                       onChange={(e) => setCustomCategoryName(e.target.value)}
                       className="w-full bg-emerald-50/60 dark:bg-slate-900 border-2 border-emerald-400 dark:border-emerald-600 rounded-xl px-3.5 py-2 text-xs font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
@@ -458,7 +461,7 @@ export default function FreeHelperRegisterModal({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {language === 'EN' ? 'Verified Email ID *' : 'सत्यापित ईमेल आईडी *'}
+                    {tr('Verified Email ID *', 'सत्यापित ईमेल आईडी *', 'વેરિફાઈડ ઈમેલ આઈડી *')}
                   </label>
                   <input 
                     type="email" 
@@ -508,12 +511,12 @@ export default function FreeHelperRegisterModal({
                   onChange={(e) => setFormExp(e.target.value)}
                   className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none font-medium"
                 >
-                  <option value="6 Months">6 Months</option>
-                  <option value="1 Year">1 Year</option>
-                  <option value="2 Years">2 Years</option>
-                  <option value="3-5 Years">3 - 5 Years</option>
-                  <option value="5-10 Years">5 - 10 Years</option>
-                  <option value="10+ Years">10+ Years</option>
+                  <option value="6 Months">{tr('6 Months', '6 महीने', '6 મહિના')}</option>
+                  <option value="1 Year">{tr('1 Year', '1 साल', '1 વર્ષ')}</option>
+                  <option value="2 Years">{tr('2 Years', '2 साल', '2 વર્ષ')}</option>
+                  <option value="3-5 Years">{tr('3 - 5 Years', '3 - 5 साल', '3 - 5 વર્ષ')}</option>
+                  <option value="5-10 Years">{tr('5 - 10 Years', '5 - 10 साल', '5 - 10 વર્ષ')}</option>
+                  <option value="10+ Years">{tr('10+ Years', '10+ साल', '10+ વર્ષ')}</option>
                 </select>
               </div>
 
@@ -534,8 +537,8 @@ export default function FreeHelperRegisterModal({
               {/* Profile / Work Photo Upload (Max 2MB) */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1 flex items-center justify-between">
-                  <span>{language === 'EN' ? 'Profile / Work Photo (JPG/PNG/WebP max 2MB)' : 'प्रोफाइल / काम की फोटो (अधिकतम 2MB)'}</span>
-                  <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">Recommended 📸</span>
+                  <span>{tr('Profile / Work Photo (JPG/PNG/WebP max 2MB)', 'प्रोफाइल / काम की फोटो (अधिकतम 2MB)', 'પ્રોફાઈલ / કામનો ફોટો (મહત્તમ 2MB)')}</span>
+                  <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">{tr('Recommended 📸', 'सुझाया गया 📸', 'ભલામણ કરેલ 📸')}</span>
                 </label>
                 <div className="flex items-center gap-3">
                   {formPhotoUrl && (
@@ -556,7 +559,7 @@ export default function FreeHelperRegisterModal({
                       if (file) {
                         const check = await validateUploadedFile(file, { allowPdf: false });
                         if (!check.valid) {
-                          setFileError(language === 'EN' ? (check.error || 'Invalid image (Max 2MB)') : (check.errorHi || check.error || 'अमान्य फोटो (अधिकतम 2MB)'));
+                          setFileError(tr(check.error || 'Invalid image (Max 2MB)', check.errorHi || check.error || 'अमान्य फोटो (अधिकतम 2MB)', 'અમાન્ય ફોટો (મહત્તમ 2MB)'));
                           e.target.value = '';
                           return;
                         }
@@ -580,8 +583,8 @@ export default function FreeHelperRegisterModal({
               {/* Verify Identity Document (Optional) */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1 flex items-center justify-between">
-                  <span>Government ID (JPG/PNG/WebP max 2MB or PDF max 5MB - Optional)</span>
-                  <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">Priority Badge ⭐</span>
+                  <span>{tr('Government ID (JPG/PNG/WebP max 2MB or PDF max 5MB - Optional)', 'सरकारी आईडी (अधिकतम 2MB इमेज या 5MB PDF - वैकल्पिक)', 'સરકારી આઈડી (મહત્તમ 2MB ફોટો અથવા 5MB PDF - વૈકલ્પિક)')}</span>
+                  <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">{tr('Priority Badge ⭐', 'प्रायोरिटी बैज ⭐', 'પ્રાયોરિટી બેજ ⭐')}</span>
                 </label>
                 <input 
                   type="file" 
@@ -592,7 +595,7 @@ export default function FreeHelperRegisterModal({
                     if (file) {
                       const check = await validateUploadedFile(file, { allowPdf: true });
                       if (!check.valid) {
-                        setFileError(language === 'EN' ? (check.error || 'Invalid file') : (check.errorHi || check.error || 'अमान्य फ़ाइल'));
+                        setFileError(tr(check.error || 'Invalid file', check.errorHi || check.error || 'अमान्य फ़ाइल', 'અમાન્ય ફાઈલ'));
                         setFormIdDoc(null);
                         e.target.value = '';
                         return;
@@ -621,7 +624,7 @@ export default function FreeHelperRegisterModal({
                 )}
                 {formIdDoc && !fileError && (
                   <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold mt-1 flex items-center gap-1">
-                    <CheckCircle2 className="w-3 h-3" /> Security Watermark Applied (&ldquo;FOR LOCOHELP VERIFICATION ONLY&rdquo;) &amp; Encrypted!
+                    <CheckCircle2 className="w-3 h-3" /> {tr('Security Watermark Applied ("FOR LOCOHELP VERIFICATION ONLY") & Encrypted!', 'सुरक्षा वॉटरमार्क लगाया गया और एन्क्रिप्ट किया गया!', 'સુરક્ષા વોટરમાર્ક લગાવવામાં આવ્યું અને એન્ક્રિપ્ટ થયું!')}
                   </p>
                 )}
               </div>
@@ -658,7 +661,7 @@ export default function FreeHelperRegisterModal({
                   className="flex-[2] bg-emerald-600 hover:bg-emerald-700 text-white py-3 rounded-xl font-black text-xs shadow-md shadow-emerald-600/20 active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>{existingProfile ? (language === 'EN' ? 'Update Profile' : 'प्रोफाइल अपडेट करें') : t('cat.saveProfile')}</span>
+                  <span>{existingProfile ? tr('Update Profile', 'प्रोफाइल अपडेट करें', 'પ્રોફાઈલ અપડેટ કરો') : t('cat.saveProfile')}</span>
                 </button>
               </div>
             </form>

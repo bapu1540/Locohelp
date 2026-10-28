@@ -31,12 +31,12 @@ interface IdentityVerificationModalProps {
 }
 
 const DOCUMENT_TYPES = [
-  { id: 'aadhaar', labelEn: 'Aadhaar Card (Front/Both)', labelHi: 'आधार कार्ड (सामने / दोनों तरफ)' },
-  { id: 'pan', labelEn: 'PAN Card', labelHi: 'पैन कार्ड (PAN Card)' },
-  { id: 'voter_id', labelEn: 'Voter ID Card', labelHi: 'मतदाता पहचान पत्र (Voter ID)' },
-  { id: 'driving_license', labelEn: 'Driving License', labelHi: 'ड्राइविंग लाइसेंस (DL)' },
-  { id: 'business_license', labelEn: 'Trade / GST / MSME License', labelHi: 'ट्रेड / जीएसटी / एमएसएमई लाइसेंस' },
-  { id: 'other_govt_id', labelEn: 'Other Government Issued ID', labelHi: 'अन्य सरकारी पहचान पत्र' },
+  { id: 'aadhaar', labelEn: 'Aadhaar Card (Front/Both)', labelHi: 'आधार कार्ड (सामने / दोनों तरफ)', labelGu: 'આધાર કાર્ડ (આગળ / બંને બાજુ)' },
+  { id: 'pan', labelEn: 'PAN Card', labelHi: 'पैन कार्ड (PAN Card)', labelGu: 'પાન કાર્ડ (PAN Card)' },
+  { id: 'voter_id', labelEn: 'Voter ID Card', labelHi: 'मतदाता पहचान पत्र (Voter ID)', labelGu: 'ચૂંટણી કાર્ડ (Voter ID)' },
+  { id: 'driving_license', labelEn: 'Driving License', labelHi: 'ड्राइविंग लाइसेंस (DL)', labelGu: 'ડ્રાઇવિંગ લાઇસન્સ (DL)' },
+  { id: 'business_license', labelEn: 'Trade / GST / MSME License', labelHi: 'ट्रेड / जीएसटी / एमएसएमई लाइसेंस', labelGu: 'ટ્રેડ / GST / MSME લાઇસન્સ' },
+  { id: 'other_govt_id', labelEn: 'Other Government Issued ID', labelHi: 'अन्य सरकारी पहचान पत्र', labelGu: 'અન્ય સરકારી ઓળખપત્ર' },
 ];
 
 export default function IdentityVerificationModal({
@@ -47,7 +47,7 @@ export default function IdentityVerificationModal({
   entityName,
   onVerificationSubmitted
 }: IdentityVerificationModalProps) {
-  const { language } = useLanguage();
+  const { language, tr } = useLanguage();
   const activeUser = getCurrentUser();
 
   const [docType, setDocType] = useState('aadhaar');
@@ -71,7 +71,7 @@ export default function IdentityVerificationModal({
 
     const validation = await validateUploadedFile(file, { allowPdf: true });
     if (!validation.valid) {
-      setErrorMessage(language === 'EN' ? (validation.error || 'Invalid file') : (validation.errorHi || validation.error || 'अमान्य फ़ाइल'));
+      setErrorMessage(tr(validation.error || 'Invalid file', validation.errorHi || validation.error || 'अमान्य फ़ाइल', validation.error || 'અમાન્ય ફાઇલ'));
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
@@ -92,7 +92,7 @@ export default function IdentityVerificationModal({
       setWatermarkedPreview(watermarked);
     } catch (err: any) {
       console.error("Watermarking error:", err);
-      setErrorMessage(err?.message || (language === 'EN' ? 'Failed to process document file.' : 'दस्तावेज़ प्रोसेस करने में विफल।'));
+      setErrorMessage(err?.message || tr('Failed to process document file.', 'दस्तावेज़ प्रोसेस करने में विफल।', 'દસ્તાવેજ પ્રોસેસ કરવામાં નિષ્ફળ.'));
     } finally {
       setIsWatermarking(false);
     }
@@ -100,7 +100,7 @@ export default function IdentityVerificationModal({
 
   const handleSubmit = async () => {
     if (!watermarkedPreview) {
-      setErrorMessage(language === 'EN' ? 'Please select an ID document to upload.' : 'कृपया अपलोड करने के लिए पहचान पत्र चुनें।');
+      setErrorMessage(tr('Please select an ID document to upload.', 'कृपया अपलोड करने के लिए पहचान पत्र चुनें।', 'કૃપા કરીને અપલોડ કરવા માટે ઓળખપત્ર પસંદ કરો.'));
       return;
     }
 
@@ -109,7 +109,7 @@ export default function IdentityVerificationModal({
 
     try {
       const selectedDocObj = DOCUMENT_TYPES.find(d => d.id === docType);
-      const docTitle = selectedDocObj ? (language === 'EN' ? selectedDocObj.labelEn : selectedDocObj.labelHi) : 'Identity Document';
+      const docTitle = selectedDocObj ? tr(selectedDocObj.labelEn, selectedDocObj.labelHi, selectedDocObj.labelGu) : 'Identity Document';
 
       const res = await submitVerification({
         entityType,
@@ -128,7 +128,7 @@ export default function IdentityVerificationModal({
           onVerificationSubmitted('pending');
         }
       } else {
-        setErrorMessage(res.error || (language === 'EN' ? 'Verification submission failed.' : 'सत्यापन अनुरोध सबमिट करने में विफल।'));
+        setErrorMessage(res.error || tr('Verification submission failed.', 'सत्यापन अनुरोध सबमिट करने में विफल।', 'વેરિફિકેશન સબમિટ કરવામાં નિષ્ફળ.'));
       }
     } catch (err: any) {
       setErrorMessage(err.message || 'Network error occurred');
@@ -147,7 +147,10 @@ export default function IdentityVerificationModal({
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
+      <div
+        className="fixed inset-x-0 bottom-0 top-[52px] z-50 flex items-center justify-center p-3 bg-slate-950/80 backdrop-blur-sm overflow-y-auto"
+        style={{ position: 'fixed', top: '52px', left: 0, right: 0, bottom: 0, zIndex: 5000 }}
+      >
         <motion.div
           initial={{ opacity: 0, scale: 0.95, y: 15 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -163,11 +166,11 @@ export default function IdentityVerificationModal({
               <div>
                 <h3 className="font-extrabold text-base text-slate-900 dark:text-white leading-tight">
                   {entityType === 'business'
-                    ? (language === 'EN' ? 'Business Identity Verification' : 'बिज़नेस पहचान सत्यापन')
-                    : (language === 'EN' ? 'User Profile Verification' : 'यूज़र प्रोफाइल सत्यापन')}
+                    ? tr('Business Identity Verification', 'बिज़नेस पहचान सत्यापन', 'બિઝનેસ ઓળખ વેરિફિકેશન')
+                    : tr('User Profile Verification', 'यूज़र प्रोफाइल सत्यापन', 'યુઝર પ્રોફાઇલ વેરિફિકેશન')}
                 </h3>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
-                  {language === 'EN' ? 'Upload ID for Official Verified Badge' : 'वेरिफाइड बैज पाने के लिए पहचान पत्र अपलोड करें'}
+                  {tr('Upload ID for Official Verified Badge', 'वेरिफाइड बैज पाने के लिए पहचान पत्र अपलोड करें', 'વેરિફાઈડ બેજ મેળવવા માટે ઓળખપત્ર અપલોડ કરો')}
                 </p>
               </div>
             </div>
@@ -188,17 +191,19 @@ export default function IdentityVerificationModal({
                   <CheckCircle2 className="w-10 h-10" />
                 </div>
                 <h4 className="text-lg font-black text-slate-900 dark:text-white">
-                  {language === 'EN' ? 'ID Document Submitted Successfully!' : 'पहचान पत्र सफलतापूर्वक सबमिट हुआ!'}
+                  {tr('ID Document Submitted Successfully!', 'पहचान पत्र सफलतापूर्वक सबमिट हुआ!', 'ઓળખપત્ર સફળતાપૂર્વક સબમિટ થયું!')}
                 </h4>
                 <div className="bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-900 rounded-2xl p-4 text-xs text-amber-900 dark:text-amber-200 text-left space-y-1.5">
                   <div className="flex items-center gap-1.5 font-bold">
                     <Sparkles className="w-4 h-4 text-amber-600 shrink-0" />
-                    <span>{language === 'EN' ? 'In Admin Approval Queue' : 'एडमिन अप्रूवल कतार में'}</span>
+                    <span>{tr('In Admin Approval Queue', 'एडमिन अप्रूवल कतार में', 'એડમિન મંજૂરી કતારમાં')}</span>
                   </div>
                   <p className="leading-relaxed">
-                    {language === 'EN'
-                      ? 'Your document has been auto-watermarked and securely submitted. Once the Admin reviews and approves it, your profile/business will display the official Verified badge!'
-                      : 'आपके दस्तावेज़ पर सुरक्षा वाटरमार्क लगा दिया गया है। एडमिन द्वारा सत्यापित करते ही आपकी प्रोफ़ाइल पर ग्रीन वेरिफाइड बैज दिखना शुरू हो जाएगा!'}
+                    {tr(
+                      'Your document has been auto-watermarked and securely submitted. Once the Admin reviews and approves it, your profile/business will display the official Verified badge!',
+                      'आपके दस्तावेज़ पर सुरक्षा वाटरमार्क लगा दिया गया है। एडमिन द्वारा सत्यापित करते ही आपकी प्रोफ़ाइल पर ग्रीन वेरिफाइड बैज दिखना शुरू हो जाएगा!',
+                      'તમારા દસ્તાવેજ પર સુરક્ષા વોટરમાર્ક લગાવીને સુરક્ષિત રીતે સબમિટ કરવામાં આવ્યું છે. એડમિન દ્વારા ચકાસણી અને મંજૂરી મળતાં જ તમારી પ્રોફાઇલ પર વેરિફાઈડ બેજ દેખાશે!'
+                    )}
                   </p>
                 </div>
 
@@ -207,7 +212,7 @@ export default function IdentityVerificationModal({
                     onClick={onClose}
                     className="w-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold py-3 rounded-xl shadow-md cursor-pointer hover:opacity-90"
                   >
-                    {language === 'EN' ? 'Done' : 'पूर्ण'}
+                    {tr('Done', 'पूर्ण', 'પૂર્ણ')}
                   </button>
                 </div>
               </div>
@@ -218,12 +223,14 @@ export default function IdentityVerificationModal({
                   <Lock className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5" />
                   <div className="text-xs space-y-1">
                     <p className="font-extrabold text-indigo-950 dark:text-indigo-200">
-                      {language === 'EN' ? 'Strict Privacy & Admin-Only Visibility' : 'सख्त प्राइवेसी एवं केवल एडमिन दृश्यता'}
+                      {tr('Strict Privacy & Admin-Only Visibility', 'सख्त प्राइवेसी एवं केवल एडमिन दृश्यता', 'કડક પ્રાઈવસી અને માત્ર એડમિન માટે જ દૃશ્યમાન')}
                     </p>
                     <p className="text-slate-600 dark:text-slate-400 leading-relaxed text-[11px]">
-                      {language === 'EN'
-                        ? 'Your uploaded ID document is NEVER shown to the public or other users. It is strictly accessible only to LocoHelp Administrators for verification.'
-                        : 'अपलोड किया गया पहचान पत्र जनता या अन्य यूज़र्स को कभी नहीं दिखेगा। यह सिर्फ और सिर्फ एडमिन सत्यापन के लिए सुरक्षित है।'}
+                      {tr(
+                        'Your uploaded ID document is NEVER shown to the public or other users. It is strictly accessible only to LocoHelp Administrators for verification.',
+                        'अपलोड किया गया पहचान पत्र जनता या अन्य यूज़र्स को कभी नहीं दिखेगा। यह सिर्फ और सिर्फ एडमिन सत्यापन के लिए सुरक्षित है।',
+                        'અપલોડ કરેલું ઓળખપત્ર ક્યારેય જાહેરમાં કે અન્ય યુઝર્સને બતાવવામાં આવતું નથી. તે માત્ર એડમિન ચકાસણી માટે જ સુરક્ષિત છે.'
+                      )}
                     </p>
                   </div>
                 </div>
@@ -231,7 +238,7 @@ export default function IdentityVerificationModal({
                 {/* Form: Document Type Selector */}
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                    {language === 'EN' ? 'Select ID Document Type:' : 'पहचान पत्र का प्रकार चुनें:'}
+                    {tr('Select ID Document Type:', 'पहचान पत्र का प्रकार चुनें:', 'ઓળખપત્રનો પ્રકાર પસંદ કરો:')}
                   </label>
                   <select
                     value={docType}
@@ -240,7 +247,7 @@ export default function IdentityVerificationModal({
                   >
                     {DOCUMENT_TYPES.map(doc => (
                       <option key={doc.id} value={doc.id}>
-                        {language === 'EN' ? doc.labelEn : doc.labelHi}
+                        {tr(doc.labelEn, doc.labelHi, doc.labelGu)}
                       </option>
                     ))}
                   </select>
@@ -249,9 +256,9 @@ export default function IdentityVerificationModal({
                 {/* Upload & Watermark Area */}
                 <div className="space-y-2">
                   <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between">
-                    <span>{language === 'EN' ? 'Upload ID Card Photo:' : 'पहचान पत्र की फ़ोटो चुनें:'}</span>
+                    <span>{tr('Upload ID Card Photo:', 'पहचान पत्र की फ़ोटो चुनें:', 'ઓળખપત્રનો ફોટો પસંદ કરો:')}</span>
                     <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-900">
-                      🛡️ {language === 'EN' ? 'Auto-Watermarked' : 'ऑटो-वाटरमार्क'}
+                      🛡️ {tr('Auto-Watermarked', 'ऑटो-वाटरमार्क', 'ઓટો-વોટરમાર્ક')}
                     </span>
                   </label>
 
@@ -281,8 +288,8 @@ export default function IdentityVerificationModal({
                       <div>
                         <p className="text-xs font-bold text-slate-800 dark:text-slate-200">
                           {isWatermarking
-                            ? (language === 'EN' ? 'Validating & Watermarking...' : 'सत्यापित और वाटरमार्क किया जा रहा है...')
-                            : (language === 'EN' ? 'Click to Upload Document (Image or PDF)' : 'दस्तावेज़ अपलोड करने के लिए क्लिक करें (इमेज या PDF)')}
+                            ? tr('Validating & Watermarking...', 'सत्यापित और वाटरमार्क किया जा रहा है...', 'ચકાસણી અને વોટરમાર્ક થઈ રહ્યું છે...')
+                            : tr('Click to Upload Document (Image or PDF)', 'दस्तावेज़ अपलोड करने के लिए क्लिक करें (इमेज या PDF)', 'દસ્તાવેજ અપલોડ કરવા માટે ક્લિક કરો (ફોટો અથવા PDF)')}
                         </p>
                         <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
                           JPG, PNG, WEBP (Max 2MB) • PDF (Max 5MB)
@@ -310,7 +317,7 @@ export default function IdentityVerificationModal({
                         )}
                         <div className="absolute top-2 left-2 bg-emerald-600/90 text-white text-[10px] font-black px-2 py-0.5 rounded-md flex items-center gap-1 shadow-sm backdrop-blur-xs">
                           <CheckCircle2 className="w-3 h-3" />
-                          <span>{language === 'EN' ? 'Verified & Protected' : 'सत्यापित एवं सुरक्षित'}</span>
+                          <span>{tr('Verified & Protected', 'सत्यापित एवं सुरक्षित', 'પ્રમાણિત અને સુરક્ષિત')}</span>
                         </div>
                         <button
                           type="button"
@@ -325,9 +332,11 @@ export default function IdentityVerificationModal({
                       <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 rounded-xl p-2.5 text-xs text-emerald-800 dark:text-emerald-300 font-medium flex items-center gap-2">
                         <FileCheck2 className="w-4 h-4 text-emerald-600 shrink-0" />
                         <span>
-                          {language === 'EN'
-                            ? 'Watermark "FOR LOCOHELP VERIFICATION ONLY" is embedded permanently into the image.'
-                            : 'वाटरमार्क "FOR LOCOHELP VERIFICATION ONLY" इस इमेज पर स्थायी रूप से लगा दिया गया है।'}
+                          {tr(
+                            'Watermark "FOR LOCOHELP VERIFICATION ONLY" is embedded permanently into the image.',
+                            'वाटरमार्क "FOR LOCOHELP VERIFICATION ONLY" इस इमेज पर स्थायी रूप से लगा दिया गया है।',
+                            'વોટરમાર્ક "FOR LOCOHELP VERIFICATION ONLY" આ ફોટા પર કાયમી ધોરણે લગાવી દેવામાં આવ્યો છે.'
+                          )}
                         </span>
                       </div>
                     </div>
@@ -353,15 +362,17 @@ export default function IdentityVerificationModal({
                     {isSubmitting ? (
                       <>
                         <RefreshCw className="w-4 h-4 animate-spin" />
-                        <span>{language === 'EN' ? 'Submitting to Admin Queue...' : 'एडमिन कतार में सबमिट हो रहा है...'}</span>
+                        <span>{tr('Submitting to Admin Queue...', 'एडमिन कतार में सबमिट हो रहा है...', 'એડમિન કતારમાં સબમિટ થઈ રહ્યું છે...')}</span>
                       </>
                     ) : (
                       <>
                         <ShieldCheck className="w-5 h-5" />
                         <span>
-                          {language === 'EN'
-                            ? 'Submit for Admin Verification'
-                            : 'एडमिन सत्यापन के लिए सबमिट करें'}
+                          {tr(
+                            'Submit for Admin Verification',
+                            'एडमिन सत्यापन के लिए सबमिट करें',
+                            'એડમિન વેરિફિકેશન માટે સબમિટ કરો'
+                          )}
                         </span>
                       </>
                     )}

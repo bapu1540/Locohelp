@@ -36,7 +36,7 @@ interface ChatScreenProps {
 }
 
 export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps) {
-  const { t } = useLanguage();
+  const { t, tr } = useLanguage();
   const chatId = intent?.id || 'chat_community_helper';
   const currentUser = getCurrentUser();
 
@@ -1277,12 +1277,15 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
       {/* Direct Chat Report & Block Modal */}
       <AnimatePresence>
         {isReportChatModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <div
+            className="fixed inset-x-0 bottom-0 top-[52px] z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm"
+            style={{ position: 'fixed', top: '52px', left: 0, right: 0, bottom: 0, zIndex: 5000 }}
+          >
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 15 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 w-full max-w-md shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto"
+              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 w-full max-w-md shadow-2xl space-y-4 max-h-[85vh] overflow-y-auto"
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-center gap-2.5">
@@ -1291,10 +1294,10 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
                   </div>
                   <div>
                     <h3 className="text-sm sm:text-base font-black text-slate-900 dark:text-white">
-                      चैट की रिपोर्ट करें (Report Chat to Admin)
+                      {tr('Report Chat to Admin', 'चैट की रिपोर्ट करें (Report Chat to Admin)', 'ચેટની એડમિનને રિપોર્ટ કરો')}
                     </h3>
                     <p className="text-[11px] text-rose-600 dark:text-rose-400 font-bold">
-                      Reported User: {peerName}
+                      {tr('Reported User:', 'रिपोर्ट किया गया यूज़र:', 'રિપોર્ટ કરેલ યુઝર:')} {peerName}
                     </p>
                   </div>
                 </div>
@@ -1309,7 +1312,7 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
 
               <div className="space-y-2">
                 <label className="text-[11px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 block">
-                  रिपोर्ट का कारण चुनें (Select Reason):
+                  {tr('Select Reason:', 'रिपोर्ट का कारण चुनें (Select Reason):', 'રિપોર્ટનું કારણ પસંદ કરો:')}
                 </label>
                 {CHAT_REPORT_REASONS.map((reason) => (
                   <label
@@ -1337,7 +1340,7 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
                 value={reportDetails}
                 onChange={(e) => setReportDetails(e.target.value)}
                 rows={2}
-                placeholder="अतिरिक्त विवरण लिखें (वैकल्पिक / Optional details)..."
+                placeholder={tr('Write additional details (Optional)...', 'अतिरिक्त विवरण लिखें (वैकल्पिक / Optional details)...', 'વધારાની વિગતો લખો (વૈકલ્પિક)...')}
                 className="w-full rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 outline-none focus:border-rose-500 resize-none font-medium"
               />
 
@@ -1350,16 +1353,21 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
                 />
                 <div className="text-xs">
                   <span className="font-black text-rose-900 dark:text-rose-200 block">
-                    🚫 इस यूज़र को ब्लॉक भी करें (Also block this user)
+                    {tr('🚫 Also block this user', '🚫 इस यूज़र को ब्लॉक भी करें (Also block this user)', '🚫 આ યુઝરને બ્લોક પણ કરો')}
                   </span>
                   <span className="text-[10px] text-rose-700 dark:text-rose-300 font-medium">
-                    ब्लॉक करने पर यह यूज़र आपको आगे कोई संदेश नहीं भेज पाएगा।
+                    {tr('Once blocked, this user will not be able to send you messages.', 'ब्लॉक करने पर यह यूज़र आपको आगे कोई संदेश नहीं भेज पाएगा।', 'બ્લોક કર્યા પછી આ યુઝર તમને આગળ કોઈ મેસેજ મોકલી શકશે નહીં.')}
                   </span>
                 </div>
               </label>
 
               <div className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800/80 text-[10px] text-slate-600 dark:text-slate-300 font-semibold leading-relaxed">
-                🛡️ <strong>सुरक्षा नोट:</strong> रिपोर्ट सबमिट करने पर इस चैट की संपूर्ण बातचीत का रिकॉर्ड (Evidence Snapshot) एडमिन के पास सुरक्षित सेव हो जाएगा, भले ही कोई यूज़र बाद में अपनी चैट या अकाउंट डिलीट कर दे।
+                🛡️ <strong>{tr('Safety Note:', 'सुरक्षा नोट:', 'સુરક્ષા નોંધ:')}</strong>{' '}
+                {tr(
+                  'Upon submitting a report, an evidence snapshot of this conversation is securely saved for Admin review.',
+                  'रिपोर्ट सबमिट करने पर इस चैट की संपूर्ण बातचीत का रिकॉर्ड (Evidence Snapshot) एडमिन के पास सुरक्षित सेव हो जाएगा, भले ही कोई यूज़र बाद में अपनी चैट या अकाउंट डिलीट कर दे।',
+                  'રિપોર્ટ સબમિટ કરવાથી આ ચેટનો સંપૂર્ણ રેકોર્ડ એડમિન પાસે સુરક્ષિત સેવ થઈ જશે.'
+                )}
               </div>
 
               <div className="flex gap-2">
@@ -1368,7 +1376,7 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
                   onClick={() => setIsReportChatModalOpen(false)}
                   className="flex-1 py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-extrabold cursor-pointer"
                 >
-                  रद्द करें (Cancel)
+                  {tr('Cancel', 'रद्द करें (Cancel)', 'રદ કરો')}
                 </button>
                 <button
                   type="button"
@@ -1377,7 +1385,7 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
                   className="flex-1 py-3 rounded-2xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-black shadow-lg shadow-rose-600/25 flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
                 >
                   <ShieldAlert className="w-4 h-4" />
-                  <span>{isSubmittingReport ? 'भेजा जा रहा है...' : 'रिपोर्ट सबमिट करें'}</span>
+                  <span>{isSubmittingReport ? tr('Sending...', 'भेजा जा रहा है...', 'મોકલાઈ રહ્યું છે...') : tr('Submit Report', 'रिपोर्ट सबमिट करें', 'રિપોર્ટ સબમિટ કરો')}</span>
                 </button>
               </div>
             </motion.div>
@@ -1388,7 +1396,10 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
       {/* Photo Preview & Camera Capture Modal */}
       <AnimatePresence>
         {isCameraOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md">
+          <div
+            className="fixed inset-x-0 bottom-0 top-[52px] z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md"
+            style={{ position: 'fixed', top: '52px', left: 0, right: 0, bottom: 0, zIndex: 5000 }}
+          >
             <motion.div 
               initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
               className="bg-slate-900 border border-slate-700 text-white rounded-3xl p-5 w-full max-w-sm shadow-2xl flex flex-col items-center relative"
@@ -1398,7 +1409,9 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
               </button>
 
               <h3 className="text-sm font-black mb-3">
-                {photoCaptured ? '🖼️ फोटो प्रीव्यू (Send Photo in Chat)' : '📸 कैमरा फोटो (Take Photo)'}
+                {photoCaptured
+                  ? tr('🖼️ Send Photo in Chat', '🖼️ फोटो प्रीव्यू (Send Photo in Chat)', '🖼️ ચેટમાં ફોટો મોકલો')
+                  : tr('📸 Take Photo', '📸 कैमरा फोटो (Take Photo)', '📸 કેમેરા ફોટો')}
               </h3>
 
               <div className="relative w-full aspect-[4/3] rounded-2xl bg-black overflow-hidden border border-slate-700 mb-3 flex items-center justify-center">
@@ -1411,7 +1424,7 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
                 {cameraError && !photoCaptured && !isGalleryPreview && (
                   <div className="absolute inset-0 bg-slate-900 flex flex-col items-center justify-center p-6 text-center">
                     <p className="text-xs text-slate-300 font-semibold mb-3">
-                      कैमरा या गैलरी से फोटो चुनें:
+                      {tr('Select photo from Camera or Gallery:', 'कैमरा या गैलरी से फोटो चुनें:', 'કેમેરા અથવા ગેલેરીમાંથી ફોટો પસંદ કરો:')}
                     </p>
                     <div className="flex flex-col gap-3 w-full max-w-[240px]">
                       <button 
@@ -1419,14 +1432,14 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
                         onClick={() => fallbackCameraInputRef.current?.click()}
                         className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black flex items-center justify-center gap-2 shadow-lg cursor-pointer active:scale-95 transition-transform"
                       >
-                        📸 मोबाइल कैमरा खोलें
+                        {tr('📸 Open Mobile Camera', '📸 मोबाइल कैमरा खोलें', '📸 મોબાઈલ કેમેરા ખોલો')}
                       </button>
                       <button 
                         type="button"
                         onClick={() => imageInputRef.current?.click()}
                         className="w-full py-3.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 cursor-pointer border border-slate-700 active:scale-95 transition-transform"
                       >
-                        📁 गैलरी से फोटो चुनें
+                        {tr('📁 Choose from Gallery', '📁 गैलरी से फोटो चुनें', '📁 ગેલેરીમાંથી ફોટો પસંદ કરો')}
                       </button>
                     </div>
                   </div>
@@ -1449,7 +1462,7 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
                   onClick={capturePhoto}
                   className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl text-xs shadow-lg active:scale-95 cursor-pointer"
                 >
-                  📸 फोटो क्लिक करें (Capture Photo)
+                  {tr('📸 Capture Photo', '📸 फोटो क्लिक करें (Capture Photo)', '📸 ફોટો ક્લિક કરો')}
                 </button>
               ) : (
                 <div className="w-full space-y-2.5">
@@ -1457,7 +1470,7 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
                     type="text"
                     value={photoCaption}
                     onChange={(e) => setPhotoCaption(e.target.value)}
-                    placeholder="फोटो के साथ संदेश लिखें (वैकल्पिक / Optional caption)..."
+                    placeholder={tr('Add a caption (Optional)...', 'फोटो के साथ संदेश लिखें (वैकल्पिक / Optional caption)...', 'ફોટો સાથે સંદેશ લખો (વૈકલ્પિક)...')}
                     className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder:text-slate-400 outline-none focus:border-indigo-500"
                   />
                   <div className="flex gap-2 w-full">
@@ -1472,7 +1485,7 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
                       }}
                       className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold cursor-pointer"
                     >
-                      {isGalleryPreview ? 'दूसरी फोटो चुनें' : 'दोबारा लें (Retake)'}
+                      {isGalleryPreview ? tr('Choose Another', 'दूसरी फोटो चुनें', 'બીજો ફોટો પસંદ કરો') : tr('Retake', 'दोबारा लें (Retake)', 'ફરીથી લો')}
                     </button>
                     <button
                       type="button"
@@ -1480,7 +1493,7 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
                       className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black flex items-center justify-center gap-1.5 shadow-lg cursor-pointer"
                     >
                       <Send className="w-3.5 h-3.5" />
-                      <span>चैट में भेजें</span>
+                      <span>{tr('Send in Chat', 'चैट में भेजें', 'ચેટમાં મોકલો')}</span>
                     </button>
                   </div>
                 </div>
@@ -1493,8 +1506,12 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
       {/* Zoom Lightbox */}
       <AnimatePresence>
         {zoomedImage && (
-          <div onClick={() => setZoomedImage(null)} className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4">
-            <img src={zoomedImage} alt="Zoomed" loading="lazy" decoding="async" className="max-h-[85vh] max-w-full rounded-2xl object-contain" />
+          <div
+            onClick={() => setZoomedImage(null)}
+            className="fixed inset-x-0 bottom-0 top-[52px] z-50 bg-black/90 flex items-center justify-center p-4"
+            style={{ position: 'fixed', top: '52px', left: 0, right: 0, bottom: 0, zIndex: 5000 }}
+          >
+            <img src={zoomedImage} alt="Zoomed" loading="lazy" decoding="async" className="max-h-[82vh] max-w-full rounded-2xl object-contain" />
           </div>
         )}
       </AnimatePresence>
@@ -1511,13 +1528,24 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
       {/* Delete Confirmation */}
       <AnimatePresence>
         {isDeleteConfirmOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs">
+          <div
+            className="fixed inset-x-0 bottom-0 top-[52px] z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs"
+            style={{ position: 'fixed', top: '52px', left: 0, right: 0, bottom: 0, zIndex: 5000 }}
+          >
             <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 w-full max-w-sm shadow-2xl text-center">
-              <h3 className="text-base font-black text-slate-900 dark:text-white mb-2">Delete Chat?</h3>
-              <p className="text-xs text-slate-500 mb-4">This will clear chat history from your device view.</p>
+              <h3 className="text-base font-black text-slate-900 dark:text-white mb-2">
+                {tr('Delete Chat?', 'चैट हटाएं?', 'ચેટ ડિલીટ કરવી છે?')}
+              </h3>
+              <p className="text-xs text-slate-500 mb-4">
+                {tr('This will clear chat history from your device view.', 'यह आपके डिवाइस से इस चैट को हटा देगा।', 'આ તમારા ડિવાઇસમાંથી આ ચેટ હિસ્ટ્રી દૂર કરશે.')}
+              </p>
               <div className="flex gap-2">
-                <button onClick={() => setIsDeleteConfirmOpen(false)} className="flex-1 py-2.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold">Cancel</button>
-                <button onClick={handleDeleteAndArchiveChat} className="flex-1 py-2.5 bg-rose-600 text-white rounded-xl text-xs font-bold">Delete</button>
+                <button onClick={() => setIsDeleteConfirmOpen(false)} className="flex-1 py-2.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold">
+                  {tr('Cancel', 'रद्द करें', 'રદ કરો')}
+                </button>
+                <button onClick={handleDeleteAndArchiveChat} className="flex-1 py-2.5 bg-rose-600 text-white rounded-xl text-xs font-bold">
+                  {tr('Delete', 'हटाएं', 'ડિલીટ કરો')}
+                </button>
               </div>
             </div>
           </div>
@@ -1527,7 +1555,10 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
       {/* Interactive Map Location Modal */}
       <AnimatePresence>
         {isMapModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <div
+            className="fixed inset-x-0 bottom-0 top-[52px] z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm"
+            style={{ position: 'fixed', top: '52px', left: 0, right: 0, bottom: 0, zIndex: 5000 }}
+          >
             <motion.div 
               initial={{ opacity: 0, scale: 0.95, y: 15 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}
               className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 w-full max-w-sm shadow-2xl flex flex-col items-center relative overflow-hidden"
@@ -1538,8 +1569,12 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
                     <MapPin className="w-4 h-4" />
                   </div>
                   <div>
-                    <h3 className="text-xs font-black text-slate-900 dark:text-white">Live Map Location</h3>
-                    <p className="text-[10px] text-slate-500 font-medium">Verified GPS & Neighborhood Area</p>
+                    <h3 className="text-xs font-black text-slate-900 dark:text-white">
+                      {tr('Live Map Location', 'लाइव मैप लोकेशन', 'લાઈવ મેપ લોકેશન')}
+                    </h3>
+                    <p className="text-[10px] text-slate-500 font-medium">
+                      {tr('Verified GPS & Neighborhood Area', 'वेरिफाइड जीपीएस एवं क्षेत्र', 'વેરિફાઈડ GPS અને વિસ્તાર')}
+                    </p>
                   </div>
                 </div>
                 <button onClick={() => setIsMapModalOpen(false)} className="p-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 cursor-pointer"><X className="w-4 h-4" /></button>
@@ -1563,16 +1598,16 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
 
               <div className="w-full space-y-2 text-xs mb-4 bg-slate-50 dark:bg-slate-800/50 p-3 rounded-2xl border border-slate-100 dark:border-slate-800">
                 <div className="flex justify-between">
-                  <span className="text-slate-500 font-medium">Location Name:</span>
+                  <span className="text-slate-500 font-medium">{tr('Location Name:', 'लोकेशन का नाम:', 'લોકેશનનું નામ:')}</span>
                   <span className="font-bold text-slate-900 dark:text-white">{peerLocation}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-500 font-medium">Distance:</span>
-                  <span className="font-bold text-indigo-600 dark:text-indigo-400">{peerDistance} km away</span>
+                  <span className="text-slate-500 font-medium">{tr('Distance:', 'दूरी:', 'અંતર:')}</span>
+                  <span className="font-bold text-indigo-600 dark:text-indigo-400">{peerDistance} km</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-500 font-medium">Status:</span>
-                  <span className="font-bold text-emerald-600 flex items-center gap-1">🟢 Pin Verified</span>
+                  <span className="text-slate-500 font-medium">{tr('Status:', 'स्थिति:', 'સ્થિતિ:')}</span>
+                  <span className="font-bold text-emerald-600 flex items-center gap-1">🟢 {tr('Pin Verified', 'पिन वेरिफाइड', 'પિન વેરિફાઈડ')}</span>
                 </div>
               </div>
 
@@ -1584,7 +1619,7 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
                   className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-black rounded-xl text-xs shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <MapPin className="w-4 h-4" />
-                  <span>{isSharingLiveLocation ? 'लोकेशन भेजी जा रही है...' : '📍 चैट में अपनी लोकेशन भेजें (Share Location in Chat)'}</span>
+                  <span>{isSharingLiveLocation ? tr('Sharing Location...', 'लोकेशन भेजी जा रही है...', 'લોકેશન મોકલાઈ રહ્યું છે...') : tr('📍 Share Location in Chat', '📍 चैट में अपनी लोकेशन भेजें', '📍 ચેટમાં તમારું લોકેશન મોકલો')}</span>
                 </button>
                 <a 
                   href={`https://www.google.com/maps?q=${encodeURIComponent(peerLocation)}`}
@@ -1592,7 +1627,7 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
                   rel="noopener noreferrer"
                   className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-xl text-xs shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                 >
-                  <Navigation className="w-4 h-4" /> 🗺️ Google Maps में खोलें (Open in Google Maps)
+                  <Navigation className="w-4 h-4" /> {tr('🗺️ Open in Google Maps', '🗺️ Google Maps में खोलें', '🗺️ Google Maps માં ખોલો')}
                 </a>
               </div>
             </motion.div>
@@ -1607,6 +1642,7 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
         onGoToLogin={onBack}
         actionTitleEn="Sign In Required to Chat"
         actionTitleHi="चैट करने के लिए लॉगिन करें"
+        actionTitleGu="ચેટ કરવા માટે લોગિન કરો"
       />
     </div>
   );

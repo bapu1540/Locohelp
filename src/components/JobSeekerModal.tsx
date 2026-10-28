@@ -56,15 +56,15 @@ const POPULAR_SKILL_SUGGESTIONS = [
 ];
 
 const JOB_CATEGORIES = [
-  { id: "Retail & Shopping Mall", labelEn: "Retail & Shopping Mall", labelHi: "दुकान व शॉपिंग मॉल" },
-  { id: "Grocery & Mart", labelEn: "SuperMart & Grocery", labelHi: "सुपरमार्ट व किराना" },
-  { id: "Technical & Repair", labelEn: "Technical & Hardware Repair", labelHi: "टेक्निकल व रिपेयर" },
-  { id: "Delivery & Logistics", labelEn: "Delivery & Logistics", labelHi: "डिलीवरी व कूरियर" },
-  { id: "Office, Accounts & Admin", labelEn: "Office, Accounts & Admin", labelHi: "ऑफिस व अकाउंट्स" },
-  { id: "Restaurant, Cafe & Hotel", labelEn: "Restaurant, Cafe & Hotel", labelHi: "होटल व रेस्टोरेंट" },
-  { id: "Driver & Transport", labelEn: "Driver & Transport", labelHi: "ड्राइवर व ट्रांसपोर्ट" },
-  { id: "Security & Facility", labelEn: "Security & Facility", labelHi: "सिक्योरिटी व गार्ड" },
-  { id: "Other Skilled Work", labelEn: "Other Skilled Work", labelHi: "अन्य कुशल कार्य" }
+  { id: "Retail & Shopping Mall", labelEn: "Retail & Shopping Mall", labelHi: "दुकान व शॉपिंग मॉल", labelGu: "દુકાન અને શોપિંગ મોલ" },
+  { id: "Grocery & Mart", labelEn: "SuperMart & Grocery", labelHi: "सुपरमार्ट व किराना", labelGu: "સુપરમાર્ટ અને કરિયાણું" },
+  { id: "Technical & Repair", labelEn: "Technical & Hardware Repair", labelHi: "टेक्निकल व रिपेयर", labelGu: "ટેકનિકલ અને રિપેર" },
+  { id: "Delivery & Logistics", labelEn: "Delivery & Logistics", labelHi: "डिलीवरी व कूरियर", labelGu: "ડિલિવરી અને કુરિયર" },
+  { id: "Office, Accounts & Admin", labelEn: "Office, Accounts & Admin", labelHi: "ऑफिस व अकाउंट्स", labelGu: "ઓફિસ અને એકાઉન્ટ્સ" },
+  { id: "Restaurant, Cafe & Hotel", labelEn: "Restaurant, Cafe & Hotel", labelHi: "होटल व रेस्टोरेंट", labelGu: "હોટેલ અને રેસ્ટોરન્ટ" },
+  { id: "Driver & Transport", labelEn: "Driver & Transport", labelHi: "ड्राइवर व ट्रांसपोर्ट", labelGu: "ડ્રાઈવર અને ટ્રાન્સપોર્ટ" },
+  { id: "Security & Facility", labelEn: "Security & Facility", labelHi: "सिक्योरिटी व गार्ड", labelGu: "સિક્યોરિટી અને ગાર્ડ" },
+  { id: "Other Skilled Work", labelEn: "Other Skilled Work", labelHi: "अन्य कुशल कार्य", labelGu: "અન્ય કુશળ કાર્ય" }
 ];
 
 const INITIAL_SAMPLE_SEEKERS: JobPortalItem[] = [];
@@ -75,7 +75,7 @@ export default function JobSeekerModal({
   onSuccess,
   initialTab = 'registered'
 }: JobSeekerModalProps) {
-  const { language } = useLanguage();
+  const { language, tr } = useLanguage();
 
   // Modal active tab: 'registered' vs 'new'
   const [activeTab, setActiveTab] = useState<'registered' | 'new'>(initialTab);
@@ -176,7 +176,7 @@ export default function JobSeekerModal({
     if (file) {
       const check = await validateUploadedFile(file, { allowPdf: false });
       if (!check.valid) {
-        setErrorMessage(language === 'EN' ? (check.error || 'Invalid image') : (check.errorHi || check.error || 'अमान्य इमेज'));
+        setErrorMessage(tr(check.error || 'Invalid image', check.errorHi || check.error || 'अमान्य इमेज', 'અમાન્ય ફોટો'));
         e.target.value = '';
         return;
       }
@@ -196,7 +196,7 @@ export default function JobSeekerModal({
     if (file) {
       const check = await validateUploadedFile(file, { allowPdf: true });
       if (!check.valid) {
-        setErrorMessage(language === 'EN' ? (check.error || 'Invalid file') : (check.errorHi || check.error || 'अमान्य फ़ाइल'));
+        setErrorMessage(tr(check.error || 'Invalid file', check.errorHi || check.error || 'अमान्य फ़ाइल', 'અમાન્ય ફાઈલ'));
         e.target.value = '';
         return;
       }
@@ -220,11 +220,11 @@ export default function JobSeekerModal({
     setErrorMessage(null);
 
     if (!fullName.trim()) {
-      setErrorMessage(language === 'EN' ? 'Please enter your Full Name' : 'कृपया अपना पूरा नाम दर्ज करें');
+      setErrorMessage(tr('Please enter your Full Name', 'कृपया अपना पूरा नाम दर्ज करें', 'કૃપા કરીને તમારું પૂરું નામ દાખલ કરો'));
       return;
     }
     if (!phone.trim()) {
-      setErrorMessage(language === 'EN' ? 'Please enter your Mobile Number' : 'कृपया अपना मोबाइल नंबर दर्ज करें');
+      setErrorMessage(tr('Please enter your Mobile Number', 'कृपया अपना मोबाइल नंबर दर्ज करें', 'કૃપા કરીને તમારો મોબાઈલ નંબર દાખલ કરો'));
       return;
     }
 
@@ -268,11 +268,11 @@ export default function JobSeekerModal({
 
       if (res.success) {
         setSubmitSuccessMessage(
-          language === 'GU'
-            ? "⏳ તમારું જોબ રજિસ્ટ્રેશન એડમિન મંજૂરી માટે મોકલાઈ ગયું છે! એડમિન મંજૂરી પછી તે લાઈવ દેખાશે."
-            : language === 'EN'
-            ? "⏳ Your Job Seeker registration has been sent to Admin for approval! It will appear live once approved by Admin."
-            : "⏳ आपका जॉब रजिस्ट्रेशन एडमिन अप्रूवल के लिए भेज दिया गया है! एडमिन अप्रूवल के बाद यह लाइव दिखेगा।"
+          tr(
+            "⏳ Your Job Seeker registration has been sent to Admin for approval! It will appear live once approved by Admin.",
+            "⏳ आपका जॉब रजिस्ट्रेशन एडमिन अप्रूवल के लिए भेज दिया गया है! एडमिन अप्रूवल के बाद यह लाइव दिखेगा।",
+            "⏳ તમારું જોબ રજિસ્ટ્રેશન એડમિન મંજૂરી માટે મોકલાઈ ગયું છે! એડમિન મંજૂરી પછી તે લાઈવ દેખાશે."
+          )
         );
         if (res.item && onSuccess) {
           onSuccess(res.item);
@@ -318,7 +318,10 @@ export default function JobSeekerModal({
   });
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-50 dark:bg-slate-950 flex flex-col overflow-hidden">
+    <div
+      className="fixed inset-x-0 bottom-0 top-[52px] z-50 bg-slate-50 dark:bg-slate-950 flex flex-col overflow-hidden"
+      style={{ position: 'fixed', top: '52px', left: 0, right: 0, bottom: 0, zIndex: 5000 }}
+    >
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
@@ -334,16 +337,18 @@ export default function JobSeekerModal({
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="text-base sm:text-lg font-black tracking-tight text-white">
-                  {language === 'EN' ? 'Job / Work Registration' : 'जॉब / काम का रजिस्ट्रेशन'}
+                  {tr('Job / Work Registration', 'जॉब / काम का रजिस्ट्रेशन', 'જોબ / કામનું રજિસ્ટ્રેશન')}
                 </h3>
                 <span className="text-[10px] font-black bg-emerald-400 text-slate-950 px-2 py-0.5 rounded-full flex items-center gap-0.5">
                   <ShieldCheck className="w-3 h-3" /> 100% Free
                 </span>
               </div>
               <p className="text-[11px] text-blue-100 font-medium">
-                {language === 'EN' 
-                  ? 'Only for Job Seekers: View registered candidates or create your profile' 
-                  : 'सिर्फ काम चाहने वालों के लिए: रजिस्टर्ड उम्मीदवार देखें या अपनी प्रोफाइल बनाएं'}
+                {tr(
+                  'Only for Job Seekers: View registered candidates or create your profile',
+                  'सिर्फ काम चाहने वालों के लिए: रजिस्टर्ड उम्मीदवार देखें या अपनी प्रोफाइल बनाएं',
+                  'ફક્ત કામ શોધનારાઓ માટે: રજિસ્ટર્ડ ઉમેદવારો જુઓ અથવા તમારી પ્રોફાઈલ બનાવો'
+                )}
               </p>
             </div>
           </div>
@@ -352,7 +357,7 @@ export default function JobSeekerModal({
             className="px-3.5 py-2 rounded-xl bg-white/15 hover:bg-white/25 border border-white/25 flex items-center gap-1.5 text-white text-xs font-extrabold transition-colors cursor-pointer shrink-0"
           >
             <X className="w-4 h-4" />
-            <span>{language === 'EN' ? 'Back / Close' : 'वापस जाएं'}</span>
+            <span>{tr('Back / Close', 'वापस जाएं', 'પાછા જાઓ')}</span>
           </button>
         </div>
 
@@ -372,9 +377,11 @@ export default function JobSeekerModal({
           >
             <UserCheck className="w-4 h-4" />
             <span>
-              {language === 'EN' 
-                ? `Already Registered Candidates (${filteredSeekers.length})` 
-                : `पहले से रजिस्टर्ड उम्मीदवार (${filteredSeekers.length})`}
+              {tr(
+                `Already Registered Candidates (${filteredSeekers.length})`,
+                `पहले से रजिस्टर्ड उम्मीदवार (${filteredSeekers.length})`,
+                `પહેલેથી રજિસ્ટર્ડ ઉમેદવારો (${filteredSeekers.length})`
+              )}
             </span>
           </button>
 
@@ -388,7 +395,7 @@ export default function JobSeekerModal({
             }`}
           >
             <Plus className="w-4 h-4" />
-            <span>{language === 'EN' ? '+ New Registration' : '+ नया रजिस्ट्रेशन'}</span>
+            <span>{tr('+ New Registration', '+ नया रजिस्ट्रेशन', '+ નવું રજિસ્ટ્રેશન')}</span>
           </button>
         </div>
 
@@ -403,7 +410,7 @@ export default function JobSeekerModal({
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder={language === 'EN' ? 'Search candidate by name, skill or role...' : 'उम्मीदवार का नाम, स्किल या पद खोजें...'}
+                  placeholder={tr('Search candidate by name, skill or role...', 'उम्मीदवार का नाम, स्किल या पद खोजें...', 'ઉમેદવારનું નામ, સ્કિલ અથવા પદ શોધો...')}
                   className="w-full pl-9 pr-3 py-2 text-xs bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
@@ -413,9 +420,9 @@ export default function JobSeekerModal({
                 onChange={(e) => setCategoryFilter(e.target.value)}
                 className="py-2 px-3 text-xs bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-white rounded-xl border border-slate-200 dark:border-slate-700 font-medium focus:outline-none cursor-pointer"
               >
-                <option value="all">{language === 'EN' ? 'All Job Categories' : 'सभी श्रेणियां'}</option>
+                <option value="all">{tr('All Job Categories', 'सभी श्रेणियां', 'તમામ કેટેગરી')}</option>
                 {JOB_CATEGORIES.map(c => (
-                  <option key={c.id} value={c.id}>{language === 'EN' ? c.labelEn : c.labelHi}</option>
+                  <option key={c.id} value={c.id}>{tr(c.labelEn, c.labelHi, c.labelGu)}</option>
                 ))}
               </select>
             </div>
@@ -428,16 +435,16 @@ export default function JobSeekerModal({
                     👤
                   </div>
                   <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300">
-                    {language === 'EN' ? 'No Job Seekers found' : 'कोई उम्मीदवार नहीं मिला'}
+                    {tr('No Job Seekers found', 'कोई उम्मीदवार नहीं मिला', 'કોઈ ઉમેદવાર મળ્યો નથી')}
                   </h4>
                   <p className="text-xs text-slate-500 max-w-xs mx-auto">
-                    {language === 'EN' ? 'Be the first candidate to create your verified profile!' : 'अपनी प्रोफाइल बनाकर सबसे पहले रजिस्टर्ड सूची में शामिल हों!'}
+                    {tr('Be the first candidate to create your verified profile!', 'अपनी प्रोफाइल बनाकर सबसे पहले रजिस्टर्ड सूची में शामिल हों!', 'તમારી પ્રોફાઈલ બનાવીને સૌથી પહેલા રજિસ્ટર્ડ યાદીમાં જોડાઓ!')}
                   </p>
                   <button
                     onClick={() => setActiveTab('new')}
                     className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer active:scale-95"
                   >
-                    + {language === 'EN' ? 'Create Job Profile' : 'अपनी जॉब प्रोफाइल बनाएं'}
+                    + {tr('Create Job Profile', 'अपनी जॉब प्रोफाइल बनाएं', 'તમારી જોબ પ્રોફાઈલ બનાવો')}
                   </button>
                 </div>
               ) : (
@@ -463,7 +470,7 @@ export default function JobSeekerModal({
                             </h4>
                             <span className="text-[10px] font-black bg-blue-100 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full border border-blue-200 dark:border-blue-800 flex items-center gap-0.5">
                               <ShieldCheck className="w-3 h-3 text-blue-600" />
-                              Job Seeker
+                              {tr('Job Seeker', 'जॉब सीकर', 'જોબ સીકર')}
                             </span>
                           </div>
                           <p className="text-xs font-bold text-indigo-600 dark:text-indigo-400 mt-0.5">
@@ -479,7 +486,7 @@ export default function JobSeekerModal({
                       {/* Expected Salary Badge */}
                       {seeker.expectedSalary && (
                         <div className="bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 px-2.5 py-1 rounded-xl text-right shrink-0">
-                          <span className="text-[9px] uppercase font-bold text-emerald-700 dark:text-emerald-400 block">Exp. Salary</span>
+                          <span className="text-[9px] uppercase font-bold text-emerald-700 dark:text-emerald-400 block">{tr('Exp. Salary', 'अपेक्षित वेतन', 'અપેક્ષિત પગાર')}</span>
                           <span className="text-xs font-black text-emerald-800 dark:text-emerald-300">{seeker.expectedSalary}</span>
                         </div>
                       )}
@@ -527,10 +534,10 @@ export default function JobSeekerModal({
                           type="button"
                           onClick={() => handleStartEditSeeker(seeker)}
                           className="flex-1 py-2 px-3 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-black shadow-xs active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                          title={language === 'EN' ? 'Edit your profile details' : 'अपनी प्रोफाइल एडिट करें'}
+                          title={tr('Edit your profile details', 'अपनी प्रोफाइल एडिट करें', 'તમારી પ્રોફાઈલ એડિટ કરો')}
                         >
                           <Edit3 className="w-3.5 h-3.5" />
-                          <span>{language === 'EN' ? 'Edit Profile' : 'प्रोफ़ाइल एडिट करें'}</span>
+                          <span>{tr('Edit Profile', 'प्रोफ़ाइल एडिट करें', 'પ્રોફાઈલ એડિટ કરો')}</span>
                         </button>
                       ) : (
                         <button
@@ -539,7 +546,7 @@ export default function JobSeekerModal({
                           className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black shadow-xs active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                         >
                           <MessageCircle className="w-3.5 h-3.5" />
-                          <span>{language === 'EN' ? 'Chat on WhatsApp' : 'व्हाट्सएप चैट करें'}</span>
+                          <span>{tr('Chat on WhatsApp', 'व्हाट्सएप चैट करें', 'વોટ્સએપ ચેટ કરો')}</span>
                         </button>
                       )}
 
@@ -549,7 +556,7 @@ export default function JobSeekerModal({
                           className="px-3.5 py-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 cursor-pointer"
                         >
                           <Phone className="w-3.5 h-3.5" />
-                          <span>Call</span>
+                          <span>{tr('Call', 'कॉल', 'કોલ')}</span>
                         </a>
                       )}
                     </div>
@@ -571,10 +578,10 @@ export default function JobSeekerModal({
 
                 <div className="space-y-2">
                   <span className="inline-block px-3 py-1 bg-amber-100 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 font-extrabold text-xs rounded-full border border-amber-300 dark:border-amber-800">
-                    ⏳ Status: Pending Admin Verification
+                    ⏳ {tr('Status: Pending Admin Verification', 'स्थिति: एडमिन वेरिफिकेशन पेंडिंग', 'સ્થિતિ: એડમિન વેરિફિકેશન પેન્ડિંગ')}
                   </span>
                   <h4 className="text-lg font-black text-slate-900 dark:text-white">
-                    {language === 'EN' ? 'Profile Submitted!' : 'प्रोफाइल सबमिट हो गई!'}
+                    {tr('Profile Submitted!', 'प्रोफाइल सबमिट हो गई!', 'પ્રોફાઈલ સબમિટ થઈ ગઈ!')}
                   </h4>
                   <div className="p-4 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/60 rounded-2xl text-sm font-bold text-emerald-900 dark:text-emerald-200 leading-relaxed shadow-xs">
                     {submitSuccessMessage}
@@ -590,14 +597,14 @@ export default function JobSeekerModal({
                     }}
                     className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs rounded-xl shadow-md transition-all cursor-pointer"
                   >
-                    {language === 'EN' ? 'View Registered Seekers' : 'रजिस्टर्ड उम्मीदवारों की लिस्ट देखें'}
+                    {tr('View Registered Seekers', 'रजिस्टर्ड उम्मीदवारों की लिस्ट देखें', 'રજિસ્ટર્ડ ઉમેદવારોની યાદી જુઓ')}
                   </button>
                   <button
                     type="button"
                     onClick={handleCloseAndReset}
                     className="py-3 px-4 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-xs rounded-xl hover:bg-slate-200 transition-all cursor-pointer"
                   >
-                    {language === 'EN' ? 'Close' : 'बंद करें'}
+                    {tr('Close', 'बंद करें', 'બંધ કરો')}
                   </button>
                 </div>
               </div>
@@ -624,26 +631,26 @@ export default function JobSeekerModal({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      {language === 'EN' ? 'Your Full Name *' : 'आपका पूरा नाम *'}
+                      {tr('Your Full Name *', 'आपका पूरा नाम *', 'તમારું પૂરું નામ *')}
                     </label>
                     <input
                       type="text"
                       required
                       value={fullName}
                       onChange={(e) => setFullName(e.target.value)}
-                      placeholder={language === 'EN' ? 'e.g. Ramesh Kumar' : 'उदा. रमेश कुमार'}
+                      placeholder={tr('e.g. Ramesh Kumar', 'उदा. रमेश कुमार', 'દા.ત. રમેશ કુમાર')}
                       className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
                     />
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      {language === 'EN' ? 'Desired Role / Headline' : 'आप किस काम में माहिर हैं?'}
+                      {tr('Desired Role / Headline', 'आप किस काम में माहिर हैं?', 'તમે કયા કામમાં નિષ્ણાત છો?')}
                     </label>
                     <input
                       type="text"
                       value={headline}
                       onChange={(e) => setHeadline(e.target.value)}
-                      placeholder={language === 'EN' ? 'e.g. Retail Cashier / Computer Operator' : 'उदा. बिलिंग कैशियर / डिलीवरी बॉय'}
+                      placeholder={tr('e.g. Retail Cashier / Computer Operator', 'उदा. बिलिंग कैशियर / डिलीवरी बॉय', 'દા.ત. બિલિંગ કેશિયર / ડિલિવરી બોય')}
                       className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
                     />
                   </div>
@@ -652,7 +659,7 @@ export default function JobSeekerModal({
                 {/* Job Category */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {language === 'EN' ? 'Job Category *' : 'काम / नौकरी की श्रेणी *'}
+                    {tr('Job Category *', 'काम / नौकरी की श्रेणी *', 'કામ / નોકરીની કેટેગરી *')}
                   </label>
                   <select
                     value={category}
@@ -661,7 +668,7 @@ export default function JobSeekerModal({
                   >
                     {JOB_CATEGORIES.map((cat) => (
                       <option key={cat.id} value={cat.id}>
-                        {language === 'EN' ? cat.labelEn : cat.labelHi}
+                        {tr(cat.labelEn, cat.labelHi, cat.labelGu)}
                       </option>
                     ))}
                   </select>
@@ -671,30 +678,30 @@ export default function JobSeekerModal({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      {language === 'EN' ? 'Work Experience' : 'कार्य अनुभव'}
+                      {tr('Work Experience', 'कार्य अनुभव', 'કામનો અનુભવ')}
                     </label>
                     <select
                       value={experience}
                       onChange={(e) => setExperience(e.target.value)}
                       className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-slate-700 font-medium cursor-pointer"
                     >
-                      <option value="Fresher / Beginner">Fresher (नया उम्मीदवार)</option>
-                      <option value="6 Months - 1 Year">6 Months - 1 Year</option>
-                      <option value="1-2 Years">1-2 Years</option>
-                      <option value="2-4 Years">2-4 Years</option>
-                      <option value="5+ Years Experienced">5+ Years Experienced</option>
+                      <option value="Fresher / Beginner">{tr('Fresher (New Candidate)', 'Fresher (नया उम्मीदवार)', 'Fresher (નવો ઉમેદવાર)')}</option>
+                      <option value="6 Months - 1 Year">{tr('6 Months - 1 Year', '6 महीने - 1 साल', '6 મહિના - 1 વર્ષ')}</option>
+                      <option value="1-2 Years">{tr('1-2 Years', '1-2 साल', '1-2 વર્ષ')}</option>
+                      <option value="2-4 Years">{tr('2-4 Years', '2-4 साल', '2-4 વર્ષ')}</option>
+                      <option value="5+ Years Experienced">{tr('5+ Years Experienced', '5+ साल अनुभवी', '5+ વર્ષ અનુભવી')}</option>
                     </select>
                   </div>
 
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      {language === 'EN' ? 'Expected Salary (Monthly)' : 'अपेक्षित मासिक वेतन'}
+                      {tr('Expected Salary (Monthly)', 'अपेक्षित मासिक वेतन', 'અપેક્ષિત માસિક પગાર')}
                     </label>
                     <input
                       type="text"
                       value={expectedSalary}
                       onChange={(e) => setExpectedSalary(e.target.value)}
-                      placeholder={language === 'EN' ? 'e.g. ₹15,000 - ₹20,000' : 'उदा. ₹15,000 - ₹20,000'}
+                      placeholder="e.g. ₹15,000 - ₹20,000"
                       className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-slate-700 font-medium"
                     />
                   </div>
@@ -703,26 +710,26 @@ export default function JobSeekerModal({
                 {/* Education */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {language === 'EN' ? 'Education Qualification' : 'शैक्षणिक योग्यता'}
+                    {tr('Education Qualification', 'शैक्षणिक योग्यता', 'શૈક્ષણિક લાયકાત')}
                   </label>
                   <select
                     value={education}
                     onChange={(e) => setEducation(e.target.value)}
                     className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-slate-700 font-medium cursor-pointer"
                   >
-                    <option value="10th Pass">10th Pass (मैट्रिक)</option>
-                    <option value="12th Pass">12th Pass (इंटरमीडिएट)</option>
+                    <option value="10th Pass">{tr('10th Pass', '10th Pass (मैट्रिक)', '10 પાસ')}</option>
+                    <option value="12th Pass">{tr('12th Pass', '12th Pass (इंटरमीडिएट)', '12 પાસ')}</option>
                     <option value="ITI / Diploma">ITI / Diploma / Technical</option>
-                    <option value="Graduate (Any Stream)">Graduate (ग्रेजुएट)</option>
-                    <option value="Post Graduate">Post Graduate (पोस्ट ग्रेजुएट)</option>
-                    <option value="Other / Basic Schooling">Other</option>
+                    <option value="Graduate (Any Stream)">{tr('Graduate (Any Stream)', 'Graduate (ग्रेजुएट)', 'ગ્રેજ્યુએટ')}</option>
+                    <option value="Post Graduate">{tr('Post Graduate', 'Post Graduate (पोस्ट ग्रेजुएट)', 'પોસ્ટ ગ્રેજ્યુએટ')}</option>
+                    <option value="Other / Basic Schooling">{tr('Other', 'अन्य', 'અન્ય')}</option>
                   </select>
                 </div>
 
                 {/* Skills Tags Selector */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {language === 'EN' ? 'Select Your Skills' : 'अपनी स्किल्स चुनें'}
+                    {tr('Select Your Skills', 'अपनी स्किल्स चुनें', 'તમારી સ્કિલ્સ પસંદ કરો')}
                   </label>
                   <div className="flex flex-wrap gap-1.5 mb-2">
                     {POPULAR_SKILL_SUGGESTIONS.map((skill) => {
@@ -749,7 +756,7 @@ export default function JobSeekerModal({
                     value={skillInput}
                     onChange={(e) => setSkillInput(e.target.value)}
                     onKeyDown={handleAddCustomSkill}
-                    placeholder={language === 'EN' ? 'Type custom skill & press Enter...' : 'अन्य कोई स्किल लिखें व Enter दबाएं...'}
+                    placeholder={tr('Type custom skill & press Enter...', 'अन्य कोई स्किल लिखें व Enter दबाएं...', 'અન્ય કોઈ સ્કિલ લખો અને Enter દબાવો...')}
                     className="w-full px-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 font-medium"
                   />
                 </div>
@@ -758,7 +765,7 @@ export default function JobSeekerModal({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      {language === 'EN' ? 'Calling Mobile Number *' : 'मोबाइल नंबर (कॉलिंग) *'}
+                      {tr('Calling Mobile Number *', 'मोबाइल नंबर (कॉलिंग) *', 'મોબાઈલ નંબર (કોલિંગ) *')}
                     </label>
                     <input
                       type="tel"
@@ -771,7 +778,7 @@ export default function JobSeekerModal({
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      {language === 'EN' ? 'WhatsApp Number' : 'व्हाट्सएप नंबर'}
+                      {tr('WhatsApp Number', 'व्हाट्सएप नंबर', 'વોટ્સએપ નંબર')}
                     </label>
                     <input
                       type="tel"
@@ -786,14 +793,14 @@ export default function JobSeekerModal({
                 {/* Preferred Area */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {language === 'EN' ? 'Preferred Working Area / Location *' : 'पसंदीदा कार्य क्षेत्र / मोहल्ला *'}
+                    {tr('Preferred Working Area / Location *', 'पसंदीदा कार्य क्षेत्र / मोहल्ला *', 'પસંદગીનો કાર્ય વિસ્તાર / સોસાયટી *')}
                   </label>
                   <input
                     type="text"
                     required
                     value={area}
                     onChange={(e) => setArea(e.target.value)}
-                    placeholder={language === 'EN' ? 'e.g. Station Road, Sector 15' : 'उदा. स्टेशन रोड, मेन मार्केट, सेक्टर 12'}
+                    placeholder={tr('e.g. Station Road, Sector 15', 'उदा. स्टेशन रोड, मेन मार्केट, सेक्टर 12', 'દા.ત. સ્ટેશન રોડ, મેઈન માર્કેટ, સેક્ટર 12')}
                     className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-slate-700 font-medium"
                   />
                 </div>
@@ -801,13 +808,13 @@ export default function JobSeekerModal({
                 {/* Bio / Description */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {language === 'EN' ? 'Short Bio & Work Details' : 'अपने बारे में संक्षिप्त जानकारी'}
+                    {tr('Short Bio & Work Details', 'अपने बारे में संक्षिप्त जानकारी', 'તમારા વિશે ટૂંકી માહિતી')}
                   </label>
                   <textarea
                     rows={2}
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
-                    placeholder={language === 'EN' ? 'Write about your past work, timings, and availability...' : 'अपने पिछले काम, समय और उपलब्धता के बारे में लिखें...'}
+                    placeholder={tr('Write about your past work, timings, and availability...', 'अपने पिछले काम, समय और उपलब्धता के बारे में लिखें...', 'તમારા અગાઉના કામ, સમય અને ઉપલબ્ધતા વિશે લખો...')}
                     className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-slate-700 font-medium resize-none"
                   />
                 </div>
@@ -816,7 +823,7 @@ export default function JobSeekerModal({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 space-y-1.5">
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
-                      {language === 'EN' ? 'Passport / Profile Photo (Max 2MB)' : 'प्रोफाइल फोटो (अधिकतम 2MB)'}
+                      {tr('Passport / Profile Photo (Max 2MB)', 'प्रोफाइल फोटो (अधिकतम 2MB)', 'પ્રોફાઈલ ફોટો (મહત્તમ 2MB)')}
                     </label>
                     <input
                       type="file"
@@ -825,13 +832,13 @@ export default function JobSeekerModal({
                       className="w-full text-xs text-slate-500 file:mr-2 file:py-1.5 file:px-2.5 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-blue-100 file:text-blue-700 hover:file:bg-blue-200 cursor-pointer"
                     />
                     {photoUrl && (
-                      <p className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">✓ Photo Attached</p>
+                      <p className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">✓ {tr('Photo Attached', 'फोटो संलग्न', 'ફોટો જોડાયેલ')}</p>
                     )}
                   </div>
 
                   <div className="p-3 rounded-2xl bg-blue-50/60 dark:bg-slate-800/80 border border-blue-200 dark:border-slate-700 space-y-1.5">
                     <label className="block text-xs font-extrabold text-blue-900 dark:text-blue-300">
-                      {language === 'EN' ? 'Upload Resume / Biodata (PDF max 5MB or Image)' : 'रिज्यूमे / बायोडाटा अपलोड करें (PDF या फोटो)'}
+                      {tr('Upload Resume / Biodata (PDF max 5MB or Image)', 'रिज्यूमे / बायोडाटा अपलोड करें (PDF या फोटो)', 'રિઝ્યુમ / બાયોડેટા અપલોડ કરો (PDF અથવા ફોટો)')}
                     </label>
                     <input
                       type="file"
@@ -841,7 +848,7 @@ export default function JobSeekerModal({
                     />
                     {resumeUrl && (
                       <p className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 truncate">
-                        ✓ Attached: {resumeFileName || 'Resume / Biodata'}
+                        ✓ {tr('Attached:', 'संलग्न:', 'જોડાયેલ:')} {resumeFileName || 'Resume / Biodata'}
                       </p>
                     )}
                   </div>
@@ -854,7 +861,7 @@ export default function JobSeekerModal({
                     onClick={handleCloseAndReset}
                     className="flex-1 py-3 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                   >
-                    {language === 'EN' ? 'Cancel' : 'रद्द करें'}
+                    {tr('Cancel', 'रद्द करें', 'રદ કરો')}
                   </button>
                   <button
                     type="submit"
@@ -862,11 +869,11 @@ export default function JobSeekerModal({
                     className="flex-1 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-extrabold text-xs shadow-md shadow-blue-600/25 active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     {isSubmitting ? (
-                      <span>Submitting...</span>
+                      <span>{tr('Submitting...', 'सबमिट हो रहा है...', 'સબમિટ થઈ રહ્યું છે...')}</span>
                     ) : (
                       <>
                         <Sparkles className="w-4 h-4" />
-                        <span>{language === 'EN' ? 'Submit Job Profile' : 'प्रोफाइल सबमिट करें'}</span>
+                        <span>{tr('Submit Job Profile', 'प्रोफाइल सबमिट करें', 'પ્રોફાઈલ સબમિટ કરો')}</span>
                       </>
                     )}
                   </button>

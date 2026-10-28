@@ -34,16 +34,16 @@ interface EmployerVacancyModalProps {
 }
 
 const BUSINESS_CATEGORIES = [
-  { id: "Retail & Shopping Mall", labelEn: "Retail Showroom & Shopping Mall", labelHi: "शोरूम व शॉपिंग मॉल" },
-  { id: "Grocery & Mart", labelEn: "SuperMart & Grocery Mart", labelHi: "सुपरमार्ट व ग्रॉसरी स्टोर" },
-  { id: "Restaurant, Cafe & Hotel", labelEn: "Restaurant, Cafe, Bakery & Dine", labelHi: "होटल, रेस्टोरेंट व बेकरी" },
-  { id: "Electronics & Service Center", labelEn: "Electronics & Mobile Store", labelHi: "इलेक्ट्रॉनिक्स व मोबाइल दुकान" },
-  { id: "Delivery & Courier Hub", labelEn: "Delivery & Courier Hub", labelHi: "डिलीवरी व कूरियर हब" },
-  { id: "Auto Workshop & Garage", labelEn: "Automobile Workshop & Garage", labelHi: "ऑटो गैराज व वर्कशॉप" },
-  { id: "Corporate Office & Accounts", labelEn: "Office, Accounts & Billing", labelHi: "ऑफिस व अकाउंट्स" },
-  { id: "Warehouse & Logistics", labelEn: "Warehouse & Wholesale Godown", labelHi: "गोदाम व होलसेल डिस्ट्रीब्यूटर" },
-  { id: "Healthcare & Pharmacy", labelEn: "Clinic, Hospital & Pharmacy", labelHi: "फार्मेसी व क्लिनिक" },
-  { id: "Other Business", labelEn: "Other Business / Commercial Unit", labelHi: "अन्य व्यावसायिक प्रतिष्ठान" }
+  { id: "Retail & Shopping Mall", labelEn: "Retail Showroom & Shopping Mall", labelHi: "शोरूम व शॉपिंग मॉल", labelGu: "શોરૂમ અને શોપિંગ મોલ" },
+  { id: "Grocery & Mart", labelEn: "SuperMart & Grocery Mart", labelHi: "सुपरमार्ट व ग्रॉसरी स्टोर", labelGu: "સુપરમાર્ટ અને ગ્રોસરી સ્ટોર" },
+  { id: "Restaurant, Cafe & Hotel", labelEn: "Restaurant, Cafe, Bakery & Dine", labelHi: "होटल, रेस्टोरेंट व बेकरी", labelGu: "હોટેલ, રેસ્ટોરન્ટ અને બેકરી" },
+  { id: "Electronics & Service Center", labelEn: "Electronics & Mobile Store", labelHi: "इलेक्ट्रॉनिक्स व मोबाइल दुकान", labelGu: "ઇલેક્ટ્રોનિક્સ અને મોબાઇલ દુકાન" },
+  { id: "Delivery & Courier Hub", labelEn: "Delivery & Courier Hub", labelHi: "डिलीवरी व कूरियर हब", labelGu: "ડિલિવરી અને કુરિયર હબ" },
+  { id: "Auto Workshop & Garage", labelEn: "Automobile Workshop & Garage", labelHi: "ऑटो गैराज व वर्कशॉप", labelGu: "ઓટો ગેરેજ અને વર્કશોપ" },
+  { id: "Corporate Office & Accounts", labelEn: "Office, Accounts & Billing", labelHi: "ऑफिस व अकाउंट्स", labelGu: "ઓફિસ અને એકાઉન્ટ્સ" },
+  { id: "Warehouse & Logistics", labelEn: "Warehouse & Wholesale Godown", labelHi: "गोदाम व होलसेल डिस्ट्रीब्यूटर", labelGu: "ગોડાઉન અને હોલસેલ ડિસ્ટ્રિબ્યુટર" },
+  { id: "Healthcare & Pharmacy", labelEn: "Clinic, Hospital & Pharmacy", labelHi: "फार्मेसी व क्लिनिक", labelGu: "ફાર્મસી અને ક્લિનિક" },
+  { id: "Other Business", labelEn: "Other Business / Commercial Unit", labelHi: "अन्य व्यावसायिक प्रतिष्ठान", labelGu: "અન્ય વ્યાવસાયિક એકમ" }
 ];
 
 export default function EmployerVacancyModal({ 
@@ -52,7 +52,7 @@ export default function EmployerVacancyModal({
   onSuccess,
   initialTab = 'browse'
 }: EmployerVacancyModalProps) {
-  const { language } = useLanguage();
+  const { language, tr } = useLanguage();
 
   // Active mode sequence:
   // 1. 'browse'     = Live Jobs (First / Leftmost)
@@ -249,7 +249,7 @@ export default function EmployerVacancyModal({
     if (file) {
       const check = await validateUploadedFile(file, { allowPdf: false });
       if (!check.valid) {
-        setErrorMessage(language === 'EN' ? (check.error || 'Invalid image') : (check.errorHi || check.error || 'अमान्य इमेज'));
+        setErrorMessage(tr(check.error || 'Invalid image', check.errorHi || check.error || 'अमान्य इमेज', 'અમાન્ય ફોટો'));
         e.target.value = '';
         return;
       }
@@ -274,19 +274,21 @@ export default function EmployerVacancyModal({
 
     if (!selectedBusiness && !companyOrShopName.trim()) {
       setErrorMessage(
-        language === 'EN'
-          ? 'Please select your registered Shop/Business first or switch to Option B (New Employer Registration).'
-          : 'कृपया पहले अपनी रजिस्टर्ड दुकान/बिज़नेस चुनें या विकल्प B (नया एम्प्लॉयर रजिस्ट्रेशन) चुनें।'
+        tr(
+          'Please select your registered Shop/Business first or switch to Option B (New Employer Registration).',
+          'कृपया पहले अपनी रजिस्टर्ड दुकान/बिज़नेस चुनें या विकल्प B (नया एम्प्लॉयर रजिस्ट्रेशन) चुनें।',
+          'કૃપા કરીને પહેલા તમારી રજિસ્ટર્ડ દુકાન/બિઝનેસ પસંદ કરો અથવા વિકલ્પ B પસંદ કરો.'
+        )
       );
       return;
     }
     if (!jobRole.trim()) {
-      setErrorMessage(language === 'EN' ? 'Please enter Job Role / Required Staff Position' : 'कृपया पद / आवश्यक स्टाफ का नाम दर्ज करें');
+      setErrorMessage(tr('Please enter Job Role / Required Staff Position', 'कृपया पद / आवश्यक स्टाफ का नाम दर्ज करें', 'કૃપા કરીને પદ / જરૂરી સ્ટાફનું નામ દાખલ કરો'));
       return;
     }
     const finalPhone = phone.trim() || selectedBusiness?.phone || '';
     if (!finalPhone) {
-      setErrorMessage(language === 'EN' ? 'Please enter Contact Mobile Number' : 'कृपया संपर्क मोबाइल नंबर दर्ज करें');
+      setErrorMessage(tr('Please enter Contact Mobile Number', 'कृपया संपर्क मोबाइल नंबर दर्ज करें', 'કૃપા કરીને સંપર્ક મોબાઈલ નંબર દાખલ કરો'));
       return;
     }
 
@@ -329,11 +331,11 @@ export default function EmployerVacancyModal({
       setIsSubmitting(false);
       if (res.success) {
         setSubmitSuccessMessage(
-          language === 'GU'
-            ? `⏳ "${bizName}" માટે "${jobRole.trim()}" ની વેકેન્સી એડમિન મંજૂરી માટે મોકલાઈ ગઈ છે! એડમિન મંજૂરી પછી તે લાઈવ દેખાશે.`
-            : language === 'EN'
-            ? `⏳ Job Vacancy for "${jobRole.trim()}" linked to "${bizName}" has been submitted to the Admin Panel for approval! Once approved by Admin, it will appear live.`
-            : `⏳ "${bizName}" के लिए "${jobRole.trim()}" वेकेंसी एडमिन अप्रूवल के लिए भेज दी गई है! एडमिन अप्रूवल के बाद यह लाइव दिखेगी।`
+          tr(
+            `⏳ Job Vacancy for "${jobRole.trim()}" linked to "${bizName}" has been submitted to the Admin Panel for approval! Once approved by Admin, it will appear live.`,
+            `⏳ "${bizName}" के लिए "${jobRole.trim()}" वेकेंसी एडमिन अप्रूवल के लिए भेज दी गई है! एडमिन अप्रूवल के बाद यह लाइव दिखेगी।`,
+            `⏳ "${bizName}" માટે "${jobRole.trim()}" ની વેકેન્સી એડમિન મંજૂરી માટે મોકલાઈ ગઈ છે! એડમિન મંજૂરી પછી તે લાઈવ દેખાશે.`
+          )
         );
         setJobRole('');
         setSalaryOffered('');
@@ -356,19 +358,19 @@ export default function EmployerVacancyModal({
     setErrorMessage(null);
 
     if (!companyOrShopName.trim()) {
-      setErrorMessage(language === 'EN' ? 'Please enter Employer / Shop / Company Name' : 'कृपया एम्प्लॉयर / दुकान / कंपनी का नाम दर्ज करें');
+      setErrorMessage(tr('Please enter Employer / Shop / Company Name', 'कृपया एम्प्लॉयर / दुकान / कंपनी का नाम दर्ज करें', 'કૃપા કરીને એમ્પ્લોયર / દુકાન / કંપનીનું નામ દાખલ કરો'));
       return;
     }
     if (!jobRole.trim()) {
-      setErrorMessage(language === 'EN' ? 'Please enter Job Role / Required Post' : 'कृपया वेकेंसी / पद का नाम दर्ज करें');
+      setErrorMessage(tr('Please enter Job Role / Required Post', 'कृपया वेकेंसी / पद का नाम दर्ज करें', 'કૃપા કરીને વેકેન્સી / પદનું નામ દાખલ કરો'));
       return;
     }
     if (!phone.trim()) {
-      setErrorMessage(language === 'EN' ? 'Please enter Contact Mobile Number' : 'कृपया संपर्क मोबाइल नंबर दर्ज करें');
+      setErrorMessage(tr('Please enter Contact Mobile Number', 'कृपया संपर्क मोबाइल नंबर दर्ज करें', 'કૃપા કરીને સંપર્ક મોબાઈલ નંબર દાખલ કરો'));
       return;
     }
     if (!area.trim()) {
-      setErrorMessage(language === 'EN' ? 'Please enter Market / Area Name' : 'कृपया मार्केट / क्षेत्र का नाम दर्ज करें');
+      setErrorMessage(tr('Please enter Market / Area Name', 'कृपया मार्केट / क्षेत्र का नाम दर्ज करें', 'કૃપા કરીને માર્કેટ / વિસ્તારનું નામ દાખલ કરો'));
       return;
     }
 
@@ -438,11 +440,11 @@ export default function EmployerVacancyModal({
       if (res.success) {
         setEditingVacancyId(null);
         setSubmitSuccessMessage(
-          language === 'GU'
-            ? '⏳ તમારું નવું એમ્પ્લોયર રજિસ્ટ્રેશન અને જોબ વેકેન્સી એડમિન મંજૂરી માટે મોકલાઈ ગયા છે! એડમિન મંજૂરી પછી તે લાઈવ દેખાશે.'
-            : language === 'EN'
-            ? '⏳ Your New Employer Registration & Job Vacancy have been sent to Admin for approval! Once approved by Admin, they will be live.'
-            : '⏳ आपका नया एम्प्लॉयर रजिस्ट्रेशन और जॉब वेकेंसी एडमिन अप्रूवल के लिए भेज दी गई है! एडमिन अप्रूवल के बाद यह लाइव दिखेगी।'
+          tr(
+            '⏳ Your New Employer Registration & Job Vacancy have been sent to Admin for approval! Once approved by Admin, they will be live.',
+            '⏳ आपका नया एम्प्लॉयर रजिस्ट्रेशन और जॉब वेकेंसी एडमिन अप्रूवल के लिए भेज दी गई है! एडमिन अप्रूवल के बाद यह लाइव दिखेगी।',
+            '⏳ તમારું નવું એમ્પ્લોયર રજિસ્ટ્રેશન અને જોબ વેકેન્સી એડમિન મંજૂરી માટે મોકલાઈ ગયા છે! એડમિન મંજૂરી પછી તે લાઈવ દેખાશે.'
+          )
         );
         if (res.item && onSuccess) {
           onSuccess(res.item);
@@ -488,7 +490,10 @@ export default function EmployerVacancyModal({
   });
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-50 dark:bg-slate-950 flex flex-col overflow-hidden">
+    <div
+      className="fixed inset-x-0 bottom-0 top-[52px] z-50 bg-slate-50 dark:bg-slate-950 flex flex-col overflow-hidden"
+      style={{ position: 'fixed', top: '52px', left: 0, right: 0, bottom: 0, zIndex: 5000 }}
+    >
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
@@ -504,16 +509,18 @@ export default function EmployerVacancyModal({
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="text-base sm:text-lg font-black tracking-tight text-white">
-                  {language === 'EN' ? 'For Employer / Give a Job' : 'नौकरी / काम देने वाले (Employer)'}
+                  {tr('For Employer / Give a Job', 'नौकरी / काम देने वाले (Employer)', 'નોકરી / કામ આપનાર (Employer)')}
                 </h3>
                 <span className="text-[10px] font-black bg-emerald-400 text-slate-950 px-2 py-0.5 rounded-full flex items-center gap-0.5">
                   <ShieldCheck className="w-3 h-3" /> 100% Free
                 </span>
               </div>
               <p className="text-[11px] text-amber-100 font-medium">
-                {language === 'EN' 
-                  ? 'Choose Option A (Already Registered Shop/Business) or Option B (New Employer Registration)' 
-                  : 'विकल्प A (पहले से रजिस्टर्ड दुकान/बिज़नेस) या विकल्प B (नया एम्प्लॉयर रजिस्ट्रेशन) चुनें'}
+                {tr(
+                  'Choose Option A (Already Registered Shop/Business) or Option B (New Employer Registration)',
+                  'विकल्प A (पहले से रजिस्टर्ड दुकान/बिज़नेस) या विकल्प B (नया एम्प्लॉयर रजिस्ट्रेशन) चुनें',
+                  'વિકલ્પ A (પહેલેથી રજિસ્ટર્ડ દુકાન/બિઝનેસ) અથવા વિકલ્પ B (નવું એમ્પ્લોયર રજિસ્ટ્રેશન) પસંદ કરો'
+                )}
               </p>
             </div>
           </div>
@@ -522,7 +529,7 @@ export default function EmployerVacancyModal({
             className="px-3.5 py-2 rounded-xl bg-white/15 hover:bg-white/25 border border-white/25 flex items-center gap-1.5 text-white text-xs font-extrabold transition-colors cursor-pointer shrink-0"
           >
             <X className="w-4 h-4" />
-            <span>{language === 'EN' ? 'Back / Close' : 'वापस जाएं'}</span>
+            <span>{tr('Back / Close', 'वापस जाएं', 'પાછા જાઓ')}</span>
           </button>
         </div>
 
@@ -545,19 +552,15 @@ export default function EmployerVacancyModal({
             <div className="flex items-center gap-1.5 font-black text-xs">
               <Briefcase className="w-3.5 h-3.5 shrink-0" />
               <span className="truncate">
-                {language === 'EN'
-                  ? `Live Jobs (${filteredVacancies.length})`
-                  : language === 'GU'
-                  ? `લાઈવ જોબ્સ (${filteredVacancies.length})`
-                  : `लाइव जॉब्स (${filteredVacancies.length})`}
+                {tr(
+                  `Live Jobs (${filteredVacancies.length})`,
+                  `लाइव जॉब्स (${filteredVacancies.length})`,
+                  `લાઈવ જોબ્સ (${filteredVacancies.length})`
+                )}
               </span>
             </div>
             <p className={`text-[10px] mt-0.5 font-semibold truncate ${activeTab === 'browse' ? 'text-indigo-100' : 'text-slate-500 dark:text-slate-400'}`}>
-              {language === 'EN'
-                ? 'View Posted Vacancies'
-                : language === 'GU'
-                ? 'પોસ્ટ કરેલી વેકેન્સી જુઓ'
-                : 'पोस्ट की गई वेकेंसी देखें'}
+              {tr('View Posted Vacancies', 'पोस्ट की गई वेकेंसी देखें', 'પોસ્ટ કરેલી વેકેન્સી જુઓ')}
             </p>
           </button>
 
@@ -579,19 +582,11 @@ export default function EmployerVacancyModal({
             <div className="flex items-center gap-1.5 font-black text-xs">
               <Plus className="w-3.5 h-3.5 shrink-0" />
               <span className="truncate">
-                {language === 'EN'
-                  ? 'New Registration / New Employer'
-                  : language === 'GU'
-                  ? 'નવું રજિસ્ટ્રેશન / નવા એમ્પ્લોયર'
-                  : 'नया रजिस्ट्रेशन / नया एम्प्लॉयर'}
+                {tr('New Registration / New Employer', 'नया रजिस्ट्रेशन / नया एम्प्लॉयर', 'નવું રજિસ્ટ્રેશન / નવા એમ્પ્લોયર')}
               </span>
             </div>
             <p className={`text-[10px] mt-0.5 font-semibold truncate ${activeTab === 'new' ? 'text-orange-100' : 'text-slate-500 dark:text-slate-400'}`}>
-              {language === 'EN'
-                ? 'Register Business & Post Job'
-                : language === 'GU'
-                ? 'બિઝનેસ રજિસ્ટર કરો અને જોબ પોસ્ટ કરો'
-                : 'नया रजिस्ट्रेशन व जॉब पोस्ट'}
+              {tr('Register Business & Post Job', 'नया रजिस्ट्रेशन व जॉब पोस्ट', 'બિઝનેસ રજિસ્ટર કરો અને જોબ પોસ્ટ કરો')}
             </p>
           </button>
 
@@ -612,19 +607,11 @@ export default function EmployerVacancyModal({
             <div className="flex items-center gap-1.5 font-black text-xs">
               <Building2 className="w-3.5 h-3.5 shrink-0" />
               <span className="truncate">
-                {language === 'EN'
-                  ? 'Existing Business / Direct Job Post'
-                  : language === 'GU'
-                  ? 'રજિસ્ટર્ડ બિઝનેસ / સીધી જોબ પોસ્ટ'
-                  : 'रजिस्टर्ड बिज़नेस / डायरेक्ट जॉब पोस्ट'}
+                {tr('Existing Business / Direct Job Post', 'रजिस्टर्ड बिज़नेस / डायरेक्ट जॉब पोस्ट', 'રજિસ્ટર્ડ બિઝનેસ / સીધી જોબ પોસ્ટ')}
               </span>
             </div>
             <p className={`text-[10px] mt-0.5 font-semibold truncate ${activeTab === 'registered' ? 'text-amber-100' : 'text-slate-500 dark:text-slate-400'}`}>
-              {language === 'EN'
-                ? 'Link Shop & Post Job Directly'
-                : language === 'GU'
-                ? 'દુકાન પસંદ કરો અને સીધી જોબ મૂકો'
-                : 'दुकान चुनें व सीधे जॉब पोस्ट करें'}
+              {tr('Link Shop & Post Job Directly', 'दुकान चुनें व सीधे जॉब पोस्ट करें', 'દુકાન પસંદ કરો અને સીધી જોબ મૂકો')}
             </p>
           </button>
         </div>
@@ -641,10 +628,10 @@ export default function EmployerVacancyModal({
                 </div>
                 <div className="space-y-2">
                   <span className="inline-block px-3 py-1 bg-amber-100 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 font-extrabold text-xs rounded-full border border-amber-300 dark:border-amber-800">
-                    ⏳ Status: Pending Admin Verification
+                    ⏳ {tr('Status: Pending Admin Verification', 'स्थिति: एडमिन वेरिफिकेशन पेंडिंग', 'સ્થિતિ: એડમિન વેરિફિકેશન પેન્ડિંગ')}
                   </span>
                   <h4 className="text-lg font-black text-slate-900 dark:text-white">
-                    {language === 'EN' ? 'Job Vacancy Submitted!' : 'जॉब वेकेंसी सबमिट हो गई!'}
+                    {tr('Job Vacancy Submitted!', 'जॉब वेकेंसी सबमिट हो गई!', 'જોબ વેકેન્સી સબમિટ થઈ ગઈ!')}
                   </h4>
                   <div className="p-4 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/60 rounded-2xl text-sm font-bold text-emerald-900 dark:text-emerald-200 leading-relaxed shadow-xs">
                     {submitSuccessMessage}
@@ -659,14 +646,14 @@ export default function EmployerVacancyModal({
                     }}
                     className="flex-1 py-3 bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs rounded-xl shadow-md transition-all cursor-pointer"
                   >
-                    {language === 'EN' ? 'View Live Vacancies' : 'लाइव वेकेंसीज़ देखें'}
+                    {tr('View Live Vacancies', 'लाइव वेकेंसीज़ देखें', 'લાઈવ વેકેન્સી જુઓ')}
                   </button>
                   <button
                     type="button"
                     onClick={handleCloseAndReset}
                     className="py-3 px-4 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-xs rounded-xl hover:bg-slate-200 transition-all cursor-pointer"
                   >
-                    {language === 'EN' ? 'Close' : 'बंद करें'}
+                    {tr('Close', 'बंद करें', 'બંધ કરો')}
                   </button>
                 </div>
               </div>
@@ -686,12 +673,14 @@ export default function EmployerVacancyModal({
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <div>
                       <span className="text-[10px] font-black uppercase tracking-wider text-amber-700 dark:text-amber-400 block">
-                        {language === 'EN' ? 'STEP 1: SELECT YOUR REGISTERED SHOP / BUSINESS' : 'स्टेप 1: अपनी रजिस्टर्ड दुकान / बिज़नेस चुनें'}
+                        {tr('STEP 1: SELECT YOUR REGISTERED SHOP / BUSINESS', 'स्टेप 1: अपनी रजिस्टर्ड दुकान / बिज़नेस चुनें', 'સ્ટેપ 1: તમારી રજિસ્ટર્ડ દુકાન / બિઝનેસ પસંદ કરો')}
                       </span>
                       <p className="text-xs font-bold text-slate-700 dark:text-slate-300 mt-0.5">
-                        {language === 'EN'
-                          ? 'No need to fill business details again — select your business below and post your job directly!'
-                          : 'बार-बार बिज़नेस डिटेल्स भरने की जरूरत नहीं — नीचे अपनी दुकान/बिज़नेस चुनें और सीधे जॉब पोस्ट करें!'}
+                        {tr(
+                          'No need to fill business details again — select your business below and post your job directly!',
+                          'बार-बार बिज़नेस डिटेल्स भरने की जरूरत नहीं — नीचे अपनी दुकान/बिज़नेस चुनें और सीधे जॉब पोस्ट करें!',
+                          'વારંવાર બિઝનેસ વિગતો ભરવાની જરૂર નથી — નીચે તમારી દુકાન/બિઝનેસ પસંદ કરો અને સીધી જોબ પોસ્ટ કરો!'
+                        )}
                       </p>
                     </div>
                     <button
@@ -699,27 +688,29 @@ export default function EmployerVacancyModal({
                       onClick={() => setActiveTab('new')}
                       className="text-[11px] font-black text-orange-700 dark:text-amber-300 underline cursor-pointer shrink-0"
                     >
-                      {language === 'EN' ? 'Not registered yet? Option B →' : 'रजिस्टर्ड नहीं हैं? विकल्प B चुनें →'}
+                      {tr('Not registered yet? Option B →', 'रजिस्टर्ड नहीं हैं? विकल्प B चुनें →', 'હજુ રજિસ્ટર્ડ નથી? વિકલ્પ B પસંદ કરો →')}
                     </button>
                   </div>
 
                   {isLoadingBusinesses ? (
                     <div className="text-xs text-slate-500 py-2">
-                      {language === 'EN' ? 'Loading registered shops & businesses...' : 'रजिस्टर्ड दुकानें और बिज़नेस लोड हो रहे हैं...'}
+                      {tr('Loading registered shops & businesses...', 'रजिस्टर्ड दुकानें और बिज़नेस लोड हो रहे हैं...', 'રજિસ્ટર્ડ દુકાનો અને બિઝનેસ લોડ થઈ રહ્યા છે...')}
                     </div>
                   ) : registeredBusinesses.length === 0 ? (
                     <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-amber-200 dark:border-slate-700 text-center space-y-2">
                       <p className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                        {language === 'EN'
-                          ? 'No registered Shop/Business found for your account yet.'
-                          : 'अभी आपकी कोई रजिस्टर्ड दुकान या बिज़नेस नहीं मिला।'}
+                        {tr(
+                          'No registered Shop/Business found for your account yet.',
+                          'अभी आपकी कोई रजिस्टर्ड दुकान या बिज़नेस नहीं मिला।',
+                          'તમારા એકાઉન્ટ માટે હજુ કોઈ રજિસ્ટર્ડ દુકાન કે બિઝનેસ મળ્યો નથી.'
+                        )}
                       </p>
                       <button
                         type="button"
                         onClick={() => setActiveTab('new')}
                         className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-xl text-xs font-black cursor-pointer"
                       >
-                        {language === 'EN' ? 'Go to Option B: New Employer Registration →' : 'विकल्प B: नया एम्प्लॉयर रजिस्ट्रेशन करें →'}
+                        {tr('Go to Option B: New Employer Registration →', 'विकल्प B: नया एम्प्लॉयर रजिस्ट्रेशन करें →', 'વિકલ્પ B: નવું એમ્પ્લોયર રજિસ્ટ્રેશન કરો →')}
                       </button>
                     </div>
                   ) : (
@@ -732,7 +723,7 @@ export default function EmployerVacancyModal({
                             type="text"
                             value={businessSearchQuery}
                             onChange={(e) => setBusinessSearchQuery(e.target.value)}
-                            placeholder={language === 'EN' ? 'Search your registered shop or business name...' : 'अपनी रजिस्टर्ड दुकान या बिज़नेस का नाम खोजें...'}
+                            placeholder={tr('Search your registered shop or business name...', 'अपनी रजिस्टर्ड दुकान या बिज़नेस का नाम खोजें...', 'તમારી રજિસ્ટર્ડ દુકાન અથવા બિઝનેસનું નામ શોધો...')}
                             className="w-full pl-8 pr-3 py-2 text-xs bg-white dark:bg-slate-900 rounded-xl border border-amber-200 dark:border-slate-700 font-semibold"
                           />
                         </div>
@@ -759,7 +750,7 @@ export default function EmployerVacancyModal({
                                     <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-md ${
                                       isSelected ? 'bg-white text-amber-800' : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
                                     }`}>
-                                      {language === 'EN' ? 'Your Business' : 'आपका बिज़नेस'}
+                                      {tr('Your Business', 'आपका बिज़नेस', 'તમારો બિઝનેસ')}
                                     </span>
                                   )}
                                 </div>
@@ -778,14 +769,14 @@ export default function EmployerVacancyModal({
                         <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 flex items-center justify-between gap-2">
                           <div className="text-xs">
                             <span className="font-black text-emerald-900 dark:text-emerald-200 block">
-                              ✓ {language === 'EN' ? 'Linked Shop/Business:' : 'चयनित दुकान/बिज़नेस:'} {selectedBusiness.businessName || selectedBusiness.name}
+                              ✓ {tr('Linked Shop/Business:', 'चयनित दुकान/बिज़नेस:', 'પસંદ કરેલ દુકાન/બિઝનેસ:')} {selectedBusiness.businessName || selectedBusiness.name}
                             </span>
                             <span className="text-[11px] text-emerald-700 dark:text-emerald-300 font-semibold">
                               📍 {selectedBusiness.area || 'Local Area'} {selectedBusiness.phone ? `• 📞 ${selectedBusiness.phone}` : ''}
                             </span>
                           </div>
                           <span className="text-[10px] font-black text-emerald-800 dark:text-emerald-300 bg-white dark:bg-slate-900 px-2.5 py-1 rounded-lg border border-emerald-200 dark:border-emerald-800 shrink-0">
-                            {language === 'EN' ? 'Auto-Filled' : 'ऑटो-लिंक्ड'}
+                            {tr('Auto-Filled', 'ऑटो-लिंक्ड', 'ઓટો-લિંક્ડ')}
                           </span>
                         </div>
                       )}
@@ -802,33 +793,33 @@ export default function EmployerVacancyModal({
                 {/* STEP 2: Direct Job Requirement Fields Only */}
                 <div className="space-y-3 pt-1">
                   <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 block">
-                    {language === 'EN' ? 'STEP 2: ENTER JOB VACANCY / STAFF REQUIREMENT DETAILS' : 'स्टेप 2: सिर्फ जॉब वेकेंसी / स्टाफ की आवश्यकता दर्ज करें'}
+                    {tr('STEP 2: ENTER JOB VACANCY / STAFF REQUIREMENT DETAILS', 'स्टेप 2: सिर्फ जॉब वेकेंसी / स्टाफ की आवश्यकता दर्ज करें', 'સ્ટેપ 2: ફક્ત જોબ વેકેન્સી / સ્ટાફની જરૂરિયાતની વિગત લખો')}
                   </span>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                        {language === 'EN' ? 'Job Role / Required Staff Post *' : 'किस पद के लिए स्टाफ चाहिए? *'}
+                        {tr('Job Role / Required Staff Post *', 'किस पद के लिए स्टाफ चाहिए? *', 'કયા પદ માટે સ્ટાફ જોઈએ છે? *')}
                       </label>
                       <input
                         type="text"
                         required
                         value={jobRole}
                         onChange={(e) => setJobRole(e.target.value)}
-                        placeholder={language === 'EN' ? 'e.g. Sales Staff / Billing Cashier / Helper' : 'उदा. सेल्स स्टाफ / बिलिंग कैशियर / हेल्पर'}
+                        placeholder={tr('e.g. Sales Staff / Billing Cashier / Helper', 'उदा. सेल्स स्टाफ / बिलिंग कैशियर / हेल्पर', 'દા.ત. સેલ્સ સ્ટાફ / બિલિંગ કેશિયર / હેલ્પર')}
                         className="w-full px-3 py-2.5 text-xs bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-500 font-bold"
                       />
                     </div>
 
                     <div>
                       <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                        {language === 'EN' ? 'Salary Offered (Monthly)' : 'दी जाने वाली सैलरी (मासिक)'}
+                        {tr('Salary Offered (Monthly)', 'दी जाने वाली सैलरी (मासिक)', 'આપવામાં આવતો પગાર (માસિક)')}
                       </label>
                       <input
                         type="text"
                         value={salaryOffered}
                         onChange={(e) => setSalaryOffered(e.target.value)}
-                        placeholder={language === 'EN' ? 'e.g. ₹12,000 - ₹18,000' : 'उदा. ₹12,000 - ₹18,000'}
+                        placeholder={tr('e.g. ₹12,000 - ₹18,000', 'उदा. ₹12,000 - ₹18,000', 'દા.ત. ₹12,000 - ₹18,000')}
                         className="w-full px-3 py-2.5 text-xs bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-slate-700 font-semibold"
                       />
                     </div>
@@ -837,23 +828,23 @@ export default function EmployerVacancyModal({
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div>
                       <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                        {language === 'EN' ? 'Job Type' : 'जॉब प्रकार'}
+                        {tr('Job Type', 'जॉब प्रकार', 'નોકરીનો પ્રકાર')}
                       </label>
                       <select
                         value={vacancyType}
                         onChange={(e) => setVacancyType(e.target.value as any)}
                         className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-slate-700 font-semibold cursor-pointer"
                       >
-                        <option value="Full-Time">{language === 'EN' ? 'Full-Time' : 'पूर्णकालिक (Full-Time)'}</option>
-                        <option value="Part-Time">{language === 'EN' ? 'Part-Time' : 'अंशकालिक (Part-Time)'}</option>
-                        <option value="Hourly">{language === 'EN' ? 'Hourly Basis' : 'घंटे के अनुसार'}</option>
-                        <option value="Contract">{language === 'EN' ? 'Contract' : 'अनुबंध आधारित'}</option>
+                        <option value="Full-Time">{tr('Full-Time', 'पूर्णकालिक (Full-Time)', 'ફુલ-ટાઈમ (Full-Time)')}</option>
+                        <option value="Part-Time">{tr('Part-Time', 'अंशकालिक (Part-Time)', 'પાર્ટ-ટાઈમ (Part-Time)')}</option>
+                        <option value="Hourly">{tr('Hourly Basis', 'घंटे के अनुसार', 'કલાક મુજબ')}</option>
+                        <option value="Contract">{tr('Contract', 'अनुबंध आधारित', 'કોન્ટ્રાક્ટ આધારિત')}</option>
                       </select>
                     </div>
 
                     <div>
                       <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                        {language === 'EN' ? 'Number of Openings' : 'कितने स्टाफ चाहिए?'}
+                        {tr('Number of Openings', 'कितने स्टाफ चाहिए?', 'કેટલા સ્ટાફની જરૂર છે?')}
                       </label>
                       <input
                         type="number"
@@ -866,7 +857,7 @@ export default function EmployerVacancyModal({
 
                     <div>
                       <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                        {language === 'EN' ? 'Contact Phone *' : 'संपर्क मोबाइल नंबर *'}
+                        {tr('Contact Phone *', 'संपर्क मोबाइल नंबर *', 'સંપર્ક મોબાઈલ નંબર *')}
                       </label>
                       <input
                         type="tel"
@@ -881,13 +872,13 @@ export default function EmployerVacancyModal({
 
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      {language === 'EN' ? 'Work Timings & Job Responsibilities' : 'काम का समय और विवरण'}
+                      {tr('Work Timings & Job Responsibilities', 'काम का समय और विवरण', 'કામનો સમય અને વિગત')}
                     </label>
                     <textarea
                       rows={2}
                       value={description}
                       onChange={(e) => setDescription(e.target.value)}
-                      placeholder={language === 'EN' ? 'e.g. 10 AM to 8 PM, Sunday off, basic billing or customer handling...' : 'उदा. सुबह 10 से शाम 8 बजे तक, काम की जानकारी लिखें...'}
+                      placeholder={tr('e.g. 10 AM to 8 PM, Sunday off, basic billing or customer handling...', 'उदा. सुबह 10 से शाम 8 बजे तक, काम की जानकारी लिखें...', 'દા.ત. સવારે 10 થી સાંજે 8 વાગ્યા સુધી, કામની માહિતી લખો...')}
                       className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-slate-700 font-medium resize-none"
                     />
                   </div>
@@ -899,7 +890,7 @@ export default function EmployerVacancyModal({
                     onClick={handleCloseAndReset}
                     className="flex-1 py-3 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                   >
-                    {language === 'EN' ? 'Cancel' : 'रद्द करें'}
+                    {tr('Cancel', 'रद्द करें', 'રદ કરો')}
                   </button>
                   <button
                     type="submit"
@@ -909,8 +900,8 @@ export default function EmployerVacancyModal({
                     <Sparkles className="w-4 h-4" />
                     <span>
                       {isSubmitting
-                        ? (language === 'EN' ? 'Posting Job...' : 'पोस्ट हो रहा है...')
-                        : (language === 'EN' ? 'Post Job Vacancy Directly' : 'सीधे जॉब वेकेंसी पोस्ट करें')}
+                        ? tr('Posting Job...', 'पोस्ट हो रहा है...', 'પોસ્ટ થઈ રહ્યું છે...')
+                        : tr('Post Job Vacancy Directly', 'सीधे जॉब वेकेंसी पोस्ट करें', 'સીધી જોબ વેકેન્સી પોસ્ટ કરો')}
                     </span>
                   </button>
                 </div>
@@ -932,10 +923,10 @@ export default function EmployerVacancyModal({
 
                 <div className="space-y-2">
                   <span className="inline-block px-3 py-1 bg-amber-100 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 font-extrabold text-xs rounded-full border border-amber-300 dark:border-amber-800">
-                    ⏳ Status: Pending Admin Verification
+                    {tr('⏳ Status: Pending Admin Verification', '⏳ स्टेटस: एडमिन वेरिफिकेशन पेंडिंग', '⏳ સ્ટેટસ: એડમિન વેરિફિકેશન પેન્ડિંગ')}
                   </span>
                   <h4 className="text-lg font-black text-slate-900 dark:text-white">
-                    {language === 'EN' ? 'Employer Registered & Vacancy Submitted!' : 'नया एम्प्लॉयर व वेकेंसी सबमिट हो गई!'}
+                    {tr('Employer Registered & Vacancy Submitted!', 'नया एम्प्लॉयर व वेकेंसी सबमिट हो गई!', 'નવું એમ્પ્લોયર અને વેકેન્સી સબમિટ થઈ ગઈ!')}
                   </h4>
                   <div className="p-4 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/60 rounded-2xl text-sm font-bold text-emerald-900 dark:text-emerald-200 leading-relaxed shadow-xs">
                     {submitSuccessMessage}
@@ -951,14 +942,14 @@ export default function EmployerVacancyModal({
                     }}
                     className="flex-1 py-3 bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs rounded-xl shadow-md transition-all cursor-pointer"
                   >
-                    {language === 'EN' ? 'View Live Vacancies' : 'लाइव वेकेंसीज़ देखें'}
+                    {tr('View Live Vacancies', 'लाइव वेकेंसीज़ देखें', 'લાઈવ વેકેન્સી જુઓ')}
                   </button>
                   <button
                     type="button"
                     onClick={handleCloseAndReset}
                     className="py-3 px-4 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-xs rounded-xl hover:bg-slate-200 transition-all cursor-pointer"
                   >
-                    {language === 'EN' ? 'Close' : 'बंद करें'}
+                    {tr('Close', 'बंद करें', 'બંધ કરો')}
                   </button>
                 </div>
               </div>
@@ -975,9 +966,11 @@ export default function EmployerVacancyModal({
                   className="hidden opacity-0 pointer-events-none absolute -left-[9999px]"
                 />
                 <div className="p-3 rounded-xl bg-orange-50 dark:bg-slate-800 border border-orange-200 dark:border-slate-700 text-xs font-bold text-orange-900 dark:text-orange-200">
-                  {language === 'EN'
-                    ? '🏢 New Employer Registration: Register your Shop/Company/Business and post your Staff Vacancy in one step.'
-                    : '🏢 नया एम्प्लॉयर रजिस्ट्रेशन: अपनी दुकान/कंपनी/बिज़नेस रजिस्टर करें और साथ ही अपनी स्टाफ वेकेंसी पोस्ट करें।'}
+                  {tr(
+                    '🏢 New Employer Registration: Register your Shop/Company/Business and post your Staff Vacancy in one step.',
+                    '🏢 नया एम्प्लॉयर रजिस्ट्रेशन: अपनी दुकान/कंपनी/बिज़नेस रजिस्टर करें और साथ ही अपनी स्टाफ वेकेंसी पोस्ट करें।',
+                    '🏢 નવું એમ્પ્લોયર રજિસ્ટ્રેશન: તમારી દુકાન/કંપની/બિઝનેસ રજિસ્ટર કરો અને સાથે જ સ્ટાફ વેકેન્સી પોસ્ટ કરો.'
+                  )}
                 </div>
 
                 {errorMessage && (
@@ -990,28 +983,28 @@ export default function EmployerVacancyModal({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      {language === 'EN' ? 'Employer / Shop / Company Name *' : 'दुकान / कंपनी / एम्प्लॉयर का नाम *'}
+                      {tr('Employer / Shop / Company Name *', 'दुकान / कंपनी / एम्प्लॉयर का नाम *', 'દુકાન / કંપની / એમ્પ્લોયરનું નામ *')}
                     </label>
                     <input
                       type="text"
                       required
                       value={companyOrShopName}
                       onChange={(e) => setCompanyOrShopName(e.target.value)}
-                      placeholder={language === 'EN' ? 'e.g. Shree Ram SuperMart' : 'उदा. श्री राम सुपरमार्ट'}
+                      placeholder={tr('e.g. Shree Ram SuperMart', 'उदा. श्री राम सुपरमार्ट', 'દા.ત. શ્રી રામ સુપરમાર્ટ')}
                       className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
                     />
                   </div>
 
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      {language === 'EN' ? 'Employer / Owner Full Name *' : 'मालिक / एम्प्लॉयर का नाम *'}
+                      {tr('Employer / Owner Full Name *', 'मालिक / एम्प्लॉयर का नाम *', 'માલિક / એમ્પ્લોયરનું પૂરું નામ *')}
                     </label>
                     <input
                       type="text"
                       required
                       value={ownerName}
                       onChange={(e) => setOwnerName(e.target.value)}
-                      placeholder={language === 'EN' ? 'e.g. Rajesh Sharma' : 'उदा. राजेश शर्मा'}
+                      placeholder={tr('e.g. Rajesh Sharma', 'उदा. राजेश शर्मा', 'દા.ત. રાજેશ શર્મા')}
                       className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
                     />
                   </div>
@@ -1021,21 +1014,21 @@ export default function EmployerVacancyModal({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      {language === 'EN' ? 'Job Role / Required Post *' : 'किस पद के लिए स्टाफ चाहिए? *'}
+                      {tr('Job Role / Required Post *', 'किस पद के लिए स्टाफ चाहिए? *', 'કયા પદ માટે સ્ટાફ જોઈએ છે? *')}
                     </label>
                     <input
                       type="text"
                       required
                       value={jobRole}
                       onChange={(e) => setJobRole(e.target.value)}
-                      placeholder={language === 'EN' ? 'e.g. Billing Cashier / Sales Staff' : 'उदा. बिलिंग कैशियर / सेल्स स्टाफ'}
+                      placeholder={tr('e.g. Billing Cashier / Sales Staff', 'उदा. बिलिंग कैशियर / सेल्स स्टाफ', 'દા.ત. બિલિંગ કેશિયર / સેલ્સ સ્ટાફ')}
                       className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
                     />
                   </div>
 
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      {language === 'EN' ? 'Business Category *' : 'बिज़नेस श्रेणी *'}
+                      {tr('Business Category *', 'बिज़नेस श्रेणी *', 'બિઝનેસ કેટેગરી *')}
                     </label>
                     <select
                       value={category}
@@ -1044,7 +1037,7 @@ export default function EmployerVacancyModal({
                     >
                       {BUSINESS_CATEGORIES.map((cat) => (
                         <option key={cat.id} value={cat.id}>
-                          {language === 'EN' ? cat.labelEn : cat.labelHi}
+                          {tr(cat.labelEn, cat.labelHi, cat.labelGu)}
                         </option>
                       ))}
                     </select>
@@ -1055,23 +1048,23 @@ export default function EmployerVacancyModal({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      {language === 'EN' ? 'Job Type' : 'जॉब प्रकार'}
+                      {tr('Job Type', 'जॉब प्रकार', 'નોકરીનો પ્રકાર')}
                     </label>
                     <select
                       value={vacancyType}
                       onChange={(e) => setVacancyType(e.target.value as any)}
                       className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-slate-700 font-medium cursor-pointer"
                     >
-                      <option value="Full-Time">{language === 'EN' ? 'Full-Time' : 'पूर्णकालिक (Full-Time)'}</option>
-                      <option value="Part-Time">{language === 'EN' ? 'Part-Time' : 'अंशकालिक (Part-Time)'}</option>
-                      <option value="Hourly">{language === 'EN' ? 'Hourly Basis' : 'घंटे के अनुसार'}</option>
-                      <option value="Contract">{language === 'EN' ? 'Contract' : 'अनुबंध आधारित'}</option>
+                      <option value="Full-Time">{tr('Full-Time', 'पूर्णकालिक (Full-Time)', 'ફુલ-ટાઈમ (Full-Time)')}</option>
+                      <option value="Part-Time">{tr('Part-Time', 'अंशकालिक (Part-Time)', 'પાર્ટ-ટાઈમ (Part-Time)')}</option>
+                      <option value="Hourly">{tr('Hourly Basis', 'घंटे के अनुसार', 'કલાક મુજબ')}</option>
+                      <option value="Contract">{tr('Contract', 'अनुबंध आधारित', 'કોન્ટ્રાક્ટ આધારિત')}</option>
                     </select>
                   </div>
 
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      {language === 'EN' ? 'Number of Vacant Openings' : 'कितने लोगों की जरूरत है?'}
+                      {tr('Number of Vacant Openings', 'कितने लोगों की जरूरत है?', 'કેટલા લોકોની જરૂર છે?')}
                     </label>
                     <input
                       type="number"
@@ -1088,29 +1081,29 @@ export default function EmployerVacancyModal({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      {language === 'EN' ? 'Salary Offered (Monthly)' : 'दी जाने वाली सैलरी'}
+                      {tr('Salary Offered (Monthly)', 'दी जाने वाली सैलरी', 'આપવામાં આવતો પગાર')}
                     </label>
                     <input
                       type="text"
                       value={salaryOffered}
                       onChange={(e) => setSalaryOffered(e.target.value)}
-                      placeholder={language === 'EN' ? 'e.g. ₹15,000 - ₹20,000' : 'उदा. ₹15,000 - ₹20,000'}
+                      placeholder={tr('e.g. ₹15,000 - ₹20,000', 'उदा. ₹15,000 - ₹20,000', 'દા.ત. ₹15,000 - ₹20,000')}
                       className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-slate-700 font-medium"
                     />
                   </div>
 
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      {language === 'EN' ? 'Hiring Urgency' : 'भर्ती की प्राथमिकता'}
+                      {tr('Hiring Urgency', 'भर्ती की प्राथमिकता', 'ભરતીની તાત્કાલિકતા')}
                     </label>
                     <select
                       value={urgency}
                       onChange={(e) => setUrgency(e.target.value as any)}
                       className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-slate-700 font-medium cursor-pointer"
                     >
-                      <option value="Immediate">{language === 'EN' ? '⚡ Immediate' : '⚡ तुरंत भर्ती (Immediate)'}</option>
-                      <option value="Within 1 Week">{language === 'EN' ? 'Within 1 Week' : '1 सप्ताह में'}</option>
-                      <option value="Normal">{language === 'EN' ? 'Normal' : 'सामान्य'}</option>
+                      <option value="Immediate">{tr('⚡ Immediate', '⚡ तुरंत भर्ती (Immediate)', '⚡ તાત્કાલિક ભરતી (Immediate)')}</option>
+                      <option value="Within 1 Week">{tr('Within 1 Week', '1 सप्ताह में', '1 અઠવાડિયામાં')}</option>
+                      <option value="Normal">{tr('Normal', 'सामान्य', 'સામાન્ય')}</option>
                     </select>
                   </div>
                 </div>
@@ -1119,7 +1112,7 @@ export default function EmployerVacancyModal({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      {language === 'EN' ? 'Calling Mobile Number *' : 'मोबाइल नंबर (कॉलिंग) *'}
+                      {tr('Calling Mobile Number *', 'मोबाइल नंबर (कॉलिंग) *', 'મોબાઈલ નંબર (કોલિંગ) *')}
                     </label>
                     <input
                       type="tel"
@@ -1132,7 +1125,7 @@ export default function EmployerVacancyModal({
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      {language === 'EN' ? 'WhatsApp Number' : 'व्हाट्सएप नंबर'}
+                      {tr('WhatsApp Number', 'व्हाट्सएप नंबर', 'વોટ્સએપ નંબર')}
                     </label>
                     <input
                       type="tel"
@@ -1148,26 +1141,26 @@ export default function EmployerVacancyModal({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      {language === 'EN' ? 'Market / Area Name *' : 'मार्केट / क्षेत्र *'}
+                      {tr('Market / Area Name *', 'मार्केट / क्षेत्र *', 'માર્કેટ / વિસ્તાર *')}
                     </label>
                     <input
                       type="text"
                       required
                       value={area}
                       onChange={(e) => setArea(e.target.value)}
-                      placeholder={language === 'EN' ? 'e.g. Main Market, Station Road' : 'उदा. मेन मार्केट, स्टेशन रोड'}
+                      placeholder={tr('e.g. Main Market, Station Road', 'उदा. मेन मार्केट, स्टेशन रोड', 'દા.ત. મેઈન માર્કેટ, સ્ટેશન રોડ')}
                       className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-slate-700 font-medium"
                     />
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      {language === 'EN' ? 'Exact Shop / Office Address' : 'दुकान / ऑफिस का पूरा पता'}
+                      {tr('Exact Shop / Office Address', 'दुकान / ऑफिस का पूरा पता', 'દુકાન / ઓફિસનું પૂરું સરનામું')}
                     </label>
                     <input
                       type="text"
                       value={address}
                       onChange={(e) => setAddress(e.target.value)}
-                      placeholder={language === 'EN' ? 'e.g. Shop #12, Ground Floor' : 'उदा. दुकान नंबर 12, ग्राउंड फ्लोर'}
+                      placeholder={tr('e.g. Shop #12, Ground Floor', 'उदा. दुकान नंबर 12, ग्राउंड फ्लोर', 'દા.ત. દુકાન નં. 12, ગ્રાઉન્ડ ફ્લોર')}
                       className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-slate-700 font-medium"
                     />
                   </div>
@@ -1176,13 +1169,13 @@ export default function EmployerVacancyModal({
                 {/* Job Details & Requirements */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {language === 'EN' ? 'Job Description & Work Timings' : 'काम का विवरण व समय'}
+                    {tr('Job Description & Work Timings', 'काम का विवरण व समय', 'કામની વિગત અને સમય')}
                   </label>
                   <textarea
                     rows={2}
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
-                    placeholder={language === 'EN' ? 'Specify work timings, duties, weekly off, and expectations...' : 'काम के घंटे, जिम्मेदारियां और आवश्यक अनुभव आदि लिखें...'}
+                    placeholder={tr('Specify work timings, duties, weekly off, and expectations...', 'काम के घंटे, जिम्मेदारियां और आवश्यक अनुभव आदि लिखें...', 'કામના કલાકો, જવાબદારીઓ અને જરૂરી અનુભવ વગેરે લખો...')}
                     className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-slate-700 font-medium resize-none"
                   />
                 </div>
@@ -1190,7 +1183,7 @@ export default function EmployerVacancyModal({
                 {/* Photo / Logo Upload */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {language === 'EN' ? 'Shop / Company Photo or Logo (Optional)' : 'दुकान / कंपनी का फोटो या लोगो (वैकल्पिक)'}
+                    {tr('Shop / Company Photo or Logo (Optional)', 'दुकान / कंपनी का फोटो या लोगो (वैकल्पिक)', 'દુકાન / કંપનીનો ફોટો અથવા લોગો (વૈકલ્પિક)')}
                   </label>
                   <input
                     type="file"
@@ -1207,7 +1200,7 @@ export default function EmployerVacancyModal({
                     onClick={handleCloseAndReset}
                     className="flex-1 py-3 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                   >
-                    {language === 'EN' ? 'Cancel' : 'रद्द करें'}
+                    {tr('Cancel', 'रद्द करें', 'રદ કરો')}
                   </button>
                   <button
                     type="submit"
@@ -1217,8 +1210,8 @@ export default function EmployerVacancyModal({
                     <Sparkles className="w-4 h-4" />
                     <span>
                       {isSubmitting
-                        ? (language === 'EN' ? 'Submitting...' : 'सबमिट हो रहा है...')
-                        : (language === 'EN' ? 'Register Employer & Post Job' : 'रजिस्टर करें और जॉब पोस्ट करें')}
+                        ? tr('Submitting...', 'सबमिट हो रहा है...', 'સબમિટ થઈ રહ્યું છે...')
+                        : tr('Register Employer & Post Job', 'रजिस्टर करें और जॉब पोस्ट करें', 'રજિસ્ટર કરો અને જોબ પોસ્ટ કરો')}
                     </span>
                   </button>
                 </div>
@@ -1239,7 +1232,7 @@ export default function EmployerVacancyModal({
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder={language === 'EN' ? 'Search vacancy by role, shop name or area...' : 'वेकेंसी का नाम, दुकान या कंपनी खोजें...'}
+                  placeholder={tr('Search vacancy by role, shop name or area...', 'वेकेंसी का नाम, दुकान या कंपनी खोजें...', 'વેકેન્સીનું નામ, દુકાન અથવા કંપની શોધો...')}
                   className="w-full pl-9 pr-3 py-2 text-xs bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-500"
                 />
               </div>
@@ -1249,9 +1242,9 @@ export default function EmployerVacancyModal({
                 onChange={(e) => setCategoryFilter(e.target.value)}
                 className="py-2 px-3 text-xs bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-white rounded-xl border border-slate-200 dark:border-slate-700 font-medium focus:outline-none cursor-pointer"
               >
-                <option value="all">{language === 'EN' ? 'All Business Categories' : 'सभी श्रेणियां'}</option>
+                <option value="all">{tr('All Business Categories', 'सभी श्रेणियां', 'બધી કેટેગરી')}</option>
                 {BUSINESS_CATEGORIES.map(c => (
-                  <option key={c.id} value={c.id}>{language === 'EN' ? c.labelEn : c.labelHi}</option>
+                  <option key={c.id} value={c.id}>{tr(c.labelEn, c.labelHi, c.labelGu)}</option>
                 ))}
               </select>
             </div>
@@ -1263,20 +1256,20 @@ export default function EmployerVacancyModal({
                     🏢
                   </div>
                   <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300">
-                    {language === 'EN' ? 'No Employer Vacancies found' : 'कोई वेकेंसी नहीं मिली'}
+                    {tr('No Employer Vacancies found', 'कोई वेकेंसी नहीं मिली', 'કોઈ વેકેન્સી મળી નથી')}
                   </h4>
                   <div className="flex items-center justify-center gap-2 pt-1">
                     <button
                       onClick={() => setActiveTab('registered')}
                       className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer"
                     >
-                      {language === 'EN' ? 'Option A: Registered Shop' : 'विकल्प A: रजिस्टर्ड दुकान'}
+                      {tr('Option A: Registered Shop', 'विकल्प A: रजिस्टर्ड दुकान', 'વિકલ્પ A: રજિસ્ટર્ડ દુકાન')}
                     </button>
                     <button
                       onClick={() => setActiveTab('new')}
                       className="px-3.5 py-2 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer"
                     >
-                      {language === 'EN' ? 'Option B: New Employer' : 'विकल्प B: नया एम्प्लॉयर'}
+                      {tr('Option B: New Employer', 'विकल्प B: नया एम्प्लॉयर', 'વિકલ્પ B: નવું એમ્પ્લોયર')}
                     </button>
                   </div>
                 </div>
@@ -1301,7 +1294,7 @@ export default function EmployerVacancyModal({
                               {vac.companyOrShopName}
                             </h4>
                             <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300">
-                              · Verified Employer
+                              · {tr('Verified Employer', 'वेरिफाइड एम्प्लॉयर', 'વેરિફાઈડ એમ્પ્લોયર')}
                             </span>
                           </div>
                           <p className="text-xs font-bold text-orange-600 dark:text-orange-400 mt-0.5">
@@ -1316,7 +1309,7 @@ export default function EmployerVacancyModal({
 
                       {vac.salaryOffered && (
                         <div className="bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 px-2.5 py-1 rounded-xl text-right shrink-0">
-                          <span className="text-[9px] uppercase font-bold text-emerald-700 dark:text-emerald-400 block">Salary</span>
+                          <span className="text-[9px] uppercase font-bold text-emerald-700 dark:text-emerald-400 block">{tr('Salary', 'सैलरी', 'પગાર')}</span>
                           <span className="text-xs font-black text-emerald-800 dark:text-emerald-300">{vac.salaryOffered}</span>
                         </div>
                       )}
@@ -1325,17 +1318,17 @@ export default function EmployerVacancyModal({
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px] bg-slate-50 dark:bg-slate-850 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
                       <div className="flex items-center gap-1.5">
                         <Clock className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                        <span className="text-slate-500 dark:text-slate-400 font-medium">Type:</span>
+                        <span className="text-slate-500 dark:text-slate-400 font-medium">{tr('Type:', 'प्रकार:', 'પ્રકાર:')}</span>
                         <span className="font-bold text-slate-800 dark:text-slate-200 truncate">{vac.vacancyType || 'Full-Time'}</span>
                       </div>
                       <div className="flex items-center gap-1.5">
                         <Users className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                        <span className="text-slate-500 dark:text-slate-400 font-medium">Openings:</span>
+                        <span className="text-slate-500 dark:text-slate-400 font-medium">{tr('Openings:', 'पद:', 'જગ્યા:')}</span>
                         <span className="font-bold text-slate-800 dark:text-slate-200">{vac.openingsCount || 1}</span>
                       </div>
                       <div className="flex items-center gap-1.5 col-span-2 sm:col-span-1">
                         <span className="text-xs">⚡</span>
-                        <span className="text-slate-500 dark:text-slate-400 font-medium">Hiring:</span>
+                        <span className="text-slate-500 dark:text-slate-400 font-medium">{tr('Hiring:', 'भर्ती:', 'ભરતી:')}</span>
                         <span className="font-bold text-rose-600 dark:text-rose-400 truncate">{vac.urgency || 'Immediate'}</span>
                       </div>
                     </div>
@@ -1354,7 +1347,7 @@ export default function EmployerVacancyModal({
                           className="flex-1 py-2 px-3 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-black shadow-xs active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                         >
                           <Edit3 className="w-3.5 h-3.5" />
-                          <span>{language === 'EN' ? 'Edit Vacancy' : 'वेकेंसी एडिट करें'}</span>
+                          <span>{tr('Edit Vacancy', 'वेकेंसी एडिट करें', 'વેકેન્સી એડિટ કરો')}</span>
                         </button>
                       ) : (
                         <button
@@ -1363,7 +1356,7 @@ export default function EmployerVacancyModal({
                           className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black shadow-xs active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                         >
                           <MessageCircle className="w-3.5 h-3.5" />
-                          <span>{language === 'EN' ? 'Apply on WhatsApp' : 'व्हाट्सएप आवेदन'}</span>
+                          <span>{tr('Apply on WhatsApp', 'व्हाट्सएप आवेदन', 'વોટ્સએપ પર અરજી કરો')}</span>
                         </button>
                       )}
 
@@ -1373,7 +1366,7 @@ export default function EmployerVacancyModal({
                           className="px-3.5 py-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 cursor-pointer"
                         >
                           <Phone className="w-3.5 h-3.5" />
-                          <span>Call</span>
+                          <span>{tr('Call', 'कॉल', 'કોલ')}</span>
                         </a>
                       )}
                     </div>

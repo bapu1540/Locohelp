@@ -25,7 +25,7 @@ export default function UserProfileModal({
   distance = 0.5,
   location,
 }: UserProfileModalProps) {
-  const { t } = useLanguage();
+  const { t, tr } = useLanguage();
 
   const cleanLocation = location 
     ? location.replace(/^,\s*|,\s*$|,+/g, ',').replace(/,\s*,/g, ',').replace(/^,\s*/, '').replace(/,\s*$/, '').trim() 
@@ -34,7 +34,10 @@ export default function UserProfileModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+    <div
+      className="fixed inset-x-0 bottom-0 top-[52px] z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
+      style={{ position: 'fixed', top: '52px', left: 0, right: 0, bottom: 0, zIndex: 5000 }}
+    >
       <motion.div
         initial={{ opacity: 0, scale: 0.95, y: 15 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -45,7 +48,9 @@ export default function UserProfileModal({
         <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-800/50">
           <div className="flex items-center gap-2">
             <UserCheck className="w-5 h-5 text-indigo-600" />
-            <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">Helper & User Profile</h3>
+            <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">
+              {tr('Helper & User Profile', 'हेल्पर और यूज़र प्रोफाइल', 'હેલ્પર અને યુઝર પ્રોફાઇલ')}
+            </h3>
           </div>
           <button
             onClick={onClose}

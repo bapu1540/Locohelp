@@ -27,7 +27,7 @@ interface ProfileScreenProps {
 }
 
 export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialTab = 'user' }: ProfileScreenProps) {
-  const { language, t } = useLanguage();
+  const { language, t, tr } = useLanguage();
   
   // Tab State: 'user' (Simple Profile) | 'helper' (Helper Profile) | 'business' (Business Registration)
   const [activeTab, setActiveTab] = useState<'user' | 'helper' | 'business'>(initialTab);
@@ -560,7 +560,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
           }
         } catch (err) {}
 
-        setPhotoSavedMsg('✅ प्रोफाइल फोटो सफलतापूर्वक अपलोड और सेव हो गई! (Profile photo saved!)');
+        setPhotoSavedMsg(tr('✅ Profile photo uploaded & saved!', '✅ प्रोफाइल फोटो सफलतापूर्वक अपलोड और सेव हो गई!', '✅ પ્રોફાઈલ ફોટો સફળતાપૂર્વક અપલોડ અને સેવ થઈ ગયો!'));
         setTimeout(() => setPhotoSavedMsg(null), 4000);
       } catch {
         const reader = new FileReader();
@@ -805,7 +805,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
     const typeObj = SHOP_TYPES.find(t => t.id === shopType);
     const label = shopType === 'other' && customShopType.trim()
       ? customShopType.trim()
-      : (typeObj ? (language === 'EN' ? typeObj.nameEn : typeObj.nameHi) : 'Local Business');
+      : (typeObj ? tr(typeObj.nameEn, typeObj.nameHi, typeObj.nameGu) : 'Local Business');
 
     const shopId = myBusinessProfile?.id || ('shop_' + Date.now().toString(36));
 
@@ -898,26 +898,32 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
     <div className="flex flex-col h-full bg-[#F8FAFC] dark:bg-slate-900 relative overflow-hidden transition-colors">
       
       {/* Top Header Navigation */}
-      <div className="flex items-center justify-between px-4 py-3.5 pt-10 sm:pt-4 border-b border-slate-200 dark:border-slate-800 sticky top-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl z-20 shadow-xs">
+      <div className="flex items-center justify-between px-4 py-3.5 pt-4 border-b border-slate-200 dark:border-slate-800 sticky top-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl z-20 shadow-xs">
         <div className="flex items-center gap-2">
           <button 
             onClick={onBack} 
             className="p-2 -ml-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors text-slate-700 dark:text-slate-200 cursor-pointer"
-            title="Back"
+            title={tr('Back', 'वापस', 'પાછળ')}
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div>
             <h2 className="text-base font-black text-slate-900 dark:text-white tracking-tight">
-              Profile Hub / प्रोफाइल हब
+              {tr('Profile Hub', 'प्रोफाइल हब', 'પ્રોફાઈલ હબ')}
             </h2>
-            <p className="text-[10px] text-slate-500 font-medium">Manage Account, Service Expert Listing & Business Registration</p>
+            <p className="text-[10px] text-slate-500 font-medium">
+              {tr(
+                'Manage Account, Service Expert Listing & Business Registration',
+                'खाता, सर्विस एक्सपर्ट प्रोफाइल और बिज़नेस रजिस्ट्रेशन प्रबंधित करें',
+                'એકાઉન્ટ, સર્વિસ એક્સપર્ટ લિસ્ટિંગ અને બિઝનેસ રજિસ્ટ્રેશન મેનેજ કરો'
+              )}
+            </p>
           </div>
         </div>
       </div>
 
       {/* 3 CORE TABS SELECTOR STRIP */}
-      <div className="bg-white dark:bg-slate-850 border-b border-slate-200 dark:border-slate-800 px-3 py-2 sticky top-[60px] z-10 shadow-xs">
+      <div className="bg-white dark:bg-slate-850 border-b border-slate-200 dark:border-slate-800 px-3 py-2 sticky top-0 z-10 shadow-xs" style={{ top: 0 }}>
         <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100 dark:bg-slate-900 rounded-2xl">
           <button
             onClick={() => setActiveTab('user')}
@@ -928,7 +934,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
             }`}
           >
             <User className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">Simple Profile</span>
+            <span className="truncate">{tr('Simple Profile', 'सामान्य प्रोफाइल', 'સામાન્ય પ્રોફાઈલ')}</span>
           </button>
 
           <button
@@ -940,7 +946,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
             }`}
           >
             <Wrench className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">Service Expert</span>
+            <span className="truncate">{tr('Service Expert', 'सर्विस एक्सपर्ट', 'સર્વિસ એક્સપર્ટ')}</span>
           </button>
 
           <button
@@ -952,7 +958,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
             }`}
           >
             <Store className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">Business Reg.</span>
+            <span className="truncate">{tr('Business Reg.', 'बिज़नेस रजि.', 'બિઝનેસ રજિ.')}</span>
           </button>
         </div>
       </div>
@@ -972,26 +978,32 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                 <div className="flex flex-col text-left min-w-0 pr-2">
                   <div className="flex items-center gap-2 flex-wrap">
                     <h1 className="text-lg font-black text-slate-900 dark:text-white tracking-tight truncate">
-                      {userName || myHelperProfile?.name || "Community Member"}
+                      {userName || myHelperProfile?.name || tr('Community Member', 'कम्युनिटी सदस्य', 'કમ્યુનિટી સભ્ય')}
                     </h1>
                     {verificationStatus === 'deletion_requested' ? (
                       <span className="text-[10px] bg-rose-600 text-white font-extrabold px-2 py-0.5 rounded-full flex items-center gap-1">
-                        <Clock className="w-3 h-3" /> Deletion Requested
+                        <Clock className="w-3 h-3" /> {tr('Deletion Requested', 'हटाने का अनुरोध', 'ડિલીટની વિનંતી')}
                       </span>
                     ) : verificationStatus === 'approved' || isHelperApproved ? (
                       <span className="text-[10px] bg-emerald-600 text-white font-extrabold px-2 py-0.5 rounded-full flex items-center gap-1">
-                        <CheckCircle2 className="w-3 h-3" /> Active & Approved
+                        <CheckCircle2 className="w-3 h-3" /> {tr('Active & Approved', 'एक्टिव और अप्रूव्ड', 'એક્ટિવ અને મંજૂર')}
                       </span>
                     ) : (verificationStatus === 'pending' || (myHelperProfile && !isHelperApproved)) ? (
                       <span className="text-[10px] bg-amber-500 text-white font-extrabold px-2 py-0.5 rounded-full flex items-center gap-1">
-                        <Clock className="w-3 h-3" /> Under Admin Review
+                        <Clock className="w-3 h-3" /> {tr('Under Admin Review', 'एडमिन समीक्षा में', 'એડમિન સમીક્ષા હેઠળ')}
                       </span>
                     ) : null}
                   </div>
                   
                   <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 mb-1 flex items-center gap-1">
                     <Lock className="w-3 h-3" />
-                    <span>मोबाइल नंबर निजी और गोपनीय है (चैट के माध्यम से संपर्क सुरक्षित)</span>
+                    <span>
+                      {tr(
+                        'Mobile number is private & confidential (Safe contact via Chat)',
+                        'मोबाइल नंबर निजी और गोपनीय है (चैट के माध्यम से संपर्क सुरक्षित)',
+                        'મોબાઈલ નંબર ખાનગી અને ગોપનીય છે (ચેટ દ્વારા સુરક્ષિત સંપર્ક)'
+                      )}
+                    </span>
                   </p>
 
                   {/* Registered Email Address */}
@@ -1017,7 +1029,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   <div 
                     onClick={() => fileInputRef.current?.click()}
                     className="w-18 h-18 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center relative overflow-hidden border-2 border-indigo-500/80 shadow-md cursor-pointer group"
-                    title="Click to upload profile photo"
+                    title={tr('Click to upload profile photo', 'प्रोफाइल फोटो अपलोड करें', 'પ્રોફાઈલ ફોટો અપલોડ કરો')}
                   >
                     {profilePhoto && profilePhoto !== 'https://lh3.googleusercontent.com/a/default-user' ? (
                       <img src={profilePhoto} alt="Profile" loading="lazy" decoding="async" className="w-full h-full object-cover" />
@@ -1036,7 +1048,9 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                     disabled={isUploadingPhoto}
                     className="px-2 py-0.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/70 hover:bg-indigo-100 text-indigo-600 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-[10px] font-extrabold cursor-pointer transition-colors"
                   >
-                    {isUploadingPhoto ? '⏳ सेव हो रहा...' : '📷 फोटो बदलें'}
+                    {isUploadingPhoto
+                      ? tr('⏳ Saving...', '⏳ सेव हो रहा...', '⏳ સેવ થઈ રહ્યું...')
+                      : tr('📷 Change Photo', '📷 फोटो बदलें', '📷 ફોટો બદલો')}
                   </button>
                   <input 
                     type="file" 
@@ -1071,7 +1085,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   <div>
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <h3 className="text-xs sm:text-sm font-black text-slate-900 dark:text-white">
-                        {language === 'EN' ? 'My Chats (Last 7 Days)' : language === 'GU' ? 'મારી વાતચીત (છેલ્લા 7 દિવસ)' : 'मेरी बातचीत (पिछले 7 दिन)'}
+                        {tr('My Chats (Last 7 Days)', 'मेरी बातचीत (पिछले 7 दिन)', 'મારી વાતચીત (છેલ્લા 7 દિવસ)')}
                       </h3>
                       {recentConversations.length > 0 && (
                         <span className="text-[10px] bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 font-extrabold px-2 py-0.5 rounded-full border border-indigo-200 dark:border-indigo-800">
@@ -1080,11 +1094,11 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                       )}
                     </div>
                     <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium leading-tight mt-0.5">
-                      {language === 'EN'
-                        ? 'Conversations auto-saved for 7 days • Delete anytime'
-                        : language === 'GU'
-                        ? 'વાતચીત 7 દિવસ માટે સુરક્ષિત • ગમે ત્યારે ડિલીટ કરી શકો છો'
-                        : 'बातचीत 7 दिनों तक सुरक्षित • जब चाहें डिलीट करें'}
+                      {tr(
+                        'Conversations auto-saved for 7 days • Delete anytime',
+                        'बातचीत 7 दिनों तक सुरक्षित • जब चाहें डिलीट करें',
+                        'વાતચીત 7 દિવસ માટે સુરક્ષિત • ગમે ત્યારે ડિલીટ કરી શકો છો'
+                      )}
                     </p>
                   </div>
                 </div>
@@ -1094,7 +1108,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   onClick={() => loadRecentChats(false)}
                   disabled={isLoadingChats}
                   className="p-1.5 rounded-xl text-slate-500 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                  title="Refresh Chats"
+                  title={tr('Refresh Chats', 'चैट रिफ्रेश करें', 'ચેટ રિફ્રેશ કરો')}
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isLoadingChats ? 'animate-spin text-indigo-600' : ''}`} />
                 </button>
@@ -1104,19 +1118,19 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
               {isLoadingChats ? (
                 <div className="py-6 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
                   <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-600" />
-                  <span>Loading recent chats...</span>
+                  <span>{tr('Loading recent chats...', 'चैट लोड हो रही हैं...', 'તાજેતરની ચેટ લોડ થઈ રહી છે...')}</span>
                 </div>
               ) : recentConversations.length === 0 ? (
                 <div className="py-5 text-center bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 p-3 space-y-1">
                   <p className="text-xs font-bold text-slate-600 dark:text-slate-300">
-                    {language === 'EN' ? 'No chats in the last 7 days' : language === 'GU' ? 'છેલ્લા 7 દિવસમાં કોઈ વાતચીત નથી' : 'पिछले 7 दिनों में कोई बातचीत नहीं है'}
+                    {tr('No chats in the last 7 days', 'पिछले 7 दिनों में कोई बातचीत नहीं है', 'છેલ્લા 7 દિવસમાં કોઈ વાતચીત નથી')}
                   </p>
                   <p className="text-[11px] text-slate-400 dark:text-slate-500 max-w-xs mx-auto">
-                    {language === 'EN'
-                      ? 'When you chat with a helper or neighbor, your conversation will appear here for 7 days.'
-                      : language === 'GU'
-                      ? 'જ્યારે તમે કોઈ મદદગાર કે પડોશી સાથે ચેટ કરશો, તે અહીં 7 દિવસ સુધી દેખાશે.'
-                      : 'जब आप किसी हेल्पर या पड़ोसी से चैट करेंगे, तो वह 7 दिनों तक यहाँ दिखाई देगी।'}
+                    {tr(
+                      'When you chat with a helper or neighbor, your conversation will appear here for 7 days.',
+                      'जब आप किसी हेल्पर या पड़ोसी से चैट करेंगे, तो वह 7 दिनों तक यहाँ दिखाई देगी।',
+                      'જ્યારે તમે કોઈ મદદગાર કે પડોશી સાથે ચેટ કરશો, તે અહીં 7 દિવસ સુધી દેખાશે.'
+                    )}
                   </p>
                 </div>
               ) : (
@@ -1140,7 +1154,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                       ? (conv.helperName || conv.senderName || (helperEmailStr ? helperEmailStr.split('@')[0] : 'Community Helper'))
                       : (conv.posterName || (posterEmailStr ? posterEmailStr.split('@')[0] : 'Post Owner'));
                     const partnerAvatar = isOwner ? conv.helperAvatar : conv.posterAvatar;
-                    const lastMsg = conv.lastMessage || conv.last_message || 'Sent a message';
+                    const lastMsg = conv.lastMessage || conv.last_message || tr('Sent a message', 'संदेश भेजा', 'મેસેજ મોકલ્યો');
                     const lastTime = conv.lastMessageAt || conv.last_message_at || conv.updatedAt;
                     
                     const daysAgo = lastTime ? Math.floor((Date.now() - new Date(lastTime).getTime()) / (1000 * 60 * 60 * 24)) : 0;
@@ -1166,7 +1180,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                                 {partnerName}
                               </span>
                               <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold shrink-0 bg-amber-50 dark:bg-amber-950/60 px-1.5 py-0.5 rounded-md border border-amber-200 dark:border-amber-800">
-                                ⏳ {daysLeft} {language === 'EN' ? 'd left' : 'दिन बाकी'}
+                                ⏳ {daysLeft} {tr('d left', 'दिन बाकी', 'દિવસ બાકી')}
                               </span>
                             </div>
                             <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-full">
@@ -1184,7 +1198,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                                 disabled={isDeletingChat}
                                 className="px-2 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-black shadow-2xs active:scale-95 transition-all cursor-pointer"
                               >
-                                {language === 'EN' ? 'Delete' : language === 'GU' ? 'ડિલીટ' : 'डिलीट'}
+                                {tr('Delete', 'डिलीट', 'ડિલીટ')}
                               </button>
                               <button
                                 type="button"
@@ -1194,7 +1208,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                                 }}
                                 className="px-2 py-1 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-[10px] font-bold cursor-pointer"
                               >
-                                {language === 'EN' ? 'Cancel' : 'रद्द'}
+                                {tr('Cancel', 'रद्द', 'રદ')}
                               </button>
                             </div>
                           ) : (
@@ -1204,7 +1218,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                                 onClick={() => handleOpenConversation(conv)}
                                 className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-black shadow-2xs active:scale-95 transition-all cursor-pointer"
                               >
-                                {language === 'EN' ? 'Open Chat' : language === 'GU' ? 'ચેટ ખોલો' : 'चैट खोलें'}
+                                {tr('Open Chat', 'चैट खोलें', 'ચેટ ખોલો')}
                               </button>
                               <button
                                 type="button"
@@ -1214,7 +1228,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                                 }}
                                 disabled={isDeletingChat}
                                 className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer"
-                                title="Delete Chat"
+                                title={tr('Delete Chat', 'चैट हटाएं', 'ચેટ ડિલીટ કરો')}
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
@@ -1239,24 +1253,26 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   </div>
                   <div>
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <h3 className="text-xs font-black text-slate-900 dark:text-white">Identity Verification & Profile Status</h3>
+                      <h3 className="text-xs font-black text-slate-900 dark:text-white">
+                        {tr('Identity Verification & Profile Status', 'आईडी वेरिफिकेशन और प्रोफाइल स्टेटस', 'આઈડી વેરિફિકેશન અને પ્રોફાઈલ સ્ટેટસ')}
+                      </h3>
                       {(verificationStatus === 'approved' || isHelperApproved) && (
                         <span className="text-[10px] bg-emerald-600 text-white font-extrabold px-2 py-0.5 rounded-full flex items-center gap-1">
-                          <CheckCircle2 className="w-3 h-3" /> Verified 🛡️
+                          <CheckCircle2 className="w-3 h-3" /> {tr('Verified 🛡️', 'वेरिफाइड 🛡️', 'વેરિફાઈડ 🛡️')}
                         </span>
                       )}
                       {!(verificationStatus === 'approved' || isHelperApproved) && (verificationStatus === 'pending' || myHelperProfile) && (
                         <span className="text-[10px] bg-amber-500 text-white font-extrabold px-2 py-0.5 rounded-full flex items-center gap-1">
-                          <Clock className="w-3 h-3" /> Under Admin Review
+                          <Clock className="w-3 h-3" /> {tr('Under Admin Review', 'एडमिन समीक्षा में', 'એડમિન સમીક્ષા હેઠળ')}
                         </span>
                       )}
                     </div>
                     <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium leading-tight mt-0.5">
                       {(verificationStatus === 'approved' || isHelperApproved)
-                        ? 'Your profile is approved and active on LocoHelp'
+                        ? tr('Your profile is approved and active on LocoHelp', 'आपकी प्रोफाइल अप्रूव और एक्टिव है', 'તમારી પ્રોફાઈલ મંજૂર અને એક્ટિવ છે')
                         : (verificationStatus === 'pending' || myHelperProfile)
-                        ? 'Your profile is Under Admin Review • Will go live once approved'
-                        : 'Upload ID for green Verified badge (Admin-only private view)'}
+                        ? tr('Your profile is Under Admin Review • Will go live once approved', 'आपकी प्रोफाइल एडमिन समीक्षा में है • अप्रूव होते ही लाइव होगी', 'તમારી પ્રોફાઈલ એડમિન સમીક્ષા હેઠળ છે • મંજૂર થતાં જ લાઈવ થશે')
+                        : tr('Upload ID for green Verified badge (Admin-only private view)', 'वेरिफाइड बैज के लिए आईडी अपलोड करें (सिर्फ एडमिन को दिखेगा)', 'વેરિફાઈડ બેજ માટે આઈડી અપલોડ કરો (ફક્ત એડમિન જોઈ શકશે)')}
                     </p>
                   </div>
                 </div>
@@ -1267,7 +1283,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                     onClick={() => setIsVerificationModalOpen(true)}
                     className="bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-extrabold px-3 py-2 rounded-xl shadow-sm cursor-pointer shrink-0"
                   >
-                    {verificationStatus === 'pending' ? 'View Status' : 'Get Verified'}
+                    {verificationStatus === 'pending' ? tr('View Status', 'स्टेटस देखें', 'સ્ટેટસ જુઓ') : tr('Get Verified', 'वेरिफाई करें', 'વેરિફાઈ કરો')}
                   </button>
                 )}
               </div>
@@ -1279,9 +1295,11 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                 <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
                   <div>
                     <h3 className="text-xs font-black uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
-                      Active Profile Details
+                      {tr('Active Profile Details', 'एक्टिव प्रोफाइल विवरण', 'એક્ટિવ પ્રોફાઈલ વિગતો')}
                     </h3>
-                    <p className="text-[11px] text-slate-500">Linked to your registered account</p>
+                    <p className="text-[11px] text-slate-500">
+                      {tr('Linked to your registered account', 'आपके रजिस्टर्ड अकाउंट से जुड़ा हुआ', 'તમારા રજિસ્ટર્ડ એકાઉન્ટ સાથે જોડાયેલ')}
+                    </p>
                   </div>
                   <button
                     type="button"
@@ -1289,25 +1307,25 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                     className="px-3 py-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-300 text-xs font-extrabold flex items-center gap-1.5 hover:bg-indigo-100 transition-colors cursor-pointer"
                   >
                     <Edit3 className="w-3.5 h-3.5" />
-                    <span>Edit / Update Profile</span>
+                    <span>{tr('Edit / Update Profile', 'प्रोफाइल एडिट / अपडेट करें', 'પ્રોફાઈલ એડિટ / અપડેટ કરો')}</span>
                   </button>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                   <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase block">Full Name</span>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block">{tr('Full Name', 'पूरा नाम', 'પૂરું નામ')}</span>
                     <span className="font-extrabold text-slate-900 dark:text-white">{userName || myHelperProfile?.name || '—'}</span>
                   </div>
                   <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase block">Mobile Number (Private • Admin Only)</span>
-                    <span className="font-extrabold text-slate-900 dark:text-white">{userPhone || myHelperProfile?.phone ? `+91 ${userPhone || myHelperProfile?.phone} 🔒` : 'Private (Chat Only)'}</span>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block">{tr('Mobile Number (Private • Admin Only)', 'मोबाइल नंबर (निजी • केवल एडमिन)', 'મોબાઈલ નંબર (ખાનગી • ફક્ત એડમિન)')}</span>
+                    <span className="font-extrabold text-slate-900 dark:text-white">{userPhone || myHelperProfile?.phone ? `+91 ${userPhone || myHelperProfile?.phone} 🔒` : tr('Private (Chat Only)', 'निजी (केवल चैट)', 'ખાનગી (ફક્ત ચેટ)')}</span>
                   </div>
                   <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase block">Registered Email</span>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block">{tr('Registered Email', 'रजिस्टर्ड ईमेल', 'રજિસ્ટર્ડ ઈમેલ')}</span>
                     <span className="font-extrabold text-slate-900 dark:text-white break-all">{userEmail || '—'}</span>
                   </div>
                   <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase block">Area / Locality</span>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block">{tr('Area / Locality', 'क्षेत्र / इलाका', 'વિસ્તાર / સોસાયટી')}</span>
                     <span className="font-extrabold text-slate-900 dark:text-white">{userAddress || myHelperProfile?.area || '—'}</span>
                   </div>
                 </div>
@@ -1320,10 +1338,12 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   }`}>
                     <div>
                       <span className="text-[10px] font-black uppercase tracking-wider block text-slate-500">
-                        Linked Service Expert Profile ({myHelperProfile.customCategoryName || myHelperProfile.categoryId})
+                        {tr('Linked Service Expert Profile', 'लिंक्ड सर्विस एक्सपर्ट प्रोफाइल', 'લિંક્ડ સર્વિસ એક્સપર્ટ પ્રોફાઈલ')} ({myHelperProfile.customCategoryName || myHelperProfile.categoryId})
                       </span>
                       <span className={`text-xs font-extrabold ${isHelperApproved ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}`}>
-                        {isHelperApproved ? '🛡️ Approved & Active in Directory' : '⏳ Under Admin Review'}
+                        {isHelperApproved
+                          ? tr('🛡️ Approved & Active in Directory', '🛡️ डायरेक्टरी में अप्रूव्ड और एक्टिव', '🛡️ ડિરેક્ટરીમાં મંજૂર અને એક્ટિવ')
+                          : tr('⏳ Under Admin Review', '⏳ एडमिन समीक्षा में', '⏳ એડમિન સમીક્ષા હેઠળ')}
                       </span>
                     </div>
                     <button
@@ -1331,7 +1351,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                       onClick={() => setActiveTab('helper')}
                       className="px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] font-black text-slate-800 dark:text-white cursor-pointer"
                     >
-                      View Expert Tab
+                      {tr('View Expert Tab', 'एक्सपर्ट टैब देखें', 'એક્સપર્ટ ટેબ જુઓ')}
                     </button>
                   </div>
                 )}
@@ -1347,7 +1367,9 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
               <form onSubmit={handleSaveSimpleProfile} className="bg-white dark:bg-slate-850 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl space-y-3.5 shadow-xs">
                 <div className="flex items-center justify-between">
                   <h3 className="text-xs font-black uppercase tracking-wider text-slate-400">
-                    {hasExistingUserProfile ? 'Edit / Update Personal Details' : 'Create Personal Profile'}
+                    {hasExistingUserProfile
+                      ? tr('Edit / Update Personal Details', 'व्यक्तिगत विवरण अपडेट करें', 'વ્યક્તિગત વિગતો અપડેટ કરો')
+                      : tr('Create Personal Profile', 'व्यक्तिगत प्रोफाइल बनाएं', 'વ્યક્તિગત પ્રોફાઈલ બનાવો')}
                   </h3>
                   {hasExistingUserProfile && (
                     <button
@@ -1355,13 +1377,15 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                       onClick={() => setIsEditingUserProfile(false)}
                       className="text-xs font-bold text-slate-500 hover:text-slate-700 cursor-pointer"
                     >
-                      Cancel
+                      {tr('Cancel', 'रद्द करें', 'રદ કરો')}
                     </button>
                   )}
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Your Real Full Name (अपना असली पूरा नाम) *</label>
+                  <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                    {tr('Your Real Full Name *', 'अपना असली पूरा नाम *', 'તમારું સાચું પૂરું નામ *')}
+                  </label>
                   <div className="relative">
                     <User className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                     <input 
@@ -1369,31 +1393,39 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                       required
                       value={userName} 
                       onChange={(e) => setUserName(e.target.value)} 
-                      placeholder="e.g. Ramesh Kumar" 
+                      placeholder={tr('e.g. Ramesh Kumar', 'उदा. रमेश कुमार', 'દા.ત. રમેશ કુમાર')}
                       className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl pl-9 pr-3 py-2 text-xs font-semibold text-slate-900 dark:text-white outline-none focus:border-indigo-500" 
                     />
                   </div>
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Mobile Number (Optional • Strictly Private 🔒)</label>
+                  <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                    {tr('Mobile Number (Optional • Strictly Private 🔒)', 'मोबाइल नंबर (वैकल्पिक • पूर्णतः गोपनीय 🔒)', 'મોબાઈલ નંબર (વૈકલ્પિક • સંપૂર્ણ ખાનગી 🔒)')}
+                  </label>
                   <div className="relative">
                     <span className="text-slate-400 font-bold absolute left-3 top-1/2 -translate-y-1/2 text-xs">+91</span>
                     <input 
                       type="tel" 
                       value={userPhone} 
                       onChange={(e) => setUserPhone(e.target.value)}
-                      placeholder="98765 43210 (Never shown publicly)"
+                      placeholder={tr('98765 43210 (Never shown publicly)', '98765 43210 (कभी पब्लिक नहीं दिखेगा)', '98765 43210 (ક્યારેય જાહેરમાં નહીં દેખાય)')}
                       className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl pl-11 pr-3 py-2 text-xs font-bold text-slate-900 dark:text-white outline-none focus:border-indigo-500" 
                     />
                   </div>
                   <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">
-                    🔒 आपका मोबाइल नंबर किसी भी पब्लिक यूज़र को नहीं दिखेगा। जिसको नंबर देना हो वह चैट में लिखकर दे सकता है।
+                    {tr(
+                      '🔒 Your mobile number will never be shown publicly. You can share it privately in chat if you wish.',
+                      '🔒 आपका मोबाइल नंबर किसी भी पब्लिक यूज़र को नहीं दिखेगा। जिसको नंबर देना हो वह चैट में लिखकर दे सकता है।',
+                      '🔒 તમારો મોબાઈલ નંબર કોઈપણ પબ્લિક યુઝરને નહીં દેખાય. જેને નંબર આપવો હોય તેને ચેટમાં લખીને આપી શકો છો.'
+                    )}
                   </p>
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Registered Email Address *</label>
+                  <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                    {tr('Registered Email Address *', 'रजिस्टर्ड ईमेल पता *', 'રજિસ્ટર્ડ ઈમેલ એડ્રેસ *')}
+                  </label>
                   <div className="relative">
                     <Mail className="w-4 h-4 text-blue-500 absolute left-3 top-1/2 -translate-y-1/2" />
                     <input 
@@ -1408,14 +1440,16 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Area / Locality</label>
+                  <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                    {tr('Area / Locality', 'क्षेत्र / इलाका', 'વિસ્તાર / સોસાયટી')}
+                  </label>
                   <div className="relative">
                     <MapPin className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                     <input 
                       type="text" 
                       value={userAddress} 
                       onChange={(e) => setUserAddress(e.target.value)} 
-                      placeholder="e.g. Main Market, Navrangpura" 
+                      placeholder={tr('e.g. Main Market, Navrangpura', 'उदा. मेन मार्केट, नवरंगपुरा', 'દા.ત. મેઈન માર્કેટ, નવરંગપુરા')}
                       className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl pl-9 pr-3 py-2 text-xs font-medium text-slate-900 dark:text-white outline-none focus:border-indigo-500" 
                     />
                   </div>
@@ -1426,7 +1460,11 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold py-3 rounded-xl transition-all shadow-md flex items-center justify-center gap-2 text-xs cursor-pointer mt-2"
                 >
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>{isSavedNotice ? 'Profile Saved Successfully!' : 'Save Personal Details'}</span>
+                  <span>
+                    {isSavedNotice
+                      ? tr('Profile Saved Successfully!', 'प्रोफाइल सफलतापूर्वक सेव हो गई!', 'પ્રોફાઈલ સફળતાપૂર્વક સેવ થઈ ગઈ!')
+                      : tr('Save Personal Details', 'व्यक्तिगत विवरण सेव करें', 'વ્યક્તિગત વિગતો સેવ કરો')}
+                  </span>
                 </button>
               </form>
             )}
@@ -1459,22 +1497,28 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                       <span className={`text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full text-white ${
                         isHelperApproved ? 'bg-emerald-600' : 'bg-amber-500'
                       }`}>
-                        {isHelperApproved ? '🛡️ Active & Approved' : '⏳ Under Admin Review'}
+                        {isHelperApproved
+                          ? tr('🛡️ Active & Approved', '🛡️ एक्टिव और अप्रूव्ड', '🛡️ એક્ટિવ અને મંજૂર')
+                          : tr('⏳ Under Admin Review', '⏳ एडमिन समीक्षा में', '⏳ એડમિન સમીક્ષા હેઠળ')}
                       </span>
                     </div>
                     <h4 className="text-sm font-black text-slate-900 dark:text-white mt-1.5">
                       {isHelperApproved
-                        ? (language === 'EN' ? 'Your Service Expert Profile is Active & Live!' : 'आपकी सर्विस एक्सपर्ट प्रोफाइल एक्टिव और लाइव है!')
-                        : (language === 'EN' ? 'Profile Under Admin Review' : 'प्रोफाइल एडमिन समीक्षा (Under Admin Review) में है')}
+                        ? tr('Your Service Expert Profile is Active & Live!', 'आपकी सर्विस एक्सपर्ट प्रोफाइल एक्टिव और लाइव है!', 'તમારી સર્વિસ એક્સપર્ટ પ્રોફાઈલ એક્ટિવ અને લાઈવ છે!')
+                        : tr('Profile Under Admin Review', 'प्रोफाइल एडमिन समीक्षा (Under Admin Review) में है', 'પ્રોફાઈલ એડમિન સમીક્ષા હેઠળ છે')}
                     </h4>
                     <p className="text-xs text-slate-600 dark:text-slate-300 font-medium mt-1 leading-relaxed">
                       {isHelperApproved
-                        ? (language === 'EN'
-                            ? "Your profile is approved by Admin and visible in 'Browse Service Experts' under your category."
-                            : "आपकी प्रोफाइल एडमिन द्वारा अप्रूव कर दी गई है और 'Browse Service Experts' में आपकी कैटेगरी में लाइव दिख रही है।")
-                        : (language === 'EN'
-                            ? "Your Service Expert profile has already been created and sent to the Admin approval queue. Once approved, it will automatically go live."
-                            : "आपने पहले ही अपनी प्रोफाइल बना ली है और यह एडमिन अप्रूवल के लिए भेजी जा चुकी है। अप्रूव होते ही यह लाइव हो जाएगी।")}
+                        ? tr(
+                            "Your profile is approved by Admin and visible in 'Browse Service Experts' under your category.",
+                            "आपकी प्रोफाइल एडमिन द्वारा अप्रूव कर दी गई है और 'Browse Service Experts' में आपकी कैटेगरी में लाइव दिख रही है।",
+                            "તમારી પ્રોફાઈલ એડમિન દ્વારા મંજૂર થઈ ગઈ છે અને તમારી કેટેગરીમાં લાઈવ દેખાઈ રહી છે."
+                          )
+                        : tr(
+                            "Your Service Expert profile has already been created and sent to the Admin approval queue. Once approved, it will automatically go live.",
+                            "आपने पहले ही अपनी प्रोफाइल बना ली है और यह एडमिन अप्रूवल के लिए भेजी जा चुकी है। अप्रूव होते ही यह लाइव हो जाएगी।",
+                            "તમારી સર્વિસ એક્સપર્ટ પ્રોફાઈલ એડમિન મંજૂરી માટે મોકલાઈ ગઈ છે. મંજૂર થતાં જ તે લાઈવ થઈ જશે."
+                          )}
                     </p>
                   </div>
                 </div>
@@ -1484,7 +1528,9 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2.5">
                     <div>
                       <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">
-                        {isHelperApproved ? 'Active Profile Details' : 'Submitted Profile Details'}
+                        {isHelperApproved
+                          ? tr('Active Profile Details', 'एक्टिव प्रोफाइल विवरण', 'એક્ટિવ પ્રોફાઈલ વિગતો')
+                          : tr('Submitted Profile Details', 'सबमिट की गई प्रोफाइल', 'સબમિટ કરેલ પ્રોફાઈલ')}
                       </span>
                       <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-1.5">
                         <span>{myHelperProfile.name}</span>
@@ -1500,22 +1546,22 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
 
                   <div className="grid grid-cols-2 gap-2.5 text-xs">
                     <div className="bg-white dark:bg-slate-850 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
-                      <span className="text-[10px] text-slate-400 font-bold block">Mobile Number</span>
+                      <span className="text-[10px] text-slate-400 font-bold block">{tr('Mobile Number', 'मोबाइल नंबर', 'મોબાઈલ નંબર')}</span>
                       <span className="font-extrabold text-slate-800 dark:text-slate-200">+91 {myHelperProfile.phone}</span>
                     </div>
                     <div className="bg-white dark:bg-slate-850 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
-                      <span className="text-[10px] text-slate-400 font-bold block">Experience</span>
+                      <span className="text-[10px] text-slate-400 font-bold block">{tr('Experience', 'अनुभव', 'અનુભવ')}</span>
                       <span className="font-extrabold text-slate-800 dark:text-slate-200">{myHelperProfile.experience || '1 Year'}</span>
                     </div>
                     <div className="col-span-2 bg-white dark:bg-slate-850 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
-                      <span className="text-[10px] text-slate-400 font-bold block">Area / Locality</span>
+                      <span className="text-[10px] text-slate-400 font-bold block">{tr('Area / Locality', 'क्षेत्र / इलाका', 'વિસ્તાર / સોસાયટી')}</span>
                       <span className="font-extrabold text-slate-800 dark:text-slate-200">{myHelperProfile.area}</span>
                     </div>
                   </div>
 
                   {Array.isArray(myHelperProfile.skills) && myHelperProfile.skills.length > 0 && (
                     <div>
-                      <span className="text-[10px] text-slate-400 font-bold block mb-1">Skills & Services</span>
+                      <span className="text-[10px] text-slate-400 font-bold block mb-1">{tr('Skills & Services', 'कौशल और सेवाएं', 'કૌશલ્ય અને સેવાઓ')}</span>
                       <div className="flex flex-wrap gap-1.5">
                         {myHelperProfile.skills.map((sk: string, idx: number) => (
                           <span key={idx} className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] font-bold text-slate-700 dark:text-slate-300">
@@ -1537,7 +1583,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   className="w-full py-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer"
                 >
                   <Edit3 className="w-4 h-4" />
-                  <span>{language === 'EN' ? 'Edit / Update Profile' : 'प्रोफाइल एडिट / अपडेट करें'}</span>
+                  <span>{tr('Edit / Update Profile', 'प्रोफाइल एडिट / अपडेट करें', 'પ્રોફાઈલ એડિટ / અપડેટ કરો')}</span>
                 </button>
               </div>
             ) : (
@@ -1546,9 +1592,19 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                 <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
                   <div>
                     <h3 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-1.5">
-                      <span>{myHelperProfile ? 'Edit / Update Service Expert Profile' : 'Service Expert Profile Registration'}</span>
+                      <span>
+                        {myHelperProfile
+                          ? tr('Edit / Update Service Expert Profile', 'सर्विस एक्सपर्ट प्रोफाइल अपडेट करें', 'સર્વિસ એક્સપર્ટ પ્રોફાઈલ અપડેટ કરો')
+                          : tr('Service Expert Profile Registration', 'सर्विस एक्सपर्ट प्रोफाइल रजिस्ट्रेशन', 'સર્વિસ એક્સપર્ટ પ્રોફાઈલ રજિસ્ટ્રેશન')}
+                      </span>
                     </h3>
-                    <p className="text-[11px] text-slate-500">List your skills (Plumber, Electrician, Tutor, Other) in local neighborhood categories</p>
+                    <p className="text-[11px] text-slate-500">
+                      {tr(
+                        'List your skills (Plumber, Electrician, Tutor, Other) in local neighborhood categories',
+                        'स्थानीय कैटेगरी में अपने कौशल (प्लंबर, इलेक्ट्रीशियन, ट्यूटर आदि) को सूचीबद्ध करें',
+                        'સ્થાનિક કેટેગરીમાં તમારી કુશળતા (પ્લમ્બર, ઇલેક્ટ્રિશિયન, ટ્યુટર વગેરે) ઉમેરો'
+                      )}
+                    </p>
                   </div>
                   {myHelperProfile && (
                     <button
@@ -1556,7 +1612,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                       onClick={() => setIsEditingHelperProfile(false)}
                       className="text-xs font-bold text-slate-500 hover:text-slate-700 cursor-pointer"
                     >
-                      Cancel
+                      {tr('Cancel', 'रद्द करें', 'રદ કરો')}
                     </button>
                   )}
                 </div>
@@ -1564,12 +1620,12 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                 {/* 1. Your Name */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Your Name *
+                    {tr('Your Name *', 'आपका नाम *', 'તમારું નામ *')}
                   </label>
                   <input 
                     type="text" 
                     required
-                    placeholder="e.g. Ramesh Kumar"
+                    placeholder={tr('e.g. Ramesh Kumar', 'उदा. रमेश कुमार', 'દા.ત. રમેશ કુમાર')}
                     value={helperName}
                     onChange={(e) => setHelperName(e.target.value)}
                     className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
@@ -1579,7 +1635,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                 {/* 2. Work Category Dropdown */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Work Category *
+                    {tr('Work Category *', 'काम की श्रेणी *', 'કામની કેટેગરી *')}
                   </label>
                   <select 
                     value={helperCategory}
@@ -1598,7 +1654,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                       <input
                         type="text"
                         required
-                        placeholder="Enter Custom Work Category / Profession *"
+                        placeholder={tr('Enter Custom Work Category / Profession *', 'अपना कस्टम काम / पेशा दर्ज करें *', 'તમારી કસ્ટમ કામની કેટેગરી / વ્યવસાય લખો *')}
                         value={customCategoryName}
                         onChange={(e) => setCustomCategoryName(e.target.value)}
                         className="w-full bg-emerald-50/60 dark:bg-slate-900 border-2 border-emerald-400 dark:border-emerald-600 rounded-xl px-3.5 py-2 text-xs font-bold text-slate-900 dark:text-white focus:outline-none"
@@ -1610,7 +1666,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                 {/* 3. Mobile Number */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Mobile Number *
+                    {tr('Mobile Number *', 'मोबाइल नंबर *', 'મોબાઈલ નંબર *')}
                   </label>
                   <div className="relative">
                     <span className="text-slate-400 font-bold absolute left-3.5 top-1/2 -translate-y-1/2 text-xs">+91</span>
@@ -1628,12 +1684,12 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                 {/* 4. Area / Locality */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Area / Locality *
+                    {tr('Area / Locality *', 'क्षेत्र / इलाका *', 'વિસ્તાર / સોસાયટી *')}
                   </label>
                   <input 
                     type="text" 
                     required
-                    placeholder="e.g. Main Market, Sector 15"
+                    placeholder={tr('e.g. Main Market, Sector 15', 'उदा. मेन मार्केट, सेक्टर 15', 'દા.ત. મેઈન માર્કેટ, સેક્ટર 15')}
                     value={helperArea}
                     onChange={(e) => setHelperArea(e.target.value)}
                     className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
@@ -1643,30 +1699,30 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                 {/* 5. Experience */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Experience *
+                    {tr('Experience *', 'अनुभव *', 'અનુભવ *')}
                   </label>
                   <select 
                     value={helperExp}
                     onChange={(e) => setHelperExp(e.target.value)}
                     className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none font-medium"
                   >
-                    <option value="6 Months">6 Months</option>
-                    <option value="1 Year">1 Year</option>
-                    <option value="2 Years">2 Years</option>
-                    <option value="3-5 Years">3 - 5 Years</option>
-                    <option value="5-10 Years">5 - 10 Years</option>
-                    <option value="10+ Years">10+ Years</option>
+                    <option value="6 Months">{tr('6 Months', '6 महीने', '6 મહિના')}</option>
+                    <option value="1 Year">{tr('1 Year', '1 वर्ष', '1 વર્ષ')}</option>
+                    <option value="2 Years">{tr('2 Years', '2 वर्ष', '2 વર્ષ')}</option>
+                    <option value="3-5 Years">{tr('3 - 5 Years', '3 - 5 वर्ष', '3 - 5 વર્ષ')}</option>
+                    <option value="5-10 Years">{tr('5 - 10 Years', '5 - 10 वर्ष', '5 - 10 વર્ષ')}</option>
+                    <option value="10+ Years">{tr('10+ Years', '10+ वर्ष', '10+ વર્ષ')}</option>
                   </select>
                 </div>
 
                 {/* 6. Skills */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Skills / Specialties
+                    {tr('Skills / Specialties', 'कौशल / विशेषज्ञता', 'કૌશલ્ય / વિશેષતા')}
                   </label>
                   <input 
                     type="text" 
-                    placeholder="e.g. Pipe fitting, Tap repair, Water tank cleaning"
+                    placeholder={tr('e.g. Pipe fitting, Tap repair, Water tank cleaning', 'उदा. पाइप फिटिंग, नल रिपेयर, टंकी सफाई', 'દા.ત. પાઈપ ફિટિંગ, નળ રિપેર, ટાંકી સફાઈ')}
                     value={helperSkills}
                     onChange={(e) => setHelperSkills(e.target.value)}
                     className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-medium text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
@@ -1676,7 +1732,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                 {/* Profile / Work Photo Upload for Local Helper */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Profile / Work Photo (प्रोफाइल या काम की फ़ोटो • JPG, PNG, WebP Max 2MB)
+                    {tr('Profile / Work Photo (JPG, PNG, WebP Max 2MB)', 'प्रोफाइल या काम की फ़ोटो (JPG, PNG, WebP Max 2MB)', 'પ્રોફાઈલ અથવા કામનો ફોટો (JPG, PNG, WebP Max 2MB)')}
                   </label>
                   <input
                     type="file"
@@ -1722,17 +1778,17 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                 {/* 7. Verify Government ID Card (JPG, PNG or PDF Supported) Dual Upload */}
                 <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
                   <label className="block text-xs font-extrabold text-slate-800 dark:text-slate-200">
-                    Government ID Card (JPG, PNG or PDF Supported)
+                    {tr('Government ID Card (JPG, PNG or PDF Supported)', 'सरकारी आईडी कार्ड (JPG, PNG या PDF)', 'સરકારી આઈડી કાર્ડ (JPG, PNG અથવા PDF)')}
                   </label>
                   <p className="text-[10px] text-slate-500 font-medium -mt-1">
-                    Upload Front & Back Side of your Government ID Card, or a PDF file.
+                    {tr('Upload Front & Back Side of your Government ID Card, or a PDF file.', 'अपने सरकारी आईडी कार्ड के आगे और पीछे का भाग या PDF अपलोड करें।', 'તમારા સરકારી આઈડી કાર્ડની આગળ અને પાછળની બાજુ અથવા PDF ફાઈલ અપલોડ કરો.')}
                   </p>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     {/* Front Side Upload */}
                     <div className="bg-slate-50 dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700">
                       <span className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                        Front Side ID (सामने का भाग)
+                        {tr('Front Side ID', 'आईडी का सामने का भाग', 'આઈડીની આગળની બાજુ')}
                       </span>
                       <input 
                         type="file" 
@@ -1775,7 +1831,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                     {/* Back Side Upload */}
                     <div className="bg-slate-50 dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700">
                       <span className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                        Back Side ID (पीछे का भाग)
+                        {tr('Back Side ID', 'आईडी का पीछे का भाग', 'આઈડીની પાછળની બાજુ')}
                       </span>
                       <input 
                         type="file" 
@@ -1829,7 +1885,11 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black py-3.5 rounded-xl transition-all shadow-md flex items-center justify-center gap-2 text-xs cursor-pointer disabled:opacity-60"
                 >
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>{myHelperProfile ? 'Update Service Expert Profile' : 'Save Service Expert Profile'}</span>
+                  <span>
+                    {myHelperProfile
+                      ? tr('Update Service Expert Profile', 'सर्विस एक्सपर्ट प्रोफाइल अपडेट करें', 'સર્વિસ એક્સપર્ટ પ્રોફાઈલ અપડેટ કરો')
+                      : tr('Save Service Expert Profile', 'सर्विस एक्सपर्ट प्रोफाइल सेव करें', 'સર્વિસ એક્સપર્ટ પ્રોફાઈલ સેવ કરો')}
+                  </span>
                 </button>
 
               </form>
@@ -1848,9 +1908,11 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
               <div className="bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 rounded-2xl p-3.5 flex items-start gap-2.5 text-xs font-bold text-amber-900 dark:text-amber-200">
                 <Clock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                 <span>
-                  {language === 'EN'
-                    ? 'Business registration submitted! Status: Pending Admin Approval. It will appear in the public directory once approved by Admin.'
-                    : 'बिज़नेस रजिस्ट्रेशन सबमिट हो गया! स्टेटस: एडमिन अप्रूवल के लिए पेंडिंग। एडमिन द्वारा अप्रूव होने के बाद यह पब्लिक डायरेक्टरी में दिखेगा।'}
+                  {tr(
+                    'Business registration submitted! Status: Pending Admin Approval. It will appear in the public directory once approved by Admin.',
+                    'बिज़नेस रजिस्ट्रेशन सबमिट हो गया! स्टेटस: एडमिन अप्रूवल के लिए पेंडिंग। एडमिन द्वारा अप्रूव होने के बाद यह पब्लिक डायरेक्टरी में दिखेगा।',
+                    'બિઝનેસ રજિસ્ટ્રેશન સબમિટ થઈ ગયું! સ્ટેટસ: એડમિન મંજૂરી માટે પેન્ડિંગ. એડમિન દ્વારા મંજૂર થયા પછી તે જાહેર ડિરેક્ટરીમાં દેખાશે.'
+                  )}
                 </span>
               </div>
             )}
@@ -1872,7 +1934,9 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                     <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full text-white ${
                       isBusinessApproved ? 'bg-emerald-600' : 'bg-amber-500'
                     }`}>
-                      {isBusinessApproved ? '🛡️ Approved & Live' : '⏳ Under Admin Review'}
+                      {isBusinessApproved
+                        ? tr('🛡️ Approved & Live', '🛡️ अप्रूव्ड और लाइव', '🛡️ મંજૂર અને લાઈવ')
+                        : tr('⏳ Under Admin Review', '⏳ एडमिन समीक्षा में', '⏳ એડમિન સમીક્ષા હેઠળ')}
                     </span>
                     <h4 className="text-sm font-black text-slate-900 dark:text-white mt-1">
                       {myBusinessProfile.name}
@@ -1900,7 +1964,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   className="w-full py-3 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-xs shadow-md flex items-center justify-center gap-2 cursor-pointer"
                 >
                   <Edit3 className="w-4 h-4" />
-                  <span>Edit / Update Business Details</span>
+                  <span>{tr('Edit / Update Business Details', 'बिज़नेस विवरण अपडेट करें', 'બિઝનેસ વિગતો અપડેટ કરો')}</span>
                 </button>
               </div>
             ) : (
@@ -1909,9 +1973,19 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                 <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
                   <div>
                     <h3 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-1.5">
-                      <span>{myBusinessProfile ? 'Update Business / Shop' : 'Business / Shop Registration'}</span>
+                      <span>
+                        {myBusinessProfile
+                          ? tr('Update Business / Shop', 'बिज़नेस / दुकान अपडेट करें', 'બિઝનેસ / દુકાન અપડેટ કરો')
+                          : tr('Business / Shop Registration', 'बिज़नेस / दुकान रजिस्ट्रेशन', 'બિઝનેસ / દુકાન રજિસ્ટ્રેશન')}
+                      </span>
                     </h3>
-                    <p className="text-[11px] text-slate-500">List your Shop, Showroom, Hospital, Bakery or Venue (Subject to Admin Approval)</p>
+                    <p className="text-[11px] text-slate-500">
+                      {tr(
+                        'List your Shop, Showroom, Hospital, Bakery or Venue (Subject to Admin Approval)',
+                        'अपनी दुकान, शोरूम, अस्पताल, बेकरी या वेन्यू लिस्ट करें (एडमिन अप्रूवल आवश्यक)',
+                        'તમારી દુકાન, શોરૂમ, હોસ્પિટલ, બેકરી કે સ્થળ રજિસ્ટર કરો (એડમિન મંજૂરીને આધીન)'
+                      )}
+                    </p>
                   </div>
                   {myBusinessProfile && (
                     <button
@@ -1919,7 +1993,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                       onClick={() => setIsEditingBusiness(false)}
                       className="text-xs font-bold text-slate-500 hover:text-slate-700 cursor-pointer"
                     >
-                      Cancel
+                      {tr('Cancel', 'रद्द करें', 'રદ કરો')}
                     </button>
                   )}
                 </div>
@@ -1927,12 +2001,12 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                 {/* 1. Shop Name */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Business / Shop Name *
+                    {tr('Business / Shop Name *', 'दुकान / बिज़नेस का नाम *', 'દુકાન / બિઝનેસનું નામ *')}
                   </label>
                   <input 
                     type="text" 
                     required
-                    placeholder="e.g. Apex Mobile Showroom / City Hospital"
+                    placeholder={tr('e.g. Apex Mobile Showroom / City Hospital', 'उदा. एपेक्स मोबाइल शोरूम / सिटी अस्पताल', 'દા.ત. એપેક્સ મોબાઈલ શોરૂમ / સિટી હોસ્પિટલ')}
                     value={shopName}
                     onChange={(e) => setShopName(e.target.value)}
                     className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-amber-500 focus:outline-none"
@@ -1942,7 +2016,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                 {/* 2. Shop Category / Type */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Business Type / Category *
+                    {tr('Business Type / Category *', 'बिज़नेस का प्रकार / श्रेणी *', 'બિઝનેસનો પ્રકાર / કેટેગરી *')}
                   </label>
                   <select 
                     value={shopType}
@@ -1951,7 +2025,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   >
                     {SHOP_TYPES.map(t => (
                       <option key={t.id} value={t.id}>
-                        {t.icon} {language === 'EN' ? t.nameEn : t.nameHi}
+                        {t.icon} {tr(t.nameEn, t.nameHi, t.nameGu)}
                       </option>
                     ))}
                   </select>
@@ -1961,7 +2035,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                       <input
                         type="text"
                         required
-                        placeholder="Enter Custom Business Type / Venue Name *"
+                        placeholder={tr('Enter Custom Business Type / Venue Name *', 'अपना कस्टम बिज़नेस प्रकार दर्ज करें *', 'તમારો કસ્ટમ બિઝનેસ પ્રકાર લખો *')}
                         value={customShopType}
                         onChange={(e) => setCustomShopType(e.target.value)}
                         className="w-full bg-amber-50/60 dark:bg-slate-900 border-2 border-amber-400 dark:border-amber-600 rounded-xl px-3.5 py-2 text-xs font-bold text-slate-900 dark:text-white focus:outline-none"
@@ -1974,12 +2048,12 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      Owner / Manager Name *
+                      {tr('Owner / Manager Name *', 'मालिक / मैनेजर का नाम *', 'માલિક / મેનેજરનું નામ *')}
                     </label>
                     <input 
                       type="text" 
                       required
-                      placeholder="Owner Name"
+                      placeholder={tr('Owner Name', 'मालिक का नाम', 'માલિકનું નામ')}
                       value={ownerName}
                       onChange={(e) => setOwnerName(e.target.value)}
                       className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-900 dark:text-white focus:ring-2 focus:ring-amber-500 focus:outline-none"
@@ -1987,7 +2061,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      Shop Timings (दुकान का समय) *
+                      {tr('Shop Timings *', 'दुकान का समय *', 'દુકાનનો સમય *')}
                     </label>
                     <input 
                       type="text" 
@@ -2003,7 +2077,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                 {/* 4. Phone Number */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Contact / WhatsApp Number *
+                    {tr('Contact / WhatsApp Number *', 'संपर्क / व्हाट्सएप नंबर *', 'સંપર્ક / વોટ્સએપ નંબર *')}
                   </label>
                   <div className="relative">
                     <span className="text-slate-400 font-bold absolute left-3.5 top-1/2 -translate-y-1/2 text-xs">+91</span>
@@ -2021,12 +2095,12 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                 {/* 5. Area / Locality */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Address / City / Area *
+                    {tr('Address / City / Area *', 'पता / शहर / क्षेत्र *', 'સરનામું / શહેર / વિસ્તાર *')}
                   </label>
                   <input 
                     type="text" 
                     required
-                    placeholder="e.g. Main Market, Near Bus Station"
+                    placeholder={tr('e.g. Main Market, Near Bus Station', 'उदा. मेन मार्केट, बस स्टैंड के पास', 'દા.ત. મેઈન માર્કેટ, બસ સ્ટેન્ડ પાસે')}
                     value={shopArea}
                     onChange={(e) => setShopArea(e.target.value)}
                     className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-900 dark:text-white focus:ring-2 focus:ring-amber-500 focus:outline-none"
@@ -2036,11 +2110,11 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                 {/* 6. Address */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Full Shop Address / Landmark
+                    {tr('Full Shop Address / Landmark', 'दुकान का पूरा पता / लैंडमार्क', 'દુકાનનું પૂરું સરનામું / લેન્ડમાર્ક')}
                   </label>
                   <input 
                     type="text" 
-                    placeholder="Shop #12, Ground Floor"
+                    placeholder={tr('Shop #12, Ground Floor', 'दुकान नंबर 12, ग्राउंड फ्लोर', 'દુકાન નં. 12, ગ્રાઉન્ડ ફ્લોર')}
                     value={shopAddress}
                     onChange={(e) => setShopAddress(e.target.value)}
                     className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-medium text-slate-900 dark:text-white focus:ring-2 focus:ring-amber-500 focus:outline-none"
@@ -2050,11 +2124,11 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                 {/* 7. Description */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Description / Offers / Services
+                    {tr('Description / Offers / Services', 'विवरण / ऑफर / सेवाएं', 'વિગત / ઓફર / સેવાઓ')}
                   </label>
                   <textarea 
                     rows={2}
-                    placeholder="All mobile accessories available. Flat 10% discount on all purchases!"
+                    placeholder={tr('All mobile accessories available. Flat 10% discount on all purchases!', 'सभी सेवाएं और विशेष ऑफर यहाँ लिखें...', 'તમારી બધી સેવાઓ અને ખાસ ઓફર અહીં લખો...')}
                     value={shopDescription}
                     onChange={(e) => setShopDescription(e.target.value)}
                     className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2 text-xs font-medium text-slate-900 dark:text-white focus:ring-2 focus:ring-amber-500 focus:outline-none resize-none"
@@ -2064,7 +2138,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                 {/* 8. Multiple Shop Photos Upload (2-3 images max 2MB each) */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Shop / Business Photos (2-3 फ़ोटो अपलोड करें • Max 2MB each)
+                    {tr('Shop / Business Photos (Upload 2-3 photos • Max 2MB each)', 'दुकान / बिज़नेस की फ़ोटो (2-3 फ़ोटो अपलोड करें • Max 2MB)', 'દુકાન / બિઝનેસના ફોટા (2-3 ફોટા અપલોડ કરો • Max 2MB)')}
                   </label>
                   <input 
                     type="file" 
@@ -2138,7 +2212,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                 {/* 9. Government ID / License Upload */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Government ID / Trade License (JPG, PNG, WebP ≤ 2MB or PDF ≤ 5MB)
+                    {tr('Government ID / Trade License (JPG, PNG, WebP ≤ 2MB or PDF ≤ 5MB)', 'सरकारी आईडी / ट्रेड लाइसेंस (JPG, PNG, WebP या PDF)', 'સરકારી આઈડી / ટ્રેડ લાયસન્સ (JPG, PNG, WebP અથવા PDF)')}
                   </label>
                   <input 
                     type="file" 
@@ -2165,7 +2239,13 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   className="w-full bg-amber-600 hover:bg-amber-700 text-white font-black py-3.5 rounded-xl transition-all shadow-md flex items-center justify-center gap-2 text-xs cursor-pointer disabled:opacity-60"
                 >
                   <Store className="w-4 h-4" />
-                  <span>{shopSubmitSuccess ? 'Submitted for Admin Approval!' : (myBusinessProfile ? 'Update & Submit for Approval' : 'Register Business / Venue')}</span>
+                  <span>
+                    {shopSubmitSuccess
+                      ? tr('Submitted for Admin Approval!', 'एडमिन अप्रूवल के लिए सबमिट हो गया!', 'એડમિન મંજૂરી માટે સબમિટ થઈ ગયું!')
+                      : (myBusinessProfile
+                          ? tr('Update & Submit for Approval', 'अपडेट करें और अप्रूवल के लिए भेजें', 'અપડેટ કરો અને મંજૂરી માટે મોકલો')
+                          : tr('Register Business / Venue', 'बिज़नेस / दुकान रजिस्टर करें', 'બિઝનેસ / દુકાન રજિસ્ટર કરો'))}
+                  </span>
                 </button>
 
               </form>
@@ -2176,9 +2256,11 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
-                    <span>🏪 Approved Local Businesses ({filteredShops.length})</span>
+                    <span>🏪 {tr('Approved Local Businesses', 'अप्रूव्ड स्थानीय बिज़नेस', 'મંજૂર થયેલ સ્થાનિક બિઝનેસ')} ({filteredShops.length})</span>
                   </h3>
-                  <p className="text-[10px] text-slate-500 font-medium">Admin-verified Shops, Showrooms, Malls & Venues</p>
+                  <p className="text-[10px] text-slate-500 font-medium">
+                    {tr('Admin-verified Shops, Showrooms, Malls & Venues', 'एडमिन द्वारा सत्यापित दुकानें, शोरूम, मॉल और वेन्यू', 'એડમિન દ્વારા ચકાસાયેલ દુકાનો, શોરૂમ, મોલ અને સ્થળો')}
+                  </p>
                 </div>
               </div>
 
@@ -2189,14 +2271,16 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   type="text"
                   value={shopSearchQuery}
                   onChange={(e) => setShopSearchQuery(e.target.value)}
-                  placeholder="Search approved business by name, area or item..."
+                  placeholder={tr('Search approved business by name, area or item...', 'नाम, क्षेत्र या सेवा से अप्रूव्ड बिज़नेस खोजें...', 'નામ, વિસ્તાર કે સેવા દ્વારા બિઝનેસ શોધો...')}
                   className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none"
                 />
               </div>
 
               <div className="space-y-2.5 pt-1">
                 {filteredShops.length === 0 ? (
-                  <p className="text-xs text-slate-400 text-center py-4">No approved businesses found matching search.</p>
+                  <p className="text-xs text-slate-400 text-center py-4">
+                    {tr('No approved businesses found matching search.', 'कोई अप्रूव्ड बिज़नेस नहीं मिला।', 'કોઈ મંજૂર થયેલ બિઝનેસ મળ્યો નથી.')}
+                  </p>
                 ) : (
                   filteredShops.map((shop) => (
                     <div 
@@ -2211,7 +2295,9 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                           <span className="text-xs font-black text-slate-900 dark:text-white truncate">
                             {shop.name}
                           </span>
-                          <span className="text-[9px] bg-emerald-600 text-white font-black px-1.5 py-0.2 rounded-full">🛡️ Verified</span>
+                          <span className="text-[9px] bg-emerald-600 text-white font-black px-1.5 py-0.2 rounded-full">
+                            🛡️ {tr('Verified', 'वेरिफाइड', 'વેરિફાઈડ')}
+                          </span>
                         </div>
                         <p className="text-[11px] font-bold text-amber-600 dark:text-amber-400">{shop.categoryLabel}</p>
                         <p className="text-[10px] text-slate-500 flex items-center gap-1">
@@ -2253,7 +2339,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
           >
             <LogOut className="w-5 h-5 text-rose-500" />
             <span className="text-rose-600 dark:text-rose-400 font-extrabold tracking-wide text-sm">
-              {t('set.logout') || (language === 'GU' ? 'લોગ આઉટ (Log Out)' : language === 'HI' ? 'लॉग आउट (Log Out)' : 'Log Out')}
+              {t('set.logout') || tr('Log Out', 'लॉग आउट (Log Out)', 'લોગ આઉટ (Log Out)')}
             </span>
           </button>
         </div>
@@ -2262,25 +2348,28 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
 
       {/* Helper Profile Approval Confirmation Notice Popup Modal */}
       {showApprovalNoticeModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs">
+        <div
+          className="fixed inset-x-0 bottom-0 top-[52px] z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs"
+          style={{ position: 'fixed', top: '52px', left: 0, right: 0, bottom: 0, zIndex: 5000 }}
+        >
           <div className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl border border-emerald-200 dark:border-emerald-800 text-center space-y-4 relative z-50">
             <div className="w-14 h-14 rounded-2xl bg-emerald-100 dark:bg-emerald-950/80 text-emerald-600 dark:text-emerald-400 mx-auto flex items-center justify-center text-3xl shadow-inner">
               ⏳
             </div>
             <div>
               <h3 className="text-base font-black text-slate-900 dark:text-white">
-                {language === 'GU'
-                  ? 'પ્રોફાઈલ એડમિન મંજૂરી માટે મોકલાઈ ગઈ!'
-                  : language === 'EN'
-                  ? 'Profile Submitted for Admin Approval!'
-                  : 'प्रोफाइल एडमिन अप्रूवल के लिए सबमिट हो गई!'}
+                {tr(
+                  'Profile Submitted for Admin Approval!',
+                  'प्रोफाइल एडमिन अप्रूवल के लिए सबमिट हो गई!',
+                  'પ્રોફાઈલ એડમિન મંજૂરી માટે મોકલાઈ ગઈ!'
+                )}
               </h3>
               <p className="text-xs text-slate-600 dark:text-slate-300 mt-2 leading-relaxed font-medium">
-                {language === 'GU'
-                  ? 'તમારી સર્વિસ એક્સપર્ટ પ્રોફાઈલ સફળતાપૂર્વક નોંધાઈ ગઈ છે. સુરક્ષા અને ચકાસણી માટે તમારી વિગતો એડમિન પાસે મોકલવામાં આવી છે. એડમિન દ્વારા મંજૂર થતાં જ તમારી પ્રોફાઈલ વેરિફાઈડ બેજ (🛡️) સાથે મુખ્ય પેજ પર તમારી કેટેગરીમાં લાઈવ થઈ જશે.'
-                  : language === 'EN'
-                  ? 'Your Service Expert Profile has been recorded successfully. For community trust & verification, your details have been sent to Admin for approval. Once approved, your profile will be live with the Verified Badge (🛡️) on the main page under your category.'
-                  : 'आपकी सर्विस एक्सपर्ट प्रोफाइल सफलतापूर्वक दर्ज हो गई है। सुरक्षा और वेरिफिकेशन के लिए आपकी प्रोफाइल एडमिन के पास अप्रूवल के लिए भेज दी गई है। एडमिन द्वारा अप्रूव करते ही आपकी प्रोफाइल Verified Badge (🛡️) के साथ मेन पेज पर आपकी केटेगरी के अंदर लाइव हो जाएगी।'}
+                {tr(
+                  'Your Service Expert Profile has been recorded successfully. For community trust & verification, your details have been sent to Admin for approval. Once approved, your profile will be live with the Verified Badge (🛡️) on the main page under your category.',
+                  'आपकी सर्विस एक्सपर्ट प्रोफाइल सफलतापूर्वक दर्ज हो गई है। सुरक्षा और वेरिफिकेशन के लिए आपकी प्रोफाइल एडमिन के पास अप्रूवल के लिए भेज दी गई है। एडमिन द्वारा अप्रूव करते ही आपकी प्रोफाइल Verified Badge (🛡️) के साथ मेन पेज पर आपकी केटेगरी के अंदर लाइव हो जाएगी।',
+                  'તમારી સર્વિસ એક્સપર્ટ પ્રોફાઈલ સફળતાપૂર્વક નોંધાઈ ગઈ છે. સુરક્ષા અને ચકાસણી માટે તમારી વિગતો એડમિન પાસે મોકલવામાં આવી છે. એડમિન દ્વારા મંજૂર થતાં જ તમારી પ્રોફાઈલ વેરિફાઈડ બેજ (🛡️) સાથે મુખ્ય પેજ પર તમારી કેટેગરીમાં લાઈવ થઈ જશે.'
+                )}
               </p>
             </div>
             <button
@@ -2288,7 +2377,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
               onClick={() => setShowApprovalNoticeModal(false)}
               className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs shadow-md shadow-emerald-600/20 active:scale-95 transition-all cursor-pointer"
             >
-              {language === 'GU' ? 'બરાબર, સમજી ગયો' : language === 'EN' ? 'Okay, Understood' : 'ठीक है, समझ गया'}
+              {tr('Okay, Understood', 'ठीक है, समझ गया', 'બરાબર, સમજી ગયો')}
             </button>
           </div>
         </div>

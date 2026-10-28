@@ -420,12 +420,15 @@ export default function AdBannerSection({ onOpenChat, onOpenPostAd }: AdBannerSe
       {/* ========================================================= */}
       <AnimatePresence>
         {selectedAdForDetails && !selectedAdForDetails.isPermanentOfficialBanner && (
-          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/65 backdrop-blur-xs">
+          <div
+            className="fixed inset-x-0 bottom-0 top-[52px] z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/65 backdrop-blur-xs"
+            style={{ position: 'fixed', top: '52px', left: 0, right: 0, bottom: 0, zIndex: 5000 }}
+          >
             <motion.div
               initial={{ opacity: 0, y: 80, scale: 0.96 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 80, scale: 0.96 }}
-              className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-t-[32px] sm:rounded-3xl shadow-2xl border border-amber-200 dark:border-slate-800 max-h-[90vh] flex flex-col overflow-hidden"
+              className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-t-[32px] sm:rounded-3xl shadow-2xl border border-amber-200 dark:border-slate-800 max-h-[85vh] flex flex-col overflow-hidden"
             >
               <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800 bg-amber-50/60 dark:bg-slate-850">
                 <div className="flex items-center gap-2">
@@ -546,7 +549,7 @@ export default function AdBannerSection({ onOpenChat, onOpenPostAd }: AdBannerSe
                   className="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-sm rounded-xl flex items-center justify-center gap-2 shadow-md shadow-indigo-600/20 active:scale-95 transition-all cursor-pointer"
                 >
                   <MessageSquare className="w-4.5 h-4.5" />
-                  <span>{language === 'EN' ? 'Chat on App Screen' : 'ऐप की चैट स्क्रीन पर बात करें'}</span>
+                  <span>{language === 'EN' ? 'Chat on App Screen' : language === 'GU' ? 'એપની ચેટ સ્ક્રીન પર વાત કરો' : 'ऐप की चैट स्क्रीन पर बात करें'}</span>
                 </button>
               </div>
             </motion.div>

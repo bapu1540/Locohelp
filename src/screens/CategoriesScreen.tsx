@@ -633,6 +633,7 @@ export default function CategoriesScreen({
         onGoToLogin={onBack}
         actionTitleEn="Sign In Required"
         actionTitleHi="चैट या प्रोफाइल बनाने के लिए लॉगिन करें"
+        actionTitleGu="ચેટ અથવા પ્રોફાઇલ બનાવવા માટે લોગિન કરો"
       />
 
     </div>

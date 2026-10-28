@@ -568,12 +568,15 @@ export default function AppGuideModal({ onClose, onExplore }: AppGuideModalProps
   });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-md">
+    <div
+      className="fixed inset-x-0 bottom-0 top-[52px] z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-md"
+      style={{ position: 'fixed', top: '52px', left: 0, right: 0, bottom: 0, zIndex: 5000 }}
+    >
       <motion.div 
         initial={{ opacity: 0, scale: 0.95, y: 15 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 15 }}
-        className="bg-[#FAF8F5] dark:bg-slate-900 border border-[#EAE4D9] dark:border-slate-800 rounded-[28px] w-full max-w-xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden relative"
+        className="bg-[#FAF8F5] dark:bg-slate-900 border border-[#EAE4D9] dark:border-slate-800 rounded-[28px] w-full max-w-xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden relative"
       >
         {/* Modal Top Header with Language Selector */}
         <div className="px-5 py-3.5 bg-[#F2EDE4] dark:bg-slate-800/90 border-b border-[#E2DDD2] dark:border-slate-800 flex items-center justify-between shrink-0">
@@ -922,7 +925,10 @@ export default function AppGuideModal({ onClose, onExplore }: AppGuideModalProps
         {/* INTERACTIVE FEATURE EXPLAINER MODAL OVERLAY */}
         <AnimatePresence>
           {selectedBannerDetail && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-xs">
+            <div
+              className="fixed inset-x-0 bottom-0 top-[52px] z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-xs"
+              style={{ position: 'fixed', top: '52px', left: 0, right: 0, bottom: 0, zIndex: 5010 }}
+            >
               <motion.div
                 initial={{ opacity: 0, scale: 0.9, y: 20 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}

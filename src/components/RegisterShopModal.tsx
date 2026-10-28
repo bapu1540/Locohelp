@@ -33,15 +33,15 @@ export interface RegisteredShop {
 }
 
 export const SHOP_TYPES = [
-  { id: 'shop', nameEn: 'Shop & Retail Store', nameHi: 'दुकान व रिटेल स्टोर', icon: '🏪' },
-  { id: 'showroom', nameEn: 'Showroom & Brand Outlet', nameHi: 'शोरूम व ब्रांड आउटलेट', icon: '🏬' },
-  { id: 'mall', nameEn: 'Shopping Mall & Commercial Complex', nameHi: 'शॉपिंग मॉल व कॉम्प्लेक्स', icon: '🏢' },
-  { id: 'service_center', nameEn: 'Service Center & Workshop', nameHi: 'सर्विस सेंटर व वर्कशॉप', icon: '⚙️' },
-  { id: 'mart', nameEn: 'SuperMarket & Grocery Mart', nameHi: 'सुपरमार्केट व ग्रॉसरी मार्ट', icon: '🛒' },
-  { id: 'restaurant', nameEn: 'Restaurant, Cafe & Hotel', nameHi: 'रेस्टोरेंट, कैफे व होटल', icon: '🍽️' },
-  { id: 'pharmacy', nameEn: 'Hospital, Clinic & Pharmacy', nameHi: 'अस्पताल, क्लिनिक व फार्मेसी', icon: '💊' },
-  { id: 'coaching', nameEn: 'Educational Coaching & Academy', nameHi: 'कोचिंग व अकादमी', icon: '🎓' },
-  { id: 'other', nameEn: 'Other Business & Venue', nameHi: 'अन्य बिज़नेस व वेन्यू', icon: '📍' },
+  { id: 'shop', nameEn: 'Shop & Retail Store', nameHi: 'दुकान व रिटेल स्टोर', nameGu: 'દુકાન અને રિટેલ સ્ટોર', icon: '🏪' },
+  { id: 'showroom', nameEn: 'Showroom & Brand Outlet', nameHi: 'शोरूम व ब्रांड आउटलेट', nameGu: 'શોરૂમ અને બ્રાન્ડ આઉટલેટ', icon: '🏬' },
+  { id: 'mall', nameEn: 'Shopping Mall & Commercial Complex', nameHi: 'शॉपिंग मॉल व कॉम्प्लेक्स', nameGu: 'શોપિંગ મોલ અને કોમ્પ્લેક્સ', icon: '🏢' },
+  { id: 'service_center', nameEn: 'Service Center & Workshop', nameHi: 'सर्विस सेंटर व वर्कशॉप', nameGu: 'સર્વિસ સેન્ટર અને વર્કશોપ', icon: '⚙️' },
+  { id: 'mart', nameEn: 'SuperMarket & Grocery Mart', nameHi: 'सुपरमार्केट व ग्रॉसरी मार्ट', nameGu: 'સુપરમાર્કેટ અને ગ્રોસરી માર્ટ', icon: '🛒' },
+  { id: 'restaurant', nameEn: 'Restaurant, Cafe & Hotel', nameHi: 'रेस्टोरेंट, कैफे व होटल', nameGu: 'રેસ્ટોરન્ટ, કાફે અને હોટેલ', icon: '🍽️' },
+  { id: 'pharmacy', nameEn: 'Hospital, Clinic & Pharmacy', nameHi: 'अस्पताल, क्लिनिक व फार्मेसी', nameGu: 'હોસ્પિટલ, ક્લિનિક અને ફાર્મસી', icon: '💊' },
+  { id: 'coaching', nameEn: 'Educational Coaching & Academy', nameHi: 'कोचिंग व अकादमी', nameGu: 'શૈક્ષણિક કોચિંગ અને એકેડમી', icon: '🎓' },
+  { id: 'other', nameEn: 'Other Business & Venue', nameHi: 'अन्य बिज़नेस व वेन्यू', nameGu: 'અન્ય બિઝનેસ અને વેન્યુ', icon: '📍' },
 ];
 
 interface RegisterShopModalProps {
@@ -52,7 +52,7 @@ interface RegisterShopModalProps {
 }
 
 export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialTab = 'new' }: RegisterShopModalProps) {
-  const { language, t } = useLanguage();
+  const { language, t, tr } = useLanguage();
 
   const [activeTab, setActiveTab] = useState<'registered' | 'new'>(initialTab);
   const [searchQuery, setSearchQuery] = useState('');
@@ -136,7 +136,7 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
 
     const remainingSlots = Math.max(0, 3 - shopPhotos.length);
     if (remainingSlots === 0) {
-      setIdUploadNotice(language === 'EN' ? 'Maximum 3 shop photos allowed.' : 'अधिकतम 3 दुकान की फोटो अपलोड कर सकते हैं।');
+      setIdUploadNotice(tr('Maximum 3 shop photos allowed.', 'अधिकतम 3 दुकान की फोटो अपलोड कर सकते हैं।', 'વધુમાં વધુ 3 દુકાનના ફોટા અપલોડ કરી શકાય છે.'));
       e.target.value = '';
       return;
     }
@@ -147,7 +147,7 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
     for (const file of filesToProcess) {
       const check = await validateUploadedFile(file, { allowPdf: false });
       if (!check.valid) {
-        setIdUploadNotice(language === 'EN' ? (check.error || 'Invalid image (Max 2MB JPG/PNG/WEBP)') : (check.errorHi || check.error || 'अमान्य इमेज (अधिकतम 2MB)'));
+        setIdUploadNotice(tr(check.error || 'Invalid image (Max 2MB JPG/PNG/WEBP)', check.errorHi || check.error || 'अमान्य इमेज (अधिकतम 2MB)', 'અમાન્ય ફોટો (મહત્તમ 2MB)'));
         e.target.value = '';
         return;
       }
@@ -202,14 +202,14 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
     const typeObj = SHOP_TYPES.find(t => t.id === shopType);
     const label = shopType === 'other' && customType.trim()
       ? customType.trim()
-      : (typeObj ? (language === 'EN' ? typeObj.nameEn : typeObj.nameHi) : 'Local Business');
+      : (typeObj ? tr(typeObj.nameEn, typeObj.nameHi, typeObj.nameGu) : 'Local Business');
 
     const shopId = editingShopId || ('shop_' + Date.now().toString(36));
     const primaryPhoto = shopPhotos[0] || photoUrl || undefined;
 
     const finalOwnerEmail = (ownerEmail.trim() || activeUser?.email || localStorage.getItem('locohelp_last_logged_in_email') || '').toLowerCase();
     if (!finalOwnerEmail || !finalOwnerEmail.includes('@')) {
-      setIdUploadNotice(language === 'EN' ? 'Valid Email ID is mandatory for business registration.' : 'दुकान रजिस्ट्रेशन के लिए मान्य ईमेल आईडी अनिवार्य है।');
+      setIdUploadNotice(tr('Valid Email ID is mandatory for business registration.', 'दुकान रजिस्ट्रेशन के लिए मान्य ईमेल आईडी अनिवार्य है।', 'બિઝનેસ રજિસ્ટ્રેશન માટે માન્ય ઈમેલ આઈડી ફરજિયાત છે.'));
       setIsSubmitting(false);
       return;
     }
@@ -289,11 +289,11 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
     setIdDocumentWatermarked(null);
 
     setPendingNotice(
-      language === 'GU'
-        ? '⏳ તમારું બિઝનેસ રજિસ્ટ્રેશન એડમિન મંજૂરી માટે મોકલાઈ ગયું છે! એડમિન દ્વારા મંજૂર થતાં જ તે પબ્લિક ડિરેક્ટરીમાં લાઈવ થઈ જશે.'
-        : language === 'EN'
-        ? '⏳ Your Business Registration has been submitted to the Admin Panel for approval! Once approved by Admin, it will be live in the public directory.'
-        : '⏳ आपका बिज़नेस रजिस्ट्रेशन एडमिन अप्रूवल के लिए भेज दिया गया है! एडमिन द्वारा अप्रूव करते ही यह पब्लिक डायरेक्टरी में लाइव हो जाएगा।'
+      tr(
+        '⏳ Your Business Registration has been submitted to the Admin Panel for approval! Once approved by Admin, it will be live in the public directory.',
+        '⏳ आपका बिज़नेस रजिस्ट्रेशन एडमिन अप्रूवल के लिए भेज दिया गया है! एडमिन द्वारा अप्रूव करते ही यह पब्लिक डायरेक्टरी में लाइव हो जाएगा।',
+        '⏳ તમારું બિઝનેસ રજિસ્ટ્રેશન એડમિન મંજૂરી માટે મોકલાઈ ગયું છે! એડમિન દ્વારા મંજૂર થતાં જ તે પબ્લિક ડિરેક્ટરીમાં લાઈવ થઈ જશે.'
+      )
     );
     setActiveTab('registered');
 
@@ -314,7 +314,10 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 bg-white dark:bg-slate-900 flex flex-col overflow-hidden">
+      <div
+        className="fixed inset-x-0 bottom-0 top-[52px] z-50 bg-white dark:bg-slate-900 flex flex-col overflow-hidden"
+        style={{ position: 'fixed', top: '52px', left: 0, right: 0, bottom: 0, zIndex: 5000 }}
+      >
         {/* Full Page Workspace */}
         <motion.div 
           initial={{ opacity: 0, y: 12 }} 
@@ -331,12 +334,14 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
               </div>
               <div>
                 <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white flex items-center gap-1.5">
-                  <span>{language === 'EN' ? 'Local Shops & Businesses' : 'लोकल दुकानें व बिज़नेस'}</span>
+                  <span>{tr('Local Shops & Businesses', 'लोकल दुकानें व बिज़नेस', 'સ્થાનિક દુકાનો અને બિઝનેસ')}</span>
                 </h3>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
-                  {language === 'EN' 
-                    ? 'Browse verified businesses or register your shop' 
-                    : 'रजिस्टर्ड दुकानें देखें या अपनी दुकान रजिस्टर करें'}
+                  {tr(
+                    'Browse verified businesses or register your shop',
+                    'रजिस्टर्ड दुकानें देखें या अपनी दुकान रजिस्टर करें',
+                    'રજિસ્ટર્ડ દુકાનો જુઓ અથવા તમારી દુકાન રજિસ્ટર કરો'
+                  )}
                 </p>
               </div>
             </div>
@@ -346,7 +351,7 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
               className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shrink-0 shadow-2xs"
             >
               <X className="w-4 h-4" />
-              <span>{language === 'EN' ? 'Back / Close' : 'वापस जाएं'}</span>
+              <span>{tr('Back / Close', 'वापस जाएं', 'પાછા જાઓ')}</span>
             </button>
           </div>
 
@@ -362,7 +367,7 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
               }`}
             >
               <Store className="w-3.5 h-3.5" />
-              <span>{language === 'EN' ? `Directory (${filteredShops.length})` : `लिस्टिंग (${filteredShops.length})`}</span>
+              <span>{tr(`Directory (${filteredShops.length})`, `लिस्टिंग (${filteredShops.length})`, `લિસ્ટિંગ (${filteredShops.length})`)}</span>
             </button>
             <button
               type="button"
@@ -374,7 +379,7 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
               }`}
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>{language === 'EN' ? '+ Register Shop / Business' : '+ दुकान / बिज़नेस रजिस्टर करें'}</span>
+              <span>{tr('+ Register Shop / Business', '+ दुकान / बिज़नेस रजिस्टर करें', '+ દુકાન / બિઝનેસ રજિસ્ટર કરો')}</span>
             </button>
           </div>
 
@@ -394,7 +399,7 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder={language === 'EN' ? "Search by shop name, category or area..." : "दुकान का नाम, श्रेणी या इलाका खोजें..."}
+                  placeholder={tr("Search by shop name, category or area...", "दुकान का नाम, श्रेणी या इलाका खोजें...", "દુકાનનું નામ, કેટેગરી અથવા વિસ્તાર શોધો...")}
                   className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl pl-9 pr-3 py-2 text-xs font-medium text-slate-900 dark:text-white outline-none focus:border-amber-500"
                 />
               </div>
@@ -404,14 +409,14 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
                 {filteredShops.length === 0 ? (
                   <div className="text-center py-8 space-y-3">
                     <p className="text-xs text-slate-500 font-medium">
-                      {language === 'EN' ? 'No approved businesses listed yet.' : 'अभी तक कोई अप्रूव्ड बिज़नेस लिस्ट नहीं हुआ है।'}
+                      {tr('No approved businesses listed yet.', 'अभी तक कोई अप्रूव्ड बिज़नेस लिस्ट नहीं हुआ है।', 'હજુ સુધી કોઈ મંજૂર બિઝનેસ લિસ્ટ થયો નથી.')}
                     </p>
                     <button
                       type="button"
                       onClick={() => setActiveTab('new')}
                       className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-extrabold rounded-xl shadow-xs cursor-pointer"
                     >
-                      + {language === 'EN' ? 'Register Your Shop Now' : 'अपनी दुकान अभी रजिस्टर करें'}
+                      + {tr('Register Your Shop Now', 'अपनी दुकान अभी रजिस्टर करें', 'તમારી દુકાન હમણાં જ રજિસ્ટર કરો')}
                     </button>
                   </div>
                 ) : (
@@ -430,7 +435,7 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
                               </span>
                               {shop.isVerified && (
                                 <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-600 text-white shadow-2xs flex items-center gap-0.5">
-                                  <ShieldCheck className="w-2.5 h-2.5" /> Verified
+                                  <ShieldCheck className="w-2.5 h-2.5" /> {tr('Verified', 'सत्यापित', 'વેરિફાઈડ')}
                                 </span>
                               )}
                             </div>
@@ -498,7 +503,7 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
 
                         <div className="flex items-center justify-between pt-1 border-t border-slate-200/60 dark:border-slate-700/60 gap-2">
                           <div className="text-[11px] text-slate-500 font-bold">
-                            👤 Owner: <span className="text-slate-800 dark:text-slate-200">{shop.ownerName || 'Manager'}</span>
+                            👤 {tr('Owner:', 'मालिक:', 'માલિક:')} <span className="text-slate-800 dark:text-slate-200">{shop.ownerName || 'Manager'}</span>
                           </div>
 
                           {isEntityOwner(shop, getCurrentUser()) ? (
@@ -506,10 +511,10 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
                               type="button"
                               onClick={() => handleStartEditShop(shop)}
                               className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
-                              title={language === 'EN' ? 'Edit shop details' : 'दुकान की जानकारी एडिट करें'}
+                              title={tr('Edit shop details', 'दुकान की जानकारी एडिट करें', 'દુકાનની માહિતી એડિટ કરો')}
                             >
                               <Edit3 className="w-3.5 h-3.5" />
-                              <span>{language === 'EN' ? 'Edit Details' : 'जानकारी एडिट करें'}</span>
+                              <span>{tr('Edit Details', 'जानकारी एडिट करें', 'માહિતી એડિટ કરો')}</span>
                             </button>
                           ) : (
                             <button
@@ -519,7 +524,7 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
                               title="Contact owner on WhatsApp"
                             >
                               <MessageSquare className="w-3.5 h-3.5" />
-                              <span>{language === 'EN' ? 'WhatsApp Contact' : 'व्हाट्सएप संपर्क'}</span>
+                              <span>{tr('WhatsApp Contact', 'व्हाट्सएप संपर्क', 'વોટ્સએપ સંપર્ક')}</span>
                             </button>
                           )}
                         </div>
@@ -553,20 +558,20 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {language === 'EN' ? 'Shop / Business Name *' : 'दुकान / बिज़नेस का नाम *'}
+                    {tr('Shop / Business Name *', 'दुकान / बिज़नेस का नाम *', 'દુકાન / બિઝનેસનું નામ *')}
                   </label>
                   <input
                     type="text"
                     required
                     value={shopName}
                     onChange={(e) => setShopName(e.target.value)}
-                    placeholder={language === 'EN' ? 'e.g. Sharma General Store' : 'उदा. शर्मा जनरल स्टोर'}
+                    placeholder={tr('e.g. Sharma General Store', 'उदा. शर्मा जनरल स्टोर', 'દા.ત. શર્મા જનરલ સ્ટોર')}
                     className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 font-medium text-slate-900 dark:text-white"
                   />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {language === 'EN' ? 'Business Category *' : 'बिज़नेस की श्रेणी *'}
+                    {tr('Business Category *', 'बिज़नेस की श्रेणी *', 'બિઝનેસની કેટેગરી *')}
                   </label>
                   <select
                     value={shopType}
@@ -575,7 +580,7 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
                   >
                     {SHOP_TYPES.map((t) => (
                       <option key={t.id} value={t.id}>
-                        {t.icon} {language === 'EN' ? t.nameEn : t.nameHi}
+                        {t.icon} {tr(t.nameEn, t.nameHi, t.nameGu)}
                       </option>
                     ))}
                   </select>
@@ -585,14 +590,14 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
               {shopType === 'other' && (
                 <div>
                   <label className="block text-xs font-bold text-amber-700 dark:text-amber-400 mb-1">
-                    {language === 'EN' ? 'Specify Custom Category *' : 'अपनी श्रेणी का नाम लिखें *'}
+                    {tr('Specify Custom Category *', 'अपनी श्रेणी का नाम लिखें *', 'તમારી કેટેગરીનું નામ લખો *')}
                   </label>
                   <input
                     type="text"
                     required
                     value={customType}
                     onChange={(e) => setCustomType(e.target.value)}
-                    placeholder={language === 'EN' ? 'e.g. Hardware Store, Electronics' : 'उदा. हार्डवेयर स्टोर, इलेक्ट्रॉनिक्स'}
+                    placeholder={tr('e.g. Hardware Store, Electronics', 'उदा. हार्डवेयर स्टोर, इलेक्ट्रॉनिक्स', 'દા.ત. હાર્ડવેર સ્ટોર, ઇલેક્ટ્રોનિક્સ')}
                     className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 rounded-xl border border-amber-300 dark:border-amber-700 font-medium text-slate-900 dark:text-white"
                   />
                 </div>
@@ -601,20 +606,20 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {language === 'EN' ? 'Owner Name *' : 'मालिक (Owner) का नाम *'}
+                    {tr('Owner Name *', 'मालिक (Owner) का नाम *', 'માલિક (Owner) નું નામ *')}
                   </label>
                   <input
                     type="text"
                     required
                     value={ownerName}
                     onChange={(e) => setOwnerName(e.target.value)}
-                    placeholder={language === 'EN' ? 'e.g. Rajesh Sharma' : 'उदा. राजेश शर्मा'}
+                    placeholder={tr('e.g. Rajesh Sharma', 'उदा. राजेश शर्मा', 'દા.ત. રાજેશ શર્મા')}
                     className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 font-medium text-slate-900 dark:text-white"
                   />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {language === 'EN' ? 'Email ID *' : 'ईमेल आईडी *'}
+                    {tr('Email ID *', 'ईमेल आईडी *', 'ઈમેલ આઈડી *')}
                   </label>
                   <input
                     type="email"
@@ -627,7 +632,7 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {language === 'EN' ? 'WhatsApp / Mobile Number *' : 'व्हाट्सएप / मोबाइल नंबर *'}
+                    {tr('WhatsApp / Mobile Number *', 'व्हाट्सएप / मोबाइल नंबर *', 'વોટ્સએપ / મોબાઈલ નંબર *')}
                   </label>
                   <input
                     type="tel"
@@ -643,27 +648,27 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {language === 'EN' ? 'City / Area / Mohalla *' : 'शहर / इलाका / मोहल्ला *'}
+                    {tr('City / Area / Mohalla *', 'शहर / इलाका / मोहल्ला *', 'શહેર / વિસ્તાર / સોસાયટી *')}
                   </label>
                   <input
                     type="text"
                     required
                     value={area}
                     onChange={(e) => setArea(e.target.value)}
-                    placeholder={language === 'EN' ? 'e.g. Main Market, Civil Lines' : 'उदा. मेन मार्केट, सिविल लाइन्स'}
+                    placeholder={tr('e.g. Main Market, Civil Lines', 'उदा. मेन मार्केट, सिविल लाइन्स', 'દા.ત. મેઈન માર્કેટ, સિવિલ લાઈન્સ')}
                     className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 font-medium text-slate-900 dark:text-white"
                   />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {language === 'EN' ? 'Shop Timings *' : 'दुकान खुलने का समय (Timings) *'}
+                    {tr('Shop Timings *', 'दुकान खुलने का समय (Timings) *', 'દુકાન ખુલવાનો સમય (Timings) *')}
                   </label>
                   <input
                     type="text"
                     required
                     value={timings}
                     onChange={(e) => setTimings(e.target.value)}
-                    placeholder={language === 'EN' ? 'e.g. 9:00 AM - 9:00 PM (Mon-Sun)' : 'उदा. सुबह 9 से रात 9 बजे तक'}
+                    placeholder={tr('e.g. 9:00 AM - 9:00 PM (Mon-Sun)', 'उदा. सुबह 9 से रात 9 बजे तक', 'દા.ત. સવારે 9 થી રાત્રે 9 વાગ્યા સુધી')}
                     className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 font-medium text-slate-900 dark:text-white"
                   />
                 </div>
@@ -671,27 +676,27 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  {language === 'EN' ? 'Full Shop Address / Landmark *' : 'दुकान का पूरा पता / लैंडमार्क *'}
+                  {tr('Full Shop Address / Landmark *', 'दुकान का पूरा पता / लैंडमार्क *', 'દુકાનનું પૂરું સરનામું / લેન્ડમાર્ક *')}
                 </label>
                 <input
                   type="text"
                   required
                   value={address}
                   onChange={(e) => setAddress(e.target.value)}
-                  placeholder={language === 'EN' ? 'Shop No. 12, Near Railway Station Road' : 'दुकान नं 12, रेलवे स्टेशन रोड के पास'}
+                  placeholder={tr('Shop No. 12, Near Railway Station Road', 'दुकान नं 12, रेलवे स्टेशन रोड के पास', 'દુકાન નં. 12, રેલવે સ્ટેશન રોડ પાસે')}
                   className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 font-medium text-slate-900 dark:text-white"
                 />
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  {language === 'EN' ? 'About Shop / Products & Services' : 'दुकान की जानकारी व उपलब्ध सामान/सेवाएं'}
+                  {tr('About Shop / Products & Services', 'दुकान की जानकारी व उपलब्ध सामान/सेवाएं', 'દુકાનની માહિતી અને ઉપલબ્ધ સામાન/સેવાઓ')}
                 </label>
                 <textarea
                   rows={2}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder={language === 'EN' ? 'Home delivery available, wholesale rates, special offers...' : 'होम डिलीवरी उपलब्ध, थोक व खुदरा रेट...'}
+                  placeholder={tr('Home delivery available, wholesale rates, special offers...', 'होम डिलीवरी उपलब्ध, थोक व खुदरा रेट...', 'હોમ ડિલિવરી ઉપલબ્ધ, જથ્થાબંધ અને છૂટક ભાવ...')}
                   className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 font-medium text-slate-900 dark:text-white resize-none"
                 />
               </div>
@@ -701,7 +706,7 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-extrabold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                     <Camera className="w-4 h-4 text-amber-600" />
-                    <span>{language === 'EN' ? 'Upload Shop Photos (Up to 3 Photos, Max 2MB each)' : 'दुकान की फोटो अपलोड करें (2-3 फोटो, अधिकतम 2MB)'}</span>
+                    <span>{tr('Upload Shop Photos (Up to 3 Photos, Max 2MB each)', 'दुकान की फोटो अपलोड करें (2-3 फोटो, अधिकतम 2MB)', 'દુકાનના ફોટા અપલોડ કરો (2-3 ફોટા, મહત્તમ 2MB)')}</span>
                   </label>
                   <span className="text-[10px] font-black text-amber-700 dark:text-amber-300">
                     {shopPhotos.length}/3
@@ -742,7 +747,7 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
                   onClick={() => setActiveTab('registered')}
                   className="flex-1 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-xs rounded-xl cursor-pointer"
                 >
-                  {language === 'EN' ? 'Cancel' : 'रद्द करें'}
+                  {tr('Cancel', 'रद्द करें', 'રદ કરો')}
                 </button>
                 <button
                   type="submit"
@@ -752,10 +757,10 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
                   <CheckCircle2 className="w-4 h-4" />
                   <span>
                     {isSubmitting
-                      ? (language === 'EN' ? 'Submitting...' : 'सबमिट हो रहा है...')
+                      ? tr('Submitting...', 'सबमिट हो रहा है...', 'સબમિટ થઈ રહ્યું છે...')
                       : (editingShopId
-                          ? (language === 'EN' ? 'Update Shop Details' : 'दुकान अपडेट करें')
-                          : (language === 'EN' ? 'Submit Shop for Admin Approval' : 'एडमिन अप्रूवल के लिए सबमिट करें'))}
+                          ? tr('Update Shop Details', 'दुकान अपडेट करें', 'દુકાન અપડેટ કરો')
+                          : tr('Submit Shop for Admin Approval', 'एडमिन अप्रूवल के लिए सबमिट करें', 'એડમિન મંજૂરી માટે સબમિટ કરો'))}
                   </span>
                 </button>
               </div>

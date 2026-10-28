@@ -138,6 +138,8 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
       setPostError(
         language === 'EN'
           ? `Anti-Spam Protection: Please wait ${rem}s before creating another post.`
+          : language === 'GU'
+          ? `સ્પામ સુરક્ષા: આગલી પોસ્ટ કરવા માટે કૃપા કરીને ${rem} સેકન્ડ રાહ જુઓ.`
           : `स्पैम सुरक्षा: अगली पोस्ट करने के लिए कृपया ${rem} सेकंड प्रतीक्षा करें।`
       );
       return;
@@ -245,7 +247,10 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
+    <div
+      className="fixed inset-x-0 bottom-0 top-[52px] z-50 flex items-center justify-center p-3 sm:p-4"
+      style={{ position: 'fixed', top: '52px', left: 0, right: 0, bottom: 0, zIndex: 5000 }}
+    >
       {/* Backdrop */}
       <motion.div 
         initial={{ opacity: 0 }} 
@@ -261,7 +266,7 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
         animate={{ opacity: 1, scale: 1, y: 0 }} 
         exit={{ opacity: 0, scale: 0.92, y: 12 }}
         transition={{ type: "spring", damping: 25, stiffness: 220 }}
-        className="relative w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl z-10 flex flex-col max-h-[90vh] shadow-2xl overflow-hidden"
+        className="relative w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl z-10 flex flex-col max-h-[85vh] shadow-2xl overflow-hidden"
       >
         {/* Header */}
         <div className="flex justify-between items-center px-6 py-4 border-b border-slate-100 dark:border-slate-800 shrink-0">
@@ -342,8 +347,8 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
                 <ImageIcon className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
                 <span>
                   {isUploadingAttachment
-                    ? (language === 'EN' ? 'Uploading to Cloud...' : 'अपलोड हो रहा है...')
-                    : (language === 'EN' ? 'Attach Photo / Issue Image (Optional)' : 'फ़ोटो / अटैचमेंट जोड़ें (वैकल्पिक)')}
+                    ? (language === 'EN' ? 'Uploading to Cloud...' : language === 'GU' ? 'અપલોડ થઈ રહ્યું છે...' : 'अपलोड हो रहा है...')
+                    : (language === 'EN' ? 'Attach Photo / Issue Image (Optional)' : language === 'GU' ? 'ફોટો / અટેચમેન્ટ ઉમેરો (વૈકલ્પિક)' : 'फ़ोटो / अटैचमेंट जोड़ें (वैकल्पिक)')}
                 </span>
                 <input
                   type="file"
@@ -616,6 +621,7 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
         onGoToLogin={onClose}
         actionTitleEn="Sign In Required to Broadcast"
         actionTitleHi="ब्रॉडकास्ट पोस्ट करने के लिए लॉगिन करें"
+        actionTitleGu="બ્રોડકાસ્ટ પોસ્ટ કરવા માટે લોગિન કરો"
       />
     </div>
   );

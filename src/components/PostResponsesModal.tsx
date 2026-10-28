@@ -255,12 +255,15 @@ export default function PostResponsesModal({
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-xs">
+      <div
+        className="fixed inset-x-0 bottom-0 top-[52px] z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-xs"
+        style={{ position: 'fixed', top: '52px', left: 0, right: 0, bottom: 0, zIndex: 5000 }}
+      >
         <motion.div
           initial={{ opacity: 0, scale: 0.93, y: 16 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.93, y: 16 }}
-          className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden relative z-50 flex flex-col max-h-[85vh]"
+          className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden relative z-50 flex flex-col max-h-[82vh]"
         >
           {/* WhatsApp-Style Header */}
           <div className="p-4 sm:p-5 border-b border-slate-200 dark:border-slate-800 bg-gradient-to-r from-emerald-600/15 via-teal-500/10 to-indigo-500/10 flex items-center justify-between">
@@ -372,7 +375,7 @@ export default function PostResponsesModal({
                             )}
                             {isCollab && (
                               <span className="text-[9px] font-black px-1.5 py-0.5 rounded-md bg-emerald-600 text-white shrink-0">
-                                🤝 Collaborating
+                                🤝 {language === 'EN' ? 'Collaborating' : language === 'GU' ? 'સહયોગી' : 'सहयोगी'}
                               </span>
                             )}
                           </div>
@@ -396,10 +399,12 @@ export default function PostResponsesModal({
                           }`}
                           title="Choose this user to collaborate with"
                         >
-                          {isCollab ? '✅ Selected' : '🤝 Collaborate'}
+                          {isCollab
+                            ? (language === 'EN' ? '✅ Selected' : language === 'GU' ? '✅ પસંદ કરેલ' : '✅ चयनित')
+                            : (language === 'EN' ? '🤝 Collaborate' : language === 'GU' ? '🤝 સહયોગ' : '🤝 सहयोग करें')}
                         </button>
                         <div className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-black px-3 py-1.5 rounded-xl shadow-xs transition-colors">
-                          <span>Chat</span>
+                          <span>{language === 'EN' ? 'Chat' : language === 'GU' ? 'ચેટ' : 'चैट'}</span>
                           <ArrowRight className="w-3 h-3" />
                         </div>
                       </div>

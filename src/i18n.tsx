@@ -813,6 +813,8 @@ const translations: Record<Language, Record<string, string>> = {
     'prof.googleConnect': 'ગૂગલથી પ્રોફાઈલ લિંક કરો',
     'prof.googleConnectDesc': 'ક્લાઉડ પર તમારી રેટિંગ અને પ્રોફાઈલ ડેટા સુરક્ષિત રાખો',
     'prof.googleLoginBtn': 'લોગિન કરો',
+    'prof.bizReg': 'બિઝનેસ રજિસ્ટ્રેશન અને પ્રોફાઇલ વિગતો',
+    'prof.bizRegDesc': 'દુકાન અથવા સેવાનું નામ, કેટેગરી અને વિસ્તાર સેવ કરો',
     'prof.publicNotice': 'તમારા કૌશલ્ય અને સંપર્ક નજીકના યુઝર્સને બતાવો',
     'prof.verifiedSynced': 'વેરિફાઈડ અને સિંક',
     'prof.emailLabel': 'ગૂગલ ઈમેલ આઈડી',

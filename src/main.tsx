@@ -1,7 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
-import './index.css';
+import './index.css?v=20261028';
 
 // Auto-close handler if this window was opened as a Google Sign-In popup
 if (typeof window !== 'undefined' && window.opener && (window.name === 'google-signin' || window.location.hash.includes('access_token'))) {

@@ -1,10 +1,11 @@
-const CACHE_NAME = 'locohelp-pwa-v7';
+const CACHE_NAME = 'locohelp-pwa-v8';
 const STATIC_ASSETS = [
   '/manifest.json',
   '/pwa-192x192.png',
   '/pwa-512x512.png',
   '/pwa-maskable-512x512.png',
   '/apple-touch-icon.png',
+  '/favicon.png',
   '/icon.svg'
 ];
 

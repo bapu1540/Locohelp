@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import { Lock, ShieldCheck, KeyRound, AlertCircle, Sparkles, ArrowRight, CheckCircle2 } from 'lucide-react';
 import { fetchSiteLockStatus, verifySiteLockPin } from '../api';
+import LocoHelpLogo from './LocoHelpLogo';
 
 interface PrivateLockGateProps {
   children: React.ReactNode;
@@ -146,12 +147,20 @@ export default function PrivateLockGate({ children }: PrivateLockGateProps) {
     }
   };
 
-  // If status is still loading from server, show subtle silent loading screen
+  // If status is still loading from server, show official LocoHelp startup loading screen
   if (isLockedOnServer === null) {
     return (
-      <div className="fixed inset-0 bg-slate-950 flex flex-col items-center justify-center z-50 text-white">
-        <div className="w-12 h-12 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin mb-4" />
-        <p className="text-sm font-medium text-slate-400 tracking-wide">LocoHelp Secure Launch...</p>
+      <div className="fixed inset-0 bg-white dark:bg-slate-950 flex flex-col items-center justify-center z-50 text-slate-900 dark:text-white">
+        <div className="mb-4 flex flex-col items-center gap-3">
+          <div className="w-20 h-20 rounded-3xl bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 shadow-xl flex items-center justify-center">
+            <LocoHelpLogo size={58} showText={false} />
+          </div>
+          <div className="font-black text-3xl tracking-tight leading-none">
+            <span className="text-[#0066FF] dark:text-[#3388FF]">Loco</span>
+            <span className="text-[#FF8800]">Help</span>
+          </div>
+        </div>
+        <div className="w-8 h-8 border-3 border-blue-500/30 border-t-blue-600 rounded-full animate-spin mt-1" />
       </div>
     );
   }
@@ -176,14 +185,14 @@ export default function PrivateLockGate({ children }: PrivateLockGateProps) {
         transition={{ duration: 0.3 }}
         className="relative w-full max-w-md bg-slate-900/90 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl backdrop-blur-xl text-center"
       >
-        {/* Brand Header & Shield Icon */}
+        {/* Brand Header & Official LocoHelp Logo */}
         <div className="flex flex-col items-center mb-6">
           <div className="relative mb-4">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/30">
+            <div className="w-18 h-18 rounded-2xl bg-white flex items-center justify-center shadow-lg shadow-blue-500/30 p-2">
               {isSuccess ? (
-                <CheckCircle2 className="w-9 h-9 text-white animate-bounce" />
+                <CheckCircle2 className="w-10 h-10 text-emerald-600 animate-bounce" />
               ) : (
-                <Lock className="w-8 h-8 text-white" />
+                <LocoHelpLogo size={50} showText={false} />
               )}
             </div>
             <div className="absolute -bottom-1 -right-1 bg-amber-500 p-1 rounded-full text-slate-950 shadow-md">
@@ -191,12 +200,13 @@ export default function PrivateLockGate({ children }: PrivateLockGateProps) {
             </div>
           </div>
 
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-            LocoHelp
+          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
+            <span className="text-[#3388FF]">Loco</span>
+            <span className="text-[#FF8800]">Help</span>
           </h1>
           <div className="mt-1 flex items-center gap-1.5 text-xs font-semibold text-blue-400 bg-blue-500/10 px-3 py-1 rounded-full border border-blue-500/20">
             <ShieldCheck className="w-3.5 h-3.5" />
-            <span>Private Testing Gate / ખાનગી પ્રવેશ મોડ</span>
+            <span>Private Testing Gate / ખાનગી પ્રવેશ મોડ / निजी प्रवेश मोड</span>
           </div>
         </div>
 

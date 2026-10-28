@@ -3857,7 +3857,10 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
       {/* ============================================================ */}
       <AnimatePresence>
         {editingCatImageUrl && (
-          <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <div
+            className="fixed inset-x-0 bottom-0 top-[52px] z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4"
+            style={{ position: 'fixed', top: '52px', left: 0, right: 0, bottom: 0, zIndex: 5000 }}
+          >
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -3934,12 +3937,15 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
       {/* ============================================================ */}
       <AnimatePresence>
         {viewingItem && (
-          <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <div
+            className="fixed inset-x-0 bottom-0 top-[52px] z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4"
+            style={{ position: 'fixed', top: '52px', left: 0, right: 0, bottom: 0, zIndex: 5000 }}
+          >
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="w-full max-w-2xl bg-[#111827] border border-slate-700 rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col"
+              className="w-full max-w-2xl bg-[#111827] border border-slate-700 rounded-3xl shadow-2xl overflow-hidden max-h-[85vh] flex flex-col"
             >
               <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
                 <h3 className="text-base font-black text-white flex items-center gap-2">
@@ -4145,7 +4151,10 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
       {/* ============================================================ */}
       <AnimatePresence>
         {editingItem && (
-          <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <div
+            className="fixed inset-x-0 bottom-0 top-[52px] z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4"
+            style={{ position: 'fixed', top: '52px', left: 0, right: 0, bottom: 0, zIndex: 5000 }}
+          >
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -4350,12 +4359,15 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
       {/* ============================================================ */}
       <AnimatePresence>
         {creatingItem && (
-          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div
+            className="fixed inset-x-0 bottom-0 top-[52px] z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+            style={{ position: 'fixed', top: '52px', left: 0, right: 0, bottom: 0, zIndex: 5000 }}
+          >
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="w-full max-w-xl max-h-[90vh] flex flex-col bg-[#111827] border border-slate-700 rounded-3xl shadow-2xl overflow-hidden"
+              className="w-full max-w-xl max-h-[85vh] flex flex-col bg-[#111827] border border-slate-700 rounded-3xl shadow-2xl overflow-hidden"
             >
               <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/60">
                 <div>
@@ -4713,12 +4725,15 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
       {/* ============================================================ */}
       <AnimatePresence>
         {isCreateAdModalOpen && (
-          <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <div
+            className="fixed inset-x-0 bottom-0 top-[52px] z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4"
+            style={{ position: 'fixed', top: '52px', left: 0, right: 0, bottom: 0, zIndex: 5000 }}
+          >
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="w-full max-w-lg max-h-[90vh] flex flex-col bg-[#111827] border border-slate-700 rounded-3xl shadow-2xl overflow-hidden"
+              className="w-full max-w-lg max-h-[85vh] flex flex-col bg-[#111827] border border-slate-700 rounded-3xl shadow-2xl overflow-hidden"
             >
               <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
                 <div>

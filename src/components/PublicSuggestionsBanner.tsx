@@ -99,7 +99,15 @@ export default function PublicSuggestionsBanner({
 
     const cleanContent = contentInput.trim();
     if (!cleanContent) {
-      if (showToast) showToast('⚠️ कृपया अपना सुझाव/विचार दर्ज करें।');
+      if (showToast) {
+        showToast(
+          language === 'EN'
+            ? '⚠️ Please enter your suggestion/idea.'
+            : language === 'GU'
+            ? '⚠️ કૃપા કરીને તમારું સૂચન/વિચાર લખો.'
+            : '⚠️ कृपया अपना सुझाव/विचार दर्ज करें।'
+        );
+      }
       return;
     }
 
@@ -109,6 +117,8 @@ export default function PublicSuggestionsBanner({
         showToast(
           language === 'EN'
             ? '⚠️ Please enter your real full name (Mandatory) to submit a suggestion.'
+            : language === 'GU'
+            ? '⚠️ સૂચન આપવા માટે કૃપા કરીને તમારું સાચું પૂરું નામ લખો (ફરજિયાત).'
             : '⚠️ सुझाव देने के लिए कृपया अपना असली पूरा नाम लिखें (अनिवार्य)।'
         );
       }
@@ -132,15 +142,42 @@ export default function PublicSuggestionsBanner({
         } catch {}
         setSuggestions(prev => [res.suggestion!, ...prev]);
         setContentInput('');
-        if (showToast) showToast('✅ आपका सुझाव आपके नाम के साथ सफलतापूर्वक पोस्ट हो गया! धन्यवाद।');
+        if (showToast) {
+          showToast(
+            language === 'EN'
+              ? '✅ Your suggestion has been posted successfully with your name! Thank you.'
+              : language === 'GU'
+              ? '✅ તમારું સૂચન તમારા નામ સાથે સફળતાપૂર્વક પોસ્ટ થઈ ગયું! આભાર.'
+              : '✅ आपका सुझाव आपके नाम के साथ सफलतापूर्वक पोस्ट हो गया! धन्यवाद।'
+          );
+        }
       } else {
         if (res.error && (res.error.toLowerCase().includes('auth') || res.error.toLowerCase().includes('login') || res.error.toLowerCase().includes('unauthorized'))) {
           if (onRequireLogin) onRequireLogin();
         }
-        if (showToast) showToast(`❌ ${res.error || 'सुझाव सबमिट नहीं हो सका'}`);
+        if (showToast) {
+          showToast(
+            `❌ ${
+              res.error ||
+              (language === 'EN'
+                ? 'Could not submit suggestion'
+                : language === 'GU'
+                ? 'સૂચન સબમિટ થઈ શક્યું નહીં'
+                : 'सुझाव सबमिट नहीं हो सका')
+            }`
+          );
+        }
       }
     } catch (err: any) {
-      if (showToast) showToast('❌ सुझाव सबमिट करते समय त्रुटि हुई');
+      if (showToast) {
+        showToast(
+          language === 'EN'
+            ? '❌ Error submitting suggestion'
+            : language === 'GU'
+            ? '❌ સૂચન સબમિટ કરતી વખતે ભૂલ થઈ'
+            : '❌ सुझाव सबमिट करते समय त्रुटि हुई'
+        );
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -186,7 +223,7 @@ export default function PublicSuggestionsBanner({
                     <span>{getTitleText()}</span>
                   </h3>
                   <span className="px-2.5 py-0.5 text-[10px] font-black rounded-full bg-[#FF8800] text-white shadow-xs">
-                    {suggestions.length} {language === 'EN' ? 'Ideas' : 'सुझाव'}
+                    {suggestions.length} {language === 'EN' ? 'Ideas' : language === 'GU' ? 'સૂચનો' : 'सुझाव'}
                   </span>
                 </div>
                 <p className="text-[11px] text-blue-100 mt-0.5 leading-snug font-medium">
@@ -306,7 +343,7 @@ export default function PublicSuggestionsBanner({
                   <Send className="w-3.5 h-3.5" />
                   <span>
                     {isSubmitting
-                      ? (language === 'EN' ? 'Sending...' : 'भेजा जा रहा है...')
+                      ? (language === 'EN' ? 'Sending...' : language === 'GU' ? 'મોકલાઈ રહ્યું છે...' : 'भेजा जा रहा है...')
                       : (language === 'EN' ? 'Submit Idea' : language === 'GU' ? 'સૂચન મોકલો' : 'सुझाव भेजें')}
                   </span>
                 </button>
@@ -324,13 +361,13 @@ export default function PublicSuggestionsBanner({
                 </span>
               </span>
               <span className="text-[10px] text-slate-500 dark:text-slate-400 font-extrabold">
-                {suggestions.length} Total
+                {suggestions.length} {language === 'EN' ? 'Total' : language === 'GU' ? 'કુલ' : 'कुल'}
               </span>
             </div>
 
             {isLoading ? (
               <div className="p-4 text-center text-xs text-slate-500 dark:text-slate-400 font-semibold">
-                ⏳ Loading suggestions...
+                ⏳ {language === 'EN' ? 'Loading suggestions...' : language === 'GU' ? 'સૂચનો લોડ થઈ રહ્યા છે...' : 'सुझाव लोड हो रहे हैं...'}
               </div>
             ) : suggestions.length === 0 ? (
               <div className="p-5 text-center bg-white/80 dark:bg-slate-900/60 rounded-2xl border border-dashed border-[#0066FF]/30 dark:border-slate-700 text-slate-500 dark:text-slate-400 text-xs space-y-1">
@@ -338,7 +375,7 @@ export default function PublicSuggestionsBanner({
                   {language === 'EN' ? 'No public suggestions yet' : language === 'GU' ? 'હજુ સુધી કોઈ સૂચન નથી' : 'अभी तक कोई सुझाव नहीं आया है'}
                 </p>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  {language === 'EN' ? 'Be the first to share an idea above!' : 'पहला सुझाव आप लिखकर भेजें!'}
+                  {language === 'EN' ? 'Be the first to share an idea above!' : language === 'GU' ? 'સૌપ્રથમ તમારું સૂચન ઉપર લખીને મોકલો!' : 'पहला सुझाव आप लिखकर भेजें!'}
                 </p>
               </div>
             ) : (

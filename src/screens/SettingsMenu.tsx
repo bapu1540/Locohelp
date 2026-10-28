@@ -92,7 +92,7 @@ export default function SettingsMenu({ onNavigate, onBack }: { onNavigate: (s: S
 
     const isLogged = Boolean((activeUser && activeUser.uid && activeUser.uid !== 'guest') || savedEmail);
     setProfileDisplay({
-      name: savedName || (savedEmail ? savedEmail.split('@')[0] : language === 'HI' ? 'लोकोहेल्प यूज़र' : 'LocoHelp User'),
+      name: savedName || (savedEmail ? savedEmail.split('@')[0] : language === 'HI' ? 'लोकोहेल्प यूज़र' : language === 'GU' ? 'લોકોહેલ્પ યુઝર' : 'LocoHelp User'),
       email: savedEmail,
       avatar: savedAvatar,
       isLoggedIn: isLogged
@@ -317,7 +317,10 @@ export default function SettingsMenu({ onNavigate, onBack }: { onNavigate: (s: S
       {/* ABOUT US MODAL                                            */}
       {/* ========================================================= */}
       {isAboutOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-xs">
+        <div
+          className="fixed inset-x-0 bottom-0 top-[52px] z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-xs"
+          style={{ position: 'fixed', top: '52px', left: 0, right: 0, bottom: 0, zIndex: 5000 }}
+        >
           <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[85vh]">
             <div className="p-4 sm:p-5 border-b border-slate-200 dark:border-slate-800 bg-gradient-to-r from-teal-600/10 via-indigo-600/10 to-emerald-600/10 flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -411,7 +414,10 @@ export default function SettingsMenu({ onNavigate, onBack }: { onNavigate: (s: S
       {/* FEATURES MODAL                                            */}
       {/* ========================================================= */}
       {isFeaturesOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-xs">
+        <div
+          className="fixed inset-x-0 bottom-0 top-[52px] z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-xs"
+          style={{ position: 'fixed', top: '52px', left: 0, right: 0, bottom: 0, zIndex: 5000 }}
+        >
           <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[85vh]">
             <div className="p-4 sm:p-5 border-b border-slate-200 dark:border-slate-800 bg-gradient-to-r from-amber-500/10 via-indigo-600/10 to-purple-600/10 flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -562,7 +568,10 @@ export default function SettingsMenu({ onNavigate, onBack }: { onNavigate: (s: S
       {/* CONTACT US MODAL                                          */}
       {/* ========================================================= */}
       {isContactOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-xs">
+        <div
+          className="fixed inset-x-0 bottom-0 top-[52px] z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-xs"
+          style={{ position: 'fixed', top: '52px', left: 0, right: 0, bottom: 0, zIndex: 5000 }}
+        >
           <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col">
             <div className="p-4 sm:p-5 border-b border-slate-200 dark:border-slate-800 bg-gradient-to-r from-pink-600/10 via-indigo-600/10 to-blue-600/10 flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -661,7 +670,10 @@ export default function SettingsMenu({ onNavigate, onBack }: { onNavigate: (s: S
 
       {/* Request Account Closure / Deactivation Modal */}
       {showDeleteConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/65 backdrop-blur-xs">
+        <div
+          className="fixed inset-x-0 bottom-0 top-[52px] z-50 flex items-center justify-center p-4 bg-black/65 backdrop-blur-xs"
+          style={{ position: 'fixed', top: '52px', left: 0, right: 0, bottom: 0, zIndex: 5000 }}
+        >
           <div className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-3xl p-5 shadow-2xl border border-rose-200 dark:border-rose-900/60 text-center space-y-4">
             <div className="w-12 h-12 rounded-2xl bg-rose-100 dark:bg-rose-950/60 text-rose-600 mx-auto flex items-center justify-center text-2xl shadow-inner">
               {isDeleting ? '⏳' : '🛡️'}
@@ -692,7 +704,7 @@ export default function SettingsMenu({ onNavigate, onBack }: { onNavigate: (s: S
                   rows={2}
                   value={closureReason}
                   onChange={(e) => setClosureReason(e.target.value)}
-                  placeholder={language === 'HI' ? 'जैसे: अब ऐप का उपयोग नहीं कर रहा हूँ...' : 'e.g. No longer using app / Moving to another city...'}
+                  placeholder={language === 'GU' ? 'દા.ત. હવે એપનો ઉપયોગ નથી કરી રહ્યો...' : language === 'HI' ? 'जैसे: अब ऐप का उपयोग नहीं कर रहा हूँ...' : 'e.g. No longer using app / Moving to another city...'}
                   className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-rose-500 resize-none font-medium"
                 />
               </div>
@@ -709,7 +721,7 @@ export default function SettingsMenu({ onNavigate, onBack }: { onNavigate: (s: S
                 }}
                 className="flex-1 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-50"
               >
-                {closureSubmitted ? (language === 'HI' ? 'बंद करें' : 'Close') : (language === 'HI' ? 'रद्द करें' : 'Cancel')}
+                {closureSubmitted ? (language === 'GU' ? 'બંધ કરો' : language === 'HI' ? 'बंद करें' : 'Close') : (language === 'GU' ? 'રદ કરો' : language === 'HI' ? 'रद्द करें' : 'Cancel')}
               </button>
               {!closureSubmitted && (
                 <button
