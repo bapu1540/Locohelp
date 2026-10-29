@@ -111,7 +111,6 @@ type AdminModuleId =
   | 'employers'
   | 'feedback_categories'
   | 'ads'
-  | 'category_images'
   | 'security_vault';
 
 const DEFAULT_ADS: any[] = [];
@@ -190,16 +189,9 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
   const [newCatNameHi, setNewCatNameHi] = useState('');
   const [newCatIcon, setNewCatIcon] = useState('🛠️');
 
-  // Category 16:9 Images State (Add / Edit / Delete)
-  const [categoryImages, setCategoryImages] = useState<Record<string, string>>(() => getCachedCategoryImages());
-  const [catImageBusyId, setCatImageBusyId] = useState<string | null>(null);
-  const [catSearchFilter, setCatSearchFilter] = useState('');
-  const [editingCatImageUrl, setEditingCatImageUrl] = useState<{
-    categoryId: string;
-    nameEn: string;
-    nameHi: string;
-    url: string;
-  } | null>(null);
+  // Category Folder / Filter View State for Service Experts & User Profiles in Admin
+  const [selectedMainCatFilter, setSelectedMainCatFilter] = useState<string>('all');
+  const [selectedSubCatFilter, setSelectedSubCatFilter] = useState<string>('all');
 
   // Encrypted Read-Only Security Vault State (Strictly Non-Deletable)
   const [securityVaultRecords, setSecurityVaultRecords] = useState<SecurityVaultRecord[]>([]);
@@ -234,82 +226,6 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
       showToast(e.message || 'Error updating site lock');
     } finally {
       setIsSavingSiteLock(false);
-    }
-  };
-
-  // Helper: resize & center-crop any uploaded image file to 16:9 WebP data URL (max 1200x675, quality 0.75)
-  const processCategoryImageFileTo16x9 = async (file: File): Promise<string> => {
-    return await compressImageToWebP(file, {
-      maxWidth: 1200,
-      maxHeight: 675,
-      aspectRatio: 16 / 9,
-      cropToAspectRatio: true,
-      quality: 0.75
-    });
-  };
-
-  const handleUploadCategoryImageFile = async (categoryId: string, catName: string, file?: File | null) => {
-    if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      showToast('⚠️ कृपया केवल इमेज फ़ाइल (JPG, PNG, WebP) चुनें।');
-      return;
-    }
-    setCatImageBusyId(categoryId);
-    try {
-      const optimized16x9DataUrl = await processCategoryImageFileTo16x9(file);
-      const res = await saveCategoryImageOnServer(categoryId, optimized16x9DataUrl);
-      if (res.success) {
-        setCategoryImages(prev => ({ ...prev, [categoryId]: optimized16x9DataUrl }));
-        showToast(`✅ "${catName}" की 16:9 इमेज सेव हो गई!`);
-      } else {
-        showToast(res.error || 'Failed to upload category image');
-      }
-    } catch (e: any) {
-      showToast(e.message || 'Image upload failed');
-    } finally {
-      setCatImageBusyId(null);
-    }
-  };
-
-  const handleSaveCategoryImageUrl = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingCatImageUrl) return;
-    const { categoryId, nameEn, url } = editingCatImageUrl;
-    if (!url.trim()) {
-      showToast('कृपया इमेज URL दर्ज करें');
-      return;
-    }
-    setCatImageBusyId(categoryId);
-    try {
-      const res = await saveCategoryImageOnServer(categoryId, url.trim());
-      if (res.success) {
-        setCategoryImages(prev => ({ ...prev, [categoryId]: url.trim() }));
-        showToast(`✅ "${nameEn}" की 16:9 इमेज अपडेट हो गई!`);
-        setEditingCatImageUrl(null);
-      } else {
-        showToast(res.error || 'Failed to save category image URL');
-      }
-    } finally {
-      setCatImageBusyId(null);
-    }
-  };
-
-  const handleDeleteCategoryImage = async (categoryId: string, catName: string) => {
-    setCatImageBusyId(categoryId);
-    try {
-      const res = await deleteCategoryImageOnServer(categoryId);
-      if (res.success) {
-        setCategoryImages(prev => {
-          const next = { ...prev };
-          delete next[categoryId];
-          return next;
-        });
-        showToast(`🗑️ "${catName}" की इमेज हटा दी गई!`);
-      } else {
-        showToast(res.error || 'Failed to delete category image');
-      }
-    } finally {
-      setCatImageBusyId(null);
     }
   };
 
@@ -404,6 +320,8 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
     setActiveModule(mod);
     setSearchQuery('');
     setStatusFilter('all');
+    setSelectedMainCatFilter('all');
+    setSelectedSubCatFilter('all');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -561,29 +479,93 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
   const loadAllData = async () => {
     setIsRefreshing(true);
     try {
-      // 1. Help Posts (Intents)
+      const getLocalDeletedSet = (key: string): Set<string> => {
+        try {
+          const raw = localStorage.getItem(key);
+          return raw ? new Set(JSON.parse(raw)) : new Set();
+        } catch {
+          return new Set();
+        }
+      };
+      const deletedHelpersSet = getLocalDeletedSet('locohelp_deleted_helpers');
+      const deletedUsersSet = getLocalDeletedSet('locohelp_deleted_users');
+      const deletedPostsSet = getLocalDeletedSet('locohelp_deleted_posts');
+      const deletedShopsSet = getLocalDeletedSet('locohelp_deleted_shops');
+
+      // 1. Help Posts (Intents) - Auto-filter out dummy/fake posts (#m660z, #t9140, etc.)
       const liveIntents = await fetchLiveIntents();
       if (Array.isArray(liveIntents)) {
-        setIntents(liveIntents);
+        const cleanIntents = liveIntents.filter(i => {
+          if (!i || !i.id || deletedPostsSet.has(String(i.id))) return false;
+          const idLow = String(i.id).toLowerCase();
+          const descStr = String(i.description || i.title || '').trim();
+          const descLow = descStr.toLowerCase();
+          if (
+            idLow.includes('m660z') ||
+            idLow.includes('t9140') ||
+            idLow.startsWith('seed_') ||
+            idLow.startsWith('sample_') ||
+            idLow.startsWith('mock_') ||
+            idLow.startsWith('dummy_') ||
+            descStr.includes('તાત્કાલિક પ્લમ્બર જોઈએ છે') ||
+            descLow === 'urgent plumber needed'
+          ) {
+            return false;
+          }
+          return true;
+        });
+        setIntents(cleanIntents);
       }
 
       // 2. Helpers & 4. Businesses/Shops
+      let loadedHelpersList: any[] = [];
       try {
         const fetchedHelpers = await getHelpers(true);
         const localHelpers = getFreeHelperProfiles(true);
         const mergedHelpersMap = new Map<string, any>();
-        [...(Array.isArray(fetchedHelpers) ? fetchedHelpers : []), ...(Array.isArray(localHelpers) ? localHelpers : [])].forEach(h => {
-          if (h && h.id) mergedHelpersMap.set(h.id, h);
+        [...(Array.isArray(localHelpers) ? localHelpers : []), ...(Array.isArray(fetchedHelpers) ? fetchedHelpers : [])].forEach(h => {
+          if (!h || !h.id || deletedHelpersSet.has(String(h.id)) || deletedUsersSet.has(String(h.id))) return;
+          const existing = mergedHelpersMap.get(h.id) || {};
+          const rawSt = String(h.status || existing.status || '').toLowerCase();
+          const isRejected = rawSt === 'rejected';
+          const isApproved = !isRejected && Boolean(
+            rawSt === 'approved' ||
+            h.isVerified === true ||
+            h.is_verified === true ||
+            h.is_approved === true ||
+            existing.status === 'approved' ||
+            existing.isVerified === true
+          );
+          const norm = normalizeCategorySlug(
+            h.categoryId || h.category || existing.categoryId || existing.category || 'other',
+            h.skills || existing.skills,
+            h.customCategoryName || existing.customCategoryName
+          );
+          mergedHelpersMap.set(h.id, {
+            ...existing,
+            ...h,
+            categoryId: norm.categoryId,
+            category: norm.categoryId,
+            customCategoryName: h.customCategoryName || existing.customCategoryName || norm.customCategoryName,
+            status: isRejected ? 'rejected' : isApproved ? 'approved' : 'pending',
+            isVerified: isApproved
+          });
         });
-        setHelpers(Array.from(mergedHelpersMap.values()));
+        loadedHelpersList = Array.from(mergedHelpersMap.values());
+        setHelpers(loadedHelpersList);
       } catch {
-        setHelpers(getFreeHelperProfiles(true));
+        loadedHelpersList = getFreeHelperProfiles(true).filter(
+          (h: any) => h && h.id && !deletedHelpersSet.has(String(h.id)) && !deletedUsersSet.has(String(h.id))
+        );
+        setHelpers(loadedHelpersList);
       }
 
       try {
         const fetchedShops = await getShops(true);
         if (Array.isArray(fetchedShops)) {
-          setBusinesses(fetchedShops);
+          setBusinesses(
+            fetchedShops.filter((s: any) => s && s.id && !deletedShopsSet.has(String(s.id)))
+          );
         }
       } catch {}
 
@@ -596,45 +578,122 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         if (Array.isArray(liveVerifs)) {
           setVerificationsList(liveVerifs);
         }
-        // Merge registered users + user_profile verifications into Simple User Profiles list
+
+        // Map helper categories by id / userId / email so Simple User Profiles accurately show their registered category
+        const helperByKey = new Map<string, any>();
+        loadedHelpersList.forEach(h => {
+          if (!h) return;
+          if (h.id) helperByKey.set(String(h.id), h);
+          if (h.userId) helperByKey.set(String(h.userId), h);
+          if (h.email) helperByKey.set(String(h.email).toLowerCase(), h);
+        });
+
         const userVerifs = (Array.isArray(liveVerifs) ? liveVerifs : []).filter(v => v.entityType === 'user_profile');
         const combinedUsersMap = new Map<string, any>();
 
         if (Array.isArray(usersList)) {
           usersList.forEach(u => {
-            if (u && u.id) {
-              combinedUsersMap.set(u.id, {
-                ...u,
-                status: u.status || (u.isVerified ? 'approved' : 'pending')
-              });
-            }
+            if (!u || !u.id || deletedUsersSet.has(String(u.id)) || deletedHelpersSet.has(String(u.id))) return;
+            const matchedHelper =
+              helperByKey.get(String(u.id)) ||
+              (u.email ? helperByKey.get(String(u.email).toLowerCase()) : undefined);
+            const rawCat =
+              u.categoryId ||
+              u.category ||
+              matchedHelper?.categoryId ||
+              matchedHelper?.category ||
+              '';
+            const normCat = rawCat
+              ? normalizeCategorySlug(rawCat, u.skills || matchedHelper?.skills, u.customCategoryName || matchedHelper?.customCategoryName)
+              : { categoryId: 'other', customCategoryName: '' };
+            const uStatusLow = String(u.status || '').toLowerCase();
+            const isRejected = uStatusLow === 'rejected';
+            const isApproved =
+              !isRejected &&
+              Boolean(
+                uStatusLow === 'approved' ||
+                  u.isVerified === true ||
+                  u.is_verified === true ||
+                  matchedHelper?.status === 'approved' ||
+                  matchedHelper?.isVerified === true
+              );
+            combinedUsersMap.set(u.id, {
+              ...u,
+              categoryId: normCat.categoryId,
+              category: normCat.categoryId,
+              customCategoryName: u.customCategoryName || matchedHelper?.customCategoryName || normCat.customCategoryName,
+              skills: u.skills || (Array.isArray(matchedHelper?.skills) ? matchedHelper.skills.join(', ') : matchedHelper?.skills) || '',
+              area: u.area || u.address || matchedHelper?.area || '',
+              status: isRejected ? 'rejected' : isApproved ? 'approved' : 'pending',
+              isVerified: isApproved
+            });
           });
         }
 
         userVerifs.forEach(uv => {
-          const existing = combinedUsersMap.get(uv.entityId) || combinedUsersMap.get(uv.userId);
+          const targetKey = String(uv.entityId || uv.userId || uv.id || '');
+          if (!targetKey || deletedUsersSet.has(targetKey) || deletedHelpersSet.has(targetKey)) return;
+          const existing =
+            combinedUsersMap.get(String(uv.entityId || '')) ||
+            combinedUsersMap.get(String(uv.userId || '')) ||
+            (uv.userEmail ? Array.from(combinedUsersMap.values()).find(x => x.email && x.email.toLowerCase() === uv.userEmail.toLowerCase()) : undefined);
+          const matchedHelper =
+            helperByKey.get(String(uv.entityId || '')) ||
+            helperByKey.get(String(uv.userId || '')) ||
+            (uv.userEmail ? helperByKey.get(String(uv.userEmail).toLowerCase()) : undefined);
+
+          const uvStatusLow = String(uv.status || '').toLowerCase();
           if (existing) {
+            const exStatusLow = String(existing.status || '').toLowerCase();
+            const isRejected = exStatusLow === 'rejected' || uvStatusLow === 'rejected';
+            // Never let a stale 'pending' verification overwrite an already-approved user profile!
+            const isApproved =
+              !isRejected &&
+              Boolean(
+                exStatusLow === 'approved' ||
+                  existing.isVerified === true ||
+                  uvStatusLow === 'approved' ||
+                  matchedHelper?.status === 'approved' ||
+                  matchedHelper?.isVerified === true
+              );
             combinedUsersMap.set(existing.id, {
               ...existing,
               verificationId: uv.id,
               idDocumentType: uv.idDocumentType,
-              idDocumentWatermarked: uv.idDocumentWatermarked,
-              status: uv.status || existing.status
+              idDocumentWatermarked: uv.idDocumentWatermarked || existing.idDocumentWatermarked,
+              status: isRejected ? 'rejected' : isApproved ? 'approved' : 'pending',
+              isVerified: isApproved
             });
           } else {
-            combinedUsersMap.set(uv.id, {
-              id: uv.entityId || uv.id,
+            const rawCat = uv.category || matchedHelper?.categoryId || matchedHelper?.category || '';
+            const normCat = rawCat
+              ? normalizeCategorySlug(rawCat, matchedHelper?.skills, matchedHelper?.customCategoryName)
+              : { categoryId: 'other', customCategoryName: '' };
+            const isRejected = uvStatusLow === 'rejected';
+            const isApproved =
+              !isRejected &&
+              Boolean(
+                uvStatusLow === 'approved' ||
+                  matchedHelper?.status === 'approved' ||
+                  matchedHelper?.isVerified === true
+              );
+            const finalId = uv.entityId || uv.userId || uv.id;
+            combinedUsersMap.set(finalId, {
+              id: finalId,
+              uid: finalId,
               verificationId: uv.id,
-              name: uv.userName,
-              email: uv.userEmail,
-              phone: uv.userPhone,
-              area: uv.area || 'Local Area',
-              category: uv.category || 'Simple User Profile',
+              name: uv.userName || matchedHelper?.name || 'Community Member',
+              email: uv.userEmail || matchedHelper?.email || '',
+              phone: uv.userPhone || matchedHelper?.phone || '',
+              area: uv.area || matchedHelper?.area || 'Local Area',
+              categoryId: normCat.categoryId,
+              category: normCat.categoryId,
+              customCategoryName: matchedHelper?.customCategoryName || normCat.customCategoryName || '',
               idDocumentType: uv.idDocumentType,
               idDocumentWatermarked: uv.idDocumentWatermarked,
-              status: uv.status,
-              isVerified: uv.status === 'approved',
-              createdAt: uv.submittedAt
+              status: isRejected ? 'rejected' : isApproved ? 'approved' : 'pending',
+              isVerified: isApproved,
+              createdAt: uv.submittedAt || (uv as any).createdAt
             });
           }
         });
@@ -657,19 +716,15 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         }
       } catch {}
 
-      // Bonus: Sponsored Ads, Category 16:9 Images, Security Vault, Public Suggestions & Site Lock
-      const [liveAds, liveCatImages, liveVault, liveSugs, liveLock] = await Promise.all([
+      // Bonus: Sponsored Ads, Security Vault, Public Suggestions & Site Lock
+      const [liveAds, liveVault, liveSugs, liveLock] = await Promise.all([
         fetchLiveAds(),
-        fetchCategoryImages(),
         fetchAdminSecurityVault(),
         fetchPublicSuggestions(),
         fetchAdminSiteLock()
       ]);
       if (Array.isArray(liveAds)) {
         setAds(liveAds);
-      }
-      if (liveCatImages && typeof liveCatImages === 'object') {
-        setCategoryImages(liveCatImages);
       }
       if (Array.isArray(liveVault)) {
         setSecurityVaultRecords(liveVault);
@@ -740,6 +795,11 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
 
   useEffect(() => {
     if (!isAdminAuthenticated) return;
+    // Automatically purge any dummy/seed posts (#m660z, #t9140) on admin load
+    fetch('/api/admin/clear-dummy-data', {
+      method: 'POST',
+      headers: getAuthHeaders()
+    }).catch(() => {});
     handleSyncAndRepairPostgres(true);
     loadAllData();
     const interval = setInterval(() => {
@@ -776,20 +836,56 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
   }, [isAdminAuthenticated, activeModule]);
 
 
-  // Helper to get normalize status ('pending' | 'approved' | 'rejected')
+  // Helper to get normalized status ('pending' | 'approved' | 'rejected') case-insensitively
   const getNormalizedStatus = (item: any, mod: AdminModuleId): 'pending' | 'approved' | 'rejected' => {
     if (!item) return 'pending';
-    if (item.status === 'rejected') return 'rejected';
-    if (item.status === 'approved' || item.status === 'resolved') return 'approved';
-    if (item.status === 'pending') return 'pending';
+    const rawSt = String(item.status || '').trim().toLowerCase();
+    if (rawSt === 'rejected' || rawSt === 'dismissed') return 'rejected';
+    if (
+      rawSt === 'approved' ||
+      rawSt === 'resolved' ||
+      rawSt === 'active' ||
+      item.is_approved === true ||
+      item.isApproved === true ||
+      item.isVerified === true ||
+      item.is_verified === true ||
+      item.verified === true
+    ) {
+      return 'approved';
+    }
+    if (rawSt === 'pending') return 'pending';
     if (mod === 'help_posts') {
       return item.isApproved === false ? 'pending' : 'approved';
     }
-    if (mod === 'helpers' || mod === 'businesses' || mod === 'simple_users') {
-      if (item.isVerified === true) return 'approved';
-      return 'pending';
-    }
     return 'pending';
+  };
+
+  // Resolve Main Category & Sub-Category metadata for any helper / user profile
+  const getItemCategoryInfo = (item: any) => {
+    const rawCat =
+      item?.categoryId ||
+      item?.category_id ||
+      item?.category ||
+      item?.service ||
+      item?.categoryLabel ||
+      '';
+    const norm = normalizeCategorySlug(rawCat, item?.skills, item?.customCategoryName);
+    const subCatObj = CATEGORIES.find(c => c.id === norm.categoryId) || CATEGORIES.find(c => c.id === 'other')!;
+    const mainCatObj =
+      MASTER_CATEGORIES.find(m => m.id === subCatObj.mainCategoryId) ||
+      MASTER_CATEGORIES[MASTER_CATEGORIES.length - 1];
+    const displaySubName =
+      norm.categoryId === 'other' && (item?.customCategoryName || norm.customCategoryName)
+        ? `${subCatObj.nameEn} (${item?.customCategoryName || norm.customCategoryName})`
+        : subCatObj.nameEn;
+    return {
+      subCatId: subCatObj.id,
+      subCatObj,
+      mainCatId: mainCatObj.id,
+      mainCatObj,
+      displaySubName,
+      customCategoryName: item?.customCategoryName || norm.customCategoryName || ''
+    };
   };
 
   // Find associated watermarked ID doc from verificationsList if not directly on item
@@ -830,14 +926,45 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         const fullUpdates = {
           ...item,
           categoryId: norm.categoryId,
+          category: norm.categoryId,
           customCategoryName: item.customCategoryName || norm.customCategoryName,
           status: newStatus,
-          isVerified: isApproved
+          isVerified: isApproved,
+          is_verified: isApproved,
+          is_approved: isApproved
         };
+        const matchedVerif = verificationsList.find(
+          v => v.entityId === id || v.id === item.verificationId || (item.email && v.userEmail?.toLowerCase() === item.email.toLowerCase())
+        );
+        if (matchedVerif?.id) {
+          await updateAdminVerificationStatus(matchedVerif.id, newStatus);
+        }
         const res = await updateAdminHelperOnServer(id, fullUpdates);
         if (res.success) {
           const updatedHelper = { ...item, ...(res.item || {}), ...fullUpdates };
           setHelpers(prev => prev.map(h => (h.id === id ? updatedHelper : h)));
+          // Also sync matching record in simpleUsers and verificationsList so Pending count updates immediately across all modules!
+          setSimpleUsers(prev =>
+            prev.map(u =>
+              u.id === id || u.uid === id || (item.email && u.email && u.email.toLowerCase() === item.email.toLowerCase())
+                ? {
+                    ...u,
+                    categoryId: norm.categoryId,
+                    category: norm.categoryId,
+                    status: newStatus,
+                    isVerified: isApproved,
+                    is_verified: isApproved
+                  }
+                : u
+            )
+          );
+          setVerificationsList(prev =>
+            prev.map(v =>
+              v.entityId === id || v.userId === id || (item.email && v.userEmail?.toLowerCase() === item.email.toLowerCase())
+                ? { ...v, status: newStatus }
+                : v
+            )
+          );
           // Sync local storage so CategoriesScreen immediately displays the approved helper
           try {
             const raw = localStorage.getItem('locohelp_free_helper_profiles');
@@ -853,13 +980,55 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
           showToast(res.error || 'Failed to update Service Expert Profile');
         }
       } else if (mod === 'simple_users') {
+        const norm = normalizeCategorySlug(
+          item.categoryId || item.category || 'other',
+          item.skills,
+          item.customCategoryName
+        );
         if (item.verificationId) {
           await updateAdminVerificationStatus(item.verificationId, newStatus);
         }
-        const res = await updateAdminUserOnServer(id, { ...item, status: newStatus, isVerified: isApproved });
+        const userUpdates = {
+          ...item,
+          categoryId: norm.categoryId,
+          category: norm.categoryId,
+          customCategoryName: item.customCategoryName || norm.customCategoryName,
+          status: newStatus,
+          isVerified: isApproved,
+          is_verified: isApproved,
+          is_approved: isApproved
+        };
+        const res = await updateAdminUserOnServer(id, userUpdates);
+        // Also update / upsert in helpers if this user has a category so they appear in live website categories
+        if (norm.categoryId && norm.categoryId !== 'other') {
+          await updateAdminHelperOnServer(id, {
+            ...userUpdates,
+            id,
+            name: item.name || item.userName || 'Service Expert',
+            categoryId: norm.categoryId,
+            skills: item.skills ? (Array.isArray(item.skills) ? item.skills : String(item.skills).split(',').map((s: string) => s.trim())) : [norm.categoryId],
+            area: item.area || item.address || 'Local Area',
+            status: newStatus,
+            isVerified: isApproved
+          }).catch(() => {});
+        }
         if (res.success || item.verificationId) {
-          setSimpleUsers(prev => prev.map(u => (u.id === id ? { ...u, status: newStatus, isVerified: isApproved } : u)));
-          showToast(isApproved ? '✅ Simple User Profile Approved!' : '❌ Simple User Profile Rejected.');
+          setSimpleUsers(prev => prev.map(u => (u.id === id ? { ...u, ...userUpdates } : u)));
+          setHelpers(prev =>
+            prev.map(h =>
+              h.id === id || h.userId === id || (item.email && h.email && h.email.toLowerCase() === item.email.toLowerCase())
+                ? { ...h, status: newStatus, isVerified: isApproved, is_verified: isApproved }
+                : h
+            )
+          );
+          setVerificationsList(prev =>
+            prev.map(v =>
+              v.id === item.verificationId || v.entityId === id || v.userId === id
+                ? { ...v, status: newStatus }
+                : v
+            )
+          );
+          showToast(isApproved ? '✅ User Profile Approved & Synced!' : '❌ User Profile Rejected.');
         } else {
           showToast(res.error || 'Failed to update User Profile');
         }
@@ -914,42 +1083,52 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
     setActionLoadingId(id);
     try {
       if (mod === 'help_posts') {
-        await deleteIntentOnServer(id);
+        await deleteIntentOnServer(id, item.description);
         setIntents(prev => prev.filter(i => i.id !== id));
-        showToast('🗑️ Help Post deleted permanently.');
+        showToast('🗑️ Help Post deleted permanently from PostgreSQL.');
       } else if (mod === 'helpers') {
         await deleteAdminHelperOnServer(id);
+        await deleteAdminUserOnServer(id).catch(() => {});
         setHelpers(prev => prev.filter(h => h.id !== id));
+        setSimpleUsers(prev => prev.filter(u => u.id !== id && u.uid !== id));
+        setVerificationsList(prev => prev.filter(v => v.entityId !== id && v.userId !== id));
         try {
           const raw = localStorage.getItem('locohelp_free_helper_profiles');
           if (raw) {
-            localStorage.setItem('locohelp_free_helper_profiles', JSON.stringify(JSON.parse(raw).filter((h: any) => h.id !== id)));
+            localStorage.setItem('locohelp_free_helper_profiles', JSON.stringify(JSON.parse(raw).filter((h: any) => h && h.id !== id)));
           }
         } catch {}
-        showToast('🗑️ Service Expert Profile deleted permanently.');
+        showToast('🗑️ Service Expert Profile deleted permanently from PostgreSQL.');
       } else if (mod === 'simple_users') {
         await deleteAdminUserOnServer(id);
-        setSimpleUsers(prev => prev.filter(u => u.id !== id));
-        showToast('🗑️ Simple User Profile deleted.');
+        await deleteAdminHelperOnServer(id).catch(() => {});
+        setSimpleUsers(prev => prev.filter(u => u.id !== id && u.uid !== id));
+        setHelpers(prev => prev.filter(h => h.id !== id && h.userId !== id));
+        setVerificationsList(prev => prev.filter(v => v.entityId !== id && v.userId !== id && v.id !== id));
+        showToast('🗑️ User Profile deleted permanently from PostgreSQL.');
       } else if (mod === 'businesses') {
         await deleteAdminBusinessOnServer(id);
         setBusinesses(prev => prev.filter(b => b.id !== id));
         try {
           const raw = localStorage.getItem('locohelp_registered_shops');
           if (raw) {
-            localStorage.setItem('locohelp_registered_shops', JSON.stringify(JSON.parse(raw).filter((s: any) => s.id !== id)));
+            localStorage.setItem('locohelp_registered_shops', JSON.stringify(JSON.parse(raw).filter((s: any) => s && s.id !== id)));
           }
         } catch {}
-        showToast('🗑️ Business / Shop Registration deleted.');
+        showToast('🗑️ Business / Shop Registration deleted permanently.');
       } else if (mod === 'job_seekers' || mod === 'employers') {
         await deleteJobPortalItem(id);
         setJobPortalItems(prev => prev.filter(j => j.id !== id));
-        showToast('🗑️ Job Portal entry deleted.');
+        showToast('🗑️ Job Portal entry deleted permanently.');
       } else if (mod === 'feedback_categories') {
         await deleteAdminReportOnServer(id);
         setReports(prev => prev.filter(r => r.id !== id));
-        showToast('🗑️ Feedback / Report deleted.');
+        showToast('🗑️ Feedback / Report deleted permanently.');
       }
+      try {
+        window.dispatchEvent(new Event('locohelp_profile_updated'));
+        window.dispatchEvent(new Event('storage'));
+      } catch {}
     } finally {
       setActionLoadingId(null);
     }
@@ -1810,6 +1989,17 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
     return rawList.filter(item => {
       const normStatus = getNormalizedStatus(item, activeModule);
       if (statusFilter !== 'all' && normStatus !== statusFilter) return false;
+
+      if (activeModule === 'helpers' || activeModule === 'simple_users') {
+        const catInfo = getItemCategoryInfo(item);
+        if (selectedMainCatFilter !== 'all' && catInfo.mainCatId !== selectedMainCatFilter) {
+          return false;
+        }
+        if (selectedSubCatFilter !== 'all' && catInfo.subCatId !== selectedSubCatFilter) {
+          return false;
+        }
+      }
+
       if (!searchQuery.trim()) return true;
       const q = searchQuery.toLowerCase();
       const hay = JSON.stringify(item).toLowerCase();
@@ -2089,7 +2279,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
               <div className="flex items-center gap-2">
                 <LayoutGrid className="w-4 h-4 text-orange-400" />
                 <span className="text-xs font-black text-slate-200 uppercase tracking-wider">
-                  Category Management Modules ({ADMIN_MODULES.length + 4})
+                  Category Management Modules ({ADMIN_MODULES.length + 3})
                 </span>
               </div>
               <div className="flex items-center gap-2 shrink-0">
@@ -2205,33 +2395,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                 </div>
               </motion.button>
 
-              {/* 4. Category 16:9 Images Manager Card */}
-              <motion.button
-                initial={{ opacity: 0, y: 5 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.28 }}
-                onClick={() => openModule('category_images')}
-                className="text-left group relative overflow-hidden rounded-2xl bg-[#111827] hover:bg-[#162033] border border-amber-500/40 hover:border-amber-400 p-3.5 sm:p-4 transition-all duration-200 shadow-md hover:shadow-lg cursor-pointer flex items-center justify-between gap-3"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-md shrink-0 group-hover:scale-105 transition-transform">
-                    <ImageIcon className="w-5 h-5 text-white" />
-                  </div>
-                  <div className="min-w-0">
-                    <h3 className="text-xs sm:text-sm font-black text-white group-hover:text-amber-300 transition-colors truncate">
-                      Category 16:9 Images Manager
-                    </h3>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <span className="px-2.5 py-1 rounded-xl bg-amber-500/15 border border-amber-500/30 text-[11px] font-black text-amber-300">
-                    {Object.keys(categoryImages).length} / {CATEGORIES.length}
-                  </span>
-                  <ChevronRight className="w-4 h-4 text-amber-400 group-hover:translate-x-0.5 transition-transform" />
-                </div>
-              </motion.button>
-
-              {/* 5. Encrypted Security Vault Card */}
+              {/* 4. Encrypted Security Vault Card */}
               <motion.button
                 initial={{ opacity: 0, y: 5 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -2588,7 +2752,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         {/* ============================================================ */}
         {/* VIEW 2: DEDICATED MANAGEMENT SUB-PAGE FOR SELECTED MODULE    */}
         {/* ============================================================ */}
-        {activeModule !== 'home' && activeModule !== 'approved_list' && activeModule !== 'ads' && activeModule !== 'category_images' && activeModule !== 'security_vault' && currentModuleMeta && (
+        {activeModule !== 'home' && activeModule !== 'approved_list' && activeModule !== 'ads' && activeModule !== 'security_vault' && currentModuleMeta && (
           <div className="space-y-5">
             {/* Top Back Button + Module Header */}
             <div className="rounded-3xl bg-[#111827] border border-slate-800 p-5 sm:p-6">
@@ -2648,22 +2812,216 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                 </div>
 
                 <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
-                  {(['all', 'pending', 'approved', 'rejected'] as const).map(st => (
-                    <button
-                      key={st}
-                      onClick={() => setStatusFilter(st)}
-                      className={`px-3 py-2 rounded-xl text-xs font-black capitalize transition-all cursor-pointer shrink-0 ${
-                        statusFilter === st
-                          ? 'bg-orange-500 text-white shadow-md shadow-orange-500/20'
-                          : 'bg-slate-800/80 text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      {st === 'all' ? 'All Entries' : st}
-                    </button>
-                  ))}
+                  {(['all', 'pending', 'approved', 'rejected'] as const).map(st => {
+                    const baseList =
+                      activeModule === 'helpers'
+                        ? helpers
+                        : activeModule === 'simple_users'
+                        ? simpleUsers
+                        : activeModule === 'businesses'
+                        ? businesses
+                        : activeModule === 'help_posts'
+                        ? intents
+                        : activeModule === 'job_seekers'
+                        ? jobSeekersList
+                        : activeModule === 'employers'
+                        ? employersList
+                        : reports;
+                    const tabCount =
+                      st === 'all'
+                        ? baseList.length
+                        : baseList.filter(x => getNormalizedStatus(x, activeModule) === st).length;
+                    return (
+                      <button
+                        key={st}
+                        onClick={() => setStatusFilter(st)}
+                        className={`px-3 py-2 rounded-xl text-xs font-black capitalize transition-all cursor-pointer shrink-0 ${
+                          statusFilter === st
+                            ? 'bg-orange-500 text-white shadow-md shadow-orange-500/20'
+                            : 'bg-slate-800/80 text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        {st === 'all' ? `All (${tabCount})` : `${st} (${tabCount})`}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             </div>
+
+            {/* ============================================================== */}
+            {/* CATEGORY FOLDER / FILTER VIEW FOR SERVICE EXPERTS & PROFILES   */}
+            {/* ============================================================== */}
+            {(activeModule === 'helpers' || activeModule === 'simple_users') && (() => {
+              const sourceList = activeModule === 'helpers' ? helpers : simpleUsers;
+              const statusFilteredSource = sourceList.filter(item => {
+                const st = getNormalizedStatus(item, activeModule);
+                return statusFilter === 'all' || st === statusFilter;
+              });
+
+              const countByMainCat: Record<string, number> = {};
+              const countBySubCat: Record<string, number> = {};
+              statusFilteredSource.forEach(item => {
+                const info = getItemCategoryInfo(item);
+                countByMainCat[info.mainCatId] = (countByMainCat[info.mainCatId] || 0) + 1;
+                countBySubCat[info.subCatId] = (countBySubCat[info.subCatId] || 0) + 1;
+              });
+
+              const visibleSubCats =
+                selectedMainCatFilter === 'all'
+                  ? CATEGORIES
+                  : CATEGORIES.filter(c => c.mainCategoryId === selectedMainCatFilter);
+
+              return (
+                <div className="rounded-3xl bg-[#111827] border border-slate-800 p-4 sm:p-5 space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <h3 className="text-sm sm:text-base font-black text-white flex items-center gap-2">
+                        <Filter className="w-4 h-4 text-emerald-400" />
+                        <span>📂 Category Folder Filter ({MASTER_CATEGORIES.length} Main Groups • {CATEGORIES.length} Sub-Categories)</span>
+                      </h3>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        Synced with Main Website Categories — Click any Main Category or Sub-Category folder to view users registered in that category.
+                      </p>
+                    </div>
+                    {(selectedMainCatFilter !== 'all' || selectedSubCatFilter !== 'all') && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedMainCatFilter('all');
+                          setSelectedSubCatFilter('all');
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-orange-500/20 hover:bg-orange-500/30 border border-orange-500/40 text-orange-300 text-xs font-black cursor-pointer"
+                      >
+                        ✕ Clear Category Filter (Show All {statusFilteredSource.length})
+                      </button>
+                    )}
+                  </div>
+
+                  {/* 10 Main Categories Folders Grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedMainCatFilter('all');
+                        setSelectedSubCatFilter('all');
+                      }}
+                      className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                        selectedMainCatFilter === 'all'
+                          ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white border-emerald-400 shadow-md'
+                          : 'bg-slate-900/90 hover:bg-slate-800 text-slate-200 border-slate-800'
+                      }`}
+                    >
+                      <div className="min-w-0">
+                        <div className="text-xs sm:text-sm font-black truncate">📂 All Website Categories</div>
+                        <div className={`text-[11px] font-bold truncate ${selectedMainCatFilter === 'all' ? 'text-emerald-100' : 'text-slate-400'}`}>
+                          सभी 10 मुख्य केटेगरी ({CATEGORIES.length} सब-केटेगरी)
+                        </div>
+                      </div>
+                      <span className={`px-2.5 py-1 rounded-xl text-xs font-black shrink-0 ${
+                        selectedMainCatFilter === 'all' ? 'bg-white text-emerald-900' : 'bg-slate-800 text-emerald-400 border border-slate-700'
+                      }`}>
+                        {statusFilteredSource.length}
+                      </span>
+                    </button>
+
+                    {MASTER_CATEGORIES.map((mCat) => {
+                      const cnt = countByMainCat[mCat.id] || 0;
+                      const isSel = selectedMainCatFilter === mCat.id;
+                      return (
+                        <button
+                          key={mCat.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedMainCatFilter(isSel ? 'all' : mCat.id);
+                            setSelectedSubCatFilter('all');
+                          }}
+                          className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                            isSel
+                              ? 'bg-gradient-to-r from-orange-500 to-amber-600 text-white border-amber-300 shadow-md'
+                              : cnt > 0
+                              ? 'bg-slate-900/95 hover:bg-slate-800/90 text-white border-emerald-500/35'
+                              : 'bg-slate-950/70 hover:bg-slate-900 text-slate-400 border-slate-800/80'
+                          }`}
+                        >
+                          <div className="min-w-0">
+                            <div className="text-xs sm:text-sm font-black leading-snug break-words">
+                              {mCat.nameEn}
+                            </div>
+                            <div className={`text-[11px] font-semibold leading-snug break-words mt-0.5 ${isSel ? 'text-amber-100' : 'text-slate-400'}`}>
+                              {mCat.nameHi}
+                            </div>
+                          </div>
+                          <span className={`px-2.5 py-1 rounded-xl text-xs font-black shrink-0 ${
+                            isSel
+                              ? 'bg-white text-orange-900'
+                              : cnt > 0
+                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                              : 'bg-slate-900 text-slate-500 border border-slate-800'
+                          }`}>
+                            {cnt}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Sub-Categories Pills Filter */}
+                  <div className="pt-3 border-t border-slate-800/90">
+                    <div className="text-[11px] font-black uppercase tracking-wider text-slate-400 mb-2">
+                      Sub-Categories {selectedMainCatFilter !== 'all' ? `in ${MASTER_CATEGORIES.find(m => m.id === selectedMainCatFilter)?.nameEn || ''}` : `(All ${CATEGORIES.length})`} — Click to Filter:
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto pr-1">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedSubCatFilter('all')}
+                        className={`px-2.5 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer border ${
+                          selectedSubCatFilter === 'all'
+                            ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-sm'
+                            : 'bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800'
+                        }`}
+                      >
+                        All Sub-Categories ({
+                          selectedMainCatFilter === 'all'
+                            ? statusFilteredSource.length
+                            : countByMainCat[selectedMainCatFilter] || 0
+                        })
+                      </button>
+
+                      {visibleSubCats.map(sub => {
+                        const subCnt = countBySubCat[sub.id] || 0;
+                        const isSubSel = selectedSubCatFilter === sub.id;
+                        return (
+                          <button
+                            key={sub.id}
+                            type="button"
+                            onClick={() => setSelectedSubCatFilter(isSubSel ? 'all' : sub.id)}
+                            className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border flex items-center gap-1.5 ${
+                              isSubSel
+                                ? 'bg-emerald-500 text-slate-950 border-emerald-300 font-black shadow-sm'
+                                : subCnt > 0
+                                ? 'bg-slate-900 hover:bg-slate-800 text-emerald-300 border-emerald-500/40'
+                                : 'bg-slate-950/80 hover:bg-slate-900 text-slate-400 border-slate-800'
+                            }`}
+                          >
+                            <span>{sub.nameEn}</span>
+                            <span className={`px-1.5 py-0.2 rounded-md text-[10px] font-black ${
+                              isSubSel
+                                ? 'bg-slate-950 text-emerald-300'
+                                : subCnt > 0
+                                ? 'bg-emerald-500/20 text-emerald-200'
+                                : 'bg-slate-900 text-slate-500'
+                            }`}>
+                              {subCnt}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Extra Platform Categories Manager inside 'feedback_categories' */}
             {activeModule === 'feedback_categories' && (
@@ -2675,17 +3033,9 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                       Platform Categories ({CATEGORIES.length + customCategories.length} Active)
                     </h3>
                     <p className="text-xs text-slate-400">
-                      View core LocoHelp categories, manage 16:9 category images, or add a custom category.
+                      View core LocoHelp categories or add a custom category.
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => openModule('category_images')}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white text-xs font-black shadow-md cursor-pointer"
-                  >
-                    <ImageIcon className="w-4 h-4" />
-                    <span>Manage 16:9 Category Images ({Object.keys(categoryImages).length}/{CATEGORIES.length}) →</span>
-                  </button>
                 </div>
 
                 {/* Add Category Form */}
@@ -2742,9 +3092,8 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 max-h-96 overflow-y-auto pr-1">
                   {CATEGORIES.map(c => {
                     const catRegCount = helpers.filter(
-                      h => (h.categoryId || h.category) === c.id
+                      h => getItemCategoryInfo(h).subCatId === c.id
                     ).length;
-                    const hasImg = Boolean(categoryImages[c.id]);
                     return (
                       <div
                         key={c.id}
@@ -2752,7 +3101,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                       >
                         <div className="w-full sm:w-auto min-w-0">
                           <div className="text-sm sm:text-base font-bold text-white leading-snug break-words">
-                            {(c as any).icon || (c as any).emoji || '🛠️'} {c.nameEn}
+                            {c.nameEn}
                           </div>
                           {c.nameHi && (
                             <div className="text-xs font-semibold text-amber-400/90 leading-snug break-words mt-0.5">
@@ -2762,16 +3111,9 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                         </div>
 
                         <div className="flex flex-wrap items-center justify-between gap-2 w-full sm:w-auto shrink-0 pt-1.5 sm:pt-0 border-t sm:border-t-0 border-slate-800/80">
-                          <span className="px-2 py-0.5 rounded-lg bg-slate-800 text-slate-300 text-[11px] font-bold">
+                          <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 text-[11px] font-bold">
                             {catRegCount} Experts
                           </span>
-                          <button
-                            type="button"
-                            onClick={() => openModule('category_images')}
-                            className="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[11px] font-bold cursor-pointer"
-                          >
-                            {hasImg ? 'Edit 16:9 Image' : 'Upload Image'}
-                          </button>
                         </div>
                       </div>
                     );
@@ -2958,15 +3300,19 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                     item.reason ||
                     'Entry #' + String(item.id).slice(-5);
 
-                  const subtitle =
-                    item.customCategoryName ||
-                    item.categoryLabel ||
-                    item.jobRole ||
-                    item.category ||
-                    item.headline ||
-                    item.service ||
-                    item.targetType ||
-                    'General';
+                  const catMeta = (activeModule === 'helpers' || activeModule === 'simple_users')
+                    ? getItemCategoryInfo(item)
+                    : null;
+                  const subtitle = catMeta
+                    ? `${catMeta.displaySubName} • ${catMeta.mainCatObj.nameEn}`
+                    : item.customCategoryName ||
+                      item.categoryLabel ||
+                      item.jobRole ||
+                      item.category ||
+                      item.headline ||
+                      item.service ||
+                      item.targetType ||
+                      'General';
 
                   const phone = item.phone || item.whatsapp || item.userPhone || item.contactPhone || '';
                   const email = item.email || item.userEmail || '';
@@ -3098,23 +3444,27 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                           <span>{Array.isArray(item.chatSnapshot) && item.chatSnapshot.length > 0 ? 'View Chat & Details' : 'View'}</span>
                         </button>
 
-                        <button
-                          onClick={() => handleStatusAction(activeModule, item, 'approved')}
-                          disabled={isBusy}
-                          className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black flex items-center gap-1 shadow-sm cursor-pointer disabled:opacity-50"
-                        >
-                          <Check className="w-3.5 h-3.5" />
-                          <span>Approve</span>
-                        </button>
+                        {status !== 'approved' && (
+                          <button
+                            onClick={() => handleStatusAction(activeModule, item, 'approved')}
+                            disabled={isBusy}
+                            className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black flex items-center gap-1 shadow-sm cursor-pointer disabled:opacity-50"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Approve</span>
+                          </button>
+                        )}
 
-                        <button
-                          onClick={() => handleStatusAction(activeModule, item, 'rejected')}
-                          disabled={isBusy}
-                          className="px-3 py-2 rounded-xl bg-amber-600/20 hover:bg-amber-600/35 text-amber-300 border border-amber-500/30 text-xs font-black flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                          <span>Reject</span>
-                        </button>
+                        {status !== 'rejected' && (
+                          <button
+                            onClick={() => handleStatusAction(activeModule, item, 'rejected')}
+                            disabled={isBusy}
+                            className="px-3 py-2 rounded-xl bg-amber-600/20 hover:bg-amber-600/35 text-amber-300 border border-amber-500/30 text-xs font-black flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                            <span>{status === 'approved' ? 'Revoke / Reject' : 'Reject'}</span>
+                          </button>
+                        )}
 
                         <button
                           onClick={() => openEditModal(activeModule, item)}
@@ -3408,195 +3758,6 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         )}
 
         {/* ============================================================ */}
-        {/* VIEW 3: CATEGORY 16:9 IMAGES MANAGER (ADD / EDIT / DELETE)   */}
-        {/* ============================================================ */}
-        {activeModule === 'category_images' && (
-          <div className="space-y-5">
-            <div className="rounded-3xl bg-[#111827] border border-slate-800 p-5 sm:p-6">
-              <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-                <button
-                  onClick={() => openModule('home')}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs sm:text-sm font-black border border-slate-700 cursor-pointer"
-                >
-                  <ArrowLeft className="w-4 h-4 text-amber-400" />
-                  <span>← Back to Admin Dashboard</span>
-                </button>
-                <span className="px-3 py-1.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-xs font-black text-amber-300">
-                  Uploaded Images: {Object.keys(categoryImages).length} / {CATEGORIES.length} Categories
-                </span>
-              </div>
-
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div className="flex items-center gap-3.5">
-                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-lg shrink-0">
-                    <ImageIcon className="w-6 h-6 text-white" />
-                  </div>
-                  <div>
-                    <h2 className="text-xl sm:text-2xl font-black text-white">
-                      Category 16:9 Images Manager
-                    </h2>
-                    <p className="text-xs sm:text-sm text-slate-400 font-medium">
-                      हर केटेगरी के लिए 16:9 फोटो सीधे अपलोड करें (Add), बदलें (Edit) या हटाएं (Delete)
-                    </p>
-                  </div>
-                </div>
-
-                <div className="relative w-full sm:w-72">
-                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    value={catSearchFilter}
-                    onChange={(e) => setCatSearchFilter(e.target.value)}
-                    placeholder="Search category (e.g. Plumber, Cab)..."
-                    className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {CATEGORIES.filter(cat => {
-                if (!catSearchFilter.trim()) return true;
-                const q = catSearchFilter.toLowerCase();
-                return (
-                  cat.nameEn.toLowerCase().includes(q) ||
-                  cat.nameHi.toLowerCase().includes(q) ||
-                  cat.id.toLowerCase().includes(q)
-                );
-              }).map(cat => {
-                const currentImg = categoryImages[cat.id];
-                const isBusy = catImageBusyId === cat.id;
-
-                return (
-                  <div
-                    key={cat.id}
-                    className="rounded-2xl bg-[#111827] border border-slate-800 hover:border-amber-500/50 overflow-hidden flex flex-col justify-between shadow-md transition-all"
-                  >
-                    {/* 16:9 Image Preview Container */}
-                    <div className="aspect-video w-full bg-slate-950 relative overflow-hidden border-b border-slate-800 flex items-center justify-center">
-                      {currentImg ? (
-                        <img
-                          src={currentImg}
-                          alt={cat.nameEn}
-                          loading="lazy"
-                          decoding="async"
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <div className="text-center p-4 space-y-1.5">
-                          <ImageIcon className="w-8 h-8 text-slate-600 mx-auto" />
-                          <p className="text-[11px] font-bold text-slate-500">
-                            No 16:9 Image Uploaded
-                          </p>
-                          <p className="text-[10px] text-slate-600">
-                            Default icon is currently shown on Category Card
-                          </p>
-                        </div>
-                      )}
-
-                      <span
-                        className={`absolute top-2.5 right-2.5 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border ${
-                          currentImg
-                            ? 'bg-emerald-500/90 text-white border-emerald-400 shadow-sm'
-                            : 'bg-slate-900/80 text-slate-400 border-slate-700'
-                        }`}
-                      >
-                        {currentImg ? '✓ 16:9 Active' : 'Default'}
-                      </span>
-                    </div>
-
-                    {/* Category Title & Add / Edit / Delete Controls (Responsive 2-Row Layout, Zero Truncation) */}
-                    <div className="flex flex-col justify-between gap-2 p-3 sm:p-4">
-                      {/* Top Row / Full Width: Complete Category Name */}
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                        <div className="w-full sm:w-auto min-w-0">
-                          <h3 className="text-sm sm:text-base font-bold text-white leading-snug break-words">
-                            {cat.nameEn}
-                          </h3>
-                          <p className="text-xs font-bold text-amber-400/90 mt-0.5 leading-snug break-words">
-                            {cat.nameHi}
-                          </p>
-                        </div>
-                        <span className="self-start sm:self-center px-2.5 py-0.5 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-slate-300 shrink-0">
-                          {helpers.filter(h => (h.categoryId || h.category) === cat.id).length} Registered
-                        </span>
-                      </div>
-
-                      {/* Bottom Row: Action Buttons neatly aligned below title */}
-                      <div className="flex flex-wrap items-center justify-between gap-2 w-full pt-2 border-t border-slate-800/80">
-                        {/* Direct Device File Upload Button (Add or Edit/Replace) */}
-                        <label
-                          className={`flex-1 min-w-[130px] px-3 py-2 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
-                            currentImg
-                              ? 'bg-blue-600 hover:bg-blue-500 text-white'
-                              : 'bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white shadow-sm'
-                          } ${isBusy ? 'opacity-50 pointer-events-none' : ''}`}
-                        >
-                          <Upload className="w-3.5 h-3.5 shrink-0" />
-                          <span>
-                            {isBusy
-                              ? 'Saving...'
-                              : currentImg
-                              ? 'Edit / Change Photo'
-                              : '+ Upload 16:9 Photo'}
-                          </span>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            disabled={isBusy}
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (file) {
-                                handleUploadCategoryImageFile(cat.id, cat.nameEn, file);
-                              }
-                              e.target.value = '';
-                            }}
-                          />
-                        </label>
-
-                        {/* Edit / Paste Image URL Button */}
-                        <button
-                          type="button"
-                          disabled={isBusy}
-                          onClick={() =>
-                            setEditingCatImageUrl({
-                              categoryId: cat.id,
-                              nameEn: cat.nameEn,
-                              nameHi: cat.nameHi,
-                              url: currentImg || ''
-                            })
-                          }
-                          className="px-2.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-bold flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                          title="Add or Edit Image via URL"
-                        >
-                          <Edit3 className="w-3.5 h-3.5 text-amber-400" />
-                          <span>URL</span>
-                        </button>
-
-                        {/* Delete Button (Only when custom image exists) */}
-                        {currentImg && (
-                          <button
-                            type="button"
-                            disabled={isBusy}
-                            onClick={() => handleDeleteCategoryImage(cat.id, cat.nameEn)}
-                            className="px-2.5 py-2 rounded-xl bg-red-600/20 hover:bg-red-600/35 text-red-300 border border-red-500/30 text-xs font-black flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                            title="Delete Category Image"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                            <span>Delete</span>
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* ============================================================ */}
         {/* VIEW 5: ENCRYPTED READ-ONLY SECURITY VAULT (NON-DELETABLE)   */}
         {/* ============================================================ */}
         {activeModule === 'security_vault' && (
@@ -3851,86 +4012,6 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
           </div>
         )}
       </main>
-
-      {/* ============================================================ */}
-      {/* MODAL: ADD / EDIT CATEGORY 16:9 IMAGE VIA URL                */}
-      {/* ============================================================ */}
-      <AnimatePresence>
-        {editingCatImageUrl && (
-          <div
-            className="fixed inset-x-0 bottom-0 top-[52px] z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4"
-            style={{ position: 'fixed', top: '52px', left: 0, right: 0, bottom: 0, zIndex: 5000 }}
-          >
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="w-full max-w-md bg-[#111827] border border-slate-700 rounded-3xl shadow-2xl overflow-hidden"
-            >
-              <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
-                <div>
-                  <h3 className="text-base font-black text-white">
-                    {editingCatImageUrl.nameEn} — 16:9 Image URL
-                  </h3>
-                  <p className="text-xs text-amber-400 font-bold">{editingCatImageUrl.nameHi}</p>
-                </div>
-                <button
-                  onClick={() => setEditingCatImageUrl(null)}
-                  className="w-8 h-8 rounded-full bg-slate-800 text-slate-300 hover:text-white flex items-center justify-center cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              <form onSubmit={handleSaveCategoryImageUrl} className="p-6 space-y-4 text-xs">
-                <div>
-                  <label className="block font-bold text-slate-300 mb-1.5">
-                    Image URL or Data URI (16:9)
-                  </label>
-                  <input
-                    type="text"
-                    value={editingCatImageUrl.url}
-                    onChange={(e) =>
-                      setEditingCatImageUrl({ ...editingCatImageUrl, url: e.target.value })
-                    }
-                    placeholder="https://example.com/image.jpg"
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
-                  />
-                </div>
-
-                {editingCatImageUrl.url.trim() && (
-                  <div className="aspect-video w-full rounded-xl overflow-hidden bg-slate-950 border border-slate-800">
-                    <img
-                      src={editingCatImageUrl.url.trim()}
-                      alt="Preview"
-                      loading="lazy"
-                      decoding="async"
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                )}
-
-                <div className="flex items-center justify-end gap-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setEditingCatImageUrl(null)}
-                    className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-bold cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={catImageBusyId === editingCatImageUrl.categoryId}
-                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 text-white font-black cursor-pointer disabled:opacity-50"
-                  >
-                    Save 16:9 Image
-                  </button>
-                </div>
-              </form>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
 
       {/* ============================================================ */}
       {/* MODAL 1: VIEW ALL DETAILS & WATERMARKED ID DOCUMENT          */}

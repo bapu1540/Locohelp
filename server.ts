@@ -4805,12 +4805,83 @@ async function startServer() {
   // LISTINGS & BROADCAST POSTS API
   // ==========================================
 
+  // Track admin-deleted entities in memory so browser sync never resurrects deleted profiles/helpers/posts
+  const deletedEntitiesMemorySet = new Set<string>();
+  const isDummyPostRecord = (idRaw: any, descRaw: any, authorRaw?: any): boolean => {
+    const idStr = String(idRaw || '').trim().toLowerCase();
+    const descStr = String(descRaw || '').trim();
+    const descLower = descStr.toLowerCase();
+    if (!idStr && !descStr) return true;
+    if (
+      idStr.startsWith('seed_') ||
+      idStr.startsWith('sample_') ||
+      idStr.startsWith('mock_') ||
+      idStr.startsWith('dummy_') ||
+      idStr.includes('m660z') ||
+      idStr.includes('t9140')
+    ) {
+      return true;
+    }
+    if (
+      descStr.includes('તાત્કાલિક પ્લમ્બર જોઈએ છે') ||
+      descLower === 'urgent plumber needed' ||
+      descLower.includes('urgent plumber needed in sector') ||
+      descLower === 'need a plumber urgently'
+    ) {
+      return true;
+    }
+    return false;
+  };
+
+  let hasPurgedDummyPostsFromPostgres = false;
+  const purgeDummyPostsFromPostgresOnce = async () => {
+    if (hasPurgedDummyPostsFromPostgres || !dbPool || !isDbConnected) return;
+    hasPurgedDummyPostsFromPostgres = true;
+    try {
+      await dbPool.query(`
+        DELETE FROM posts
+        WHERE id ILIKE '%m660z%'
+           OR id ILIKE '%t9140%'
+           OR id LIKE 'seed_%'
+           OR id LIKE 'sample_%'
+           OR id LIKE 'mock_%'
+           OR id LIKE 'dummy_%'
+           OR content ILIKE '%તાત્કાલિક પ્લમ્બર જોઈએ છે%'
+           OR TRIM(LOWER(content)) = 'urgent plumber needed'
+      `).catch(() => {});
+      await dbPool.query(`
+        DELETE FROM listings
+        WHERE id ILIKE '%m660z%'
+           OR id ILIKE '%t9140%'
+           OR id LIKE 'seed_%'
+           OR id LIKE 'sample_%'
+           OR id LIKE 'mock_%'
+           OR id LIKE 'dummy_%'
+           OR description ILIKE '%તાત્કાલિક પ્લમ્બર જોઈએ છે%'
+           OR TRIM(LOWER(description)) = 'urgent plumber needed'
+      `).catch(() => {});
+      await dbPool.query(`
+        DELETE FROM broadcast_posts
+        WHERE id ILIKE '%m660z%'
+           OR id ILIKE '%t9140%'
+           OR id LIKE 'seed_%'
+           OR id LIKE 'sample_%'
+           OR id LIKE 'mock_%'
+           OR id LIKE 'dummy_%'
+           OR description ILIKE '%તાત્કાલિક પ્લમ્બર જોઈએ છે%'
+           OR TRIM(LOWER(description)) = 'urgent plumber needed'
+      `).catch(() => {});
+    } catch {}
+  };
+
   // 1. Get All Listings / Broadcast Intents (Redacts private emails/phones for unauthenticated bulk requests)
   const getListingsHandler = async (req: express.Request, res: express.Response) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
       res.setHeader("Pragma", "no-cache");
       res.setHeader("Expires", "0");
+
+      await purgeDummyPostsFromPostgresOnce();
 
       const caller = extractRequestUser(req);
       const isAuth = Boolean(caller && caller.uid);
@@ -4822,12 +4893,17 @@ async function startServer() {
       const nowMs = Date.now();
 
       const localIntents = readJsonFile<any[]>(INTENTS_FILE, []);
+      const cleanedLocalIntents = localIntents.filter(
+        i => i && i.id && !deletedIds.includes(i.id) && !deletedEntitiesMemorySet.has(String(i.id)) && !isDummyPostRecord(i.id, i.description || i.title, i.authorName)
+      );
+      if (cleanedLocalIntents.length !== localIntents.length) {
+        writeJsonFile(INTENTS_FILE, cleanedLocalIntents);
+      }
+
       const mergedMap = new Map<string, any>();
 
-      localIntents.forEach(i => {
-        if (i && i.id && !deletedIds.includes(i.id)) {
-          mergedMap.set(i.id, i);
-        }
+      cleanedLocalIntents.forEach(i => {
+        mergedMap.set(i.id, i);
       });
 
       // If PostgreSQL is connected, merge records from database with local metadata
@@ -4841,7 +4917,8 @@ async function startServer() {
 
           if (listRes.rows.length > 0) {
             listRes.rows.forEach(r => {
-              if (!r || !r.id || deletedIds.includes(r.id)) return;
+              if (!r || !r.id || deletedIds.includes(r.id) || deletedEntitiesMemorySet.has(String(r.id))) return;
+              if (isDummyPostRecord(r.id, r.description || r.title)) return;
               const localMeta = mergedMap.get(r.id) || {};
               const rawLoc = typeof r.location === 'string' ? r.location : '';
               const parts = rawLoc.includes(',') ? rawLoc.split(',').map((s: string) => s.trim()) : [];
@@ -4876,8 +4953,9 @@ async function startServer() {
 
           if (postsRes.rows.length > 0) {
             postsRes.rows.forEach(r => {
-              if (!r || !r.id || deletedIds.includes(r.id)) return;
+              if (!r || !r.id || deletedIds.includes(r.id) || deletedEntitiesMemorySet.has(String(r.id))) return;
               const rawObj = typeof r.raw_json === 'object' && r.raw_json ? r.raw_json : {};
+              if (isDummyPostRecord(r.id, r.content || rawObj.description || rawObj.title, r.author_name)) return;
               const localMeta = mergedMap.get(r.id) || {};
               mergedMap.set(r.id, {
                 ...rawObj,
@@ -4907,7 +4985,8 @@ async function startServer() {
 
           if (result.rows.length > 0) {
             result.rows.forEach(r => {
-              if (!r || !r.id || deletedIds.includes(r.id)) return;
+              if (!r || !r.id || deletedIds.includes(r.id) || deletedEntitiesMemorySet.has(String(r.id))) return;
+              if (isDummyPostRecord(r.id, r.description, r.author_name)) return;
               const localMeta = mergedMap.get(r.id) || {};
               mergedMap.set(r.id, {
                 ...localMeta,
@@ -5473,6 +5552,7 @@ async function startServer() {
       }
 
       // 2. Local / in-memory cache delete from public feed
+      deletedEntitiesMemorySet.add(String(id));
       const filtered = intents.filter(i => i.id !== id);
       writeJsonFile(INTENTS_FILE, filtered);
 
@@ -5482,6 +5562,7 @@ async function startServer() {
         deletedIds.push(id);
         writeJsonFile(DELETED_INTENTS_FILE, deletedIds);
       }
+      invalidatePublicCache();
 
       // 3. Broadcast post_deleted event immediately via SSE so all other phones remove it in 0ms without refresh
       broadcastRealtimeEvent("post_deleted", {
@@ -7615,9 +7696,16 @@ async function startServer() {
 
       if (dbPool && isDbConnected) {
         try {
+          const vRes = await dbPool.query("SELECT entity_id, user_id, status FROM verification_requests WHERE status = 'approved'").catch(() => ({ rows: [] as any[] }));
+          vRes.rows.forEach((v: any) => {
+            if (v.entity_id) approvedEntityIds.add(String(v.entity_id));
+            if (v.user_id) approvedEntityIds.add(String(v.user_id));
+          });
+
           const result = await dbPool.query("SELECT * FROM helpers ORDER BY created_at DESC");
           if (result.rows.length > 0) {
             result.rows.forEach(r => {
+              if (!r || !r.id || deletedEntitiesMemorySet.has(String(r.id))) return;
               const isApproved = Boolean(r.is_verified === true || approvedEntityIds.has(String(r.id)));
               mergedMap.set(r.id, {
                 id: r.id,
@@ -7640,14 +7728,16 @@ async function startServer() {
           const profRes = await dbPool.query("SELECT * FROM profiles WHERE category_id IS NOT NULL AND category_id <> '' ORDER BY updated_at DESC").catch(() => ({ rows: [] as any[] }));
           profRes.rows.forEach(r => {
             const pid = r.id || r.uid;
-            if (!pid) return;
+            if (!pid || deletedEntitiesMemorySet.has(String(pid))) return;
             const rawObj = typeof r.raw_json === 'object' && r.raw_json ? r.raw_json : {};
             const existing = mergedMap.get(pid) || {};
-            const isApproved = Boolean(
+            const rawStatus = String(r.status || existing.status || '').toLowerCase();
+            const isRejected = rawStatus === 'rejected';
+            const isApproved = !isRejected && Boolean(
               existing.isVerified === true ||
               r.verified === true ||
               r.is_verified === true ||
-              r.status === 'approved' ||
+              rawStatus === 'approved' ||
               approvedEntityIds.has(String(pid))
             );
             const skillsArr = Array.isArray(rawObj.skills)
@@ -7673,7 +7763,7 @@ async function startServer() {
               photoUrl: r.image_url || r.avatar_url || existing.photoUrl || null,
               rating: Number(r.rating || existing.rating || 5.0),
               isVerified: isApproved,
-              status: isApproved ? 'approved' : (r.status || existing.status || 'pending'),
+              status: isRejected ? 'rejected' : (isApproved ? 'approved' : 'pending'),
               createdAt: r.created_at || r.updated_at
             });
           });
@@ -8091,7 +8181,10 @@ async function startServer() {
         await deleteFilesFromFirebaseStorage(targetHelper);
       }
 
+      deletedEntitiesMemorySet.add(String(id));
       writeJsonFile(HELPERS_FILE, helpers.filter(h => h.id !== id));
+      const verifs = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
+      writeJsonFile(VERIFICATIONS_FILE, verifs.filter(v => v.entityId !== id && v.userId !== id));
       if (dbPool && isDbConnected) {
         try {
           const hRows = await dbPool.query("SELECT * FROM helpers WHERE id = $1", [id]).catch(() => ({ rows: [] as any[] }));
@@ -8100,6 +8193,7 @@ async function startServer() {
           await deleteFilesFromFirebaseStorage(pRows.rows);
           await dbPool.query("DELETE FROM helpers WHERE id = $1", [id]);
           await dbPool.query("DELETE FROM profiles WHERE uid = $1 OR id = $1", [id]).catch(() => {});
+          await dbPool.query("DELETE FROM verification_requests WHERE entity_id = $1 OR user_id = $1", [id]).catch(() => {});
         } catch (_e) {}
       }
       invalidatePublicCache(['public_helpers']);
@@ -9335,7 +9429,7 @@ async function startServer() {
 
       const verifs = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
       verifs.forEach(v => {
-        if (v.entityId === id) {
+        if (v.entityId === id || v.userId === id || (helper.email && v.userEmail && v.userEmail.toLowerCase() === helper.email.toLowerCase())) {
           v.status = helper.status;
           v.userName = helper.name;
           v.userPhone = helper.phone;
@@ -9398,6 +9492,16 @@ async function startServer() {
             ]
           );
 
+          // Also sync verification_requests table in PostgreSQL so status never reverts to pending!
+          await dbPool.query(
+            `UPDATE verification_requests
+             SET status = $1, reviewed_at = NOW()
+             WHERE entity_id = $2
+                OR user_id = $2
+                OR ($3 <> '' AND LOWER(user_email) = LOWER($3))`,
+            [helper.status || 'approved', id, helper.email || '']
+          ).catch(() => {});
+
           await dbPool.query(`
             UPDATE categories
             SET registered_count = (
@@ -9418,6 +9522,7 @@ async function startServer() {
   app.delete("/api/admin/helpers/:id", requireAdmin, async (req, res) => {
     try {
       const { id } = req.params;
+      deletedEntitiesMemorySet.add(String(id));
       const helpers = readJsonFile<any[]>(HELPERS_FILE, []);
       const targetHelper = helpers.find(h => h.id === id);
       if (targetHelper) {
@@ -9432,15 +9537,16 @@ async function startServer() {
       writeJsonFile(HELPERS_FILE, helpers.filter(h => h.id !== id));
 
       const profiles = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
+      delete profiles[id];
       Object.keys(profiles).forEach(k => {
-        if (profiles[k]?.myHelperProfile?.id === id) {
+        if (profiles[k]?.myHelperProfile?.id === id || profiles[k]?.uid === id || profiles[k]?.id === id) {
           delete profiles[k].myHelperProfile;
         }
       });
       writeJsonFile(PROFILES_FILE, profiles);
 
       const verifs = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
-      writeJsonFile(VERIFICATIONS_FILE, verifs.filter(v => v.entityId !== id));
+      writeJsonFile(VERIFICATIONS_FILE, verifs.filter(v => v.entityId !== id && v.userId !== id));
 
       if (dbPool && isDbConnected) {
         try {
@@ -9450,6 +9556,7 @@ async function startServer() {
           await deleteFilesFromFirebaseStorage(pRows.rows);
           await dbPool.query("DELETE FROM helpers WHERE id = $1", [id]);
           await dbPool.query("DELETE FROM profiles WHERE uid = $1 OR id = $1", [id]).catch(() => {});
+          await dbPool.query("DELETE FROM verification_requests WHERE entity_id = $1 OR user_id = $1", [id]).catch(() => {});
         } catch (e) {}
       }
 
@@ -9471,6 +9578,8 @@ async function startServer() {
         try {
           const vRes = await dbPool.query("SELECT * FROM verification_requests WHERE entity_type = 'user_profile' ORDER BY created_at DESC").catch(() => ({ rows: [] as any[] }));
           vRes.rows.forEach((v: any) => {
+            if (v.entity_id && deletedEntitiesMemorySet.has(String(v.entity_id))) return;
+            if (v.user_id && deletedEntitiesMemorySet.has(String(v.user_id))) return;
             const mappedV = {
               id: v.id,
               entityType: v.entity_type,
@@ -9481,7 +9590,7 @@ async function startServer() {
               userPhone: v.user_phone,
               title: v.title,
               idDocumentWatermarked: v.id_document_watermarked,
-              status: v.status,
+              status: String(v.status || 'pending').toLowerCase(),
               createdAt: v.created_at
             };
             if (mappedV.userId) userVerifMap.set(String(mappedV.userId), mappedV);
@@ -9489,21 +9598,24 @@ async function startServer() {
             if (mappedV.userEmail) userVerifMap.set(String(mappedV.userEmail).toLowerCase(), mappedV);
           });
 
-          const uRes = await dbPool.query("SELECT * FROM users ORDER BY created_at DESC").catch(() => ({ rows: [] as any[] }));
+          const uRes = await dbPool.query("SELECT * FROM users WHERE COALESCE(is_deleted, false) = false ORDER BY created_at DESC").catch(() => ({ rows: [] as any[] }));
           uRes.rows.forEach((u: any) => {
             const uid = String(u.id || u.email || '');
-            if (!uid) return;
+            if (!uid || deletedEntitiesMemorySet.has(uid)) return;
             const matchedVerif = userVerifMap.get(uid) || userVerifMap.get(String(u.email || '').toLowerCase());
-            const status = matchedVerif?.status || 'approved';
+            const status = String(matchedVerif?.status || 'approved').toLowerCase();
             userMap.set(uid, {
               uid,
               id: uid,
               name: u.name || (u.email ? u.email.split('@')[0] : 'User'),
               email: u.email || '',
               phone: u.phone || matchedVerif?.userPhone || '',
-              address: '',
+              address: u.area || u.city || '',
+              area: u.area || u.city || '',
               skills: '',
               experience: '',
+              category: '',
+              categoryId: '',
               avatarUrl: u.avatar_url || '',
               status,
               isVerified: status === 'approved',
@@ -9512,14 +9624,23 @@ async function startServer() {
             });
           });
 
-          const pRes = await dbPool.query("SELECT * FROM profiles ORDER BY updated_at DESC").catch(() => ({ rows: [] as any[] }));
+          const pRes = await dbPool.query("SELECT * FROM profiles WHERE COALESCE(is_deleted, false) = false ORDER BY updated_at DESC").catch(() => ({ rows: [] as any[] }));
           pRes.rows.forEach((p: any) => {
             const uid = String(p.uid || p.id || p.email || '');
-            if (!uid) return;
+            if (!uid || deletedEntitiesMemorySet.has(uid)) return;
             const existing = userMap.get(uid) || {};
             const matchedVerif = userVerifMap.get(uid) || userVerifMap.get(String(p.email || '').toLowerCase());
-            const isVerif = Boolean(p.verified || p.is_verified || p.status === 'approved' || matchedVerif?.status === 'approved' || existing.isVerified);
-            const status = p.status || matchedVerif?.status || (isVerif ? 'approved' : 'pending');
+            const pStatusLower = String(p.status || '').toLowerCase();
+            const vStatusLower = String(matchedVerif?.status || '').toLowerCase();
+            const isRejected = pStatusLower === 'rejected' || vStatusLower === 'rejected';
+            const isVerif = !isRejected && Boolean(
+              p.verified === true ||
+              p.is_verified === true ||
+              pStatusLower === 'approved' ||
+              vStatusLower === 'approved' ||
+              existing.isVerified === true
+            );
+            const status = isRejected ? 'rejected' : (isVerif ? 'approved' : (pStatusLower || vStatusLower || 'pending'));
             userMap.set(uid, {
               ...existing,
               uid,
@@ -9528,9 +9649,12 @@ async function startServer() {
               email: p.email || existing.email || '',
               phone: p.phone || existing.phone || matchedVerif?.userPhone || '',
               address: p.address || p.sector || existing.address || '',
+              area: p.sector || p.address || existing.area || '',
               skills: p.skills || existing.skills || '',
               experience: p.experience || existing.experience || '',
-              category: p.category_id || existing.category || '',
+              category: p.category_id || p.category_name || existing.category || '',
+              categoryId: p.category_id || existing.categoryId || '',
+              customCategoryName: p.category_name || existing.customCategoryName || '',
               avatarUrl: p.avatar_url || p.image_url || existing.avatarUrl || '',
               status,
               isVerified: status === 'approved',
@@ -9559,12 +9683,12 @@ async function startServer() {
 
       if (dbPool && isDbConnected) {
         try {
-          const pRes = await dbPool.query("SELECT * FROM profiles WHERE uid = $1 LIMIT 1", [uid]);
+          const pRes = await dbPool.query("SELECT * FROM profiles WHERE uid = $1 OR id = $1 LIMIT 1", [uid]);
           if (pRes.rows.length > 0) {
             const r = pRes.rows[0];
             current = {
-              uid: r.uid,
-              id: r.uid,
+              uid: r.uid || uid,
+              id: r.uid || uid,
               name: r.full_name || r.name || '',
               full_name: r.full_name || r.name || '',
               email: r.email || '',
@@ -9573,6 +9697,7 @@ async function startServer() {
               skills: r.skills || '',
               experience: r.experience || '',
               category: r.category_id || '',
+              categoryId: r.category_id || '',
               avatarUrl: r.avatar_url || r.image_url || '',
               status: r.status || (r.is_verified ? 'approved' : 'pending'),
               isVerified: Boolean(r.verified || r.is_verified || r.status === 'approved')
@@ -9591,7 +9716,10 @@ async function startServer() {
       if (typeof (updates.address || updates.area) === 'string') current.address = sanitizeStringServer(updates.address || updates.area, 300);
       if (typeof (updates.skills || updates.bio) === 'string') current.skills = sanitizeStringServer(updates.skills || updates.bio, 500);
       if (typeof updates.experience === 'string') current.experience = sanitizeStringServer(updates.experience, 120);
-      if (typeof updates.category === 'string') current.category = sanitizeStringServer(updates.category, 100);
+      if (typeof (updates.categoryId || updates.category) === 'string') {
+        current.category = sanitizeStringServer(updates.categoryId || updates.category, 100);
+        current.categoryId = current.category;
+      }
       if (updates.avatarUrl !== undefined || updates.photoUrl !== undefined || updates.imageUrl !== undefined) {
         const rawAvatar = updates.avatarUrl ?? updates.photoUrl ?? updates.imageUrl ?? '';
         const newAvatarUrl = rawAvatar ? await uploadDataToFirebaseServer(String(rawAvatar), "profiles") : '';
@@ -9601,11 +9729,41 @@ async function startServer() {
         current.avatarUrl = newAvatarUrl;
       }
       if (typeof updates.status === 'string') {
-        current.status = updates.status;
-        current.isVerified = updates.status === 'approved';
-        current.is_verified = updates.status === 'approved';
+        const normSt = updates.status.toLowerCase();
+        current.status = normSt;
+        current.isVerified = normSt === 'approved';
+        current.is_verified = normSt === 'approved';
       }
       current.updated_at = new Date().toISOString();
+
+      // Sync local files as well
+      const profilesFileMap = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
+      if (profilesFileMap[uid]) {
+        profilesFileMap[uid] = { ...profilesFileMap[uid], ...current };
+        writeJsonFile(PROFILES_FILE, profilesFileMap);
+      }
+      const helpersFileList = readJsonFile<any[]>(HELPERS_FILE, []);
+      let helperUpdated = false;
+      helpersFileList.forEach(h => {
+        if (h && (h.id === uid || h.userId === uid)) {
+          h.status = current.status;
+          h.isVerified = Boolean(current.isVerified);
+          h.is_verified = Boolean(current.isVerified);
+          if (current.category) h.categoryId = current.category;
+          helperUpdated = true;
+        }
+      });
+      if (helperUpdated) writeJsonFile(HELPERS_FILE, helpersFileList);
+
+      const verifs = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
+      let verifUpdated = false;
+      verifs.forEach(v => {
+        if (v && (v.entityId === uid || v.userId === uid || v.id === uid || (current.email && v.userEmail && v.userEmail.toLowerCase() === current.email.toLowerCase()))) {
+          v.status = current.status;
+          verifUpdated = true;
+        }
+      });
+      if (verifUpdated) writeJsonFile(VERIFICATIONS_FILE, verifs);
 
       if (dbPool && isDbConnected) {
         try {
@@ -9644,10 +9802,23 @@ async function startServer() {
             ]
           );
 
+          await dbPool.query(
+            `UPDATE helpers
+             SET is_verified = $1,
+                 category_id = COALESCE(NULLIF($2, ''), category_id)
+             WHERE id = $3`,
+            [Boolean(current.isVerified), current.category || '', uid]
+          ).catch(() => {});
+
           if (current.status) {
             await dbPool.query(
-              "UPDATE verification_requests SET status = $1, reviewed_at = NOW() WHERE user_id = $2 OR entity_id = $2",
-              [current.status, uid]
+              `UPDATE verification_requests
+               SET status = $1, reviewed_at = NOW()
+               WHERE user_id = $2
+                  OR entity_id = $2
+                  OR id = $2
+                  OR ($3 <> '' AND LOWER(user_email) = LOWER($3))`,
+              [current.status, uid, current.email || '']
             ).catch(() => {});
           }
         } catch (e) {}
@@ -9663,22 +9834,36 @@ async function startServer() {
   app.delete("/api/admin/profiles/:uid", requireAdmin, async (req, res) => {
     try {
       const { uid } = req.params;
+      deletedEntitiesMemorySet.add(String(uid));
+
+      // Also clean up local in-memory files
+      const profilesFileMap = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
+      delete profilesFileMap[uid];
+      writeJsonFile(PROFILES_FILE, profilesFileMap);
+
+      const helpersFileList = readJsonFile<any[]>(HELPERS_FILE, []);
+      writeJsonFile(HELPERS_FILE, helpersFileList.filter(h => h && h.id !== uid && h.userId !== uid));
+
+      const verifs = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
+      writeJsonFile(VERIFICATIONS_FILE, verifs.filter(v => v && v.entityId !== uid && v.userId !== uid && v.id !== uid));
+
       if (dbPool && isDbConnected) {
         try {
-          const pRes = await dbPool.query("SELECT * FROM profiles WHERE uid = $1 LIMIT 1", [uid]);
+          const pRes = await dbPool.query("SELECT * FROM profiles WHERE uid = $1 OR id = $1 LIMIT 1", [uid]);
           if (pRes.rows.length > 0) {
             await archiveToSecurityVault("user_profile", uid, pRes.rows[0], "ADMIN_REMOVED_PUBLIC");
             await deleteFilesFromFirebaseStorage(pRes.rows[0]);
           }
           const uRes = await dbPool.query("SELECT avatar_url FROM users WHERE id = $1", [uid]).catch(() => ({ rows: [] as any[] }));
-          const vRes = await dbPool.query("SELECT id_document_watermarked FROM verification_requests WHERE user_id = $1 OR entity_id = $1", [uid]).catch(() => ({ rows: [] as any[] }));
+          const vRes = await dbPool.query("SELECT id_document_watermarked FROM verification_requests WHERE user_id = $1 OR entity_id = $1 OR id = $1", [uid]).catch(() => ({ rows: [] as any[] }));
           await deleteFilesFromFirebaseStorage(uRes.rows);
           await deleteFilesFromFirebaseStorage(vRes.rows);
 
           await dbPool.query('DELETE FROM "user" WHERE id = $1', [uid]).catch(() => {});
           await dbPool.query('DELETE FROM users WHERE id = $1', [uid]).catch(() => {});
-          await dbPool.query("DELETE FROM profiles WHERE uid = $1", [uid]).catch(() => {});
-          await dbPool.query("DELETE FROM verification_requests WHERE user_id = $1 OR entity_id = $1", [uid]).catch(() => {});
+          await dbPool.query("DELETE FROM profiles WHERE uid = $1 OR id = $1", [uid]).catch(() => {});
+          await dbPool.query("DELETE FROM helpers WHERE id = $1", [uid]).catch(() => {});
+          await dbPool.query("DELETE FROM verification_requests WHERE user_id = $1 OR entity_id = $1 OR id = $1", [uid]).catch(() => {});
         } catch (e) {}
       }
 
@@ -9956,7 +10141,8 @@ async function startServer() {
       const { id } = req.params;
       if (dbPool && isDbConnected) {
         try {
-          await dbPool.query("DELETE FROM admin_reports WHERE id = $1", [id]);
+          await dbPool.query("DELETE FROM admin_reports WHERE id = $1", [id]).catch(() => {});
+          await dbPool.query("DELETE FROM reports WHERE id = $1", [id]).catch(() => {});
         } catch (e) {}
       }
 
@@ -9969,15 +10155,17 @@ async function startServer() {
   app.post("/api/admin/clear-dummy-data", requireAdmin, async (_req, res) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
-      if (dbPool && isDbConnected) {
-        try {
-          await dbPool.query("DELETE FROM broadcast_posts WHERE id LIKE 'seed_%' OR id LIKE 'sample_%'");
-        } catch (e) {}
-      }
+      hasPurgedDummyPostsFromPostgres = false;
+      await purgeDummyPostsFromPostgresOnce();
+      const localIntents = readJsonFile<any[]>(INTENTS_FILE, []);
+      writeJsonFile(
+        INTENTS_FILE,
+        localIntents.filter(i => i && i.id && !isDummyPostRecord(i.id, i.description || i.title, i.authorName))
+      );
       invalidatePublicCache();
       res.json({
         success: true,
-        message: "All sample/dummy seed data purged successfully! Only real user posts are now active."
+        message: "All sample/dummy seed data (#m660z, #t9140, etc.) purged successfully! Only real user posts are now active."
       });
     } catch (e) {
       res.status(500).json({ error: "Failed to clear dummy data" });
@@ -10341,28 +10529,24 @@ async function startServer() {
           const updateRes = await dbPool.query(`
             UPDATE verification_requests
             SET status = $1, admin_notes = $2, reviewed_at = NOW()
-            WHERE id = $3
+            WHERE id = $3 OR entity_id = $3 OR user_id = $3
             RETURNING *
           `, [status, adminNotes || null, id]);
 
           if (updateRes.rows.length > 0) {
             const row = updateRes.rows[0];
             updatedItem = row;
+            const isAppr = status === 'approved';
 
-            if (status === 'approved') {
-              if (String(row.entity_id || '').startsWith('ad_')) {
-                await dbPool.query("UPDATE ads SET status = 'active' WHERE id = $1", [row.entity_id]).catch(() => {});
-                invalidatePublicCache(['public_ads']);
-              } else if (row.entity_type === 'business') {
-                await dbPool.query("UPDATE shops SET is_verified = true WHERE id = $1", [row.entity_id]).catch(() => {});
-                await dbPool.query("UPDATE businesses SET is_verified = true, is_approved = true WHERE id = $1", [row.entity_id]).catch(() => {});
-              } else {
-                await dbPool.query("UPDATE helpers SET is_verified = true WHERE id = $1", [row.entity_id]).catch(() => {});
-                await dbPool.query("UPDATE profiles SET is_verified = true, verified = true, status = 'approved' WHERE uid = $1 OR id = $1", [row.entity_id]).catch(() => {});
-              }
-            } else if (status === 'rejected' && String(row.entity_id || '').startsWith('ad_')) {
-              await dbPool.query("UPDATE ads SET status = 'rejected' WHERE id = $1", [row.entity_id]).catch(() => {});
+            if (String(row.entity_id || '').startsWith('ad_')) {
+              await dbPool.query("UPDATE ads SET status = $1 WHERE id = $2", [isAppr ? 'active' : 'rejected', row.entity_id]).catch(() => {});
               invalidatePublicCache(['public_ads']);
+            } else if (row.entity_type === 'business') {
+              await dbPool.query("UPDATE shops SET is_verified = $1 WHERE id = $2", [isAppr, row.entity_id]).catch(() => {});
+              await dbPool.query("UPDATE businesses SET is_verified = $1, is_approved = $1 WHERE id = $2", [isAppr, row.entity_id]).catch(() => {});
+            } else {
+              await dbPool.query("UPDATE helpers SET is_verified = $1 WHERE id = $2 OR id = $3", [isAppr, row.entity_id, row.user_id]).catch(() => {});
+              await dbPool.query("UPDATE profiles SET is_verified = $1, verified = $1, status = $2 WHERE uid = $3 OR id = $3 OR uid = $4", [isAppr, status, row.entity_id, row.user_id]).catch(() => {});
             }
           }
         } catch (dbErr) {
@@ -10999,10 +11183,10 @@ async function startServer() {
       if (helpersInput.length > 0) {
         const localHelpers = readJsonFile<any[]>(HELPERS_FILE, []);
         const helperMap = new Map<string, any>();
-        localHelpers.forEach(h => { if (h && h.id) helperMap.set(h.id, h); });
+        localHelpers.forEach(h => { if (h && h.id && !deletedEntitiesMemorySet.has(String(h.id))) helperMap.set(h.id, h); });
 
         for (const h of helpersInput) {
-          if (!h || !h.id || !h.name) continue;
+          if (!h || !h.id || !h.name || deletedEntitiesMemorySet.has(String(h.id))) continue;
           if (!helperMap.has(h.id)) {
             helperMap.set(h.id, h);
           }
@@ -11056,10 +11240,10 @@ async function startServer() {
       if (shopsInput.length > 0) {
         const localShops = readJsonFile<any[]>(SHOPS_FILE, []);
         const shopMap = new Map<string, any>();
-        localShops.forEach(s => { if (s && s.id) shopMap.set(s.id, s); });
+        localShops.forEach(s => { if (s && s.id && !deletedEntitiesMemorySet.has(String(s.id))) shopMap.set(s.id, s); });
 
         for (const s of shopsInput) {
-          if (!s || !s.id || String(s.id).startsWith('sample_shop_')) continue;
+          if (!s || !s.id || String(s.id).startsWith('sample_shop_') || deletedEntitiesMemorySet.has(String(s.id))) continue;
           const bName = s.name || s.businessName || s.business_name;
           if (!bName) continue;
           if (!shopMap.has(s.id)) {
@@ -11116,11 +11300,17 @@ async function startServer() {
       }
 
       if (postsInput.length > 0) {
+        const deletedPostIds = readJsonFile<string[]>(DELETED_INTENTS_FILE, []);
         const localIntents = readJsonFile<any[]>(INTENTS_FILE, []);
         const postMap = new Map<string, any>();
-        localIntents.forEach(p => { if (p && p.id) postMap.set(p.id, p); });
+        localIntents.forEach(p => {
+          if (p && p.id && !deletedPostIds.includes(p.id) && !deletedEntitiesMemorySet.has(String(p.id)) && !isDummyPostRecord(p.id, p.description || p.title)) {
+            postMap.set(p.id, p);
+          }
+        });
         for (const p of postsInput) {
           if (!p || !p.id || (!p.description && !p.title)) continue;
+          if (deletedPostIds.includes(p.id) || deletedEntitiesMemorySet.has(String(p.id)) || isDummyPostRecord(p.id, p.description || p.title)) continue;
           if (!postMap.has(p.id)) postMap.set(p.id, p);
           if (dbPool && isDbConnected) {
             await dbPool.query(
@@ -11141,6 +11331,7 @@ async function startServer() {
         writeJsonFile(INTENTS_FILE, Array.from(postMap.values()));
       }
 
+      await purgeDummyPostsFromPostgresOnce();
       invalidatePublicCache();
       return res.json({ success: true, postgresConnected: isDbConnected, syncedCount });
     } catch (e: any) {

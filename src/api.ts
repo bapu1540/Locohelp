@@ -206,11 +206,58 @@ export async function changeAdminPasswordOnServer(
   }
 }
 
+const isClientDummyPost = (item: any): boolean => {
+  if (!item) return true;
+  const idStr = String(item.id || '').trim().toLowerCase();
+  const descStr = String(item.description || item.title || item.content || '').trim();
+  const descLower = descStr.toLowerCase();
+  if (
+    idStr.startsWith('seed_') ||
+    idStr.startsWith('sample_') ||
+    idStr.startsWith('mock_') ||
+    idStr.startsWith('dummy_') ||
+    idStr.includes('m660z') ||
+    idStr.includes('t9140')
+  ) {
+    return true;
+  }
+  if (
+    descStr.includes('તાત્કાલિક પ્લમ્બર જોઈએ છે') ||
+    descLower === 'urgent plumber needed' ||
+    descLower.includes('urgent plumber needed in sector')
+  ) {
+    return true;
+  }
+  return false;
+};
+
 /**
  * Fetches all active community broadcast intents from the server.
  * Merges with local storage to support instantaneous offline browsing.
  */
 export async function fetchLiveIntents(): Promise<Intent[]> {
+  let deletedPostIds: string[] = [];
+  try {
+    const delRaw = localStorage.getItem('locohelp_deleted_posts');
+    if (delRaw) deletedPostIds = JSON.parse(delRaw);
+  } catch {}
+
+  try {
+    // Also clean any cached dummy/deleted posts from localStorage immediately
+    ['locohelp_cached_intents', 'locohelp_custom_intents'].forEach(key => {
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          const cleaned = parsed.filter(i => i && i.id && !deletedPostIds.includes(i.id) && !isClientDummyPost(i));
+          if (cleaned.length !== parsed.length) {
+            localStorage.setItem(key, JSON.stringify(cleaned));
+          }
+        }
+      }
+    });
+  } catch {}
+
   try {
     const res = await fetch(`/api/intents?_t=${Date.now()}`, {
       cache: 'no-store',
@@ -223,10 +270,11 @@ export async function fetchLiveIntents(): Promise<Intent[]> {
     if (res.ok) {
       const serverIntents: Intent[] = await res.json();
       if (Array.isArray(serverIntents)) {
+        const cleanList = serverIntents.filter(i => i && i.id && !deletedPostIds.includes(i.id) && !isClientDummyPost(i));
         try {
-          localStorage.setItem('locohelp_cached_intents', JSON.stringify(serverIntents));
+          localStorage.setItem('locohelp_cached_intents', JSON.stringify(cleanList));
         } catch (e) {}
-        return serverIntents;
+        return cleanList;
       }
     }
   } catch (err) {
@@ -237,7 +285,7 @@ export async function fetchLiveIntents(): Promise<Intent[]> {
     const cached = localStorage.getItem('locohelp_cached_intents') || localStorage.getItem('locohelp_custom_intents');
     if (cached) {
       const list: Intent[] = JSON.parse(cached);
-      return list.filter(i => !i.id.startsWith('seed_') && !i.id.startsWith('sample_'));
+      return list.filter(i => i && i.id && !deletedPostIds.includes(i.id) && !isClientDummyPost(i));
     }
   } catch (e) {}
 
@@ -319,6 +367,24 @@ export async function broadcastIntentToServer(intent: Intent): Promise<Intent> {
  * Deletes or completes an intent on server permanently (Protected: Owner or Admin only)
  */
 export async function deleteIntentOnServer(id: string, description?: string): Promise<boolean> {
+  try {
+    const delRaw = localStorage.getItem('locohelp_deleted_posts');
+    const deletedIds: string[] = delRaw ? JSON.parse(delRaw) : [];
+    if (!deletedIds.includes(id)) {
+      deletedIds.push(id);
+      localStorage.setItem('locohelp_deleted_posts', JSON.stringify(deletedIds));
+    }
+    ['locohelp_cached_intents', 'locohelp_custom_intents'].forEach(key => {
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          localStorage.setItem(key, JSON.stringify(parsed.filter((i: any) => i && i.id !== id)));
+        }
+      }
+    });
+  } catch {}
+
   try {
     const cleanDesc = description ? sanitizeText(description) : undefined;
     const url = `/api/intents/${encodeURIComponent(id)}?_t=${Date.now()}${cleanDesc ? `&desc=${encodeURIComponent(cleanDesc)}` : ''}`;
@@ -1218,6 +1284,31 @@ export async function updateAdminUserProfileOnServer(
 
 export async function deleteAdminUserProfileOnServer(uid: string): Promise<boolean> {
   try {
+    const delRaw = localStorage.getItem('locohelp_deleted_users');
+    const deletedIds: string[] = delRaw ? JSON.parse(delRaw) : [];
+    if (!deletedIds.includes(uid)) {
+      deletedIds.push(uid);
+      localStorage.setItem('locohelp_deleted_users', JSON.stringify(deletedIds));
+    }
+    const delHelpersRaw = localStorage.getItem('locohelp_deleted_helpers');
+    const deletedHelpers: string[] = delHelpersRaw ? JSON.parse(delHelpersRaw) : [];
+    if (!deletedHelpers.includes(uid)) {
+      deletedHelpers.push(uid);
+      localStorage.setItem('locohelp_deleted_helpers', JSON.stringify(deletedHelpers));
+    }
+    const helpersRaw = localStorage.getItem('locohelp_free_helper_profiles');
+    if (helpersRaw) {
+      const parsed = JSON.parse(helpersRaw);
+      if (Array.isArray(parsed)) {
+        localStorage.setItem(
+          'locohelp_free_helper_profiles',
+          JSON.stringify(parsed.filter((h: any) => h && h.id !== uid && h.userId !== uid))
+        );
+      }
+    }
+  } catch {}
+
+  try {
     const res = await fetch(`/api/admin/profiles/${encodeURIComponent(uid)}`, {
       method: 'DELETE',
       headers: getAuthHeaders()
@@ -1514,11 +1605,26 @@ export async function syncBrowserDataToPostgres(): Promise<void> {
     let ads: any[] = [];
     let posts: any[] = [];
 
+    const getDeletedSet = (key: string): Set<string> => {
+      try {
+        const raw = localStorage.getItem(key);
+        return raw ? new Set(JSON.parse(raw)) : new Set();
+      } catch {
+        return new Set();
+      }
+    };
+
+    const deletedUsers = getDeletedSet('locohelp_deleted_users');
+    const deletedHelpers = getDeletedSet('locohelp_deleted_helpers');
+    const deletedShops = getDeletedSet('locohelp_deleted_shops');
+    const deletedPosts = getDeletedSet('locohelp_deleted_posts');
+
     try {
       const uRaw = localStorage.getItem('locohelp_user');
       if (uRaw) {
         const u = JSON.parse(uRaw);
-        if (u && (u.uid || u.id || u.email)) {
+        const uid = String(u?.uid || u?.id || u?.email || '');
+        if (u && uid && !deletedUsers.has(uid)) {
           users.push(u);
         }
       }
@@ -1528,12 +1634,24 @@ export async function syncBrowserDataToPostgres(): Promise<void> {
       const helpersRaw = localStorage.getItem('locohelp_free_helper_profiles');
       if (helpersRaw) {
         const parsed = JSON.parse(helpersRaw);
-        if (Array.isArray(parsed)) profiles.push(...parsed);
+        if (Array.isArray(parsed)) {
+          profiles.push(
+            ...parsed.filter(
+              (p: any) => p && p.id && !deletedHelpers.has(String(p.id)) && !deletedUsers.has(String(p.id))
+            )
+          );
+        }
       }
       const myHelperRaw = localStorage.getItem('locohelp_my_helper_profile');
       if (myHelperRaw) {
         const mh = JSON.parse(myHelperRaw);
-        if (mh && mh.id && !profiles.some(p => p && p.id === mh.id)) {
+        if (
+          mh &&
+          mh.id &&
+          !deletedHelpers.has(String(mh.id)) &&
+          !deletedUsers.has(String(mh.id)) &&
+          !profiles.some(p => p && p.id === mh.id)
+        ) {
           profiles.push(mh);
         }
       }
@@ -1543,7 +1661,9 @@ export async function syncBrowserDataToPostgres(): Promise<void> {
       const shopsRaw = localStorage.getItem('locohelp_registered_shops');
       if (shopsRaw) {
         const parsed = JSON.parse(shopsRaw);
-        if (Array.isArray(parsed)) businesses = parsed;
+        if (Array.isArray(parsed)) {
+          businesses = parsed.filter((s: any) => s && s.id && !deletedShops.has(String(s.id)));
+        }
       }
     } catch {}
 
@@ -1559,7 +1679,11 @@ export async function syncBrowserDataToPostgres(): Promise<void> {
       const postsRaw = localStorage.getItem('locohelp_custom_intents');
       if (postsRaw) {
         const parsed = JSON.parse(postsRaw);
-        if (Array.isArray(parsed)) posts = parsed;
+        if (Array.isArray(parsed)) {
+          posts = parsed.filter(
+            (p: any) => p && p.id && !deletedPosts.has(String(p.id)) && !isClientDummyPost(p)
+          );
+        }
       }
     } catch {}
 
