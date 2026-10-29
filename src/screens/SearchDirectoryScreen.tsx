@@ -3,7 +3,14 @@ import { ArrowLeft, Star, MapPin, MessageSquare, UserCheck, Search, Wrench, Shie
 import { ServiceProvider } from '../types';
 import { useLanguage } from '../i18n';
 import UserProfileModal from './UserProfileModal';
-import { getFreeHelperProfiles } from '../data/categories';
+import {
+  CATEGORIES,
+  MASTER_CATEGORIES,
+  getCategoryName,
+  getMasterCategoryName,
+  getSubCategoriesByMainId,
+  getFreeHelperProfiles,
+} from '../data/categories';
 import RegisterShopModal, { RegisteredShop } from '../components/RegisterShopModal';
 import FreeHelperRegisterModal from '../components/FreeHelperRegisterModal';
 import LoginPromptModal from '../components/LoginPromptModal';
@@ -15,6 +22,7 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
   const { language, t } = useLanguage();
   const [activeDirectoryTab, setActiveDirectoryTab] = useState<'shops' | 'helpers'>('shops');
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedHelperCategory, setSelectedHelperCategory] = useState<string>('all');
   const [selectedProvider, setSelectedProvider] = useState<ServiceProvider | null>(null);
   const [isRegisterShopOpen, setIsRegisterShopOpen] = useState(false);
   const [isRegisterHelperOpen, setIsRegisterHelperOpen] = useState(false);
@@ -101,15 +109,20 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
         }
       }
       const userHelpers = getFreeHelperProfiles(false);
-      const formattedUserHelpers: ServiceProvider[] = userHelpers.map(h => ({
-        id: h.id,
-        name: h.name,
-        skills: h.skills?.length > 0 ? h.skills : [h.customCategoryName || h.area || 'Community Helper'],
-        trustScore: 99,
-        rating: h.rating || 5.0,
-        completedTasks: h.completedTasks || 1,
-        distance: h.distance || 0.8
-      }));
+      const formattedUserHelpers: ServiceProvider[] = userHelpers.map(h => {
+        const catObj = CATEGORIES.find(c => c.id === h.categoryId);
+        return {
+          id: h.id,
+          name: h.name,
+          categoryId: h.categoryId,
+          customCategoryName: h.customCategoryName,
+          skills: h.skills?.length > 0 ? h.skills : [h.customCategoryName || (catObj ? catObj.nameEn : 'Community Helper')],
+          trustScore: 99,
+          rating: h.rating || 5.0,
+          completedTasks: h.completedTasks || 1,
+          distance: h.distance || 0.8
+        } as any;
+      });
       setHelpersList(formattedUserHelpers);
     } catch (e) {
       setHelpersList([]);
@@ -133,15 +146,30 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
     );
   }, [shopsList, searchQuery]);
 
-  // Filtered Helpers
+  // Filtered Helpers (by search query + Main Category or Sub-Category)
   const filteredHelpers = useMemo(() => {
-    if (!searchQuery.trim()) return helpersList;
-    const q = searchQuery.toLowerCase();
-    return helpersList.filter(p => 
-      p.name.toLowerCase().includes(q) || 
-      p.skills.some(s => s.toLowerCase().includes(q))
-    );
-  }, [helpersList, searchQuery]);
+    return helpersList.filter((p: any) => {
+      if (selectedHelperCategory !== 'all') {
+        const subCatsInGroup = CATEGORIES.filter(c => c.masterCategory === selectedHelperCategory);
+        if (subCatsInGroup.length > 0) {
+          // Filtered by Main Category group
+          if (!subCatsInGroup.some(sc => sc.id === p.categoryId)) return false;
+        } else if (p.categoryId !== selectedHelperCategory) {
+          return false;
+        }
+      }
+      if (!searchQuery.trim()) return true;
+      const q = searchQuery.toLowerCase();
+      const catObj = CATEGORIES.find(c => c.id === p.categoryId);
+      const catText = catObj ? `${catObj.nameEn} ${catObj.nameHi} ${catObj.nameGu || ''}`.toLowerCase() : '';
+      return (
+        p.name.toLowerCase().includes(q) ||
+        catText.includes(q) ||
+        (p.customCategoryName && p.customCategoryName.toLowerCase().includes(q)) ||
+        p.skills.some((s: string) => s.toLowerCase().includes(q))
+      );
+    });
+  }, [helpersList, searchQuery, selectedHelperCategory]);
 
   const handleShopCallOrChat = (shop: RegisteredShop) => {
     if (isGuestUser()) {
@@ -482,6 +510,41 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
               </button>
             </div>
 
+            {/* Grouped Category & Sub-Category Filter for Service Experts */}
+            <div className="bg-white dark:bg-slate-800 rounded-xl p-2.5 border border-slate-200 dark:border-slate-700">
+              <select
+                value={selectedHelperCategory}
+                onChange={(e) => setSelectedHelperCategory(e.target.value)}
+                className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-xs font-bold text-slate-900 dark:text-white outline-none focus:border-indigo-500 cursor-pointer"
+              >
+                <option value="all">
+                  {language === 'EN'
+                    ? 'All 10 Main Groups & 49 Categories'
+                    : language === 'GU'
+                    ? 'તમામ 10 મુખ્ય ગ્રુપ અને 49 કેટેગરી'
+                    : 'सभी 10 मुख्य ग्रुप और 49 श्रेणियां'}
+                </option>
+                {MASTER_CATEGORIES.map((mainCat, idx) => {
+                  const subs = getSubCategoriesByMainId(mainCat.id);
+                  return (
+                    <optgroup
+                      key={mainCat.id}
+                      label={`${idx + 1}. ${mainCat.emoji} ${getMasterCategoryName(mainCat, language)}`}
+                    >
+                      <option value={mainCat.id}>
+                        ★ {language === 'EN' ? `All in ${mainCat.nameEn}` : `${getMasterCategoryName(mainCat, language)} (सभी)`}
+                      </option>
+                      {subs.map(c => (
+                        <option key={c.id} value={c.id}>
+                          {language === 'EN' ? c.nameEn : `${getCategoryName(c, language)} (${c.nameEn})`}
+                        </option>
+                      ))}
+                    </optgroup>
+                  );
+                })}
+              </select>
+            </div>
+
             {filteredHelpers.length === 0 && (
               <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 text-center space-y-3 border border-slate-200 dark:border-slate-700 shadow-xs">
                 <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center text-2xl mx-auto shadow-inner">
@@ -489,14 +552,14 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
                 </div>
                 <div>
                   <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">
-                    {searchQuery
-                      ? (language === 'EN' ? 'No service experts found matching your search.' : language === 'GU' ? 'તમારી શોધ મુજબ કોઈ સર્વિસ એક્સપર્ટ મળ્યા નથી.' : 'आपकी खोज के अनुसार कोई सर्विस एक्सपर्ट नहीं मिला।')
+                    {searchQuery || selectedHelperCategory !== 'all'
+                      ? (language === 'EN' ? 'No service experts found matching your filter.' : language === 'GU' ? 'તમારી શોધ મુજબ કોઈ સર્વિસ એક્સપર્ટ મળ્યા નથી.' : 'आपकी खोज के अनुसार कोई सर्विस एक्सपर्ट नहीं मिला।')
                       : (language === 'EN' ? 'No Service Experts Registered Yet' : language === 'GU' ? 'હજુ સુધી કોઈ સર્વિસ એક્સપર્ટ રજિસ્ટર નથી' : 'अभी तक कोई सर्विस एक्सपर्ट लिस्टेड नहीं है')}
                   </h4>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                     {language === 'EN' 
-                      ? 'Be the first plumber, electrician, mechanic, or tutor to register in your neighborhood!'
-                      : 'अपने इलाके में पहले प्लंबर, इलेक्ट्रीशियन, मैकेनिक या ट्यूटर के रूप में फ्री रजिस्टर करें!'}
+                      ? 'Be the first plumber, electrician, developer, or local expert to register in your neighborhood!'
+                      : 'अपने इलाके में पहले प्लंबर, इलेक्ट्रीशियन, डेवलपर या एक्सपर्ट के रूप में फ्री रजिस्टर करें!'}
                   </p>
                 </div>
                 <button
@@ -514,20 +577,31 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
               </div>
             )}
             
-            {filteredHelpers.map((provider) => (
+            {filteredHelpers.map((provider: any) => {
+              const catObj = CATEGORIES.find(c => c.id === provider.categoryId);
+              return (
               <div 
                 key={provider.id} 
                 className="bg-[#FCFAF5] dark:bg-slate-800 border border-[#DFDBCF] dark:border-slate-700 rounded-2xl p-3.5 shadow-xs hover:border-indigo-300 dark:hover:border-indigo-700 transition-all"
               >
-                {/* Top row: Name + Distance */}
+                {/* Top row: Name + Category Badge + Distance */}
                 <div className="flex justify-between items-start mb-2">
                   <div>
-                    <h3 className="text-sm font-extrabold text-slate-900 dark:text-white flex items-center gap-1.5">
-                      <span>{provider.name}</span>
-                      <ShieldCheck className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
-                    </h3>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <h3 className="text-sm font-extrabold text-slate-900 dark:text-white flex items-center gap-1.5">
+                        <span>{provider.name}</span>
+                        <ShieldCheck className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                      </h3>
+                      {catObj && (
+                        <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20">
+                          {provider.categoryId === 'other' && provider.customCategoryName
+                            ? `${provider.customCategoryName} (${getCategoryName(catObj, language)})`
+                            : getCategoryName(catObj, language)}
+                        </span>
+                      )}
+                    </div>
                     <div className="flex flex-wrap gap-1 mt-1">
-                      {provider.skills.map(skill => (
+                      {provider.skills.map((skill: string) => (
                         <span key={skill} className="text-[10px] font-bold bg-[#EAE6DC] dark:bg-slate-700 text-slate-700 dark:text-slate-300 px-2 py-0.5 rounded-md">
                           {skill}
                         </span>
@@ -600,7 +674,8 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
                   </button>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
 

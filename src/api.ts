@@ -1870,27 +1870,47 @@ export async function unblockUserInChatOnServer(payload: {
 export async function submitChatReportToServer(payload: {
   reason: string;
   details?: string;
+  description?: string;
   reporterId: string;
   reporterName: string;
   reporterEmail?: string;
   reportedUserId: string;
   reportedUserName: string;
+  reportedPostId?: string | null;
   chatId: string;
   chatSnapshot: any[];
   blockUser?: boolean;
-}): Promise<{ success: boolean; report?: any; error?: string }> {
+}): Promise<{
+  success: boolean;
+  report?: any;
+  autoFlaggedUser?: boolean;
+  autoFlaggedPost?: boolean;
+  uniqueUserReports?: number;
+  uniquePostReports?: number;
+  error?: string;
+}> {
   try {
     const res = await fetch('/api/reports', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
       body: JSON.stringify({
         ...payload,
+        description: payload.description || payload.details || '',
+        reported_user_id: payload.reportedUserId,
+        reported_post_id: payload.reportedPostId || null,
         reportType: 'chat_report'
       })
     });
     const data = await res.json();
     if (res.ok && data.success) {
-      return { success: true, report: data.report };
+      return {
+        success: true,
+        report: data.report,
+        autoFlaggedUser: Boolean(data.autoFlaggedUser),
+        autoFlaggedPost: Boolean(data.autoFlaggedPost),
+        uniqueUserReports: Number(data.uniqueUserReports || 0),
+        uniquePostReports: Number(data.uniquePostReports || 0)
+      };
     }
     return { success: false, error: data.error || 'Failed to submit chat report' };
   } catch (e: any) {

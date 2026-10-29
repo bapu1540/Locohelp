@@ -48,6 +48,7 @@ export default function LoginPromptModal({
   const [isLoadingOtp, setIsLoadingOtp] = useState(false);
   const [isLoadingPassword, setIsLoadingPassword] = useState(false);
   const [passwordOtpSent, setPasswordOtpSent] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
 
@@ -67,6 +68,16 @@ export default function LoginPromptModal({
 
   const handleSendEmailOtp = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!termsAccepted) {
+      setErrorMessage(
+        tr(
+          'Please accept the Terms & Conditions and Mediator Disclaimer checkbox below to continue.',
+          'आगे बढ़ने के लिए कृपया नीचे दिए गए नियम और शर्तों (Mediator Disclaimer) वाले बॉक्स को टिक करें।',
+          'આગળ વધવા માટે કૃપા કરીને નીચે આપેલ નિયમો અને શરતો (Mediator Disclaimer) બોક્સને ટિક કરો.'
+        )
+      );
+      return;
+    }
     if (!emailInput || !isValidEmail(emailInput)) {
       setErrorMessage(
         tr(
@@ -130,6 +141,16 @@ export default function LoginPromptModal({
 
   const handleVerifyEmailOtp = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!termsAccepted) {
+      setErrorMessage(
+        tr(
+          'Please accept the Terms & Conditions and Mediator Disclaimer checkbox below to continue.',
+          'आगे बढ़ने के लिए कृपया नीचे दिए गए नियम और शर्तों (Mediator Disclaimer) वाले बॉक्स को टिक करें।',
+          'આગળ વધવા માટે કૃપા કરીને નીચે આપેલ નિયમો અને શરતો (Mediator Disclaimer) બોક્સને ટિક કરો.'
+        )
+      );
+      return;
+    }
     if (!otpCode || otpCode.trim().length < 4) {
       setErrorMessage(
         tr(
@@ -233,6 +254,16 @@ export default function LoginPromptModal({
 
   const handlePasswordAuth = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!termsAccepted) {
+      setErrorMessage(
+        tr(
+          'Please accept the Terms & Conditions and Mediator Disclaimer checkbox below to continue.',
+          'आगे बढ़ने के लिए कृपया नीचे दिए गए नियम और शर्तों (Mediator Disclaimer) वाले बॉक्स को टिक करें।',
+          'આગળ વધવા માટે કૃપા કરીને નીચે આપેલ નિયમો અને શરતો (Mediator Disclaimer) બોક્સને ટિક કરો.'
+        )
+      );
+      return;
+    }
     if (!emailInput || !isValidEmail(emailInput)) {
       setErrorMessage(
         tr(
@@ -432,9 +463,27 @@ export default function LoginPromptModal({
                       required
                     />
                   </div>
+                  <label className="flex items-start gap-2.5 p-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-left cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={termsAccepted}
+                      onChange={(e) => {
+                        setTermsAccepted(e.target.checked);
+                        if (e.target.checked) setErrorMessage(null);
+                      }}
+                      className="mt-0.5 w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 shrink-0 cursor-pointer accent-indigo-600"
+                    />
+                    <span className="text-[11px] leading-snug font-semibold text-slate-700 dark:text-slate-300">
+                      {tr(
+                        'I agree to the Terms & Conditions and understand that LocoHelp is only a connecting mediator platform and is not responsible for any offline payments or work quality.',
+                        'मैं नियम और शर्तों से सहमत हूँ और समझता हूँ कि LocoHelp सिर्फ लोगों को जोड़ने का एक माध्यम है और किसी भी लेन-देन या काम की गुणवत्ता के लिए जिम्मेदार नहीं है।',
+                        'હું નિયમો અને શરતો સાથે સંમત છું અને સમજું છું કે LocoHelp માત્ર લોકોને જોડવાનું એક માધ્યમ છે અને કોઈપણ નાણાકીય લેવડદેવડ કે કામની ગુણવત્તા માટે જવાબદાર નથી.'
+                      )}
+                    </span>
+                  </label>
                   <button
                     type="submit"
-                    disabled={isLoadingOtp || !emailInput.trim() || otpCooldownSeconds > 0}
+                    disabled={isLoadingOtp || !emailInput.trim() || !termsAccepted || otpCooldownSeconds > 0}
                     className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-black text-xs py-3 px-4 rounded-2xl active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm shadow-indigo-600/20"
                   >
                     {isLoadingOtp ? (
@@ -514,9 +563,27 @@ export default function LoginPromptModal({
                       className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl py-2 pl-10 pr-4 text-[11px] font-medium text-slate-900 dark:text-white outline-none focus:border-indigo-500 transition-all"
                     />
                   </div>
+                  <label className="flex items-start gap-2.5 p-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-left cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={termsAccepted}
+                      onChange={(e) => {
+                        setTermsAccepted(e.target.checked);
+                        if (e.target.checked) setErrorMessage(null);
+                      }}
+                      className="mt-0.5 w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 shrink-0 cursor-pointer accent-emerald-600"
+                    />
+                    <span className="text-[11px] leading-snug font-semibold text-slate-700 dark:text-slate-300">
+                      {tr(
+                        'I agree to the Terms & Conditions and understand that LocoHelp is only a connecting mediator platform and is not responsible for any offline payments or work quality.',
+                        'मैं नियम और शर्तों से सहमत हूँ और समझता हूँ कि LocoHelp सिर्फ लोगों को जोड़ने का एक माध्यम है और किसी भी लेन-देन या काम की गुणवत्ता के लिए जिम्मेदार नहीं है।',
+                        'હું નિયમો અને શરતો સાથે સંમત છું અને સમજું છું કે LocoHelp માત્ર લોકોને જોડવાનું એક માધ્યમ છે અને કોઈપણ નાણાકીય લેવડદેવડ કે કામની ગુણવત્તા માટે જવાબદાર નથી.'
+                      )}
+                    </span>
+                  </label>
                   <button
                     type="submit"
-                    disabled={isLoadingOtp || otpCode.trim().length < 4}
+                    disabled={isLoadingOtp || otpCode.trim().length < 4 || !termsAccepted}
                     className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-black text-xs py-3 px-4 rounded-2xl active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm shadow-emerald-600/20"
                   >
                     {isLoadingOtp ? (
@@ -641,9 +708,27 @@ export default function LoginPromptModal({
                     required
                   />
                 </div>
+                <label className="flex items-start gap-2.5 p-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-left cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={termsAccepted}
+                    onChange={(e) => {
+                      setTermsAccepted(e.target.checked);
+                      if (e.target.checked) setErrorMessage(null);
+                    }}
+                    className="mt-0.5 w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 shrink-0 cursor-pointer accent-indigo-600"
+                  />
+                  <span className="text-[11px] leading-snug font-semibold text-slate-700 dark:text-slate-300">
+                    {tr(
+                      'I agree to the Terms & Conditions and understand that LocoHelp is only a connecting mediator platform and is not responsible for any offline payments or work quality.',
+                      'मैं नियम और शर्तों से सहमत हूँ और समझता हूँ कि LocoHelp सिर्फ लोगों को जोड़ने का एक माध्यम है और किसी भी लेन-देन या काम की गुणवत्ता के लिए जिम्मेदार नहीं है।',
+                      'હું નિયમો અને શરતો સાથે સંમત છું અને સમજું છું કે LocoHelp માત્ર લોકોને જોડવાનું એક માધ્યમ છે અને કોઈપણ નાણાકીય લેવડદેવડ કે કામની ગુણવત્તા માટે જવાબદાર નથી.'
+                    )}
+                  </span>
+                </label>
                 <button
                   type="submit"
-                  disabled={isLoadingPassword || !emailInput.trim() || !passwordInput.trim()}
+                  disabled={isLoadingPassword || !emailInput.trim() || !passwordInput.trim() || !termsAccepted}
                   className={`w-full disabled:opacity-60 text-white font-black text-xs py-3 px-4 rounded-2xl active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm ${
                     passwordSubMode === 'reset'
                       ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/20'

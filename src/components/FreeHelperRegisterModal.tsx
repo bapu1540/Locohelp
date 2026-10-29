@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { UserPlus, X, Wrench, ShieldCheck, CheckCircle2, Clock, Edit3, MapPin, Phone, Star, AlertCircle } from 'lucide-react';
-import { CATEGORIES, CategoryItem, getCategoryName, saveFreeHelperProfile, getFreeHelperProfiles, FreeHelperProfile } from '../data/categories';
+import { CATEGORIES, MASTER_CATEGORIES, CategoryItem, getCategoryName, getMasterCategoryName, getSubCategoriesByMainId, saveFreeHelperProfile, getFreeHelperProfiles, FreeHelperProfile } from '../data/categories';
 import { useLanguage } from '../i18n';
 import { saveHelper, getCurrentUser, getHelpers, saveUserProfile } from '../auth';
 import { submitVerification, getVerificationStatus } from '../api';
@@ -14,6 +14,10 @@ interface FreeHelperRegisterModalProps {
   onClose: () => void;
   onSuccess?: (newProfile: FreeHelperProfile) => void;
   defaultCategory?: string;
+  defaultCategoryId?: string;
+  defaultLocation?: string;
+  currentUserId?: string;
+  currentUserEmail?: string;
 }
 
 export default function FreeHelperRegisterModal({
@@ -21,15 +25,17 @@ export default function FreeHelperRegisterModal({
   onClose,
   onSuccess,
   defaultCategory = 'plumber',
+  defaultCategoryId,
 }: FreeHelperRegisterModalProps) {
   const { language, t, tr } = useLanguage();
+  const initialCategory = defaultCategoryId || defaultCategory || 'plumber';
 
   const [existingProfile, setExistingProfile] = useState<FreeHelperProfile | null>(null);
   const [isEditing, setIsEditing] = useState(false);
 
   const [formName, setFormName] = useState('');
   const [formEmail, setFormEmail] = useState('');
-  const [formCategory, setFormCategory] = useState(defaultCategory);
+  const [formCategory, setFormCategory] = useState(initialCategory);
   const [customCategoryName, setCustomCategoryName] = useState('');
   const [formPhone, setFormPhone] = useState('');
   const [formArea, setFormArea] = useState('');
@@ -432,11 +438,21 @@ export default function FreeHelperRegisterModal({
                   onChange={(e) => setFormCategory(e.target.value)}
                   className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none font-medium"
                 >
-                  {CATEGORIES.map(c => (
-                    <option key={c.id} value={c.id}>
-                      {getCategoryName(c, language)} ({c.nameEn})
-                    </option>
-                  ))}
+                  {MASTER_CATEGORIES.map((mainCat, idx) => {
+                    const subs = getSubCategoriesByMainId(mainCat.id);
+                    return (
+                      <optgroup
+                        key={mainCat.id}
+                        label={`${idx + 1}. ${mainCat.emoji} ${getMasterCategoryName(mainCat, language)}`}
+                      >
+                        {subs.map(c => (
+                          <option key={c.id} value={c.id}>
+                            {language === 'EN' ? c.nameEn : `${getCategoryName(c, language)} (${c.nameEn})`}
+                          </option>
+                        ))}
+                      </optgroup>
+                    );
+                  })}
                 </select>
 
                 {/* Show Custom Category Input if 'other' is selected */}

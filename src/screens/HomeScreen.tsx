@@ -98,6 +98,22 @@ export default function HomeScreen({
     };
   }, []);
 
+  const [reportFilterTick, setReportFilterTick] = useState(0);
+  useEffect(() => {
+    const handleReportSubmitted = (e: Event) => {
+      setReportFilterTick(prev => prev + 1);
+      const detail = (e as CustomEvent)?.detail;
+      if (detail?.reportedPostId && (detail?.blocked || detail?.autoFlaggedPost)) {
+        setIntents(prev => prev.filter(item => item.id !== detail.reportedPostId));
+      }
+      if (detail?.reportedUserId && (detail?.blocked || detail?.autoFlaggedUser)) {
+        setIntents(prev => prev.filter(item => item.authorId !== detail.reportedUserId));
+      }
+    };
+    window.addEventListener('locohelp_report_submitted', handleReportSubmitted);
+    return () => window.removeEventListener('locohelp_report_submitted', handleReportSubmitted);
+  }, []);
+
   const handleInstallAppClick = async () => {
     const promptEvent = (window as any).__deferredPwaPrompt;
     if (promptEvent && typeof promptEvent.prompt === 'function') {
@@ -550,34 +566,74 @@ export default function HomeScreen({
   };
 
   const categoryKeywords: Record<string, string[]> = {
-    // Master Categories
-    utility_emergency: ['plumb', 'pipe', 'tap', 'water', 'leak', 'electr', 'wire', 'light', 'fan', 'mechanic', 'car', 'bike', 'puncture', 'tyre', 'battery', 'carpent', 'wood', 'door', 'lock', 'paint', 'ac', 'fridge', 'mason', 'mistri'],
-    sports_fitness: ['cricket', 'gym', 'fitness', 'workout', 'badminton', 'running', 'jog', 'marathon', 'football', 'turf', 'sport', 'exercise', 'yoga', 'trainer'],
-    social_casual: ['chai', 'tea', 'coffee', 'meetup', 'walk', 'chess', 'book', 'companion', 'game', 'gaming', 'ps5', 'catan', 'pet', 'dog', 'puppy', 'chat', 'friend'],
-    daily_errands: ['clean', 'maid', 'housekeep', 'deliver', 'parcel', 'luggage', 'shift', 'tutor', 'teach', 'study', 'maths', 'science', 'senior', 'elder', 'medicine'],
+    // 10 Main Categories (Groups)
+    home_repair: ['plumb', 'pipe', 'tap', 'water', 'leak', 'electr', 'wire', 'light', 'fan', 'ac', 'fridge', 'ro', 'carpent', 'suthar', 'wood', 'furniture', 'paint', 'mason', 'kadiyo', 'mistri', 'clean', 'maid', 'cook', 'pest', 'tank'],
+    personal_events: ['tailor', 'darzi', 'boutique', 'beauti', 'salon', 'parlour', 'makeup', 'mehendi', 'mehndi', 'pandit', 'pooja', 'puja', 'photograp', 'videograp', 'camera', 'cater', 'halwai', 'tiffin', 'event'],
+    it_tech: ['web', 'website', 'app', 'developer', 'coding', 'computer', 'laptop', 'printer', 'cctv', 'wifi', 'wi-fi', 'graphic', 'video edit', 'logo', 'digital market', 'social media', 'seo', 'mobile repair', 'phone repair'],
+    business_staff: ['salesman', 'salesgirl', 'sales', 'shop helper', 'store staff', 'accountant', 'gst', 'tally', 'tax', 'data entry', 'back office', 'excel', 'security guard', 'watchman', 'receptionist', 'telecaller'],
+    brokers_agents: ['real estate', 'property', 'broker', 'flat', 'rent', 'pg', 'vehicle broker', 'rto', 'license', 'loan', 'insurance', 'lic', 'legal', 'notary', 'affidavit', 'document'],
+    vehicle_transport: ['mechanic', 'car', 'bike', 'puncture', 'tyre', 'battery', 'cab', 'auto', 'rickshaw', 'taxi', 'driver', 'tempo', 'packers', 'movers', 'loading', 'deliver', 'parcel', 'errand'],
+    education_classes: ['tutor', 'tuition', 'teacher', 'school', 'coaching', 'study', 'project', 'assignment', 'spoken english', 'computer class', 'ielts', 'music', 'dance', 'art', 'drawing', 'guitar'],
+    sports_fitness: ['cricket', 'turf', 'match', 'badminton', 'tennis', 'gym', 'fitness', 'workout', 'trainer', 'running', 'jog', 'cycling', 'yoga', 'sport'],
+    social_care: ['chai', 'tea', 'coffee', 'meetup', 'walk', 'companion', 'chess', 'board game', 'ludo', 'carrom', 'senior', 'elder', 'medicine', 'pet', 'dog'],
+    other_custom: ['other', 'custom', 'general', 'help'],
 
-    // Subcategories
-    plumber: ['plumb', 'pipe', 'tap', 'water', 'leak', 'flush', 'basin', 'tank'],
-    electrician: ['electr', 'wire', 'wiring', 'switch', 'light', 'fan', 'inverter', 'current', 'fuse', 'short'],
-    mechanic: ['mechanic', 'car', 'bike', 'puncture', 'tyre', 'tire', 'battery', 'jumpstart', 'towing', 'breakdown'],
-    cab_auto_driver: ['cab', 'auto', 'rickshaw', 'taxi', 'driver', 'drop', 'pickup', 'ride', 'outstation', 'car rent'],
-    carpenter: ['carpent', 'wood', 'door', 'lock', 'furniture', 'bed', 'sofa', 'table'],
-    painter: ['paint', 'wall', 'putty', 'color', 'polish'],
-    ac_repair: ['ac', 'air condition', 'fridge', 'refrigerator', 'cooling', 'washing machine', 'appliance'],
-    cleaning: ['clean', 'maid', 'sweep', 'dust', 'wash', 'housekeep'],
-    delivery: ['deliver', 'parcel', 'shift', 'tempo', 'luggage', 'courier', 'porter'],
-    tutor: ['tutor', 'teach', 'study', 'maths', 'science', 'english', 'tuition'],
-    mason: ['mason', 'mistri', 'tile', 'plaster', 'cement', 'floor', 'brick'],
-    cricket: ['cricket', 'turf', 'leather ball', 'match', 'batting', 'bowling', 'batsman'],
-    gym_fitness: ['gym', 'fitness', 'workout', 'weightlifting', 'trainer', 'spotter', 'diet'],
-    badminton: ['badminton', 'shuttle', 'racket', 'court', 'doubles'],
-    running: ['running', 'jog', 'jogging', 'marathon', '5k', '10k', 'stamina'],
-    football: ['football', 'soccer', 'turf', 'striker', 'goal'],
-    chai_coffee: ['chai', 'tea', 'coffee', 'tapri', 'cafe', 'evening meetup'],
-    companion: ['companion', 'evening walk', 'chess', 'book club', 'talking', 'senior'],
-    gaming: ['gaming', 'game', 'ps5', 'xbox', 'catan', 'monopoly', 'board game', 'lan'],
-    pet_care: ['pet', 'dog', 'cat', 'puppy', 'dog walking', 'foster'],
-    senior_help: ['senior', 'elder', 'medicine', 'hospital assist', 'bank work', 'volunteer']
+    // Legacy Master Category aliases
+    utility_emergency: ['plumb', 'pipe', 'tap', 'water', 'leak', 'electr', 'wire', 'light', 'fan', 'mechanic', 'car', 'bike', 'puncture', 'tyre', 'battery', 'carpent', 'wood', 'door', 'lock', 'paint', 'ac', 'fridge', 'mason', 'mistri'],
+    social_casual: ['chai', 'tea', 'coffee', 'meetup', 'walk', 'chess', 'book', 'companion', 'game', 'gaming', 'pet', 'dog', 'chat', 'friend'],
+    daily_errands: ['clean', 'maid', 'housekeep', 'deliver', 'parcel', 'luggage', 'shift', 'tutor', 'teach', 'study', 'senior', 'elder', 'medicine'],
+
+    // All 49 Sub-Categories
+    plumber: ['plumb', 'pipe', 'tap', 'water', 'leak', 'flush', 'basin', 'tank', 'प्लंबर', 'પ્લમ્બર'],
+    electrician: ['electr', 'wire', 'wiring', 'switch', 'light', 'fan', 'inverter', 'fuse', 'इलेक्ट्रीशियन', 'ઇલેક્ટ્રિશિયન'],
+    ac_repair: ['ac', 'air condition', 'fridge', 'refrigerator', 'ro', 'cooling', 'washing machine', 'appliance', 'एसी', 'फ्रिज'],
+    carpenter: ['carpent', 'suthar', 'wood', 'door', 'lock', 'furniture', 'bed', 'sofa', 'कारपेंटर', 'सुथार', 'સુથાર'],
+    painter: ['paint', 'wall', 'putty', 'color', 'polish', 'pop', 'पेंटर', 'પેઇન્ટર'],
+    mason: ['mason', 'kadiyo', 'mistri', 'tile', 'plaster', 'cement', 'brick', 'कड़िया', 'मिस्त्री', 'કડિયો'],
+    cleaning: ['clean', 'maid', 'cook', 'sweep', 'housekeep', 'सफाई', 'मेड', 'रसोइया', 'સફાઈ'],
+    pest_control: ['pest', 'termite', 'cockroach', 'tank clean', 'पेस्ट', 'टंकी', 'પેસ્ટ'],
+    tailor: ['tailor', 'darzi', 'boutique', 'stitch', 'blouse', 'दर्जी', 'बुटीक', 'દરજી'],
+    beautician: ['beauti', 'salon', 'parlour', 'makeup', 'facial', 'bridal', 'ब्यूटीशियन', 'पार्लर', 'બ્યુટિશિયન'],
+    mehendi: ['mehendi', 'mehndi', 'henna', 'मेहंदी', 'મહેંદી'],
+    pandit_pooja: ['pandit', 'pooja', 'puja', 'havan', 'katha', 'jyotish', 'पंडित', 'पूजा', 'પંડિત'],
+    photographer: ['photograp', 'videograp', 'camera', 'wedding shoot', 'drone', 'फोटोग्राफर', 'ફોટોગ્રાફર'],
+    catering_event: ['cater', 'halwai', 'tiffin', 'event', 'mandap', 'कैटरिंग', 'हलवाई', 'કેટરિંગ'],
+    web_developer: ['web dev', 'website', 'wordpress', 'react', 'वेब डेवलपर', 'वेबसाइट', 'વેબ ડેવલપર'],
+    app_developer: ['app dev', 'mobile app', 'android', 'ios', 'flutter', 'ऐप डेवलपर', 'એપ ડેવલપર'],
+    computer_laptop: ['computer', 'laptop', 'pc', 'windows', 'printer', 'कंप्यूटर', 'लैपटॉप', 'કમ્પ્યુટર'],
+    cctv_wifi: ['cctv', 'camera', 'wifi', 'wi-fi', 'router', 'dvr', 'सीसीटीवी', 'वाई-फाई'],
+    graphic_video: ['graphic', 'video edit', 'logo', 'banner', 'reels', 'ग्राफिक', 'वीडियो एडिटर'],
+    digital_marketing: ['digital market', 'social media', 'seo', 'ads', 'डिजिटल मार्केटिंग'],
+    mobile_repair: ['mobile repair', 'phone repair', 'screen', 'battery', 'मोबाइल रिपेयर', 'મોબાઇલ રિપેર'],
+    sales_staff: ['salesman', 'salesgirl', 'sales', 'showroom', 'सेल्समेन', 'सेल्सगर्ल', 'સેલ્સમેન'],
+    shop_helper: ['shop helper', 'store staff', 'helper', 'दुकान हेल्पर', 'स्टोर स्टाफ', 'દુકાન હેલ્પર'],
+    accountant_gst: ['accountant', 'gst', 'tax', 'tally', 'itr', 'अकाउंटेंट', 'टैक्स', 'એકાઉન્ટન્ટ'],
+    data_entry: ['data entry', 'back office', 'excel', 'typing', 'operator', 'डाटा एंट्री', 'ડેટા એન્ટ્રી'],
+    security_guard: ['security guard', 'watchman', 'guard', 'सिक्योरिटी गार्ड', 'वॉचमैन', 'સિક્યુરિટી ગાર્ડ'],
+    receptionist_telecaller: ['receptionist', 'telecaller', 'front desk', 'रिसेप्शनिस्ट', 'टेलीकॉलर', 'ટેલીકોલર'],
+    real_estate_broker: ['real estate', 'property', 'broker', 'flat', 'house', 'rent', 'pg', 'प्रॉपर्टी ब्रोकर', 'પ્રોપર્ટી બ્રોકર'],
+    vehicle_broker: ['vehicle broker', 'car broker', 'second hand car', 'गाड़ी ब्रोकर', 'વાહન બ્રોકર'],
+    rto_agent: ['rto', 'license', 'rc transfer', 'puc', 'लाइसेंस', 'RTO'],
+    loan_insurance: ['loan', 'insurance', 'lic', 'policy', 'लोन', 'बीमा', 'વીમા'],
+    legal_docs: ['legal', 'notary', 'affidavit', 'rent agreement', 'document', 'कानूनी', 'नोटरी', 'નોટરી'],
+    mechanic: ['mechanic', 'car', 'bike', 'puncture', 'tyre', 'battery', 'jumpstart', 'towing', 'मैकेनिक', 'पंक्चर', 'મિકેનિક'],
+    cab_auto_driver: ['cab', 'auto', 'rickshaw', 'taxi', 'driver', 'drop', 'pickup', 'कैब', 'ऑटो', 'ड्राइवर', 'ડ્રાઇવર'],
+    tempo_packers: ['tempo', 'packers', 'movers', 'loading', 'shifting', 'टेम्पो', 'पैकर्स', 'ટેમ્પો'],
+    delivery: ['deliver', 'parcel', 'errand', 'courier', 'डिलीवरी', 'ડિલિવરી'],
+    tutor: ['tutor', 'teach', 'tuition', 'school', 'maths', 'science', 'ट्यूशन', 'टीचर', 'ટ્યુશન'],
+    study_project: ['study', 'project', 'assignment', 'notes', 'प्रोजेक्ट', 'पढ़ाई', 'પ્રોજેક્ટ'],
+    computer_spoken_english: ['spoken english', 'computer class', 'ielts', 'स्पोकन इंग्लिश'],
+    music_dance_art: ['music', 'dance', 'art', 'drawing', 'guitar', 'singing', 'संगीत', 'डांस'],
+    cricket: ['cricket', 'turf', 'match', 'batting', 'bowling', 'क्रिकेट', 'ક્રિકેટ'],
+    badminton: ['badminton', 'shuttle', 'racket', 'tennis', 'बैडमिंटन', 'બેડમિન્ટન'],
+    gym_fitness: ['gym', 'fitness', 'workout', 'trainer', 'जिम', 'फिटनेस', 'જિમ'],
+    running_yoga: ['running', 'jog', 'cycling', 'yoga', 'marathon', 'रनिंग', 'योगा', 'યોગા'],
+    chai_coffee: ['chai', 'tea', 'coffee', 'tapri', 'cafe', 'meetup', 'चाय', 'कॉफी', 'ચા-કોફી'],
+    companion: ['companion', 'evening walk', 'walk partner', 'वॉक', 'साथी'],
+    board_games: ['board game', 'chess', 'ludo', 'carrom', 'शतरंज', 'लूडो', 'ચેસ'],
+    senior_help: ['senior', 'elder', 'medicine', 'hospital assist', 'बुजुर्ग', 'વડીલો'],
+    pet_walking: ['pet', 'dog', 'cat', 'puppy', 'dog walking', 'पेट वॉक', 'ડોગ'],
+    other: ['other', 'custom', 'general']
   };
 
   const currentMasterObj = MASTER_CATEGORIES.find(m => m.id === selectedCategory);
@@ -641,7 +697,29 @@ export default function HomeScreen({
   const ONE_HOUR_MS = 60 * 60 * 1000;
   const now = Date.now();
 
+  const blockedUserIds = useMemo(() => {
+    try {
+      return JSON.parse(localStorage.getItem('locohelp_blocked_user_ids') || '[]') as string[];
+    } catch {
+      return [];
+    }
+  }, [reportFilterTick]);
+
+  const hiddenPostIds = useMemo(() => {
+    try {
+      return JSON.parse(localStorage.getItem('locohelp_hidden_post_ids') || '[]') as string[];
+    } catch {
+      return [];
+    }
+  }, [reportFilterTick]);
+
   const processedIntents = intents.filter(item => {
+    if ((item as any).is_flagged === true || (item as any).hidden === true || (item as any).is_deleted === true) {
+      return false;
+    }
+    if (item.id && hiddenPostIds.includes(item.id)) return false;
+    if (item.authorId && blockedUserIds.includes(item.authorId)) return false;
+
     const createdAtTime = new Date(item.createdAt || (item as any).created_at || Date.now()).getTime();
     const lastInteractionTime = (item as any).lastInteractionAt ? new Date((item as any).lastInteractionAt).getTime() : 0;
     const effectiveTime = Math.max(createdAtTime, lastInteractionTime);
@@ -676,9 +754,18 @@ export default function HomeScreen({
     };
   });
 
-  // Filter by category
+  // Filter by category (supports both Main Category IDs and Sub-Category IDs)
   const categoryFilteredIntents = processedIntents.filter(item => {
     if (selectedCategory === 'all') return true;
+    const itemCat = ((item as any).category || '').toLowerCase();
+    if (itemCat && itemCat === selectedCategory.toLowerCase()) return true;
+    const subCatsInGroup = CATEGORIES.filter(c => c.masterCategory === selectedCategory);
+    if (subCatsInGroup.length > 0) {
+      if (subCatsInGroup.some(sc => sc.id === itemCat)) return true;
+      const groupTags = subCatsInGroup.map(sc => sc.tag.toLowerCase().replace('#', ''));
+      const text = (item.description + ' ' + (item.tags ? item.tags.join(' ') : '')).toLowerCase();
+      if (groupTags.some(gt => text.includes(gt))) return true;
+    }
     const keywords = categoryKeywords[selectedCategory] || [selectedCategory];
     const text = (item.description + ' ' + (item.tags ? item.tags.join(' ') : '')).toLowerCase();
     return keywords.some(k => text.includes(k));
@@ -2047,8 +2134,29 @@ export default function HomeScreen({
                               </button>
                             </>
                           ) : (
-                            /* Visitor Controls: View Author Profile & Direct Chat */
+                            /* Visitor Controls: Report/Block, View Author Profile & Direct Chat */
                             <>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  window.dispatchEvent(
+                                    new CustomEvent('locohelp_open_report_modal', {
+                                      detail: {
+                                        reportedUserId: intent.authorId || (intent as any).user_id || '',
+                                        reportedUserName: intent.authorName || (intent as any).author_name || 'Community Member',
+                                        reportedPostId: intent.id,
+                                        reportedPostTitle: intent.description
+                                      }
+                                    })
+                                  );
+                                }}
+                                className="px-2.5 py-1.5 rounded-xl bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800 text-[11px] font-extrabold flex items-center gap-1 transition-all cursor-pointer active:scale-95"
+                                title={t('rep.reportAndBlockBtn')}
+                              >
+                                <ShieldAlert className="w-3 h-3 shrink-0" />
+                                <span>{t('rep.reportAndBlockBtn')}</span>
+                              </button>
                               <button
                                 type="button"
                                 onClick={() =>

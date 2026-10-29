@@ -43,7 +43,7 @@ import {
   ChevronRight,
   Filter
 } from 'lucide-react';
-import { getFreeHelperProfiles, saveFreeHelperProfile, normalizeCategorySlug, CATEGORIES } from '../data/categories';
+import { getFreeHelperProfiles, saveFreeHelperProfile, normalizeCategorySlug, CATEGORIES, MASTER_CATEGORIES, getSubCategoriesByMainId } from '../data/categories';
 import { getHelpers, getShops } from '../auth';
 import { 
   fetchLiveIntents, 
@@ -4193,11 +4193,21 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                         onChange={(e) => setEditingItem({ ...editingItem, categoryOrRole: e.target.value })}
                         className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
                       >
-                        {CATEGORIES.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.nameEn} ({c.nameHi})
-                          </option>
-                        ))}
+                        {MASTER_CATEGORIES.map((mainCat, idx) => {
+                          const subs = getSubCategoriesByMainId(mainCat.id);
+                          return (
+                            <optgroup
+                              key={mainCat.id}
+                              label={`${idx + 1}. ${mainCat.emoji} ${mainCat.nameEn} (${mainCat.nameHi})`}
+                            >
+                              {subs.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  {c.nameEn} ({c.nameHi})
+                                </option>
+                              ))}
+                            </optgroup>
+                          );
+                        })}
                       </select>
                     ) : (
                       <input
@@ -4479,11 +4489,21 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                           onChange={(e) => setCreatingItem({ ...creatingItem, category: e.target.value })}
                           className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
                         >
-                          {CATEGORIES.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.nameEn} ({c.nameHi})
-                            </option>
-                          ))}
+                          {MASTER_CATEGORIES.map((mainCat, idx) => {
+                            const subs = getSubCategoriesByMainId(mainCat.id);
+                            return (
+                              <optgroup
+                                key={mainCat.id}
+                                label={`${idx + 1}. ${mainCat.emoji} ${mainCat.nameEn} (${mainCat.nameHi})`}
+                              >
+                                {subs.map((c) => (
+                                  <option key={c.id} value={c.id}>
+                                    {c.nameEn} ({c.nameHi})
+                                  </option>
+                                ))}
+                              </optgroup>
+                            );
+                          })}
                         </select>
                         {creatingItem.category === 'other' && (
                           <input

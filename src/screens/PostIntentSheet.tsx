@@ -22,6 +22,13 @@ import {
   getSavedUserLocation,
   saveUserLocationPermanently
 } from '../data/panIndiaLocations';
+import {
+  CATEGORIES,
+  MASTER_CATEGORIES,
+  getCategoryName,
+  getMasterCategoryName,
+  getSubCategoriesByMainId
+} from '../data/categories';
 
 interface PostIntentSheetProps {
   onClose: () => void;
@@ -34,6 +41,7 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
   const [radius, setRadius] = useState(2);
   const [hasPin, setHasPin] = useState(false);
   const [isPosting, setIsPosting] = useState(false);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>('');
   const [customTags, setCustomTags] = useState<string[]>([]);
   const [isListening, setIsListening] = useState(false);
   const [isLoginPromptOpen, setIsLoginPromptOpen] = useState(false);
@@ -174,10 +182,19 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
         saveUserLocationPermanently({ state: finalState, district: finalCity, area: finalArea });
       } catch (e) {}
       
+      const selectedCatObj = CATEGORIES.find(c => c.id === selectedCategoryId);
+      const finalTags = Array.from(
+        new Set([
+          ...(selectedCatObj ? [selectedCatObj.tag] : []),
+          ...combinedTags
+        ])
+      );
+
       const newIntent: Intent = {
         id: intentId,
         description: safeText,
-        tags: combinedTags.length > 0 ? combinedTags.map(t => sanitizeText(t, 40)) : ['#General'],
+        category: selectedCategoryId || undefined,
+        tags: finalTags.length > 0 ? finalTags.map(t => sanitizeText(t, 40)) : ['#General'],
         authorId: activeUid,
         authorName: sanitizeText(profile.displayName || 'Community Member', 100),
         authorEmail: profile.email || getCurrentUser()?.email || undefined,
@@ -546,13 +563,58 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
             </div>
           </div>
 
-          {/* Select Category / Work Type Tags */}
-          <div className="space-y-1.5 pt-1">
-            <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
-              <span>{t('post.selectCategory') || "Select Category / Work Type"}</span>
-              <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-normal">{language === 'EN' ? 'Tap to select' : language === 'GU' ? 'પસંદ કરવા ટેપ કરો' : 'चुनने के लिए टैप करें'}</span>
+          {/* Select Category / Sub-Category Dropdown + Quick Tags */}
+          <div className="space-y-2 pt-1">
+            <label className="text-[11px] font-bold text-slate-500 dark:text-slate-300 uppercase tracking-wider flex items-center justify-between">
+              <span>
+                {language === 'EN'
+                  ? 'Select Category / Service Type'
+                  : language === 'GU'
+                  ? 'કેટેગરી / સર્વિસનો પ્રકાર પસંદ કરો'
+                  : 'श्रेणी / सर्विस का प्रकार चुनें'}
+              </span>
+              <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold">
+                {language === 'EN' ? '10 Groups • 49 Categories' : language === 'GU' ? '10 ગ્રુપ • 49 કેટેગરી' : '10 ग्रुप • 49 श्रेणियां'}
+              </span>
             </label>
-            <div className="flex flex-wrap gap-1.5">
+
+            <select
+              value={selectedCategoryId}
+              onChange={(e) => {
+                const catId = e.target.value;
+                setSelectedCategoryId(catId);
+                const catObj = CATEGORIES.find(c => c.id === catId);
+                if (catObj && !customTags.includes(catObj.tag)) {
+                  setCustomTags(prev => [catObj.tag, ...prev.filter(t => t !== catObj.tag)]);
+                }
+              }}
+              className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs font-bold text-slate-900 dark:text-white outline-none focus:border-indigo-500 cursor-pointer"
+            >
+              <option value="">
+                {language === 'EN'
+                  ? '-- Choose a Category or Sub-Category (Optional) --'
+                  : language === 'GU'
+                  ? '-- કેટેગરી અથવા સબ-કેટેગરી પસંદ કરો (વૈકલ્પિક) --'
+                  : '-- श्रेणी या सब-कैटेगरी चुनें (वैकल्पिक) --'}
+              </option>
+              {MASTER_CATEGORIES.map((mainCat, idx) => {
+                const subs = getSubCategoriesByMainId(mainCat.id);
+                return (
+                  <optgroup
+                    key={mainCat.id}
+                    label={`${idx + 1}. ${mainCat.emoji} ${getMasterCategoryName(mainCat, language)}`}
+                  >
+                    {subs.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {language === 'EN' ? c.nameEn : `${getCategoryName(c, language)} (${c.nameEn})`}
+                      </option>
+                    ))}
+                  </optgroup>
+                );
+              })}
+            </select>
+
+            <div className="flex flex-wrap gap-1.5 pt-1">
               {QUICK_TAGS.map(tag => {
                 const isSelected = combinedTags.includes(tag);
                 return (

@@ -280,7 +280,16 @@ const translations: Record<Language, Record<string, string>> = {
     'feed.greeting': "Namaste! LocoHelp is new. If you face any issues or have any suggestions, please let us know.",
     'feed.suggestion': "Your suggestion is important to us! Help us make LocoHelp better for your area.",
     'feed.thanks': "Thank you!",
-    'feed.contact': "Contact: support@locohelp.com"
+    'feed.contact': "Contact: support@locohelp.com",
+    'legal.loginConsent': "I agree to the Terms & Conditions and understand that LocoHelp is only a connecting mediator platform and is not responsible for any offline payments or work quality.",
+    'legal.loginConsentRequired': "Please accept the Terms & Conditions and Mediator Disclaimer to continue.",
+    'chat.safetyBanner': "⚠️ Safety Warning: LocoHelp is only a connecting mediator. Never pay any advance money online before work is completed. Verify the person yourself.",
+    'rep.reasonFraud': "Fraud or Scam",
+    'rep.reasonAdvance': "Asking for Advance Money",
+    'rep.reasonFakeProfile': "Fake Profile or Wrong Info",
+    'rep.reasonAbusive': "Abusive Behavior",
+    'rep.reasonIllegal': "Illegal Service",
+    'rep.reportAndBlockBtn': "Report / Block"
   },
   HI: {
     'login.title': 'LOCOHELP',
@@ -560,7 +569,16 @@ const translations: Record<Language, Record<string, string>> = {
     'feed.greeting': "नमस्ते! LocoHelp अभी नया है। अगर आपको इस्तेमाल करने में कोई दिक्कत आए या आपके पास हमारे लिए कोई सुझाव हो, तो कृपया हमें बताएं।",
     'feed.suggestion': "आपका सुझाव हमारे लिए ज़रूरी है! LocoHelp को अपने एरिया के लिए और बेहतर बनाने में हमारी मदद करें।",
     'feed.thanks': "आपका धन्यवाद!",
-    'feed.contact': "संपर्क: support@locohelp.com"
+    'feed.contact': "संपर्क: support@locohelp.com",
+    'legal.loginConsent': "मैं नियम और शर्तों से सहमत हूँ और समझता हूँ कि LocoHelp सिर्फ लोगों को जोड़ने का एक माध्यम है और किसी भी लेन-देन या काम की गुणवत्ता के लिए जिम्मेदार नहीं है।",
+    'legal.loginConsentRequired': "आगे बढ़ने के लिए कृपया नियम व शर्तों (Mediator Disclaimer) से सहमत होने का बॉक्स टिक करें।",
+    'chat.safetyBanner': "⚠️ सुरक्षा चेतावनी: LocoHelp सिर्फ जोड़ने का माध्यम है। काम पूरा होने से पहले किसी को भी ऑनलाइन एडवांस पैसे न दें। व्यक्ति की जांच स्वयं करें।",
+    'rep.reasonFraud': "धोखाधड़ी या स्कैम",
+    'rep.reasonAdvance': "एडवांस पैसे मांग रहा है",
+    'rep.reasonFakeProfile': "नकली प्रोफाइल या गलत जानकारी",
+    'rep.reasonAbusive': "गलत व्यवहार या गाली-गलौज",
+    'rep.reasonIllegal': "गैर-कानूनी काम",
+    'rep.reportAndBlockBtn': "रिपोर्ट / ब्लॉक"
   },
   GU: {
     'login.title': 'LOCOHELP',
@@ -840,9 +858,58 @@ const translations: Record<Language, Record<string, string>> = {
     'feed.greeting': "નમસ્તે! LocoHelp હજુ નવું છે. જો તમને વાપરવામાં કોઈ મુશ્કેલી પડે અથવા તમારી પાસે કોઈ સૂચન હોય, તો કૃપા કરીને અમને જણાવો.",
     'feed.suggestion': "તમારું સૂચન અમારા માટે મહત્વપૂર્ણ છે! તમારા વિસ્તાર માટે LocoHelp ને વધુ સારું બનાવવામાં અમારી મદદ કરો.",
     'feed.thanks': "તમારો આભાર!",
-    'feed.contact': "સંપર્ક: support@locohelp.com"
+    'feed.contact': "સંપર્ક: support@locohelp.com",
+    'legal.loginConsent': "હું નિયમો અને શરતો સાથે સંમત છું અને સમજું છું કે LocoHelp માત્ર લોકોને જોડવાનું એક માધ્યમ છે અને કોઈપણ નાણાકીય લેવડદેવડ કે કામની ગુણવત્તા માટે જવાબદાર નથી.",
+    'legal.loginConsentRequired': "આગળ વધવા માટે કૃપા કરીને નિયમો અને શરતો (Mediator Disclaimer) સ્વીકારવાનું બોક્સ ટિક કરો.",
+    'chat.safetyBanner': "⚠️ સુરક્ષા ચેતવણી: LocoHelp માત્ર લોકોને જોડવાનું માધ્યમ છે. કામ પૂર્ણ થયા પહેલાં કોઈને પણ ઓનલાઈન એડવાન્સ પૈસા આપશો નહીં. વ્યક્તિની ચકાસણી જાતે કરો.",
+    'rep.reasonFraud': "છેતરપિંડી અથવા સ્કેમ",
+    'rep.reasonAdvance': "એડવાન્સ પૈસા માંગી રહ્યા છે",
+    'rep.reasonFakeProfile': "નકલી પ્રોફાઇલ અથવા ખોટી માહિતી",
+    'rep.reasonAbusive': "અભદ્ર વર્તન",
+    'rep.reasonIllegal': "ગેરકાયદેસર સેવા",
+    'rep.reportAndBlockBtn': "રિપોર્ટ / બ્લોક"
   }
 };
+
+export interface MultilingualReportReason {
+  id: string;
+  en: string;
+  hi: string;
+  gu: string;
+}
+
+export const COMPLIANCE_REPORT_REASONS: MultilingualReportReason[] = [
+  {
+    id: 'FRAUD_OR_SCAM',
+    en: 'Fraud or Scam',
+    hi: 'धोखाधड़ी या स्कैम',
+    gu: 'છેતરપિંડી અથવા સ્કેમ'
+  },
+  {
+    id: 'ASKING_ADVANCE_MONEY',
+    en: 'Asking for Advance Money',
+    hi: 'एडवांस पैसे मांग रहा है',
+    gu: 'એડવાન્સ પૈસા માંગી રહ્યા છે'
+  },
+  {
+    id: 'FAKE_PROFILE_OR_INFO',
+    en: 'Fake Profile or Wrong Info',
+    hi: 'नकली प्रोफाइल या गलत जानकारी',
+    gu: 'નકલી પ્રોફાઇલ અથવા ખોટી માહિતી'
+  },
+  {
+    id: 'ABUSIVE_BEHAVIOR',
+    en: 'Abusive Behavior',
+    hi: 'गलत व्यवहार या गाली-गलौज',
+    gu: 'અભદ્ર વર્તન'
+  },
+  {
+    id: 'ILLEGAL_SERVICE',
+    en: 'Illegal Service',
+    hi: 'गैर-कानूनी काम',
+    gu: 'ગેરકાયદેસર સેવા'
+  }
+];
 
 export const SUPPORTED_LANGUAGES: { code: Language; label: string; nativeName: string }[] = [
   { code: 'GU', label: 'Gujarati (ગુજરાત સ્પેશિયલ)', nativeName: 'ગુજરાતી' },

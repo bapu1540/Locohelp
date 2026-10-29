@@ -3,7 +3,7 @@ import { Intent } from '../types';
 import { ArrowLeft, ShieldAlert, CheckCircle2, Send, MapPin, UserCheck, Paperclip, Navigation, Mic, Star, Sparkles, Trash2, Home, ShieldCheck, Check, Camera, Image as ImageIcon, X, Share2, Video, PhoneOff, MicOff, RefreshCw, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { getCurrentUser, isMessageSentByUser } from '../auth';
-import { useLanguage } from '../i18n';
+import { useLanguage, COMPLIANCE_REPORT_REASONS } from '../i18n';
 import UserProfileModal from './UserProfileModal';
 import LoginPromptModal from '../components/LoginPromptModal';
 import { isGuestUser } from '../lib/authUtils';
@@ -21,14 +21,6 @@ import { compressImageToWebP } from '../lib/imageCompression';
 import { uploadFileToFirebaseStorage } from '../lib/firebase';
 import { Ban } from 'lucide-react';
 
-const CHAT_REPORT_REASONS = [
-  'अनुचित भाषा या दुर्व्यवहार (Inappropriate Language / Misbehavior)',
-  'धोखाधड़ी या संदिग्ध गतिविधि (Fraud / Suspicious Activity)',
-  'स्पैम या बार-बार परेशान करना (Spam / Unwanted Messages)',
-  'गलत या भ्रामक जानकारी (Fake Profile / Misleading Info)',
-  'अन्य कारण (Other Reason)'
-];
-
 interface ChatScreenProps {
   intent: Intent | null;
   onBack: () => void;
@@ -36,7 +28,7 @@ interface ChatScreenProps {
 }
 
 export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps) {
-  const { t, tr } = useLanguage();
+  const { language, t, tr } = useLanguage();
   const chatId = intent?.id || 'chat_community_helper';
   const currentUser = getCurrentUser();
 
@@ -130,7 +122,7 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
   const [isChatBlocked, setIsChatBlocked] = useState(false);
   const [blockedByMe, setBlockedByMe] = useState(false);
   const [isReportChatModalOpen, setIsReportChatModalOpen] = useState(false);
-  const [reportReason, setReportReason] = useState(CHAT_REPORT_REASONS[0]);
+  const [reportReasonKey, setReportReasonKey] = useState(COMPLIANCE_REPORT_REASONS[0].key);
   const [reportDetails, setReportDetails] = useState('');
   const [alsoBlockUser, setAlsoBlockUser] = useState(true);
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
@@ -441,14 +433,25 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
         createdAt: m.createdAt || new Date().toISOString()
       }));
 
+      const selectedReasonObj =
+        COMPLIANCE_REPORT_REASONS.find(r => r.key === reportReasonKey) || COMPLIANCE_REPORT_REASONS[0];
+      const localizedReason =
+        language === 'EN'
+          ? selectedReasonObj.EN
+          : language === 'GU'
+          ? selectedReasonObj.GU
+          : selectedReasonObj.HI;
+
       const res = await submitChatReportToServer({
-        reason: reportReason,
+        reason: `${selectedReasonObj.EN} / ${ localizedReason }`,
         details: reportDetails.trim(),
+        description: reportDetails.trim(),
         reporterId: myId,
         reporterName: myName,
         reporterEmail: myEmail,
         reportedUserId: peerTargetId,
         reportedUserName: peerTargetName,
+        reportedPostId: intent?.id || null,
         chatId,
         chatSnapshot: snapshotToSave,
         blockUser: alsoBlockUser
@@ -458,13 +461,41 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
         if (alsoBlockUser) {
           setIsChatBlocked(true);
           setBlockedByMe(true);
+          try {
+            const blockedUsers: string[] = JSON.parse(localStorage.getItem('locohelp_blocked_user_ids') || '[]');
+            if (peerTargetId && !blockedUsers.includes(peerTargetId)) {
+              blockedUsers.push(peerTargetId);
+              localStorage.setItem('locohelp_blocked_user_ids', JSON.stringify(blockedUsers));
+            }
+          } catch {}
         }
+        try {
+          window.dispatchEvent(
+            new CustomEvent('locohelp_report_submitted', {
+              detail: {
+                reportedUserId: peerTargetId,
+                reportedPostId: intent?.id || null,
+                blocked: alsoBlockUser,
+                autoFlaggedUser: Boolean(res.autoFlaggedUser),
+                autoFlaggedPost: Boolean(res.autoFlaggedPost)
+              }
+            })
+          );
+        } catch {}
         setIsReportChatModalOpen(false);
         setReportDetails('');
         setReportStatusBanner(
           alsoBlockUser
-            ? '🛡️ चैट रिपोर्ट और संपूर्ण बातचीत का रिकॉर्ड एडमिन को भेज दिया गया है तथा इस यूज़र को ब्लॉक कर दिया गया है।'
-            : '🛡️ चैट रिपोर्ट और संपूर्ण बातचीत का रिकॉर्ड एडमिन को भेज दिया गया है।'
+            ? tr(
+                '🛡️ Report & conversation evidence sent to Admin, and this user has been blocked.',
+                '🛡️ चैट रिपोर्ट और संपूर्ण बातचीत का रिकॉर्ड एडमिन को भेज दिया गया है तथा इस यूज़र को ब्लॉक कर दिया गया है।',
+                '🛡️ ચેટ રિપોર્ટ અને સંપૂર્ણ વાતચીતનો રેકોર્ડ એડમિનને મોકલી દેવામાં આવ્યો છે અને આ યુઝરને બ્લોક કરી દેવામાં આવ્યો છે.'
+              )
+            : tr(
+                '🛡️ Report & conversation evidence sent to Admin for review.',
+                '🛡️ चैट रिपोर्ट और संपूर्ण बातचीत का रिकॉर्ड एडमिन को भेज दिया गया है।',
+                '🛡️ ચેટ રિપોર્ટ અને સંપૂર્ણ વાતચીતનો રેકોર્ડ એડમિનને મોકલી દેવામાં આવ્યો છે.'
+              )
         );
         setTimeout(() => setReportStatusBanner(null), 6000);
       }
@@ -926,12 +957,22 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
 
           <button 
             onClick={() => setIsReportChatModalOpen(true)}
-            className="p-2 hover:bg-rose-50 text-rose-500 hover:text-rose-600 rounded-xl transition-colors cursor-pointer"
-            title="Report Chat & User to Admin"
+            className="px-2.5 py-1.5 bg-rose-50 dark:bg-rose-950/70 hover:bg-rose-100 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800 rounded-xl transition-colors cursor-pointer flex items-center gap-1 text-[11px] font-black"
+            title={tr('Report / Block User', 'रिपोर्ट / ब्लॉक करें', 'રિપોર્ટ / બ્લોક કરો')}
           >
-            <ShieldAlert className="w-4 h-4" />
+            <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
+            <span>{tr('Report / Block', 'रिपोर्ट / ब्लॉक', 'રિપોર્ટ / બ્લોક')}</span>
           </button>
         </div>
+      </div>
+
+      {/* Permanent Multilingual In-Chat Safety Warning Banner (Just below Chat Header) */}
+      <div className="px-3.5 py-2 bg-amber-50 dark:bg-amber-950/80 border-b border-amber-200 dark:border-amber-800 text-[11px] sm:text-xs font-extrabold text-amber-950 dark:text-amber-200 leading-snug shadow-2xs">
+        {language === 'EN'
+          ? '⚠️ Safety Warning: LocoHelp is only a connecting mediator. Never pay any advance money online before work is completed. Verify the person yourself.'
+          : language === 'GU'
+          ? '⚠️ સુરક્ષા ચેતવણી: LocoHelp માત્ર લોકોને જોડવાનું માધ્યમ છે. કામ પૂર્ણ થયા પહેલાં કોઈને પણ ઓનલાઈન એડવાન્સ પૈસા આપશો નહીં. વ્યક્તિની ચકાસણી જાતે કરો.'
+          : '⚠️ सुरक्षा चेतावनी: LocoHelp सिर्फ जोड़ने का माध्यम है। काम पूरा होने से पहले किसी को भी ऑनलाइन एडवांस पैसे न दें। व्यक्ति की जांच स्वयं करें।'}
       </div>
 
       {/* Broadcast Topic Banner */}
@@ -1314,26 +1355,31 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
                 <label className="text-[11px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 block">
                   {tr('Select Reason:', 'रिपोर्ट का कारण चुनें (Select Reason):', 'રિપોર્ટનું કારણ પસંદ કરો:')}
                 </label>
-                {CHAT_REPORT_REASONS.map((reason) => (
-                  <label
-                    key={reason}
-                    onClick={() => setReportReason(reason)}
-                    className={`flex items-center justify-between p-3 rounded-2xl cursor-pointer transition-all border ${
-                      reportReason === reason
-                        ? 'bg-rose-50 dark:bg-rose-950/50 border-rose-400 dark:border-rose-700 text-rose-900 dark:text-rose-200 font-extrabold'
-                        : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-medium'
-                    }`}
-                  >
-                    <span className="text-xs pr-2">{reason}</span>
-                    <input
-                      type="radio"
-                      name="chatReportReason"
-                      checked={reportReason === reason}
-                      onChange={() => setReportReason(reason)}
-                      className="accent-rose-600 shrink-0"
-                    />
-                  </label>
-                ))}
+                {COMPLIANCE_REPORT_REASONS.map((item) => {
+                  const isSelected = reportReasonKey === item.key;
+                  const labelText =
+                    language === 'EN' ? item.EN : language === 'GU' ? item.GU : item.HI;
+                  return (
+                    <label
+                      key={item.key}
+                      onClick={() => setReportReasonKey(item.key)}
+                      className={`flex items-center justify-between p-3 rounded-2xl cursor-pointer transition-all border ${
+                        isSelected
+                          ? 'bg-rose-50 dark:bg-rose-950/50 border-rose-400 dark:border-rose-700 text-rose-900 dark:text-rose-200 font-extrabold'
+                          : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-medium'
+                      }`}
+                    >
+                      <span className="text-xs pr-2">{labelText}</span>
+                      <input
+                        type="radio"
+                        name="chatReportReason"
+                        checked={isSelected}
+                        onChange={() => setReportReasonKey(item.key)}
+                        className="accent-rose-600 shrink-0"
+                      />
+                    </label>
+                  );
+                })}
               </div>
 
               <textarea

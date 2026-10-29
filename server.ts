@@ -953,7 +953,61 @@ function getClientIp(req: express.Request): string {
   if (typeof xff === "string" && xff.trim()) {
     return xff.split(",")[0].trim();
   }
+  if (Array.isArray(xff) && xff.length > 0 && xff[0]) {
+    return String(xff[0]).split(",")[0].trim();
+  }
+  if (req.ip && typeof req.ip === "string" && req.ip.trim()) {
+    return req.ip.trim();
+  }
   return req.socket?.remoteAddress || "unknown_ip";
+}
+
+function getClientUserAgent(req: express.Request): string {
+  const ua = req.headers["user-agent"];
+  if (typeof ua === "string" && ua.trim()) {
+    return ua.trim().slice(0, 500);
+  }
+  return "unknown_user_agent";
+}
+
+const memorySecurityAuditLogs: any[] = [];
+
+async function logSecurityAudit(
+  userId: string,
+  action: "SIGNUP" | "LOGIN" | "CREATE_POST" | "ACCOUNT_DELETED",
+  req: express.Request
+): Promise<void> {
+  try {
+    const cleanUserId = String(userId || "unknown_user").trim().slice(0, 150);
+    const ipAddress = getClientIp(req);
+    const userAgent = getClientUserAgent(req);
+    const logId = `audit_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    const createdAt = new Date().toISOString();
+
+    memorySecurityAuditLogs.unshift({
+      id: logId,
+      user_id: cleanUserId,
+      action,
+      ip_address: ipAddress,
+      user_agent: userAgent,
+      created_at: createdAt
+    });
+    if (memorySecurityAuditLogs.length > 2000) {
+      memorySecurityAuditLogs.length = 2000;
+    }
+
+    if (dbPool && isDbConnected) {
+      await dbPool.query(
+        `INSERT INTO security_audit_logs (id, user_id, action, ip_address, user_agent, created_at)
+         VALUES ($1, $2, $3, $4, $5, NOW())`,
+        [logId, cleanUserId, action, ipAddress, userAgent]
+      ).catch((err) => {
+        console.warn("[Security Audit Log] DB insert note:", err?.message);
+      });
+    }
+  } catch (err: any) {
+    console.warn("[Security Audit Log] Fallback note:", err?.message);
+  }
 }
 
 function createRateLimiter(options: { windowMs: number; max: number; keyPrefix: string; message: string }) {
@@ -1469,28 +1523,75 @@ let lastDbInitError = "";
 let ensureTablesPromise: Promise<{ connected: boolean; tables: string[]; error?: string }> | null = null;
 
 const DEFAULT_CATEGORIES_SEED = [
-  { id: "electrician", name: "Electrician (इलेक्ट्रीशियन)", icon: "⚡" },
-  { id: "plumber", name: "Plumber (प्लंबर)", icon: "🚰" },
-  { id: "ac_appliance", name: "AC & Appliance Repair (एसी/फ्रिज रिपेयर)", icon: "❄️" },
-  { id: "carpenter", name: "Carpenter (कारपेंटर / बढ़ई)", icon: "🪚" },
-  { id: "painter", name: "Painter & POP (पेंटर / पुताई)", icon: "🎨" },
-  { id: "cleaning_pest", name: "Home Cleaning & Maid (सफाई / मेड)", icon: "🧹" },
-  { id: "mechanic", name: "Bike & Car Mechanic (मैकेनिक)", icon: "🔧" },
-  { id: "driver_cab", name: "Driver & Auto/Cab (ड्राइवर / कैब)", icon: "🚕" },
-  { id: "tutor", name: "Home Tutor & Coaching (होम ट्यूटर)", icon: "📚" },
-  { id: "beauty_parlour", name: "Beauty & Salon at Home (ब्यूटी पार्लर)", icon: "💇‍♀️" },
-  { id: "tailor", name: "Tailor & Boutique (दर्जी / बुटीक)", icon: "🧵" },
-  { id: "tiffin_catering", name: "Tiffin & Catering (टिफिन / कैटरिंग)", icon: "🍱" },
-  { id: "computer_mobile", name: "Computer & Mobile Repair (मोबाइल/लैपटॉप)", icon: "💻" },
-  { id: "cctv_security", name: "CCTV & Security Guards (सीसीटीवी / गार्ड)", icon: "📹" },
-  { id: "packers_movers", name: "Packers, Movers & Tempo (पैकर्स / टेम्पो)", icon: "🚚" },
-  { id: "civil_mason", name: "Mason & Construction (कड़िया / मिस्त्री)", icon: "🧱" },
-  { id: "welder_fabrication", name: "Welding & Fabrication (वेल्डिंग / फेब्रिकेशन)", icon: "🔥" },
-  { id: "gardening", name: "Gardener & Nursery (माली / गार्डनिंग)", icon: "🪴" },
-  { id: "event_photo", name: "Photographer & DJ/Events (फोटोग्राफर / इवेंट)", icon: "📸" },
-  { id: "astrology_pandit", name: "Pandit Ji & Astrology (पंडित जी / पूजा)", icon: "🕉️" },
-  { id: "medical_nursing", name: "Nursing & Medical Care (नर्सिंग / केयर)", icon: "🩺" },
-  { id: "other", name: "Other Local Services (अन्य सेवाएं)", icon: "🛠️" }
+  // 1. Home & Repair Services
+  { id: "plumber", name: "Plumber (प्लंबर / પ્લમ્બર)", icon: "🚰" },
+  { id: "electrician", name: "Electrician (इलेक्ट्रीशियन / ઇલેક્ટ્રિશિયન)", icon: "⚡" },
+  { id: "ac_repair", name: "AC, Fridge & RO Repair (AC, फ्रिज और RO रिपेयर)", icon: "❄️" },
+  { id: "carpenter", name: "Carpenter / Suthar (कारपेंटर / सुथार)", icon: "🪚" },
+  { id: "painter", name: "Painter (पेंटर / પેઇન્ટર)", icon: "🎨" },
+  { id: "mason", name: "Mason / Kadiyo (कड़िया / मिस्त्री)", icon: "🧱" },
+  { id: "cleaning", name: "Cleaning, Maid & Cook (घर की सफाई, मेड और रसोइया)", icon: "🧹" },
+  { id: "pest_control", name: "Pest Control & Tank Cleaning (पेस्ट कंट्रोल और टंकी सफाई)", icon: "🪲" },
+
+  // 2. Personal Care, Fashion & Events
+  { id: "tailor", name: "Tailor / Darzi & Boutique (दर्जी / बुटीक)", icon: "✂️" },
+  { id: "beautician", name: "Beautician & Salon at Home (ब्यूटीशियन और होम सैलून)", icon: "💇‍♀️" },
+  { id: "mehendi", name: "Mehendi Artist (मेहंदी आर्टिस्ट)", icon: "🌿" },
+  { id: "pandit_pooja", name: "Pandit Ji / Pooja Path (पंडित जी / पूजा-पाठ)", icon: "🕉️" },
+  { id: "photographer", name: "Photographer & Videographer (फोटोग्राफर और वीडियोग्राफर)", icon: "📸" },
+  { id: "catering_event", name: "Catering, Halwai & Event Helper (कैटरिंग, हलवाई और इवेंट)", icon: "🍱" },
+
+  // 3. IT, Tech & Digital Experts
+  { id: "web_developer", name: "Web Developer (वेब डेवलपर)", icon: "🌐" },
+  { id: "app_developer", name: "App Developer (ऐप डेवलपर)", icon: "📱" },
+  { id: "computer_laptop", name: "Computer & Laptop Expert (कंप्यूटर और लैपटॉप एक्सपर्ट)", icon: "💻" },
+  { id: "cctv_wifi", name: "CCTV & Wi-Fi Technician (CCTV और वाई-फाई टेक्नीशियन)", icon: "📹" },
+  { id: "graphic_video", name: "Graphic Designer & Video Editor (ग्राफिक डिजाइनर और वीडियो एडिटर)", icon: "🎬" },
+  { id: "digital_marketing", name: "Digital Marketing & Social Media (डिजिटल मार्केटिंग)", icon: "📢" },
+  { id: "mobile_repair", name: "Mobile Repair Technician (मोबाइल रिपेयर टेक्नीशियन)", icon: "📲" },
+
+  // 4. Business, Sales & Staff
+  { id: "sales_staff", name: "Salesman / Salesgirl (सेल्समेन / सेल्सगर्ल)", icon: "🛍️" },
+  { id: "shop_helper", name: "Shop Helper / Store Staff (दुकान हेल्पर / स्टोर स्टाफ)", icon: "🏪" },
+  { id: "accountant_gst", name: "Accountant & GST/Tax Expert (अकाउंटेंट और GST/टैक्स एक्सपर्ट)", icon: "📊" },
+  { id: "data_entry", name: "Data Entry & Back Office (डाटा एंट्री और कंप्यूटर ऑपरेटर)", icon: "⌨️" },
+  { id: "security_guard", name: "Security Guard / Watchman (सिक्योरिटी गार्ड / वॉचमैन)", icon: "🛡️" },
+  { id: "receptionist_telecaller", name: "Receptionist & Telecaller (रिसेप्शनिस्ट और टेलीकॉलर)", icon: "🎧" },
+
+  // 5. Brokers, Agents & Consultants
+  { id: "real_estate_broker", name: "Real Estate / Property Broker (प्रॉपर्टी ब्रोकर)", icon: "🏢" },
+  { id: "vehicle_broker", name: "Vehicle Broker / Agent (गाड़ी ब्रोकर / एजेंट)", icon: "🚗" },
+  { id: "rto_agent", name: "RTO & License Agent (RTO और ड्राइविंग लाइसेंस एजेंट)", icon: "🪪" },
+  { id: "loan_insurance", name: "Loan & Insurance Agent (लोन और बीमा एजेंट)", icon: "🏦" },
+  { id: "legal_docs", name: "Legal & Documentation Help (कानूनी सलाह और दस्तावेज मदद)", icon: "⚖️" },
+
+  // 6. Vehicle, Transport & Delivery
+  { id: "mechanic", name: "Mechanic & Puncture Repair (मैकेनिक और पंक्चर रिपेयर)", icon: "🔧" },
+  { id: "cab_auto_driver", name: "Cab, Auto & Private Driver (कैब, ऑटो और प्राइवेट ड्राइवर)", icon: "🚕" },
+  { id: "tempo_packers", name: "Tempo & Packers/Movers (टेम्पो और पैकर्स-मूवर्स)", icon: "🚚" },
+  { id: "delivery", name: "Delivery & Errands (लोकल डिलीवरी और सामान लाना)", icon: "📦" },
+
+  // 7. Education & Skill Classes
+  { id: "tutor", name: "Tuition & School Teacher (होम ट्यूटर और स्कूल टीचर)", icon: "📚" },
+  { id: "study_project", name: "Project & Study Help (प्रोजेक्ट और पढ़ाई में मदद)", icon: "📖" },
+  { id: "computer_spoken_english", name: "Computer & Spoken English Classes (कंप्यूटर और स्पोकन इंग्लिश)", icon: "🗣️" },
+  { id: "music_dance_art", name: "Music, Dance & Art Teacher (संगीत, डांस और ड्राइंग टीचर)", icon: "🎵" },
+
+  // 8. Sports & Fitness Partners
+  { id: "cricket", name: "Cricket Partner & Team (क्रिकेट साथी और टीम)", icon: "🏏" },
+  { id: "badminton", name: "Badminton & Tennis Partner (बैडमिंटन और टेनिस साथी)", icon: "🏸" },
+  { id: "gym_fitness", name: "Gym & Workout Buddy (जिम और वर्कआउट पार्टनर)", icon: "💪" },
+  { id: "running_yoga", name: "Running, Cycling & Yoga Partner (रनिंग, साइकिलिंग और योगा साथी)", icon: "🏃" },
+
+  // 9. Social, Lifestyle & Care
+  { id: "chai_coffee", name: "Tea-Coffee Meetup (चाय-कॉफी मीटअप)", icon: "☕" },
+  { id: "companion", name: "Evening Walk Partner (शाम की वॉक साथी)", icon: "🚶" },
+  { id: "board_games", name: "Chess & Board Games (शतरंज, लूडो और इंडोर गेम्स)", icon: "♟️" },
+  { id: "senior_help", name: "Elder Care & Companion (बुजुर्गों की मदद और देखभाल)", icon: "🤝" },
+  { id: "pet_walking", name: "Pet Walk & Care (पेट वॉक और डॉग केयर)", icon: "🐾" },
+
+  // 10. Other / Custom Category
+  { id: "other", name: "Other / Custom Category (अन्य / कस्टम श्रेणी)", icon: "✨" }
 ];
 
 async function execSafeDDL(pool: pg.Pool, sql: string, label: string): Promise<void> {
@@ -2193,6 +2294,107 @@ async function initPostgresTables(pool: pg.Pool): Promise<string[]> {
     "normalize suggestions placeholder names"
   );
 
+  // ==========================================
+  // INDIAN IT ACT (SECTION 79 SAFE HARBOUR) & IT RULES 2021 COMPLIANCE TABLES & COLUMNS
+  // ==========================================
+  // 1. Standardized "reports" table (Multilingual Report & Block + 3-Report Auto-Flagging)
+  await execSafeDDL(
+    pool,
+    `CREATE TABLE IF NOT EXISTS reports (
+      id TEXT PRIMARY KEY,
+      reporter_id TEXT NOT NULL,
+      reported_user_id TEXT,
+      reported_post_id TEXT,
+      reason TEXT NOT NULL,
+      description TEXT,
+      status TEXT DEFAULT 'PENDING',
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )`,
+    "CREATE TABLE reports"
+  );
+  await execSafeDDL(pool, `ALTER TABLE reports ADD COLUMN IF NOT EXISTS reporter_id TEXT`, "reports.reporter_id");
+  await execSafeDDL(pool, `ALTER TABLE reports ADD COLUMN IF NOT EXISTS reported_user_id TEXT`, "reports.reported_user_id");
+  await execSafeDDL(pool, `ALTER TABLE reports ADD COLUMN IF NOT EXISTS reported_post_id TEXT`, "reports.reported_post_id");
+  await execSafeDDL(pool, `ALTER TABLE reports ADD COLUMN IF NOT EXISTS reason TEXT`, "reports.reason");
+  await execSafeDDL(pool, `ALTER TABLE reports ADD COLUMN IF NOT EXISTS description TEXT`, "reports.description");
+  await execSafeDDL(pool, `ALTER TABLE reports ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'PENDING'`, "reports.status");
+  await execSafeDDL(pool, `ALTER TABLE reports ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()`, "reports.created_at");
+  await execSafeDDL(pool, `CREATE INDEX IF NOT EXISTS idx_reports_reported_user ON reports (reported_user_id)`, "idx_reports_reported_user");
+  await execSafeDDL(pool, `CREATE INDEX IF NOT EXISTS idx_reports_reported_post ON reports (reported_post_id)`, "idx_reports_reported_post");
+  await execSafeDDL(pool, `ALTER TABLE admin_reports ADD COLUMN IF NOT EXISTS reported_post_id TEXT`, "admin_reports.reported_post_id");
+
+  // 2. "security_audit_logs" table (180-Day IP & User-Agent Retention for Cyber Cell / Law Enforcement Compliance)
+  await execSafeDDL(
+    pool,
+    `CREATE TABLE IF NOT EXISTS security_audit_logs (
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      action TEXT NOT NULL,
+      ip_address TEXT,
+      user_agent TEXT,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )`,
+    "CREATE TABLE security_audit_logs"
+  );
+  await execSafeDDL(pool, `ALTER TABLE security_audit_logs ADD COLUMN IF NOT EXISTS user_id TEXT`, "security_audit_logs.user_id");
+  await execSafeDDL(pool, `ALTER TABLE security_audit_logs ADD COLUMN IF NOT EXISTS action TEXT`, "security_audit_logs.action");
+  await execSafeDDL(pool, `ALTER TABLE security_audit_logs ADD COLUMN IF NOT EXISTS ip_address TEXT`, "security_audit_logs.ip_address");
+  await execSafeDDL(pool, `ALTER TABLE security_audit_logs ADD COLUMN IF NOT EXISTS user_agent TEXT`, "security_audit_logs.user_agent");
+  await execSafeDDL(pool, `ALTER TABLE security_audit_logs ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()`, "security_audit_logs.created_at");
+  await execSafeDDL(pool, `CREATE INDEX IF NOT EXISTS idx_security_audit_user_created ON security_audit_logs (user_id, created_at DESC)`, "idx_security_audit_user_created");
+
+  // 3. Legal Consent, Soft Delete (180-Day Retention), and Auto-Flagging Columns across User & Content Tables
+  await execSafeDDL(pool, `ALTER TABLE users ADD COLUMN IF NOT EXISTS terms_accepted BOOLEAN DEFAULT false`, "users.terms_accepted");
+  await execSafeDDL(pool, `ALTER TABLE users ADD COLUMN IF NOT EXISTS terms_accepted_at TIMESTAMP WITH TIME ZONE`, "users.terms_accepted_at");
+  await execSafeDDL(pool, `ALTER TABLE users ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT false`, "users.is_deleted");
+  await execSafeDDL(pool, `ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP WITH TIME ZONE`, "users.deleted_at");
+  await execSafeDDL(pool, `ALTER TABLE users ADD COLUMN IF NOT EXISTS is_flagged BOOLEAN DEFAULT false`, "users.is_flagged");
+  await execSafeDDL(pool, `ALTER TABLE users ADD COLUMN IF NOT EXISTS hidden BOOLEAN DEFAULT false`, "users.hidden");
+
+  await execSafeDDL(pool, `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS terms_accepted BOOLEAN DEFAULT false`, "profiles.terms_accepted");
+  await execSafeDDL(pool, `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS terms_accepted_at TIMESTAMP WITH TIME ZONE`, "profiles.terms_accepted_at");
+  await execSafeDDL(pool, `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT false`, "profiles.is_deleted");
+  await execSafeDDL(pool, `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP WITH TIME ZONE`, "profiles.deleted_at");
+  await execSafeDDL(pool, `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_flagged BOOLEAN DEFAULT false`, "profiles.is_flagged");
+  await execSafeDDL(pool, `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS hidden BOOLEAN DEFAULT false`, "profiles.hidden");
+
+  await execSafeDDL(pool, `ALTER TABLE "user" ADD COLUMN IF NOT EXISTS terms_accepted BOOLEAN DEFAULT false`, "user.terms_accepted");
+  await execSafeDDL(pool, `ALTER TABLE "user" ADD COLUMN IF NOT EXISTS terms_accepted_at TIMESTAMP WITH TIME ZONE`, "user.terms_accepted_at");
+  await execSafeDDL(pool, `ALTER TABLE "user" ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT false`, "user.is_deleted");
+  await execSafeDDL(pool, `ALTER TABLE "user" ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP WITH TIME ZONE`, "user.deleted_at");
+  await execSafeDDL(pool, `ALTER TABLE "user" ADD COLUMN IF NOT EXISTS is_flagged BOOLEAN DEFAULT false`, "user.is_flagged");
+  await execSafeDDL(pool, `ALTER TABLE "user" ADD COLUMN IF NOT EXISTS hidden BOOLEAN DEFAULT false`, "user.hidden");
+
+  await execSafeDDL(pool, `ALTER TABLE posts ADD COLUMN IF NOT EXISTS is_flagged BOOLEAN DEFAULT false`, "posts.is_flagged");
+  await execSafeDDL(pool, `ALTER TABLE posts ADD COLUMN IF NOT EXISTS hidden BOOLEAN DEFAULT false`, "posts.hidden");
+  await execSafeDDL(pool, `ALTER TABLE posts ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT false`, "posts.is_deleted");
+  await execSafeDDL(pool, `ALTER TABLE posts ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP WITH TIME ZONE`, "posts.deleted_at");
+
+  await execSafeDDL(pool, `ALTER TABLE listings ADD COLUMN IF NOT EXISTS is_flagged BOOLEAN DEFAULT false`, "listings.is_flagged");
+  await execSafeDDL(pool, `ALTER TABLE listings ADD COLUMN IF NOT EXISTS hidden BOOLEAN DEFAULT false`, "listings.hidden");
+  await execSafeDDL(pool, `ALTER TABLE listings ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT false`, "listings.is_deleted");
+  await execSafeDDL(pool, `ALTER TABLE listings ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP WITH TIME ZONE`, "listings.deleted_at");
+
+  await execSafeDDL(pool, `ALTER TABLE broadcast_posts ADD COLUMN IF NOT EXISTS is_flagged BOOLEAN DEFAULT false`, "broadcast_posts.is_flagged");
+  await execSafeDDL(pool, `ALTER TABLE broadcast_posts ADD COLUMN IF NOT EXISTS hidden BOOLEAN DEFAULT false`, "broadcast_posts.hidden");
+  await execSafeDDL(pool, `ALTER TABLE broadcast_posts ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT false`, "broadcast_posts.is_deleted");
+  await execSafeDDL(pool, `ALTER TABLE broadcast_posts ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP WITH TIME ZONE`, "broadcast_posts.deleted_at");
+
+  await execSafeDDL(pool, `ALTER TABLE helpers ADD COLUMN IF NOT EXISTS is_flagged BOOLEAN DEFAULT false`, "helpers.is_flagged");
+  await execSafeDDL(pool, `ALTER TABLE helpers ADD COLUMN IF NOT EXISTS hidden BOOLEAN DEFAULT false`, "helpers.hidden");
+  await execSafeDDL(pool, `ALTER TABLE helpers ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT false`, "helpers.is_deleted");
+  await execSafeDDL(pool, `ALTER TABLE helpers ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP WITH TIME ZONE`, "helpers.deleted_at");
+
+  await execSafeDDL(pool, `ALTER TABLE businesses ADD COLUMN IF NOT EXISTS is_flagged BOOLEAN DEFAULT false`, "businesses.is_flagged");
+  await execSafeDDL(pool, `ALTER TABLE businesses ADD COLUMN IF NOT EXISTS hidden BOOLEAN DEFAULT false`, "businesses.hidden");
+  await execSafeDDL(pool, `ALTER TABLE businesses ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT false`, "businesses.is_deleted");
+  await execSafeDDL(pool, `ALTER TABLE businesses ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP WITH TIME ZONE`, "businesses.deleted_at");
+
+  await execSafeDDL(pool, `ALTER TABLE shops ADD COLUMN IF NOT EXISTS is_flagged BOOLEAN DEFAULT false`, "shops.is_flagged");
+  await execSafeDDL(pool, `ALTER TABLE shops ADD COLUMN IF NOT EXISTS hidden BOOLEAN DEFAULT false`, "shops.hidden");
+  await execSafeDDL(pool, `ALTER TABLE shops ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT false`, "shops.is_deleted");
+  await execSafeDDL(pool, `ALTER TABLE shops ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP WITH TIME ZONE`, "shops.deleted_at");
+
   // One-time cleanup of stale resurrected category images so only newly uploaded images appear
   try {
     const purgeCheck = await pool.query(
@@ -2851,6 +3053,8 @@ async function ensureTablesExist(force = false): Promise<{ connected: boolean; t
 
 async function startServer() {
   const app = express();
+  // Enable trust proxy for Railway / cloud reverse proxies to capture accurate client IPs for IT Act 2000 compliance
+  app.set("trust proxy", true);
   const isAiStudioEnv = fs.existsSync("/app/control-plane-api") || process.env.DISABLE_HMR === "true";
   const PORT = isAiStudioEnv ? 3000 : (process.env.PORT ? parseInt(process.env.PORT, 10) : 3000);
 
@@ -3989,15 +4193,26 @@ async function startServer() {
       }
 
       const isAdminCaller = isRequestAdmin(req);
+      // Log ACCOUNT_DELETED action with IP and User-Agent for 180-day security audit trail
+      await logSecurityAudit(uid, "ACCOUNT_DELETED", req);
+
       if (!isAdminCaller) {
         if (dbPool && isDbConnected) {
           try {
             await dbPool.query(
-              "UPDATE profiles SET status = 'deletion_requested', verified = false, is_verified = false, updated_at = NOW() WHERE uid = $1 OR email = $1",
+              "UPDATE users SET is_deleted = true, deleted_at = NOW(), hidden = true WHERE id = $1 OR email = $2",
+              [uid, (targetProfile?.email || "").toLowerCase()]
+            ).catch(() => {});
+            await dbPool.query(
+              'UPDATE "user" SET is_deleted = true, deleted_at = NOW(), hidden = true WHERE id = $1 OR email = $2',
+              [uid, (targetProfile?.email || "").toLowerCase()]
+            ).catch(() => {});
+            await dbPool.query(
+              "UPDATE profiles SET status = 'deletion_requested', is_deleted = true, deleted_at = NOW(), hidden = true, verified = false, is_verified = false, updated_at = NOW() WHERE uid = $1 OR email = $1",
               [uid]
             );
             await dbPool.query(
-              "UPDATE helpers SET is_verified = false WHERE id = $1 OR phone = $2",
+              "UPDATE helpers SET is_verified = false, is_deleted = true, deleted_at = NOW(), hidden = true WHERE id = $1 OR phone = $2",
               [uid, targetProfile?.phone || ""]
             ).catch(() => {});
             await dbPool.query(
@@ -4016,7 +4231,8 @@ async function startServer() {
         return res.json({
           success: true,
           status: 'deletion_requested',
-          message: 'Account closure request sent to Admin for review.'
+          is_deleted: true,
+          message: 'Account soft-deleted and retained in compliance archive for 180 days.'
         });
       }
 
@@ -4032,24 +4248,19 @@ async function startServer() {
         "ADMIN_REMOVED_PUBLIC"
       );
 
-      // Delete any associated profile/helper/shop files from Firebase Storage when profile is permanently removed by Admin
-      if (targetProfile) {
-        await deleteFilesFromFirebaseStorage(targetProfile);
-      }
-
-      // 2. Also archive & remove any linked Helper Profile of this user from public listings
+      // 2. Soft-delete linked Helper Profiles so records remain preserved in DB for 180-day compliance while hidden from public directories
       const helpers = readJsonFile<any[]>(HELPERS_FILE, []);
       const userHelpers = helpers.filter(
         h => h && (h.userId === uid || (userEmail && (h.email || "").toLowerCase() === userEmail))
       );
       for (const uh of userHelpers) {
         await archiveToSecurityVault("helper", uh.id, uh, "ADMIN_REMOVED_PUBLIC");
-        await deleteFilesFromFirebaseStorage(uh);
         if (dbPool && isDbConnected) {
           try {
-            const hRows = await dbPool.query("SELECT * FROM helpers WHERE id = $1", [uh.id]).catch(() => ({ rows: [] as any[] }));
-            await deleteFilesFromFirebaseStorage(hRows.rows);
-            await dbPool.query("DELETE FROM helpers WHERE id = $1", [uh.id]);
+            await dbPool.query(
+              "UPDATE helpers SET is_deleted = true, deleted_at = NOW(), hidden = true, is_verified = false WHERE id = $1",
+              [uh.id]
+            );
           } catch (_e) {}
         }
       }
@@ -4060,31 +4271,46 @@ async function startServer() {
         writeJsonFile(HELPERS_FILE, remainingHelpers);
       }
 
-      // 3. Also archive & remove any linked Business/Shop of this user from public listings
+      // 3. Soft-delete linked Business/Shop from public listings while retaining 180-day DB audit records
       const shops = readJsonFile<any[]>(SHOPS_FILE, []);
       const userShops = shops.filter(
         s => s && (s.userId === uid || s.owner_id === uid || (userEmail && (s.ownerEmail || "").toLowerCase() === userEmail))
       );
       for (const us of userShops) {
         await archiveToSecurityVault("business", us.id, us, "ADMIN_REMOVED_PUBLIC");
-        await deleteFilesFromFirebaseStorage(us);
         if (dbPool && isDbConnected) {
           try {
-            const bRows = await dbPool.query("SELECT * FROM businesses WHERE id = $1", [us.id]).catch(() => ({ rows: [] as any[] }));
-            await deleteFilesFromFirebaseStorage(bRows.rows);
-            await dbPool.query("DELETE FROM businesses WHERE id = $1", [us.id]);
-            await dbPool.query("DELETE FROM shops WHERE id = $1", [us.id]);
+            await dbPool.query(
+              "UPDATE businesses SET is_deleted = true, deleted_at = NOW(), hidden = true, is_approved = false, is_verified = false WHERE id = $1",
+              [us.id]
+            );
+            await dbPool.query(
+              "UPDATE shops SET is_deleted = true, deleted_at = NOW(), hidden = true, is_verified = false WHERE id = $1",
+              [us.id]
+            );
           } catch (_e) {}
         }
       }
       if (dbPool && isDbConnected) {
         try {
-          await dbPool.query('DELETE FROM "user" WHERE id = $1', [uid]);
-          await dbPool.query("DELETE FROM users WHERE id = $1", [uid]);
-          await dbPool.query("DELETE FROM profiles WHERE uid = $1 OR id = $1", [uid]);
+          // Soft Delete (is_deleted = true, deleted_at = NOW()) to preserve registration data & audit logs for 180 days per IT Rules 2021
+          await dbPool.query(
+            'UPDATE "user" SET is_deleted = true, deleted_at = NOW(), hidden = true WHERE id = $1 OR email = $2',
+            [uid, userEmail]
+          ).catch(() => {});
+          await dbPool.query(
+            "UPDATE users SET is_deleted = true, deleted_at = NOW(), hidden = true WHERE id = $1 OR email = $2",
+            [uid, userEmail]
+          ).catch(() => {});
+          await dbPool.query(
+            "UPDATE profiles SET is_deleted = true, deleted_at = NOW(), hidden = true, status = 'deleted', verified = false, is_verified = false, updated_at = NOW() WHERE uid = $1 OR id = $1 OR email = $2",
+            [uid, userEmail]
+          ).catch(() => {});
         } catch (dbErr) {}
       }
-      res.json({ success: true });
+      invalidatePublicCache('public_helpers');
+      invalidatePublicCache('public_shops');
+      res.json({ success: true, softDeleted: true });
     } catch (e: any) {
       res.status(500).json({ error: e.message || "Failed to delete profile" });
     }
@@ -4263,13 +4489,15 @@ async function startServer() {
     if (dbPool && isDbConnected) {
       try {
         await dbPool.query(
-          `INSERT INTO users (id, name, email, password_hash, phone, role, created_at)
-           VALUES ($1, $2, $3, $4, $5, 'user', NOW())
+          `INSERT INTO users (id, name, email, password_hash, phone, role, terms_accepted, terms_accepted_at, created_at)
+           VALUES ($1, $2, $3, $4, $5, 'user', true, NOW(), NOW())
            ON CONFLICT (email) DO UPDATE SET
              id = COALESCE(NULLIF(users.id, ''), EXCLUDED.id),
              name = COALESCE(NULLIF(EXCLUDED.name, ''), users.name),
              phone = COALESCE(NULLIF(EXCLUDED.phone, ''), users.phone),
-             password_hash = EXCLUDED.password_hash`,
+             password_hash = EXCLUDED.password_hash,
+             terms_accepted = true,
+             terms_accepted_at = COALESCE(users.terms_accepted_at, NOW())`,
           [uid, displayName, cleanEmail, hashedPassword, phone || '']
         );
 
@@ -4286,22 +4514,26 @@ async function startServer() {
         );
 
         await dbPool.query(
-          `INSERT INTO "user" (id, name, phone, email, created_at)
-           VALUES ($1, $2, $3, $4, NOW())
+          `INSERT INTO "user" (id, name, phone, email, terms_accepted, terms_accepted_at, created_at)
+           VALUES ($1, $2, $3, $4, true, NOW(), NOW())
            ON CONFLICT (id) DO UPDATE SET
              name = COALESCE(NULLIF(EXCLUDED.name, ''), "user".name),
              phone = COALESCE(NULLIF(EXCLUDED.phone, ''), "user".phone),
-             email = COALESCE(NULLIF(EXCLUDED.email, ''), "user".email)`,
+             email = COALESCE(NULLIF(EXCLUDED.email, ''), "user".email),
+             terms_accepted = true,
+             terms_accepted_at = COALESCE("user".terms_accepted_at, NOW())`,
           [uid, displayName, phone || '', cleanEmail]
         );
 
         await dbPool.query(
-          `INSERT INTO profiles (uid, id, user_id, name, full_name, email, phone, updated_at)
-           VALUES ($1, $1, $1, $2, $2, $3, $4, NOW())
+          `INSERT INTO profiles (uid, id, user_id, name, full_name, email, phone, terms_accepted, terms_accepted_at, updated_at)
+           VALUES ($1, $1, $1, $2, $2, $3, $4, true, NOW(), NOW())
            ON CONFLICT (uid) DO UPDATE SET
              name = COALESCE(NULLIF(EXCLUDED.name, ''), profiles.name),
              full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), profiles.full_name),
              phone = COALESCE(NULLIF(EXCLUDED.phone, ''), profiles.phone),
+             terms_accepted = true,
+             terms_accepted_at = COALESCE(profiles.terms_accepted_at, NOW()),
              updated_at = NOW()`,
           [uid, displayName, cleanEmail, phone || '']
         );
@@ -4345,6 +4577,7 @@ async function startServer() {
       const hashedPassword = hashPassword(password);
 
       await saveAccountWithPassword(cleanEmail, uid, displayName, finalPhone, hashedPassword);
+      await logSecurityAudit(uid, existing ? "LOGIN" : "SIGNUP", req);
 
       const user = {
         uid,
@@ -4353,6 +4586,7 @@ async function startServer() {
         displayName,
         email: cleanEmail,
         phone: finalPhone,
+        termsAccepted: true,
         isGuest: false
       };
 
@@ -4386,6 +4620,7 @@ async function startServer() {
         const finalPhone = (phone && String(phone).trim()) || existing?.phone || '';
 
         await saveAccountWithPassword(cleanEmail, uid, displayName, finalPhone, hashedInput);
+        await logSecurityAudit(uid, existing ? "LOGIN" : "SIGNUP", req);
 
         const user = {
           uid,
@@ -4394,6 +4629,7 @@ async function startServer() {
           displayName,
           email: cleanEmail,
           phone: finalPhone,
+          termsAccepted: true,
           isGuest: false
         };
 
@@ -4414,6 +4650,7 @@ async function startServer() {
         ? existing.passwordHash
         : hashPassword(String(password));
       await saveAccountWithPassword(cleanEmail, existing.uid, existing.name, existing.phone || '', finalPasswordHash);
+      await logSecurityAudit(existing.uid, "LOGIN", req);
 
       const user = {
         uid: existing.uid,
@@ -4422,6 +4659,7 @@ async function startServer() {
         displayName: existing.name,
         email: cleanEmail,
         phone: existing.phone || '',
+        termsAccepted: true,
         isGuest: false
       };
 
@@ -4652,7 +4890,10 @@ async function startServer() {
                 city: r.city || rawObj.city || localMeta.city || 'Gandhinagar',
                 location: rawObj.location || localMeta.location || r.city || 'Gandhinagar',
                 imageUrl: r.image_url || rawObj.imageUrl || localMeta.imageUrl || '',
-                status: rawObj.status || localMeta.status || 'active',
+                status: r.status || rawObj.status || localMeta.status || 'active',
+                is_flagged: Boolean(r.is_flagged || rawObj.is_flagged || localMeta.is_flagged),
+                hidden: Boolean(r.hidden || rawObj.hidden || localMeta.hidden),
+                is_deleted: Boolean(r.is_deleted || rawObj.is_deleted || localMeta.is_deleted),
                 createdAt: rawObj.createdAt || localMeta.createdAt || (r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString())
               });
             });
@@ -4678,6 +4919,9 @@ async function startServer() {
                 category: r.category || localMeta.category || 'General',
                 tags: r.tags || localMeta.tags || ['#General'],
                 status: r.status || localMeta.status || 'active',
+                is_flagged: Boolean(r.is_flagged || localMeta.is_flagged),
+                hidden: Boolean(r.hidden || localMeta.hidden),
+                is_deleted: Boolean(r.is_deleted || localMeta.is_deleted),
                 city: localMeta.city || 'Gandhinagar',
                 area: localMeta.area || '',
                 location: localMeta.location || 'Gandhinagar',
@@ -4825,8 +5069,11 @@ async function startServer() {
 
       const combined = Array.from(mergedMap.values())
         .filter(item => {
-          if (includeExpired || isAdmin) return true;
-          if (item.status === 'rejected') return false;
+          if (isAdmin) return true;
+          if (item.status === 'rejected' || item.status === 'flagged' || item.is_flagged === true || item.hidden === true || item.is_deleted === true) {
+            return false;
+          }
+          if (includeExpired) return true;
           return true;
         })
         .map(i => {
@@ -4984,10 +5231,11 @@ async function startServer() {
         isVerifiedUser: true
       };
 
-      // Record post cooldown timestamp
+      // Record post cooldown timestamp & 180-Day Security Audit Log (IP + User-Agent)
       if (!isAdminCaller) {
         postCooldowns.set(cooldownKey, nowMs);
       }
+      await logSecurityAudit(intentRecord.authorId, "CREATE_POST", req);
 
       // 1. PostgreSQL Insert into primary "posts", "listings", and "broadcast_posts" tables
       if (dbPool && isDbConnected) {
@@ -7015,6 +7263,12 @@ async function startServer() {
       // Filter out any legacy dummy/sample shops
       allList = allList.filter(s => s && s.id && !String(s.id).startsWith('sample_shop_'));
 
+      if (!isAdmin) {
+        allList = allList.filter(
+          s => !s.is_flagged && !s.hidden && !s.is_deleted && s.status !== 'flagged' && s.status !== 'deleted'
+        );
+      }
+
       if (!includeAll) {
         allList = allList.filter(s => s.isVerified === true || s.status === 'approved');
       }
@@ -7542,6 +7796,11 @@ async function startServer() {
       });
 
       let allHelpers = Array.from(mergedMap.values());
+      if (!isAdmin) {
+        allHelpers = allHelpers.filter(
+          h => !h.is_flagged && !h.hidden && !h.is_deleted && h.status !== 'flagged' && h.status !== 'deleted'
+        );
+      }
       if (!includeAll) {
         allHelpers = allHelpers.filter(h => h.isVerified === true || h.status === 'approved');
       }
@@ -8031,6 +8290,17 @@ async function startServer() {
         else memoryChatBlocks.unshift(blockEntry);
       }
 
+      const reportedPostIdRaw = sanitizeServerText(
+        report.reportedPostId || report.reported_post_id || report.postId || report.intentId || '',
+        150
+      );
+      const reportedPostId = reportedPostIdRaw ? reportedPostIdRaw : null;
+      const normalizedStatus = String(report.status || 'PENDING').toUpperCase() === 'RESOLVED'
+        ? 'RESOLVED'
+        : String(report.status || 'PENDING').toUpperCase() === 'DISMISSED'
+          ? 'DISMISSED'
+          : 'PENDING';
+
       const record = {
         id: reportId,
         reporterId,
@@ -8038,24 +8308,71 @@ async function startServer() {
         reporterEmail,
         reportedUserId,
         reportedUserName,
+        reportedPostId,
         chatId,
         reportType,
         reason,
         details,
+        description: details,
         chatSnapshot: finalChatSnapshot,
         isUserBlocked: blockUser,
-        status: report.status || 'pending',
+        status: report.status || 'PENDING',
         createdAt: new Date().toISOString()
       };
 
+      // If this report is an ACCOUNT_CLOSURE_REQUEST from SettingsMenu, log ACCOUNT_DELETED & soft-delete user for 180-day retention
+      if (reason === 'ACCOUNT_CLOSURE_REQUEST' && reporterId && reporterId !== 'guest') {
+        await logSecurityAudit(reporterId, "ACCOUNT_DELETED", req);
+        if (dbPool && isDbConnected) {
+          await dbPool.query(
+            "UPDATE users SET is_deleted = true, deleted_at = NOW(), hidden = true WHERE id = $1 OR email = $2",
+            [reporterId, reporterEmail]
+          ).catch(() => {});
+          await dbPool.query(
+            'UPDATE "user" SET is_deleted = true, deleted_at = NOW(), hidden = true WHERE id = $1 OR email = $2',
+            [reporterId, reporterEmail]
+          ).catch(() => {});
+          await dbPool.query(
+            "UPDATE profiles SET is_deleted = true, deleted_at = NOW(), hidden = true, status = 'deletion_requested', updated_at = NOW() WHERE uid = $1 OR email = $2",
+            [reporterId, reporterEmail]
+          ).catch(() => {});
+        }
+      }
+
+      let autoFlaggedPost = false;
+      let autoFlaggedUser = false;
+      let postReportCount = 1;
+      let userReportCount = 1;
+
       if (dbPool && isDbConnected) {
         try {
+          // 1. Insert into IT Act compliant "reports" table
+          await dbPool.query(
+            `INSERT INTO reports (
+               id, reporter_id, reported_user_id, reported_post_id, reason, description, status, created_at
+             )
+             VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+             ON CONFLICT (id) DO UPDATE SET
+               status = EXCLUDED.status,
+               description = EXCLUDED.description`,
+            [
+              record.id,
+              record.reporterId,
+              record.reportedUserId || null,
+              record.reportedPostId || null,
+              record.reason,
+              record.description,
+              normalizedStatus
+            ]
+          ).catch((err) => console.warn("[PostgreSQL] reports table insert note:", err?.message));
+
+          // 2. Also insert into admin_reports so Admin Dashboard remains 100% synced
           await dbPool.query(
             `INSERT INTO admin_reports (
                id, reporter_id, reporter_name, reporter_email, reported_user_id, reported_user_name,
-               chat_id, report_type, reason, details, chat_snapshot, is_user_blocked, status, reported_at
+               reported_post_id, chat_id, report_type, reason, details, chat_snapshot, is_user_blocked, status, reported_at
              )
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, NOW())
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13, $14, NOW())
              ON CONFLICT (id) DO UPDATE SET
                status = EXCLUDED.status,
                details = EXCLUDED.details,
@@ -8068,6 +8385,7 @@ async function startServer() {
               record.reporterEmail,
               record.reportedUserId,
               record.reportedUserName,
+              record.reportedPostId,
               record.chatId,
               record.reportType,
               record.reason,
@@ -8077,12 +8395,131 @@ async function startServer() {
               record.status
             ]
           );
+
+          // 3. AUTO-SAFETY RULE: If a post or user receives 3 or more unique reports, automatically set is_flagged = true and hidden = true
+          if (reportedPostId) {
+            const pCountRes = await dbPool.query(
+              `SELECT COUNT(DISTINCT reporter_id) AS cnt
+               FROM reports
+               WHERE reported_post_id = $1
+                 AND UPPER(COALESCE(status, 'PENDING')) != 'DISMISSED'`,
+              [reportedPostId]
+            ).catch(() => ({ rows: [{ cnt: 1 }] }));
+            postReportCount = Number(pCountRes.rows[0]?.cnt || 1);
+
+            if (postReportCount >= 3) {
+              autoFlaggedPost = true;
+              await dbPool.query(
+                `UPDATE posts SET is_flagged = true, hidden = true WHERE id = $1`,
+                [reportedPostId]
+              ).catch(() => {});
+              await dbPool.query(
+                `UPDATE listings SET is_flagged = true, hidden = true WHERE id = $1`,
+                [reportedPostId]
+              ).catch(() => {});
+              await dbPool.query(
+                `UPDATE broadcast_posts SET is_flagged = true, hidden = true, status = 'flagged' WHERE id = $1`,
+                [reportedPostId]
+              ).catch(() => {});
+            }
+          }
+
+          if (reportedUserId && reason !== 'ACCOUNT_CLOSURE_REQUEST') {
+            const uCountRes = await dbPool.query(
+              `SELECT COUNT(DISTINCT reporter_id) AS cnt
+               FROM reports
+               WHERE reported_user_id = $1
+                 AND UPPER(COALESCE(status, 'PENDING')) != 'DISMISSED'`,
+              [reportedUserId]
+            ).catch(() => ({ rows: [{ cnt: 1 }] }));
+            userReportCount = Number(uCountRes.rows[0]?.cnt || 1);
+
+            if (userReportCount >= 3) {
+              autoFlaggedUser = true;
+              await dbPool.query(
+                `UPDATE users SET is_flagged = true, hidden = true WHERE id = $1 OR email = $1`,
+                [reportedUserId]
+              ).catch(() => {});
+              await dbPool.query(
+                `UPDATE "user" SET is_flagged = true, hidden = true WHERE id = $1 OR email = $1`,
+                [reportedUserId]
+              ).catch(() => {});
+              await dbPool.query(
+                `UPDATE profiles SET is_flagged = true, hidden = true, status = 'flagged', is_verified = false WHERE uid = $1 OR id = $1 OR user_id = $1 OR email = $1`,
+                [reportedUserId]
+              ).catch(() => {});
+              await dbPool.query(
+                `UPDATE helpers SET is_flagged = true, hidden = true, is_verified = false WHERE id = $1`,
+                [reportedUserId]
+              ).catch(() => {});
+              await dbPool.query(
+                `UPDATE businesses SET is_flagged = true, hidden = true, is_approved = false, is_verified = false WHERE id = $1 OR user_id = $1 OR owner_id = $1`,
+                [reportedUserId]
+              ).catch(() => {});
+              await dbPool.query(
+                `UPDATE shops SET is_flagged = true, hidden = true, is_verified = false WHERE id = $1`,
+                [reportedUserId]
+              ).catch(() => {});
+              await dbPool.query(
+                `UPDATE posts SET is_flagged = true, hidden = true WHERE user_id = $1`,
+                [reportedUserId]
+              ).catch(() => {});
+              await dbPool.query(
+                `UPDATE broadcast_posts SET is_flagged = true, hidden = true, status = 'flagged' WHERE author_id = $1`,
+                [reportedUserId]
+              ).catch(() => {});
+              invalidatePublicCache('public_helpers');
+              invalidatePublicCache('public_shops');
+            }
+          }
         } catch (e) {
-          console.warn("[PostgreSQL] admin_reports insert fallback:", e);
+          console.warn("[PostgreSQL] reports insert fallback:", e);
         }
       }
 
       memoryAdminReports.unshift(record);
+
+      // In-memory fallback check for 3 unique reports
+      if (reportedPostId && !autoFlaggedPost) {
+        const uniquePostReporters = new Set(
+          memoryAdminReports
+            .filter(r => r.reportedPostId === reportedPostId && String(r.status).toUpperCase() !== 'DISMISSED')
+            .map(r => r.reporterId)
+        );
+        if (uniquePostReporters.size >= 3) {
+          autoFlaggedPost = true;
+        }
+      }
+      if (reportedUserId && !autoFlaggedUser && reason !== 'ACCOUNT_CLOSURE_REQUEST') {
+        const uniqueUserReporters = new Set(
+          memoryAdminReports
+            .filter(r => r.reportedUserId === reportedUserId && String(r.status).toUpperCase() !== 'DISMISSED')
+            .map(r => r.reporterId)
+        );
+        if (uniqueUserReporters.size >= 3) {
+          autoFlaggedUser = true;
+        }
+      }
+
+      if (autoFlaggedPost || autoFlaggedUser) {
+        try {
+          const currentIntents = readJsonFile<any[]>(INTENTS_FILE, []);
+          let changed = false;
+          const updatedIntents = currentIntents.map(item => {
+            if (
+              (autoFlaggedPost && reportedPostId && item.id === reportedPostId) ||
+              (autoFlaggedUser && reportedUserId && (item.authorId === reportedUserId || item.userId === reportedUserId))
+            ) {
+              changed = true;
+              return { ...item, is_flagged: true, hidden: true, status: 'flagged' };
+            }
+            return item;
+          });
+          if (changed) {
+            writeJsonFile(INTENTS_FILE, updatedIntents);
+          }
+        } catch {}
+      }
 
       // Permanently archive chat report & full message transcript in Encrypted Security Vault so it can never be lost even if accounts are deleted
       if (reportType === 'chat_report') {
@@ -8098,6 +8535,7 @@ async function startServer() {
             chatId: record.chatId,
             reportedUserId: record.reportedUserId,
             reportedUserName: record.reportedUserName,
+            reportedPostId: record.reportedPostId,
             chatMessagesCount: finalChatSnapshot.length,
             chatSnapshot: finalChatSnapshot,
             createdAt: record.createdAt
@@ -8106,7 +8544,16 @@ async function startServer() {
         ).catch(() => {});
       }
 
-      res.status(201).json({ success: true, id: record.id, report: record });
+      res.status(201).json({
+        success: true,
+        id: record.id,
+        report: record,
+        autoFlagged: autoFlaggedPost || autoFlaggedUser,
+        autoFlaggedPost,
+        autoFlaggedUser,
+        postReportCount,
+        userReportCount
+      });
     } catch (e) {
       res.status(500).json({ error: "Failed to submit report" });
     }
@@ -10229,42 +10676,51 @@ async function startServer() {
         );
       }
 
-      // Persist user to PostgreSQL primary "users", "user", and "profiles" tables
+      // Persist user to PostgreSQL primary "users", "user", and "profiles" tables with Legal Consent (terms_accepted)
       if (dbPool && isDbConnected) {
         try {
           if (user.email) {
             await dbPool.query(`
-              INSERT INTO users (id, name, email, phone, role, created_at)
-              VALUES ($1, $2, $3, $4, 'user', NOW())
+              INSERT INTO users (id, name, email, phone, role, terms_accepted, terms_accepted_at, created_at)
+              VALUES ($1, $2, $3, $4, 'user', true, NOW(), NOW())
               ON CONFLICT (email) DO UPDATE SET
                 name = COALESCE(NULLIF(EXCLUDED.name, ''), users.name),
-                phone = COALESCE(NULLIF(EXCLUDED.phone, ''), users.phone)
+                phone = COALESCE(NULLIF(EXCLUDED.phone, ''), users.phone),
+                terms_accepted = true,
+                terms_accepted_at = COALESCE(users.terms_accepted_at, NOW())
             `, [user.uid, user.displayName, user.email, user.phone]).catch(() => {});
           }
 
           await dbPool.query(`
-            INSERT INTO "user" (id, name, phone, email, created_at)
-            VALUES ($1, $2, $3, $4, NOW())
+            INSERT INTO "user" (id, name, phone, email, terms_accepted, terms_accepted_at, created_at)
+            VALUES ($1, $2, $3, $4, true, NOW(), NOW())
             ON CONFLICT (id) DO UPDATE SET
               name = EXCLUDED.name,
               phone = COALESCE(NULLIF(EXCLUDED.phone, ''), "user".phone),
-              email = COALESCE(NULLIF(EXCLUDED.email, ''), "user".email)
+              email = COALESCE(NULLIF(EXCLUDED.email, ''), "user".email),
+              terms_accepted = true,
+              terms_accepted_at = COALESCE("user".terms_accepted_at, NOW())
           `, [user.uid, user.displayName, user.phone, user.email]);
 
           await dbPool.query(`
-            INSERT INTO profiles (uid, id, user_id, name, full_name, email, phone, updated_at)
-            VALUES ($1, $1, $1, $2, $2, $3, $4, NOW())
+            INSERT INTO profiles (uid, id, user_id, name, full_name, email, phone, terms_accepted, terms_accepted_at, updated_at)
+            VALUES ($1, $1, $1, $2, $2, $3, $4, true, NOW(), NOW())
             ON CONFLICT (uid) DO UPDATE SET
               name = EXCLUDED.name,
               full_name = EXCLUDED.full_name,
               email = COALESCE(NULLIF(EXCLUDED.email, ''), profiles.email),
               phone = COALESCE(NULLIF(EXCLUDED.phone, ''), profiles.phone),
+              terms_accepted = true,
+              terms_accepted_at = COALESCE(profiles.terms_accepted_at, NOW()),
               updated_at = NOW()
           `, [user.uid, user.displayName, user.email, user.phone]);
         } catch (e) {
           console.warn("DB user insert on OTP verification error:", e);
         }
       }
+
+      // Log IP Address & User-Agent in security_audit_logs for 180-day compliance
+      await logSecurityAudit(user.uid, existingAcc ? "LOGIN" : "SIGNUP", req);
 
       const token = createSessionToken({
         uid: user.uid,
@@ -10274,7 +10730,7 @@ async function startServer() {
       res.setHeader('Set-Cookie', `locohelp_token=${token}; Path=/; Max-Age=${365 * 24 * 3600}; SameSite=Lax`);
 
       console.log(`[AUTH SUCCESS] User successfully verified: ${user.uid} with permanent session token`);
-      return res.json({ success: true, token, user });
+      return res.json({ success: true, token, user: { ...user, termsAccepted: true } });
     } catch (e) {
       console.error("OTP verify error:", e);
       return res.status(500).json({ error: "Failed to verify OTP" });

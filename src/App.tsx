@@ -151,8 +151,29 @@ function AppContent() {
 
   const [activeIntent, setActiveIntent] = useState<Intent | null>(null);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [reportTarget, setReportTarget] = useState<{
+    reportedUserId?: string;
+    reportedUserName?: string;
+    reportedPostId?: string;
+    reportedPostTitle?: string;
+  }>({});
   const [prevScreen, setPrevScreen] = useState<Screen>('home');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+
+  useEffect(() => {
+    const handleOpenReport = (e: any) => {
+      const detail = e?.detail || {};
+      setReportTarget({
+        reportedUserId: detail.reportedUserId || '',
+        reportedUserName: detail.reportedUserName || '',
+        reportedPostId: detail.reportedPostId || '',
+        reportedPostTitle: detail.reportedPostTitle || ''
+      });
+      setIsReportModalOpen(true);
+    };
+    window.addEventListener('locohelp_open_report_modal', handleOpenReport);
+    return () => window.removeEventListener('locohelp_open_report_modal', handleOpenReport);
+  }, []);
 
   // Track SPA virtual page views in Google Analytics 4 (privacy-safe, deduplicated)
   useEffect(() => {
@@ -712,7 +733,18 @@ function AppContent() {
       />
 
       {/* Modals */}
-      {isReportModalOpen && <ReportModal onClose={() => setIsReportModalOpen(false)} />}
+      {isReportModalOpen && (
+        <ReportModal
+          onClose={() => {
+            setIsReportModalOpen(false);
+            setReportTarget({});
+          }}
+          reportedUserId={reportTarget.reportedUserId}
+          reportedUserName={reportTarget.reportedUserName}
+          reportedPostId={reportTarget.reportedPostId}
+          reportedPostTitle={reportTarget.reportedPostTitle}
+        />
+      )}
     </div>
   );
 }

@@ -1,9 +1,25 @@
 import { Language } from '../types';
 
-export type MasterCategoryId = 'all' | 'utility_emergency' | 'sports_fitness' | 'social_casual' | 'daily_errands';
+export type MasterCategoryId =
+  | 'all'
+  | 'home_repair'
+  | 'personal_events'
+  | 'it_tech'
+  | 'business_staff'
+  | 'brokers_agents'
+  | 'vehicle_transport'
+  | 'education_classes'
+  | 'sports_fitness'
+  | 'social_care'
+  | 'other_custom'
+  // Legacy master category IDs preserved for backward compatibility
+  | 'utility_emergency'
+  | 'social_casual'
+  | 'daily_errands';
 
 export interface MasterCategory {
   id: MasterCategoryId;
+  emoji: string;
   nameEn: string;
   nameHi: string;
   nameGu: string;
@@ -23,82 +39,132 @@ export interface MasterCategory {
 
 export const MASTER_CATEGORIES: MasterCategory[] = [
   {
-    id: 'utility_emergency',
-    nameEn: 'Utility & Emergency',
-    nameHi: 'यूटिलिटी व आपातकालीन',
-    nameGu: 'યુટિલિટી અને ઇમરજન્સી',
-    nameMr: 'युटिलिटी व आपत्कालीन',
-    nameBn: 'ইউটিলিটি ও জরুরি সেবা',
-    nameTa: 'பயன்பாடு & அவசர உதவி',
-    nameTe: 'యుటిలిటీ & అత్యవసరం',
-    nameKn: 'ಯುಟಿಲಿಟಿ & ತುರ್ತು ಸೇವೆ',
-    namePa: 'ਉਪਯੋਗਤਾ ਤੇ ਐਮਰਜੈਂਸੀ',
-    nameMl: 'യൂട്ടിലിറ്റി & അത്യാഹിതം',
-    iconName: 'Wrench',
+    id: 'home_repair',
+    emoji: '🏠',
+    nameEn: 'Home & Repair Services',
+    nameHi: 'घर और रिपेयर सर्विस',
+    nameGu: 'ઘર અને રિપેરિંગ સેવાઓ',
+    iconName: 'Home',
     color: 'emerald',
-    subtitleEn: 'Plumber, Electrician, Mechanic, AC Repair, Carpenter',
-    subtitleHi: 'नल, बिजली, गाड़ी, एसी रिपेयर व बढ़ई',
-    subtitleGu: 'પ્લમ્બર, ઇલેક્ટ્રિશિયન, મિકેનિક, એસી અને સુથાર',
+    subtitleEn: 'Plumber, Electrician, AC & Fridge, Carpenter, Painter, Cleaning, Pest Control',
+    subtitleHi: 'प्लंबर, इलेक्ट्रीशियन, एसी व फ्रिज, कारपेंटर, पेंटर, सफाई, पेस्ट कंट्रोल',
+    subtitleGu: 'પ્લમ્બર, ઇલેક્ટ્રિશિયન, એસી અને ફ્રિજ, સુથાર, પેઇન્ટર, સફાઈ, પેસ્ટ કંટ્રોલ',
+  },
+  {
+    id: 'personal_events',
+    emoji: '✂️',
+    nameEn: 'Personal Care, Fashion & Events',
+    nameHi: 'पर्सनल केयर, दर्जी और इवेंट',
+    nameGu: 'પર્સનલ કેર, દરજી અને ઇવેન્ટ',
+    iconName: 'Scissors',
+    color: 'pink',
+    subtitleEn: 'Tailor, Beautician, Mehendi, Pandit Ji, Photographer, Catering & Halwai',
+    subtitleHi: 'दर्जी/बुटीक, ब्यूटीशियन, मेहंदी, पंडित जी, फोटोग्राफर, कैटरिंग व हलवाई',
+    subtitleGu: 'દરજી/બુટિક, બ્યુટિશિયન, મહેંદી, પંડિતજી, ફોટોગ્રાફર, કેટરિંગ અને હલવાઈ',
+  },
+  {
+    id: 'it_tech',
+    emoji: '💻',
+    nameEn: 'IT, Tech & Digital Experts',
+    nameHi: 'कंप्यूटर, आईटी और डिजिटल एक्सपर्ट',
+    nameGu: 'કમ્પ્યુટર, આઈટી અને ડિજિટલ એક્સપર્ટ',
+    iconName: 'Code',
+    color: 'indigo',
+    subtitleEn: 'Web & App Developer, Laptop Repair, CCTV & Wi-Fi, Graphic Design, Mobile Repair',
+    subtitleHi: 'वेब/ऐप डेवलपर, कंप्यूटर रिपेयर, CCTV व वाई-फाई, ग्राफिक डिजाइन, मोबाइल रिपेयर',
+    subtitleGu: 'વેબ/એપ ડેવલપર, કમ્પ્યુટર રિપેર, CCTV અને વાઈ-ફાઈ, ગ્રાફિક ડિઝાઇન, મોબાઇલ રિપેર',
+  },
+  {
+    id: 'business_staff',
+    emoji: '💼',
+    nameEn: 'Business, Sales & Staff',
+    nameHi: 'बिजनेस, सेल्स और स्टाफ',
+    nameGu: 'બિઝનેસ, સેલ્સ અને સ્ટાફ',
+    iconName: 'Briefcase',
+    color: 'blue',
+    subtitleEn: 'Salesman, Shop Helper, Accountant & GST, Data Entry, Security Guard, Telecaller',
+    subtitleHi: 'सेल्समेन, दुकान हेल्पर, अकाउंटेंट व GST, डाटा एंट्री, सिक्योरिटी गार्ड, टेलीकॉलर',
+    subtitleGu: 'સેલ્સમેન, દુકાન હેલ્પર, એકાઉન્ટન્ટ અને GST, ડેટા એન્ટ્રી, સિક્યુરિટી ગાર્ડ, ટેલીકોલર',
+  },
+  {
+    id: 'brokers_agents',
+    emoji: '🏢',
+    nameEn: 'Brokers, Agents & Consultants',
+    nameHi: 'ब्रोकर, एजेंट और सलाहकार',
+    nameGu: 'બ્રોકર, એજન્ટ અને સલાહકાર',
+    iconName: 'Building2',
+    color: 'cyan',
+    subtitleEn: 'Real Estate Broker, Vehicle Agent, RTO & License, Loan & Insurance, Legal Help',
+    subtitleHi: 'प्रॉपर्टी ब्रोकर, गाड़ी एजेंट, RTO व लाइसेंस, लोन व बीमा एजेंट, कानूनी दस्तावेज',
+    subtitleGu: 'પ્રોપર્ટી બ્રોકર, વાહન એજન્ટ, RTO અને લાઇસન્સ, લોન અને વીમા એજન્ટ, કાનૂની દસ્તાવેજ',
+  },
+  {
+    id: 'vehicle_transport',
+    emoji: '🚗',
+    nameEn: 'Vehicle, Transport & Delivery',
+    nameHi: 'गाड़ी, ट्रांसपोर्ट और डिलीवरी',
+    nameGu: 'વાહન, ટ્રાન્સપોર્ટ અને ડિલિવરી',
+    iconName: 'Car',
+    color: 'orange',
+    subtitleEn: 'Mechanic & Puncture, Cab/Auto Driver, Tempo & Packers/Movers, Local Delivery',
+    subtitleHi: 'मैकेनिक व पंक्चर, कैब/ऑटो ड्राइवर, टेम्पो व पैकर्स-मूवर्स, लोकल डिलीवरी',
+    subtitleGu: 'મિકેનિક અને પંચર, કેબ/ઓટો ડ્રાઇવર, ટેમ્પો અને પેકર્સ-મૂવર્સ, લોકલ ડિલિવરી',
+  },
+  {
+    id: 'education_classes',
+    emoji: '📚',
+    nameEn: 'Education & Skill Classes',
+    nameHi: 'शिक्षा और कोचिंग क्लासेस',
+    nameGu: 'શિક્ષણ અને કોચિંગ ક્લાસીસ',
+    iconName: 'GraduationCap',
+    color: 'violet',
+    subtitleEn: 'Tuition Teacher, Study & Project Help, Computer/Spoken English, Music & Art',
+    subtitleHi: 'ट्यूशन टीचर, प्रोजेक्ट व पढ़ाई मदद, कंप्यूटर व स्पोकन इंग्लिश, संगीत व कला',
+    subtitleGu: 'ટ્યુશન ટીચર, પ્રોજેક્ટ અને અભ્યાસ મદદ, કમ્પ્યુટર અને સ્પોકન ઇંગ્લિશ, સંગીત અને કળા',
   },
   {
     id: 'sports_fitness',
-    nameEn: 'Sports & Fitness',
-    nameHi: 'खेल व फिटनेस',
-    nameGu: 'સ્પોર્ટ્સ અને ફિટનેસ',
-    nameMr: 'खेळ व फिटनेस',
-    nameBn: 'খেলাধুলো ও ফিটনেস',
-    nameTa: 'விளையாட்டு & உடற்தகுதி',
-    nameTe: 'క్రీడలు & ఫిట్‌నెస్',
-    nameKn: 'ಕ್ರೀಡೆ ಮತ್ತು ಫಿಟ್‌ನೆಸ್',
-    namePa: 'ਖੇਡਾਂ ਤੇ ਫਿਟਨੈਸ',
-    nameMl: 'കായികവും ഫിറ്റ്നസും',
+    emoji: '🏸',
+    nameEn: 'Sports & Fitness Partners',
+    nameHi: 'स्पोर्ट्स और फिटनेस साथी',
+    nameGu: 'સ્પોર્ટ્સ અને ફિટનેસ સાથી',
     iconName: 'Trophy',
     color: 'amber',
-    subtitleEn: 'Cricket, Badminton, Gym partners, Running, Yoga',
-    subtitleHi: 'क्रिकेट, बैडमिंटन, जिम पार्टनर, रनिंग व योग',
-    subtitleGu: 'ક્રિકેટ, બેડમિન્ટન, જિમ પાર્ટનર, રનિંગ અને યોગા',
+    subtitleEn: 'Cricket Partner & Team, Badminton & Tennis, Gym Buddy, Running & Yoga Partner',
+    subtitleHi: 'क्रिकेट साथी व टीम, बैडमिंटन व टेनिस, जिम पार्टनर, रनिंग व योगा साथी',
+    subtitleGu: 'ક્રિકેટ સાથી અને ટીમ, બેડમિન્ટન અને ટેનિસ, જિમ પાર્ટનર, રનિંગ અને યોગા સાથી',
   },
   {
-    id: 'social_casual',
-    nameEn: 'Social & Casual',
-    nameHi: 'सोशल व बातचीत',
-    nameGu: 'સોશિયલ અને વાતચીત',
-    nameMr: 'सोशल व संवाद',
-    nameBn: 'সামাজিক ও আড্ডা',
-    nameTa: 'சமூக & உரையாடல்',
-    nameTe: 'సామాజిక & స్నేహం',
-    nameKn: 'ಸಾಮಾಜಿಕ & ಸಂಭಾಷಣೆ',
-    namePa: 'ਸਮਾਜਿਕ ਤੇ ਮਿਲਣੀ',
-    nameMl: 'സോഷ്യൽ & സൗഹൃദം',
+    id: 'social_care',
+    emoji: '☕',
+    nameEn: 'Social, Lifestyle & Care',
+    nameHi: 'सोशल, लाइफस्टाइल और देखभाल',
+    nameGu: 'સોશિયલ, લાઈફસ્ટાઈલ અને સંભાળ',
     iconName: 'Coffee',
     color: 'rose',
-    subtitleEn: 'Chai/Coffee meetups, Companion, Board games, Pet walk',
-    subtitleHi: 'चाय-कॉफी मीट्स, साथीदार, बोर्ड गेम्स व पेट वॉक',
-    subtitleGu: 'ચા-કોફી મુલાકાત, સાથીદાર, રમતગમત અને પેટ વોક',
+    subtitleEn: 'Tea-Coffee Meetup, Evening Walk Partner, Chess & Board Games, Elder & Pet Care',
+    subtitleHi: 'चाय-कॉफी मीटअप, शाम की वॉक, शतरंज व बोर्ड गेम्स, बुजुर्ग सेवा, पेट वॉक',
+    subtitleGu: 'ચા-કોફી મુલાકાત, સાંજની વોક, ચેસ અને બોર્ડ ગેમ્સ, વડીલોની સેવા, પેટ વોક',
   },
   {
-    id: 'daily_errands',
-    nameEn: 'Daily Support & Errand',
-    nameHi: 'दैनिक मदद व काम',
-    nameGu: 'દૈનિક મદદ અને કામ',
-    nameMr: 'दैनिक मदत व कामे',
-    nameBn: 'দৈনন্দিন সাহায্য ও কাজ',
-    nameTa: 'தினசரி உதவி & வேலைகள்',
-    nameTe: 'రోజువారీ సహాయం & పనులు',
-    nameKn: 'ದೈನಂದಿನ ನೆರವು & ಕೆಲಸಗಳು',
-    namePa: 'ਰੋਜ਼ਾਨਾ ਮਦਦ ਤੇ ਕੰਮ',
-    nameMl: 'ദൈനംദിന സഹായം & ജോലികൾ',
-    iconName: 'HeartHandshake',
-    color: 'blue',
-    subtitleEn: 'Senior citizen care, Study/project help, Errands, Cleaning',
-    subtitleHi: 'बुजुर्गों की मदद, पढ़ाई/प्रोजेक्ट, खरीदारी व सफाई',
-    subtitleGu: 'વડીલોની મદદ, અભ્યાસ/પ્રોજેક્ટ, સામાન લાવવો અને સફાઈ',
+    id: 'other_custom',
+    emoji: '✨',
+    nameEn: 'Other / Custom Category',
+    nameHi: 'अन्य / कस्टम श्रेणी',
+    nameGu: 'અન્ય / કસ્ટમ કેટેગરી',
+    iconName: 'Sparkles',
+    color: 'teal',
+    subtitleEn: 'Any other local skill, custom service, shop, or community requirement',
+    subtitleHi: 'कोई भी अन्य लोकल हुनर, कस्टम सेवा, दुकान या जरूरत',
+    subtitleGu: 'કોઈપણ અન્ય લોકલ હુનર, કસ્ટમ સેવા, દુકાન અથવા જરૂરિયાત',
   },
 ];
 
+export const MAIN_CATEGORIES = MASTER_CATEGORIES;
+
 export interface CategoryItem {
   id: string;
-  masterCategory: 'utility_emergency' | 'sports_fitness' | 'social_casual' | 'daily_errands';
+  masterCategory: MasterCategoryId;
   nameEn: string;
   nameHi: string;
   nameGu: string;
@@ -116,407 +182,593 @@ export interface CategoryItem {
 }
 
 export const CATEGORIES: CategoryItem[] = [
-  // 1. Utility & Emergency
+  // ==========================================
+  // 1. 🏠 Home & Repair Services (home_repair)
+  // ==========================================
   {
     id: 'plumber',
-    masterCategory: 'utility_emergency',
+    masterCategory: 'home_repair',
     nameEn: 'Plumber',
-    nameHi: 'नल व पाइप मिस्त्री',
-    nameGu: 'પ્લમ્બર (નળ અને પાઇપ)',
-    nameMr: 'प्लंबर (नळ दुरुस्ती)',
-    nameBn: 'প্লাম্বার (পাইপ ও কল)',
-    nameTa: 'பிளம்பர் (குழாய் பழுது)',
-    nameTe: 'ప్లంబర్ (పైపుల మరమ్మతు)',
-    nameKn: 'ಪ್ಲಂಬರ್ (ಪೈಪ್ ದುರಸ್ತಿ)',
-    namePa: 'ਪਲੰਬਰ (ਨਲਕਾ ਤੇ ਪਾਈਪ)',
-    nameMl: 'പ്ലംബർ (പൈപ്പ് റിപ്പയർ)',
+    nameHi: 'प्लंबर (नल और पाइप रिपेयर)',
+    nameGu: 'પ્લમ્બર (નળ અને પાઇપ રિપેર)',
     iconName: 'Wrench',
     tag: '#Plumber',
-    description: 'Leaking pipe, tap repair, water tank cleaning, bathroom fittings',
+    description: 'Tap leak, pipe fitting, tank & bathroom repair',
     helperCount: 0,
   },
   {
     id: 'electrician',
-    masterCategory: 'utility_emergency',
+    masterCategory: 'home_repair',
     nameEn: 'Electrician',
-    nameHi: 'बिजली मिस्त्री',
-    nameGu: 'ઇલેક્ટ્રિશિયન (વીજળી)',
-    nameMr: 'इलेक्ट्रीशियन (वीज काम)',
-    nameBn: 'ইলেকট্রিশিয়ান (বিদ্যুৎ)',
-    nameTa: 'எலக்ட்ரீஷியன் (மின்சார வேலை)',
-    nameTe: 'ఎలక్ట్రీషియన్ (విద్యుత్ పని)',
-    nameKn: 'ಎಲೆಕ್ಟ್ರಿಷಿಯನ್ (ವಿದ್ಯುತ್ ಕೆಲಸ)',
-    namePa: 'ਬਿਜਲੀ ਮਿਸਤਰੀ',
-    nameMl: 'ഇലക്ട്രീഷൻ (വൈദ്യുതി)',
+    nameHi: 'इलेक्ट्रीशियन (बिजली रिपेयर)',
+    nameGu: 'ઇલેક્ટ્રિશિયન (વીજળી રિપેર)',
     iconName: 'Zap',
     tag: '#Electrician',
-    description: 'Wiring fault, switch board, fan repair, inverter connection',
-    helperCount: 0,
-  },
-  {
-    id: 'mechanic',
-    masterCategory: 'utility_emergency',
-    nameEn: 'Mechanic & Auto',
-    nameHi: 'गाड़ी व पंचर मिस्त्री',
-    nameGu: 'મિકેનિક અને પંચર',
-    nameMr: 'मेकॅनिक व पंक्चर',
-    nameBn: 'মেকানিক ও গাড়ি মেরামত',
-    nameTa: 'மெக்கானிக் & பஞ்சர்',
-    nameTe: 'మెకానిక్ & పంచర్',
-    nameKn: 'ಮೆಕ್ಯಾನಿಕ್ & ಪಂಕ್ಚರ್',
-    namePa: 'ਮਕੈਨਿਕ ਤੇ ਪੰਚਰ',
-    nameMl: 'മെക്കാനിക്ക് & പങ്ക്‌ചർ',
-    iconName: 'Car',
-    tag: '#Mechanic',
-    description: 'Car breakdown, bike puncture, battery jumpstart, towing',
-    helperCount: 0,
-  },
-  {
-    id: 'cab_auto_driver',
-    masterCategory: 'utility_emergency',
-    nameEn: 'Cab, Auto & Driver',
-    nameHi: 'कैब, ऑटो व ड्राइवर',
-    nameGu: 'કેબ, ઓટો અને ડ્રાઇવર',
-    nameMr: 'कॅब, रिक्षा व ड्रायव्हर',
-    nameBn: 'ক্যাব, অটো ও ড্রাইভার',
-    nameTa: 'கேப், ஆட்டோ & டிரைவர்',
-    nameTe: 'క్యాబ్, ఆటో & డ్రైవర్',
-    nameKn: 'ಕ್ಯಾಬ್, ಆಟೋ & ಡ್ರೈವರ್',
-    namePa: 'ਕੈਬ, ਆਟੋ ਤੇ ਡਰਾਈਵਰ',
-    nameMl: 'ക്യാബ്, ഓട്ടോ & ഡ്രൈവർ',
-    iconName: 'Car',
-    tag: '#Cab_Auto_Driver',
-    description: 'Local auto rickshaw, cab booking, personal car driver, outstation rides',
-    helperCount: 0,
-  },
-  {
-    id: 'carpenter',
-    masterCategory: 'utility_emergency',
-    nameEn: 'Carpenter',
-    nameHi: 'बढ़ई (लकड़ी काम)',
-    nameGu: 'સુથાર (લાકડા કામ)',
-    nameMr: 'सुतार (लाकूड काम)',
-    nameBn: 'ছুতোর (কাঠের কাজ)',
-    nameTa: 'தச்சர் (மர வேலை)',
-    nameTe: 'వడ్రంగి (చెక్క పని)',
-    nameKn: 'ಬಡಗಿ (ಮರದ ಕೆಲಸ)',
-    namePa: 'ਤਰਖਾਣ (ਲੱਕੜ ਕੰਮ)',
-    nameMl: 'ആശാരി (തടി പണി)',
-    iconName: 'Hammer',
-    tag: '#Carpenter',
-    description: 'Door lock, bed repair, modular kitchen, furniture fitting',
-    helperCount: 0,
-  },
-  {
-    id: 'painter',
-    masterCategory: 'utility_emergency',
-    nameEn: 'Painter',
-    nameHi: 'पेंटर व पुट्टी',
-    nameGu: 'પેઇન્ટર અને કલરકામ',
-    nameMr: 'पेंटर व रंगकाम',
-    nameBn: 'পেইন্টার (রং মিস্ত্রি)',
-    nameTa: 'பெயிண்டர் (வண்ணம் பூசுபவர்)',
-    nameTe: 'పెయింటర్ (రంగులు)',
-    nameKn: 'ಪೇಂಟರ್ (ಬಣ್ಣ ಹಚ್ಚುವವರು)',
-    namePa: 'ਪੇਂਟਰ ਤੇ ਕਲਰਕਾਮ',
-    nameMl: 'പെയിന്റർ (നിറം പൂശൽ)',
-    iconName: 'Paintbrush',
-    tag: '#Painter',
-    description: 'Wall painting, waterproof putty, touchups, polish',
+    description: 'Fan, switchboard, inverter, wiring & fuse repair',
     helperCount: 0,
   },
   {
     id: 'ac_repair',
-    masterCategory: 'utility_emergency',
-    nameEn: 'AC & Appliances',
-    nameHi: 'एसी व फ्रिज रिपेयर',
-    nameGu: 'એસી અને ફ્રિજ રિપેર',
-    nameMr: 'एसी व फ्रिज दुरुस्ती',
-    nameBn: 'এসি ও ফ্রিজ মেরামত',
-    nameTa: 'ஏசி & குளிர்சாதனப் பெட்டி',
-    nameTe: 'ఏసీ & ఫ్రిజ్ రిపేర్',
-    nameKn: 'ಎಸಿ ಮತ್ತು ರೆಫ್ರಿಜರೇಟರ್ ರಿಪೇರಿ',
-    namePa: 'ਏਸੀ ਤੇ ਫਰਿੱਜ ਰਿਪੇਅਰ',
-    nameMl: 'എസി & ഫ്രിഡ്ജ് റിപ്പയർ',
+    masterCategory: 'home_repair',
+    nameEn: 'AC, Fridge & RO Repair',
+    nameHi: 'AC, फ्रिज और RO रिपेयर',
+    nameGu: 'AC, ફ્રિજ અને RO રિપેર',
     iconName: 'Fan',
-    tag: '#AC_Repair',
-    description: 'AC gas refill, fridge cooling, washing machine, microwave',
+    tag: '#ACRepair',
+    description: 'AC service, gas filling, fridge, washing machine & RO repair',
+    helperCount: 0,
+  },
+  {
+    id: 'carpenter',
+    masterCategory: 'home_repair',
+    nameEn: 'Carpenter / Suthar',
+    nameHi: 'कारपेंटर / सुथार (फर्नीचर)',
+    nameGu: 'સુથાર / કાર્પેન્ટર (ફર્નિચર)',
+    iconName: 'Hammer',
+    tag: '#Carpenter',
+    description: 'Door lock, bed, cupboard, modular kitchen & wood work',
+    helperCount: 0,
+  },
+  {
+    id: 'painter',
+    masterCategory: 'home_repair',
+    nameEn: 'Painter',
+    nameHi: 'पेंटर (रंग-रोगन / POP)',
+    nameGu: 'પેઇન્ટર (રંગકામ / POP)',
+    iconName: 'Paintbrush',
+    tag: '#Painter',
+    description: 'Home painting, wall putty, POP, waterproofing & polish',
     helperCount: 0,
   },
   {
     id: 'mason',
-    masterCategory: 'utility_emergency',
-    nameEn: 'Mason (Mistri)',
-    nameHi: 'राजमिस्त्री (कंस्ट्रक्शन)',
-    nameGu: 'કડિયો (બાંધકામ)',
-    nameMr: 'गवंडी (बांधकाम)',
-    nameBn: 'রাজমিস্ত্রি (নির্মাণ)',
-    nameTa: 'கொத்தனார் (கட்டுமானம்)',
-    nameTe: 'మేస్త్రీ (నిర్మాణం)',
-    nameKn: 'ಮೇಸ್ತ್ರಿ (ಕಟ್ಟಡ ಕೆಲಸ)',
-    namePa: 'ਰਾਜਮਿਸਤਰੀ (ਉਸਾਰੀ)',
-    nameMl: 'മേസ്തിരി (നിർമ്മാണം)',
+    masterCategory: 'home_repair',
+    nameEn: 'Mason / Kadiyo',
+    nameHi: 'कड़िया / मिस्त्री (सिविल काम)',
+    nameGu: 'કડિયો / મિસ્ત્રી (બાંધકામ)',
     iconName: 'HardHat',
     tag: '#Mason',
-    description: 'Tiles fitting, wall plaster, floor work, cement repairs',
+    description: 'Brickwork, plaster, floor tiles, marble & civil repair',
+    helperCount: 0,
+  },
+  {
+    id: 'cleaning',
+    masterCategory: 'home_repair',
+    nameEn: 'Cleaning, Maid & Cook',
+    nameHi: 'घर की सफाई, मेड और रसोइया',
+    nameGu: 'ઘરની સફાઈ, કામવાળા અને રસોઈયા',
+    iconName: 'Sparkles',
+    tag: '#Cleaning',
+    description: 'House cleaning, daily maid, cooking help & deep cleaning',
+    helperCount: 0,
+  },
+  {
+    id: 'pest_control',
+    masterCategory: 'home_repair',
+    nameEn: 'Pest Control & Tank Cleaning',
+    nameHi: 'पेस्ट कंट्रोल और पानी टंकी सफाई',
+    nameGu: 'પેસ્ટ કંટ્રોલ અને પાણીની ટાંકી સફાઈ',
+    iconName: 'Bug',
+    tag: '#PestControl',
+    description: 'Termite, cockroach control, sanitization & water tank cleaning',
     helperCount: 0,
   },
 
-  // 2. Sports & Fitness
+  // ==========================================
+  // 2. ✂️ Personal Care, Fashion & Events (personal_events)
+  // ==========================================
+  {
+    id: 'tailor',
+    masterCategory: 'personal_events',
+    nameEn: 'Tailor / Darzi & Boutique',
+    nameHi: 'दर्जी / टेलर और बुटीक',
+    nameGu: 'દરજી / ટેલર અને બુટિક',
+    iconName: 'Scissors',
+    tag: '#Tailor',
+    description: 'Ladies & gents stitching, blouse, suit, alteration & boutique',
+    helperCount: 0,
+  },
+  {
+    id: 'beautician',
+    masterCategory: 'personal_events',
+    nameEn: 'Beautician & Salon at Home',
+    nameHi: 'ब्यूटीशियन और होम सैलून',
+    nameGu: 'બ્યુટિશિયન અને હોમ સલૂન',
+    iconName: 'Sparkles',
+    tag: '#Beautician',
+    description: 'Bridal makeup, facial, waxing, hair styling & parlour services',
+    helperCount: 0,
+  },
+  {
+    id: 'mehendi',
+    masterCategory: 'personal_events',
+    nameEn: 'Mehendi Artist',
+    nameHi: 'मेहंदी आर्टिस्ट',
+    nameGu: 'મહેંદી આર્ટિસ્ટ',
+    iconName: 'Palette',
+    tag: '#MehendiArtist',
+    description: 'Bridal mehendi, festival mehendi & custom henna designs',
+    helperCount: 0,
+  },
+  {
+    id: 'pandit_pooja',
+    masterCategory: 'personal_events',
+    nameEn: 'Pandit Ji / Pooja Path',
+    nameHi: 'पंडित जी / पूजा-पाठ और ज्योतिष',
+    nameGu: 'પંડિતજી / પૂજા-પાઠ અને જ્યોતિષ',
+    iconName: 'Flame',
+    tag: '#PanditJi',
+    description: 'Griha pravesh, satyanarayan katha, havan, marriage & kundali',
+    helperCount: 0,
+  },
+  {
+    id: 'photographer',
+    masterCategory: 'personal_events',
+    nameEn: 'Photographer & Videographer',
+    nameHi: 'फोटोग्राफर और वीडियोग्राफर',
+    nameGu: 'ફોટોગ્રાફર અને વીડિયોગ્રાફર',
+    iconName: 'Camera',
+    tag: '#Photographer',
+    description: 'Wedding, birthday, pre-wedding, event shoot & drone video',
+    helperCount: 0,
+  },
+  {
+    id: 'catering_event',
+    masterCategory: 'personal_events',
+    nameEn: 'Catering, Halwai & Event Helper',
+    nameHi: 'कैटरिंग, हलवाई और इवेंट हेल्पर',
+    nameGu: 'કેટરિંગ, હલવાઈ અને ઇવેન્ટ હેલ્પર',
+    iconName: 'Utensils',
+    tag: '#Catering',
+    description: 'Party catering, halwai, tiffin service, mandap & event staff',
+    helperCount: 0,
+  },
+
+  // ==========================================
+  // 3. 💻 IT, Tech & Digital Experts (it_tech)
+  // ==========================================
+  {
+    id: 'web_developer',
+    masterCategory: 'it_tech',
+    nameEn: 'Web Developer',
+    nameHi: 'वेब डेवलपर (वेबसाइट बनाना)',
+    nameGu: 'વેબ ડેવલપર (વેબસાઇટ બનાવવી)',
+    iconName: 'Globe',
+    tag: '#WebDeveloper',
+    description: 'Business websites, e-commerce stores, WordPress & full-stack web',
+    helperCount: 0,
+  },
+  {
+    id: 'app_developer',
+    masterCategory: 'it_tech',
+    nameEn: 'App Developer',
+    nameHi: 'ऐप डेवलपर (मोबाइल ऐप)',
+    nameGu: 'એપ ડેવલપર (મોબાઇલ એપ)',
+    iconName: 'Smartphone',
+    tag: '#AppDeveloper',
+    description: 'Android, iOS, Flutter & custom mobile application development',
+    helperCount: 0,
+  },
+  {
+    id: 'computer_laptop',
+    masterCategory: 'it_tech',
+    nameEn: 'Computer & Laptop Expert',
+    nameHi: 'कंप्यूटर और लैपटॉप रिपेयर एक्सपर्ट',
+    nameGu: 'કમ્પ્યુટર અને લેપટોપ રિપેર એક્સપર્ટ',
+    iconName: 'Monitor',
+    tag: '#ComputerRepair',
+    description: 'Windows installation, laptop repair, printer setup & data recovery',
+    helperCount: 0,
+  },
+  {
+    id: 'cctv_wifi',
+    masterCategory: 'it_tech',
+    nameEn: 'CCTV & Wi-Fi Technician',
+    nameHi: 'CCTV कैमरा और वाई-फाई टेक्नीशियन',
+    nameGu: 'CCTV કેમેરા અને વાઈ-ફાઈ ટેકનિશિયન',
+    iconName: 'Wifi',
+    tag: '#CCTVWifi',
+    description: 'CCTV camera installation, DVR setup, Wi-Fi router & networking',
+    helperCount: 0,
+  },
+  {
+    id: 'graphic_video',
+    masterCategory: 'it_tech',
+    nameEn: 'Graphic Designer & Video Editor',
+    nameHi: 'ग्राफिक डिजाइनर और वीडियो एडिटर',
+    nameGu: 'ગ્રાફિક ડિઝાઇનર અને વીડિયો એડિટર',
+    iconName: 'Palette',
+    tag: '#GraphicDesign',
+    description: 'Logo, banner, visiting card, reels editing & YouTube video editing',
+    helperCount: 0,
+  },
+  {
+    id: 'digital_marketing',
+    masterCategory: 'it_tech',
+    nameEn: 'Digital Marketing & Social Media',
+    nameHi: 'डिजिटल मार्केटिंग और सोशल मीडिया',
+    nameGu: 'ડિજિટલ માર્કેટિંગ અને સોશિયલ મીડિયા',
+    iconName: 'Megaphone',
+    tag: '#DigitalMarketing',
+    description: 'Instagram/Facebook ads, Google Business profile, SEO & promotions',
+    helperCount: 0,
+  },
+  {
+    id: 'mobile_repair',
+    masterCategory: 'it_tech',
+    nameEn: 'Mobile Repair Technician',
+    nameHi: 'मोबाइल रिपेयर टेक्नीशियन',
+    nameGu: 'મોબાઇલ રિપેર ટેકનિશિયન',
+    iconName: 'Smartphone',
+    tag: '#MobileRepair',
+    description: 'Screen replacement, battery, charging jack & mobile software',
+    helperCount: 0,
+  },
+
+  // ==========================================
+  // 4. 💼 Business, Sales & Staff (business_staff)
+  // ==========================================
+  {
+    id: 'sales_staff',
+    masterCategory: 'business_staff',
+    nameEn: 'Salesman / Salesgirl',
+    nameHi: 'सेल्समेन / सेल्सगर्ल (दुकान व फील्ड)',
+    nameGu: 'સેલ્સમેન / સેલ્સગર્લ (દુકાન અને ફિલ્ડ)',
+    iconName: 'ShoppingBag',
+    tag: '#SalesStaff',
+    description: 'Showroom sales, retail counter staff, field sales & marketing',
+    helperCount: 0,
+  },
+  {
+    id: 'shop_helper',
+    masterCategory: 'business_staff',
+    nameEn: 'Shop Helper / Store Staff',
+    nameHi: 'दुकान हेल्पर / स्टोर स्टाफ',
+    nameGu: 'દુકાન હેલ્પર / સ્ટોર સ્ટાફ',
+    iconName: 'Store',
+    tag: '#ShopHelper',
+    description: 'Kirana, garment, medical or general store helper, packing & stock',
+    helperCount: 0,
+  },
+  {
+    id: 'accountant_gst',
+    masterCategory: 'business_staff',
+    nameEn: 'Accountant & GST/Tax Expert',
+    nameHi: 'अकाउंटेंट, टैली और GST/टैक्स एक्सपर्ट',
+    nameGu: 'એકાઉન્ટન્ટ, ટેલી અને GST/ટેક્સ એક્સપર્ટ',
+    iconName: 'Calculator',
+    tag: '#Accountant',
+    description: 'Tally accounting, GST return filing, ITR, bookkeeping & billing',
+    helperCount: 0,
+  },
+  {
+    id: 'data_entry',
+    masterCategory: 'business_staff',
+    nameEn: 'Data Entry & Back Office',
+    nameHi: 'डाटा एंट्री और कंप्यूटर ऑपरेटर',
+    nameGu: 'ડેટા એન્ટ્રી અને કમ્પ્યુટર ઓપરેટર',
+    iconName: 'FileSpreadsheet',
+    tag: '#DataEntry',
+    description: 'MS Excel, Word, typing, billing operator & office administration',
+    helperCount: 0,
+  },
+  {
+    id: 'security_guard',
+    masterCategory: 'business_staff',
+    nameEn: 'Security Guard / Watchman',
+    nameHi: 'सिक्योरिटी गार्ड / वॉचमैन',
+    nameGu: 'સિક્યુરિટી ગાર્ડ / વોચમેન',
+    iconName: 'Shield',
+    tag: '#SecurityGuard',
+    description: 'Society watchman, shop/factory security guard, day & night duty',
+    helperCount: 0,
+  },
+  {
+    id: 'receptionist_telecaller',
+    masterCategory: 'business_staff',
+    nameEn: 'Receptionist & Telecaller',
+    nameHi: 'रिसेप्शनिस्ट और टेलीकॉलर',
+    nameGu: 'રિસેપ્શનિસ્ટ અને ટેલીકોલર',
+    iconName: 'Headphones',
+    tag: '#Receptionist',
+    description: 'Front desk receptionist, customer support & telecalling executive',
+    helperCount: 0,
+  },
+
+  // ==========================================
+  // 5. 🏢 Brokers, Agents & Consultants (brokers_agents)
+  // ==========================================
+  {
+    id: 'real_estate_broker',
+    masterCategory: 'brokers_agents',
+    nameEn: 'Real Estate / Property Broker',
+    nameHi: 'प्रॉपर्टी ब्रोकर (मकान, दुकान व फ्लैट)',
+    nameGu: 'પ્રોપર્ટી બ્રોકર (મકાન, દુકાન અને ફ્લેટ)',
+    iconName: 'Building2',
+    tag: '#PropertyBroker',
+    description: 'Rent, buy or sell house, flat, PG, shop, office & plot',
+    helperCount: 0,
+  },
+  {
+    id: 'vehicle_broker',
+    masterCategory: 'brokers_agents',
+    nameEn: 'Vehicle Broker / Agent',
+    nameHi: 'गाड़ी ब्रोकर (पुरानी कार व बाइक एजेंट)',
+    nameGu: 'વાહન બ્રોકર (જૂની કાર અને બાઇક એજન્ટ)',
+    iconName: 'Car',
+    tag: '#VehicleBroker',
+    description: 'Buy & sell second-hand bike, car, commercial vehicle & tractor',
+    helperCount: 0,
+  },
+  {
+    id: 'rto_agent',
+    masterCategory: 'brokers_agents',
+    nameEn: 'RTO & License Agent',
+    nameHi: 'RTO और ड्राइविंग लाइसेंस एजेंट',
+    nameGu: 'RTO અને ડ્રાઇવિંગ લાઇસન્સ એજન્ટ',
+    iconName: 'FileCheck',
+    tag: '#RTOAgent',
+    description: 'Driving license, RC transfer, vehicle insurance & PUC help',
+    helperCount: 0,
+  },
+  {
+    id: 'loan_insurance',
+    masterCategory: 'brokers_agents',
+    nameEn: 'Loan & Insurance Agent',
+    nameHi: 'लोन और बीमा (LIC/इंश्योरेंस) एजेंट',
+    nameGu: 'લોન અને વીમા (LIC/ઇન્શ્યોરન્સ) એજન્ટ',
+    iconName: 'Landmark',
+    tag: '#LoanInsurance',
+    description: 'Home loan, personal/business loan, health, life & vehicle insurance',
+    helperCount: 0,
+  },
+  {
+    id: 'legal_docs',
+    masterCategory: 'brokers_agents',
+    nameEn: 'Legal & Documentation Help',
+    nameHi: 'कानूनी सलाह, नोटरी और दस्तावेज मदद',
+    nameGu: 'કાનૂની સલાહ, નોટરી અને દસ્તાવેજ મદદ',
+    iconName: 'Scale',
+    tag: '#LegalDocs',
+    description: 'Rent agreement, notary, affidavit, PAN/Aadhaar, passport & e-Seva',
+    helperCount: 0,
+  },
+
+  // ==========================================
+  // 6. 🚗 Vehicle, Transport & Delivery (vehicle_transport)
+  // ==========================================
+  {
+    id: 'mechanic',
+    masterCategory: 'vehicle_transport',
+    nameEn: 'Mechanic & Puncture Repair',
+    nameHi: 'मैकेनिक और पंक्चर रिपेयर',
+    nameGu: 'મિકેનિક અને પંચર રિપેર',
+    iconName: 'Wrench',
+    tag: '#Mechanic',
+    description: 'Bike/car breakdown, puncture, battery jumpstart & garage service',
+    helperCount: 0,
+  },
+  {
+    id: 'cab_auto_driver',
+    masterCategory: 'vehicle_transport',
+    nameEn: 'Cab, Auto & Private Driver',
+    nameHi: 'कैब, ऑटो और प्राइवेट ड्राइवर',
+    nameGu: 'કેબ, રિક્ષા અને પ્રાઇવેટ ડ્રાઇવર',
+    iconName: 'Car',
+    tag: '#CabAuto',
+    description: 'Local auto, outstation cab, daily pickup-drop & private car driver',
+    helperCount: 0,
+  },
+  {
+    id: 'tempo_packers',
+    masterCategory: 'vehicle_transport',
+    nameEn: 'Tempo & Packers/Movers',
+    nameHi: 'टेम्पो, लोडिंग और पैकर्स-मूवर्स',
+    nameGu: 'ટેમ્પો, લોડિંગ અને પેકર્સ-મૂવર્સ',
+    iconName: 'Truck',
+    tag: '#TempoPackers',
+    description: 'Chota Hathi tempo, house shifting, luggage loading & transport',
+    helperCount: 0,
+  },
+  {
+    id: 'delivery',
+    masterCategory: 'vehicle_transport',
+    nameEn: 'Delivery & Errands',
+    nameHi: 'लोकल डिलीवरी और सामान लाना',
+    nameGu: 'લોકલ ડિલિવરી અને સામાન લાવવો',
+    iconName: 'Package',
+    tag: '#Delivery',
+    description: 'Parcel drop, grocery/medicine pickup & local market errands',
+    helperCount: 0,
+  },
+
+  // ==========================================
+  // 7. 📚 Education & Skill Classes (education_classes)
+  // ==========================================
+  {
+    id: 'tutor',
+    masterCategory: 'education_classes',
+    nameEn: 'Tuition & School Teacher',
+    nameHi: 'होम ट्यूटर और स्कूल टीचर',
+    nameGu: 'હોમ ટ્યુટર અને સ્કૂલ ટીચર',
+    iconName: 'GraduationCap',
+    tag: '#HomeTutor',
+    description: 'Nursery to 12th home tuition, coaching classes & exam preparation',
+    helperCount: 0,
+  },
+  {
+    id: 'study_project',
+    masterCategory: 'education_classes',
+    nameEn: 'Project & Study Help',
+    nameHi: 'प्रोजेक्ट और पढ़ाई में मदद',
+    nameGu: 'પ્રોજેક્ટ અને અભ્યાસમાં મદદ',
+    iconName: 'BookOpen',
+    tag: '#StudyHelp',
+    description: 'School/college assignments, models, notes & exam study partner',
+    helperCount: 0,
+  },
+  {
+    id: 'computer_spoken_english',
+    masterCategory: 'education_classes',
+    nameEn: 'Computer & Spoken English Classes',
+    nameHi: 'कंप्यूटर और स्पोकन इंग्लिश क्लासेस',
+    nameGu: 'કમ્પ્યુટર અને સ્પોકન ઇંગ્લિશ ક્લાસીસ',
+    iconName: 'Languages',
+    tag: '#SpokenEnglish',
+    description: 'Basic computer, Tally, coding classes, spoken English & IELTS',
+    helperCount: 0,
+  },
+  {
+    id: 'music_dance_art',
+    masterCategory: 'education_classes',
+    nameEn: 'Music, Dance & Art Teacher',
+    nameHi: 'संगीत, डांस और ड्राइंग टीचर',
+    nameGu: 'સંગીત, ડાન્સ અને ડ્રોઇંગ ટીચર',
+    iconName: 'Music',
+    tag: '#MusicDanceArt',
+    description: 'Guitar, keyboard, singing, garba/dance, painting & craft classes',
+    helperCount: 0,
+  },
+
+  // ==========================================
+  // 8. 🏸 Sports & Fitness Partners (sports_fitness)
+  // ==========================================
   {
     id: 'cricket',
     masterCategory: 'sports_fitness',
-    nameEn: 'Cricket Partner',
-    nameHi: 'क्रिकेट साथी व टीम',
-    nameGu: 'ક્રિકેટ પાર્ટનર અને ટીમ',
-    nameMr: 'क्रिकेट साथीदार व संघ',
-    nameBn: 'ক্রিকেট পার্টনার',
-    nameTa: 'கிரிக்கெட் பார்ட்னர்',
-    nameTe: 'క్రికెట్ భాగస్వామి',
-    nameKn: 'ಕ್ರಿಕೆಟ್ ಜೊತೆಗಾರ',
-    namePa: 'ਕ੍ਰਿਕਟ ਸਾਥੀ',
-    nameMl: 'ക്രിക്കറ്റ് കൂട്ടാളി',
+    nameEn: 'Cricket Partner & Team',
+    nameHi: 'क्रिकेट साथी और टीम',
+    nameGu: 'ક્રિકેટ સાથી અને ટીમ',
     iconName: 'Trophy',
     tag: '#Cricket',
-    description: 'Weekend cricket match, bowler/batsman needed, turf team',
+    description: 'Need players for box cricket, turf match or morning net practice',
     helperCount: 0,
   },
   {
     id: 'badminton',
     masterCategory: 'sports_fitness',
-    nameEn: 'Badminton & Tennis',
-    nameHi: 'बैडमिंटन व टेनिस साथी',
-    nameGu: 'બેડમિન્ટન અને ટેનિસ',
-    nameMr: 'बॅडमिंटन व टेनिस',
-    nameBn: 'ব্যাডমিন্টন সঙ্গী',
-    nameTa: 'பேட்மிண்டன் பார்ட்னர்',
-    nameTe: 'బ్యాడ్మింటన్ భాగస్వామి',
-    nameKn: 'ಬ್ಯಾಡ್ಮಿಂಟನ್ ಜೊತೆಗಾರ',
-    namePa: 'ਬੈਡਮਿੰਟਨ ਸਾਥੀ',
-    nameMl: 'ബാഡ്മിന്റൺ കൂട്ടാളി',
+    nameEn: 'Badminton & Tennis Partner',
+    nameHi: 'बैडमिंटन और टेनिस साथी',
+    nameGu: 'બેડમિન્ટન અને ટેનિસ સાથી',
     iconName: 'Activity',
     tag: '#Badminton',
-    description: 'Morning court player, singles/doubles game companion',
+    description: 'Find a partner for evening badminton, table tennis or squash',
     helperCount: 0,
   },
   {
     id: 'gym_fitness',
     masterCategory: 'sports_fitness',
     nameEn: 'Gym & Workout Buddy',
-    nameHi: 'जिम व वर्कआउट साथी',
-    nameGu: 'જિમ અને વર્કઆઉટ બડી',
-    nameMr: 'जिम व व्यायाम जोडीदार',
-    nameBn: 'জিম ও ব্যায়াম সঙ্গী',
-    nameTa: 'ஜிம் ஒர்க்அவுட் பார்ட்னர்',
-    nameTe: 'జిమ్ వర్కౌట్ మిత్రుడు',
-    nameKn: 'ಜಿಮ್ ವರ್కౌಟ್ ಸ್ನೇಹಿತ',
-    namePa: 'ਜਿਮ ਤੇ ਕਸਰਤ ਸਾਥੀ',
-    nameMl: 'ജിം വ്യായാമ കൂട്ടാളി',
+    nameHi: 'जिम और वर्कआउट पार्टनर',
+    nameGu: 'જિમ અને વર્કઆઉટ પાર્ટનર',
     iconName: 'Dumbbell',
-    tag: '#Gym_Fitness',
-    description: 'Weight lifting spotter, workout motivation partner, cardio buddy',
+    tag: '#GymBuddy',
+    description: 'Workout partner, fitness trainer or weight training buddy',
     helperCount: 0,
   },
   {
     id: 'running_yoga',
     masterCategory: 'sports_fitness',
-    nameEn: 'Running & Yoga',
-    nameHi: 'रनिंग व योग साथी',
-    nameGu: 'રનિંગ અને યોગા સાથી',
-    nameMr: 'रनिंग व योगा',
-    nameBn: 'রানিং ও যোগব্যায়াম',
-    nameTa: 'ஓட்டம் & யோகா',
-    nameTe: 'రన్నింగ్ & యోగా',
-    nameKn: 'ರನ್ನಿಂಗ್ ಮತ್ತು ಯೋಗ',
-    namePa: 'ਦੌੜ ਤੇ ਯੋਗ',
-    nameMl: 'റണ്ണിംഗ് & യോഗ',
+    nameEn: 'Running, Cycling & Yoga Partner',
+    nameHi: 'रनिंग, साइकिलिंग और योगा साथी',
+    nameGu: 'રનિંગ, સાયકલિંગ અને યોગા સાથી',
     iconName: 'Footprints',
-    tag: '#Running_Yoga',
-    description: 'Morning 5km jog, park running group, open yoga sessions',
+    tag: '#RunningYoga',
+    description: 'Morning run, jogging, cycling group or park yoga instructor/buddy',
     helperCount: 0,
   },
 
-  // 3. Social & Casual
+  // ==========================================
+  // 9. ☕ Social, Lifestyle & Care (social_care)
+  // ==========================================
   {
     id: 'chai_coffee',
-    masterCategory: 'social_casual',
-    nameEn: 'Chai & Coffee Meetup',
-    nameHi: 'चाय-कॉफी व बातचीत',
-    nameGu: 'ચા-કોફી મુલાકાત',
-    nameMr: 'चहा-कॉफी गप्पा',
-    nameBn: 'চা-কফি আড্ডা',
-    nameTa: 'டீ/காபி அரட்டை',
-    nameTe: 'టీ/కాఫీ కబుర్లు',
-    nameKn: 'ಟೀ/ಕಾಫಿ ಮಾತುಕತೆ',
-    namePa: 'ਚਾਹ-ਕੌਫੀ ਗੱਪਸ਼ੱਪ',
-    nameMl: 'ചായ/കോഫി കൂട്ടായ്മ',
+    masterCategory: 'social_care',
+    nameEn: 'Tea-Coffee Meetup',
+    nameHi: 'चाय-कॉफी मीटअप और बातचीत',
+    nameGu: 'ચા-કોફી મુલાકાત અને વાતચીત',
     iconName: 'Coffee',
-    tag: '#Chai_Coffee',
-    description: 'Evening tea discussions, friendly café chat, casual talks',
+    tag: '#ChaiMeetup',
+    description: 'Friendly chat over chai/coffee, networking or weekend hangout',
     helperCount: 0,
   },
   {
     id: 'companion',
-    masterCategory: 'social_casual',
-    nameEn: 'Companion & Walk',
-    nameHi: 'शाम की वॉक व साथीदार',
-    nameGu: 'સાંજની વોક અને સાથીદાર',
-    nameMr: 'संध्याकाळचा वॉक व मित्र',
-    nameBn: 'হাঁটাহাঁটির সঙ্গী',
-    nameTa: 'மாலை நடைப்பயணத் தோழர்',
-    nameTe: 'సాయంత్రం వాకింగ్ మిత్రుడు',
-    nameKn: 'ಸಂಜೆ ವಾಕಿಂಗ್ ಜೊತೆಗಾರ',
-    namePa: 'ਸ਼ਾਮ ਦੀ ਸੈਰ ਦਾ ਸਾਥੀ',
-    nameMl: 'വൈകുന്നേര നടത്ത കൂട്ടാളി',
+    masterCategory: 'social_care',
+    nameEn: 'Evening Walk Partner',
+    nameHi: 'शाम की वॉक और घूमने का साथी',
+    nameGu: 'સાંજની વોક અને ફરવાનો સાથી',
     iconName: 'Users',
-    tag: '#Companion',
-    description: 'Park evening walks, sharing neighborhood stories, companionship',
+    tag: '#WalkCompanion',
+    description: 'Someone for evening walk, park visit, movie or local outing',
     helperCount: 0,
   },
   {
     id: 'board_games',
-    masterCategory: 'social_casual',
+    masterCategory: 'social_care',
     nameEn: 'Chess & Board Games',
-    nameHi: 'शतरंज व बोर्ड गेम्स',
-    nameGu: 'ચેસ અને બોર્ડ ગેમ્સ',
-    nameMr: 'बुद्धिबळ व बोर्ड गेम्स',
-    nameBn: 'দাবা ও ইনডোর গেম',
-    nameTa: 'சதுரங்கம் & பலகை ஆட்டம்',
-    nameTe: 'చదరంగం & బోర్డు ఆటలు',
-    nameKn: 'ಚೆಸ್ ಮತ್ತು ಬೋರ್ಡ್ ಆಟಗಳು',
-    namePa: 'ਸ਼ਤਰੰਜ ਤੇ ਬੋਰਡ ਖੇਡਾਂ',
-    nameMl: 'ചെസ്സ് & ബോർഡ് ഗെയിമുകൾ',
-    iconName: 'Smile',
-    tag: '#Board_Games',
-    description: 'Carrom, Chess, Ludo players, casual evening weekend games',
+    nameHi: 'शतरंज, लूडो और इंडोर गेम्स',
+    nameGu: 'ચેસ, લુડો અને ઇન્ડોર ગેમ્સ',
+    iconName: 'Gamepad2',
+    tag: '#BoardGames',
+    description: 'Play chess, carrom, ludo or friendly gaming sessions nearby',
+    helperCount: 0,
+  },
+  {
+    id: 'senior_help',
+    masterCategory: 'social_care',
+    nameEn: 'Elder Care & Companion',
+    nameHi: 'बुजुर्गों की मदद और देखभाल',
+    nameGu: 'વડીલોની મદદ અને સંભાળ',
+    iconName: 'HeartHandshake',
+    tag: '#SeniorCare',
+    description: 'Hospital visit support, medicine pickup, patient care & reading help',
     helperCount: 0,
   },
   {
     id: 'pet_walking',
-    masterCategory: 'social_casual',
-    nameEn: 'Pet Walking & Care',
-    nameHi: 'पेट वॉक व देखभाल',
-    nameGu: 'પાલતુ પ્રાણી વોક અને સંભાળ',
-    nameMr: 'पाळीव प्राणी वॉक व काळजी',
-    nameBn: 'পোষা প্রাণী পরিচর্যা',
-    nameTa: 'செல்லப்பிராணி பராமரிப்பு',
-    nameTe: 'పెంపుడు జంతువుల వాకింగ్',
-    nameKn: 'ಸಾಕುಪ್ರಾಣಿ ಆರೈಕೆ',
-    namePa: 'ਪਾਲਤੂ ਜਾਨਵਰਾਂ ਦੀ ਸੈਰ',
-    nameMl: 'പെറ്റ് വാക്കിംഗ് & കെയർ',
-    iconName: 'Dog',
-    tag: '#Pet_Walking',
-    description: 'Dog walking buddy, weekend pet playdates, temporary care',
+    masterCategory: 'social_care',
+    nameEn: 'Pet Walk & Care',
+    nameHi: 'पेट वॉक और डॉग केयर',
+    nameGu: 'પેટ વોક અને ડોગ કેર',
+    iconName: 'PawPrint',
+    tag: '#PetWalking',
+    description: 'Dog walking, pet sitting, feeding & veterinary visit help',
     helperCount: 0,
   },
 
-  // 4. Daily Support & Errand
-  {
-    id: 'senior_help',
-    masterCategory: 'daily_errands',
-    nameEn: 'Senior Citizen Support',
-    nameHi: 'बुजुर्ग सहायता व साथी',
-    nameGu: 'વડીલ સહાય અને સાથીદાર',
-    nameMr: 'ज्येष्ठ नागरिक मदत',
-    nameBn: 'বয়স্কদের সেবা ও সাহায্য',
-    nameTa: 'முதியோர் உதவி',
-    nameTe: 'వృద్ధుల సహాయం',
-    nameKn: 'ಹಿರಿಯ ನಾಗರಿಕರ ನೆರವು',
-    namePa: 'ਬਜ਼ੁਰਗਾਂ ਦੀ ਸਹਾਇਤਾ',
-    nameMl: 'മുതിർന്നവർക്കുള്ള സഹായം',
-    iconName: 'HeartHandshake',
-    tag: '#Senior_Help',
-    description: 'Medicine purchase, doctor visit escort, bank form assistance',
-    helperCount: 0,
-  },
-  {
-    id: 'study_project',
-    masterCategory: 'daily_errands',
-    nameEn: 'Study & Project Help',
-    nameHi: 'प्रोजेक्ट व पढ़ाई मदद',
-    nameGu: 'પ્રોજેક્ટ અને અભ્યાસ મદદ',
-    nameMr: 'प्रकल्प व अभ्यास मदत',
-    nameBn: 'প্রজেক্ট ও পড়াশোনা সাহায্য',
-    nameTa: 'படிப்பு & திட்ட உதவி',
-    nameTe: 'ప్రాజెక్ట్ & స్టడీ హెల్ప్',
-    nameKn: 'ಪ್ರಾಜೆಕ್ಟ್ & ಓದುವ ಸಹಾಯ',
-    namePa: 'ਪ੍ਰੋਜੈਕਟ ਤੇ ਪੜ੍ਹਾਈ ਮਦਦ',
-    nameMl: 'പ്രോജക്ട് & പഠന സഹായം',
-    iconName: 'GraduationCap',
-    tag: '#Study_Project',
-    description: 'College project peer help, printout help, typing & study notes',
-    helperCount: 0,
-  },
-  {
-    id: 'cleaning',
-    masterCategory: 'daily_errands',
-    nameEn: 'Maid & Cleaning',
-    nameHi: 'सफाई व घरेलू काम',
-    nameGu: 'સફાઇ અને ઘરકામ',
-    nameMr: 'सफाई व घरकाम',
-    nameBn: 'পরিষ্কার ও গৃহকর্মী',
-    nameTa: 'சுத்தம் & வீட்டு வேலை',
-    nameTe: 'శుభ్రత & ఇంటి పని',
-    nameKn: 'ಸ್ವಚ್ಛತೆ ಮತ್ತು ಮನೆಕೆಲಸ',
-    namePa: 'ਸਫਾਈ ਤੇ ਘਰੇਲੂ ਕੰਮ',
-    nameMl: 'ശുചീകരണം & വീട്ടുജോലി',
-    iconName: 'Sparkles',
-    tag: '#Cleaning',
-    description: 'Deep home cleaning, bathroom scrubbing, kitchen, maid help',
-    helperCount: 0,
-  },
-  {
-    id: 'delivery',
-    masterCategory: 'daily_errands',
-    nameEn: 'Delivery & Errands',
-    nameHi: 'सामान डिलीवरी व काम',
-    nameGu: 'ડિલિવરી અને પરચૂરણ કામ',
-    nameMr: 'डिलिव्हरी व कामे',
-    nameBn: 'ডেলিভারি ও বাজার সদাই',
-    nameTa: 'டெலிவரி & பொருட்கள்',
-    nameTe: 'డెలివరీ & సామాగ్రి',
-    nameKn: 'ಡೆಲಿವರಿ ಮತ್ತು ಸಾಮಗ್ರಿ',
-    namePa: 'ਡਿਲੀਵਰੀ ਤੇ ਸਮਾਨ',
-    nameMl: 'ഡെലിവറി & സാധനങ്ങൾ',
-    iconName: 'Package',
-    tag: '#Delivery',
-    description: 'Local luggage shift, grocery pickup, tempo transport',
-    helperCount: 0,
-  },
-  {
-    id: 'tutor',
-    masterCategory: 'daily_errands',
-    nameEn: 'Tutor & Teacher',
-    nameHi: 'ट्यूशन व पढ़ाई',
-    nameGu: 'ટ્યુશન અને શિક્ષક',
-    nameMr: 'ट्यूशन व शिक्षक',
-    nameBn: 'টিউশন ও শিক্ষক',
-    nameTa: 'டியூஷன் & ஆசிரியர்',
-    nameTe: 'ట్యూషన్ & ఉపాధ్యాయులు',
-    nameKn: 'ಟ್ಯೂಷನ್ ಮತ್ತು ಶಿಕ್ಷಕರು',
-    namePa: 'ਟਿਊਸ਼ਨ ਤੇ ਅਧਿਆਪਕ',
-    nameMl: 'ട്യൂഷൻ & അധ്യാപകൻ',
-    iconName: 'BookOpen',
-    tag: '#Tutor',
-    description: 'School home tuition, maths, science, english lessons',
-    helperCount: 0,
-  },
+  // ==========================================
+  // 10. ✨ Other / Custom Category (other_custom)
+  // ==========================================
   {
     id: 'other',
-    masterCategory: 'daily_errands',
+    masterCategory: 'other_custom',
     nameEn: 'Other / Custom Category',
-    nameHi: 'अन्य / खुद की केटेगरी (हॉस्पिटल, स्टोर आदि)',
-    nameGu: 'અન્ય / કસ્ટમ કેટેગરી',
-    nameMr: 'इतर / सानुकूल श्रेणी (हॉस्पिटल, स्टोअर इत्यादी)',
-    nameBn: 'অন্যান্য / কাস্টম বিভাগ (হাসপাতাল, দোকান ইত্যাদি)',
-    nameTa: 'மற்றவை / சொந்த வகை (மருத்துவமனை, கடை)',
-    nameTe: 'ఇతర / సొంత కేటగిరీ (ఆసుపత్రి, షాప్)',
-    nameKn: 'ಇತರ / ಸ್ವಂತ ವರ್ಗ (ಆಸ್ಪತ್ರೆ, ಅಂಗಡಿ)',
-    namePa: 'ਹੋਰ / ਆਪਣੀ ਕੈਟੇਗਰੀ (ਹਸਪਤਾਲ, ਸਟੋਰ)',
-    nameMl: 'മറ്റുള്ളവ / സ്വന്തം കാറ്റഗറി (ആശുപത്രി, സ്റ്റോർ)',
+    nameHi: 'अन्य / अपनी श्रेणी लिखें',
+    nameGu: 'અન્ય / તમારી કેટેગરી લખો',
     iconName: 'PlusCircle',
-    tag: '#Other',
-    description: 'Register any custom business or hospital (e.g. Hospital, Medical Store, Clinic, Bakery, Shop, etc.)',
+    tag: '#OtherService',
+    description: 'Any other local skill, custom service, shop or community requirement',
     helperCount: 0,
   },
 ];
@@ -548,6 +800,11 @@ export function getMasterCategorySubtitle(master: MasterCategory | undefined, la
   }
 }
 
+export function getSubCategoriesByMainId(mainId: MasterCategoryId): CategoryItem[] {
+  if (mainId === 'all') return CATEGORIES;
+  return CATEGORIES.filter(c => c.masterCategory === mainId);
+}
+
 export interface FreeHelperProfile {
   id: string;
   userId?: string;
@@ -555,7 +812,7 @@ export interface FreeHelperProfile {
   name: string;
   categoryId: string;
   customCategoryName?: string;
-  masterCategory: 'utility_emergency' | 'sports_fitness' | 'social_casual' | 'daily_errands';
+  masterCategory: MasterCategoryId;
   phone: string;
   skills: string[];
   area: string;
@@ -576,6 +833,30 @@ const STORAGE_KEY = 'locohelp_free_helper_profiles';
 
 // Zero dummy helpers - only real user-created and admin-approved helper profiles are shown
 export const INITIAL_HELPERS: FreeHelperProfile[] = [];
+
+// Legacy ID map so any old DB record with legacy slug maps to the exact canonical category ID
+const LEGACY_CATEGORY_ID_MAP: Record<string, string> = {
+  ac_appliance: 'ac_repair',
+  cleaning_pest: 'cleaning',
+  mechanic_towing: 'mechanic',
+  driver_cab: 'cab_auto_driver',
+  cab_driver: 'cab_auto_driver',
+  beauty_parlour: 'beautician',
+  tiffin_catering: 'catering_event',
+  computer_mobile: 'computer_laptop',
+  cctv_security: 'cctv_wifi',
+  packers_movers: 'tempo_packers',
+  civil_mason: 'mason',
+  event_photo: 'photographer',
+  astrology_pandit: 'pandit_pooja',
+  cricket_football: 'cricket',
+  badminton_tennis: 'badminton',
+  gym_running: 'gym_fitness',
+  chai_hangout: 'chai_coffee',
+  senior_citizen: 'senior_help',
+  medical_nursing: 'senior_help',
+  flatmate_pg: 'real_estate_broker',
+};
 
 /**
  * Normalizes any category ID, English/Hindi/Gujarati name, tag, or skill keyword
@@ -603,6 +884,14 @@ export function normalizeCategorySlug(
     const clean = raw.toLowerCase().replace(/^#/, '').trim();
     if (!clean) continue;
 
+    // 0. Check legacy ID map first
+    if (LEGACY_CATEGORY_ID_MAP[clean]) {
+      return {
+        categoryId: LEGACY_CATEGORY_ID_MAP[clean],
+        customCategoryName: customCategoryName?.trim() || '',
+      };
+    }
+
     // 1. Direct match on category id, nameEn, nameHi, nameGu, or tag
     const exactMatch = CATEGORIES.find(
       c =>
@@ -622,75 +911,170 @@ export function normalizeCategorySlug(
       };
     }
 
-    // 2. Keyword / substring match against CATEGORIES
+    // 2. Keyword / substring match against all 49 sub-categories
+    // Group 1: Home & Repair
     if (clean.includes('plumb') || clean.includes('नल') || clean.includes('पाइप') || clean.includes('પ્લમ્બર')) {
       return { categoryId: 'plumber', customCategoryName: '' };
     }
     if (clean.includes('electric') || clean.includes('बिजली') || clean.includes('इलेक्ट्रीशियन') || clean.includes('ઇલેક્ટ્રિશિયન')) {
       return { categoryId: 'electrician', customCategoryName: '' };
     }
-    if (clean.includes('ac ') || clean === 'ac' || clean.includes('appliance') || clean.includes('fridge') || clean.includes('washing machine') || clean.includes('एसी') || clean.includes('फ्रिज')) {
-      return { categoryId: 'ac_appliance', customCategoryName: '' };
+    if (clean.includes('ac ') || clean === 'ac' || clean.includes('ac_repair') || clean.includes('appliance') || clean.includes('fridge') || clean.includes('ro repair') || clean.includes('washing machine') || clean.includes('एसी') || clean.includes('फ्रिज')) {
+      return { categoryId: 'ac_repair', customCategoryName: '' };
     }
-    if (clean.includes('mechanic') || clean.includes('puncture') || clean.includes('towing') || clean.includes('garage') || clean.includes('मैकेनिक') || clean.includes('पंक्चर')) {
-      return { categoryId: 'mechanic_towing', customCategoryName: '' };
-    }
-    if (clean.includes('carpent') || clean.includes('furniture') || clean.includes('बढ़ई') || clean.includes('फर्नीचर') || clean.includes('સુથાર')) {
+    if (clean.includes('carpent') || clean.includes('suthar') || clean.includes('furniture') || clean.includes('बढ़ई') || clean.includes('सुथार') || clean.includes('फर्नीचर') || clean.includes('સુથાર')) {
       return { categoryId: 'carpenter', customCategoryName: '' };
     }
     if (clean.includes('paint') || clean.includes('पेंटर') || clean.includes('पुताई') || clean.includes('પેઇન્ટર')) {
       return { categoryId: 'painter', customCategoryName: '' };
     }
-    if (clean.includes('blood') || clean.includes('medical') || clean.includes('hospital') || clean.includes('clinic') || clean.includes('pharmacy') || clean.includes('doctor') || clean.includes('ambulance') || clean.includes('मेडिकल') || clean.includes('अस्पताल')) {
-      return { categoryId: 'blood_medical', customCategoryName: customCategoryName?.trim() || raw.trim() };
+    if (clean.includes('mason') || clean.includes('kadiyo') || clean.includes('mistri') || clean.includes('कड़िया') || clean.includes('मिस्त्री') || clean.includes('કડિયો')) {
+      return { categoryId: 'mason', customCategoryName: '' };
     }
-    if (clean.includes('animal') || clean.includes('snake') || clean.includes('pet') || clean.includes('vet') || clean.includes('रेस्क्यू')) {
-      return { categoryId: 'animal_rescue', customCategoryName: '' };
+    if (clean.includes('pest') || clean.includes('termite') || clean.includes('tank clean') || clean.includes('पेस्ट') || clean.includes('टंकी सफाई') || clean.includes('પેસ્ટ')) {
+      return { categoryId: 'pest_control', customCategoryName: '' };
     }
-    if (clean.includes('farm') || clean.includes('kisan') || clean.includes('tractor') || clean.includes('agri') || clean.includes('किसान') || clean.includes('खेती') || clean.includes('खेत')) {
-      return { categoryId: 'farm_kisan', customCategoryName: '' };
-    }
-    if (clean.includes('cab') || clean.includes('auto') || clean.includes('driver') || clean.includes('taxi') || clean.includes('travel') || clean.includes('कैब') || clean.includes('ऑटो') || clean.includes('ड्राइवर')) {
-      return { categoryId: 'cab_driver', customCategoryName: '' };
-    }
-    if (clean.includes('cricket') || clean.includes('football') || clean.includes('turf') || clean.includes('क्रिकेट')) {
-      return { categoryId: 'cricket_football', customCategoryName: '' };
-    }
-    if (clean.includes('badminton') || clean.includes('tennis') || clean.includes('बैडमिंटन')) {
-      return { categoryId: 'badminton_tennis', customCategoryName: '' };
-    }
-    if (clean.includes('gym') || clean.includes('running') || clean.includes('yoga') || clean.includes('fitness') || clean.includes('जिम')) {
-      return { categoryId: 'gym_running', customCategoryName: '' };
-    }
-    if (clean.includes('gaming') || clean.includes('bgmi') || clean.includes('esport') || clean.includes('गेमिंग')) {
-      return { categoryId: 'esports_gaming', customCategoryName: '' };
-    }
-    if (clean.includes('chai') || clean.includes('coffee') || clean.includes('cafe') || clean.includes('tea') || clean.includes('restaurant') || clean.includes('food') || clean.includes('bakery') || clean.includes('hotel') || clean.includes('चाय') || clean.includes('होटल')) {
-      return { categoryId: 'chai_hangout', customCategoryName: customCategoryName?.trim() || raw.trim() };
-    }
-    if (clean.includes('flatmate') || clean.includes('pg') || clean.includes('hostel') || clean.includes('room') || clean.includes('rent') || clean.includes('रूम') || clean.includes('पीजी')) {
-      return { categoryId: 'flatmate_pg', customCategoryName: '' };
-    }
-    if (clean.includes('ride') || clean.includes('carpool') || clean.includes('pool') || clean.includes('राइड')) {
-      return { categoryId: 'ride_share', customCategoryName: '' };
-    }
-    if (clean.includes('movie') || clean.includes('event') || clean.includes('catering') || clean.includes('dj') || clean.includes('मूवी') || clean.includes('इवेंट')) {
-      return { categoryId: 'movie_events', customCategoryName: '' };
-    }
-    if (clean.includes('senior') || clean.includes('elder') || clean.includes('बुजुर्ग')) {
-      return { categoryId: 'senior_citizen', customCategoryName: '' };
-    }
-    if (clean.includes('study') || clean.includes('project') || clean.includes('stationery') || clean.includes('xerox') || clean.includes('cyber') || clean.includes('प्रोजेक्ट')) {
-      return { categoryId: 'study_project', customCategoryName: '' };
-    }
-    if (clean.includes('clean') || clean.includes('maid') || clean.includes('housekeep') || clean.includes('सफाई') || clean.includes('मेड')) {
+    if (clean.includes('clean') || clean.includes('maid') || clean.includes('housekeep') || clean.includes('cook') || clean.includes('सफाई') || clean.includes('मेड') || clean.includes('रसोइया') || clean.includes('સફાઈ')) {
       return { categoryId: 'cleaning', customCategoryName: '' };
     }
-    if (clean.includes('deliver') || clean.includes('errand') || clean.includes('grocery') || clean.includes('kirana') || clean.includes('transport') || clean.includes('packers') || clean.includes('डिलीवरी') || clean.includes('किराना')) {
-      return { categoryId: 'delivery', customCategoryName: customCategoryName?.trim() || raw.trim() };
+
+    // Group 2: Personal Care, Fashion & Events
+    if (clean.includes('tailor') || clean.includes('darzi') || clean.includes('boutique') || clean.includes('दर्जी') || clean.includes('बुटीक') || clean.includes('દરજી')) {
+      return { categoryId: 'tailor', customCategoryName: '' };
     }
-    if (clean.includes('tutor') || clean.includes('teacher') || clean.includes('coaching') || clean.includes('school') || clean.includes('class') || clean.includes('ट्यूशन') || clean.includes('शिक्षक')) {
+    if (clean.includes('beauti') || clean.includes('salon') || clean.includes('parlour') || clean.includes('makeup') || clean.includes('ब्यूटी') || clean.includes('पार्लर') || clean.includes('બ્યુટિશિયન')) {
+      return { categoryId: 'beautician', customCategoryName: '' };
+    }
+    if (clean.includes('mehendi') || clean.includes('mehndi') || clean.includes('henna') || clean.includes('मेहंदी') || clean.includes('મહેંદી')) {
+      return { categoryId: 'mehendi', customCategoryName: '' };
+    }
+    if (clean.includes('pandit') || clean.includes('pooja') || clean.includes('puja') || clean.includes('astrolog') || clean.includes('पंडित') || clean.includes('पूजा') || clean.includes('પંડિત')) {
+      return { categoryId: 'pandit_pooja', customCategoryName: '' };
+    }
+    if (clean.includes('photograp') || clean.includes('videograp') || clean.includes('cameraman') || clean.includes('फोटोग्राफ') || clean.includes('ફોટોગ્રાફર')) {
+      return { categoryId: 'photographer', customCategoryName: '' };
+    }
+    if (clean.includes('cater') || clean.includes('halwai') || clean.includes('tiffin') || clean.includes('event helper') || clean.includes('कैटरिंग') || clean.includes('हलवाई') || clean.includes('કેટરિંગ')) {
+      return { categoryId: 'catering_event', customCategoryName: '' };
+    }
+
+    // Group 3: IT, Tech & Digital Experts
+    if (clean.includes('web dev') || clean.includes('website') || clean.includes('वेब डेवलपर') || clean.includes('वेबसाइट') || clean.includes('વેબ ડેવલપર')) {
+      return { categoryId: 'web_developer', customCategoryName: '' };
+    }
+    if (clean.includes('app dev') || clean.includes('android') || clean.includes('flutter') || clean.includes('ऐप डेवलपर') || clean.includes('એપ ડેવલપર')) {
+      return { categoryId: 'app_developer', customCategoryName: '' };
+    }
+    if (clean.includes('cctv') || clean.includes('wifi') || clean.includes('wi-fi') || clean.includes('सीसीटीवी') || clean.includes('वाई-फाई')) {
+      return { categoryId: 'cctv_wifi', customCategoryName: '' };
+    }
+    if (clean.includes('graphic') || clean.includes('video edit') || clean.includes('logo') || clean.includes('ग्राफिक') || clean.includes('वीडियो एडिटर')) {
+      return { categoryId: 'graphic_video', customCategoryName: '' };
+    }
+    if (clean.includes('digital market') || clean.includes('social media') || clean.includes('seo') || clean.includes('डिजिटल मार्केटिंग')) {
+      return { categoryId: 'digital_marketing', customCategoryName: '' };
+    }
+    if (clean.includes('mobile repair') || clean.includes('phone repair') || clean.includes('मोबाइल रिपेयर') || clean.includes('મોબાઇલ રિપેર')) {
+      return { categoryId: 'mobile_repair', customCategoryName: '' };
+    }
+    if (clean.includes('laptop') || clean.includes('computer repair') || clean.includes('pc repair') || clean.includes('लैपटॉप') || clean.includes('कंप्यूटर रिपेयर')) {
+      return { categoryId: 'computer_laptop', customCategoryName: '' };
+    }
+
+    // Group 4: Business, Sales & Staff
+    if (clean.includes('salesman') || clean.includes('salesgirl') || clean.includes('sales staff') || clean.includes('सेल्समेन') || clean.includes('सेल्सगर्ल') || clean.includes('સેલ્સમેન')) {
+      return { categoryId: 'sales_staff', customCategoryName: '' };
+    }
+    if (clean.includes('shop helper') || clean.includes('store staff') || clean.includes('दुकान हेल्पर') || clean.includes('દુકાન હેલ્પર')) {
+      return { categoryId: 'shop_helper', customCategoryName: '' };
+    }
+    if (clean.includes('accountant') || clean.includes('gst') || clean.includes('tally') || clean.includes('tax') || clean.includes('अकाउंटेंट') || clean.includes('એકાઉન્ટન્ટ')) {
+      return { categoryId: 'accountant_gst', customCategoryName: '' };
+    }
+    if (clean.includes('data entry') || clean.includes('back office') || clean.includes('excel') || clean.includes('डाटा एंट्री') || clean.includes('ડેટા એન્ટ્રી')) {
+      return { categoryId: 'data_entry', customCategoryName: '' };
+    }
+    if (clean.includes('security guard') || clean.includes('watchman') || clean.includes('सिक्योरिटी गार्ड') || clean.includes('वॉचमैन') || clean.includes('સિક્યુરિટી ગાર્ડ')) {
+      return { categoryId: 'security_guard', customCategoryName: '' };
+    }
+    if (clean.includes('receptionist') || clean.includes('telecaller') || clean.includes('रिसेप्शनिस्ट') || clean.includes('टेलीकॉलर') || clean.includes('ટેલીકોલર')) {
+      return { categoryId: 'receptionist_telecaller', customCategoryName: '' };
+    }
+
+    // Group 5: Brokers, Agents & Consultants
+    if (clean.includes('real estate') || clean.includes('property broker') || clean.includes('flatmate') || clean.includes('प्रॉपर्टी ब्रोकर') || clean.includes('પ્રોપર્ટી બ્રોકર')) {
+      return { categoryId: 'real_estate_broker', customCategoryName: '' };
+    }
+    if (clean.includes('vehicle broker') || clean.includes('car broker') || clean.includes('गाड़ी ब्रोकर') || clean.includes('વાહન બ્રોકર')) {
+      return { categoryId: 'vehicle_broker', customCategoryName: '' };
+    }
+    if (clean.includes('rto') || clean.includes('license agent') || clean.includes('लाइसेंस एजेंट') || clean.includes('લાઇસન્સ એજન્ટ')) {
+      return { categoryId: 'rto_agent', customCategoryName: '' };
+    }
+    if (clean.includes('loan') || clean.includes('insurance') || clean.includes('lic') || clean.includes('लोन') || clean.includes('बीमा') || clean.includes('વીમા')) {
+      return { categoryId: 'loan_insurance', customCategoryName: '' };
+    }
+    if (clean.includes('legal') || clean.includes('notary') || clean.includes('affidavit') || clean.includes('documentation') || clean.includes('कानूनी') || clean.includes('नोटरी') || clean.includes('નોટરી')) {
+      return { categoryId: 'legal_docs', customCategoryName: '' };
+    }
+
+    // Group 6: Vehicle, Transport & Delivery
+    if (clean.includes('mechanic') || clean.includes('puncture') || clean.includes('towing') || clean.includes('garage') || clean.includes('मैकेनिक') || clean.includes('पंक्चर') || clean.includes('મિકેનિક')) {
+      return { categoryId: 'mechanic', customCategoryName: '' };
+    }
+    if (clean.includes('tempo') || clean.includes('packers') || clean.includes('movers') || clean.includes('chota hathi') || clean.includes('टेम्पो') || clean.includes('पैकर्स') || clean.includes('ટેમ્પો')) {
+      return { categoryId: 'tempo_packers', customCategoryName: '' };
+    }
+    if (clean.includes('cab') || clean.includes('auto') || clean.includes('driver') || clean.includes('taxi') || clean.includes('कैब') || clean.includes('ऑटो') || clean.includes('ड्राइवर') || clean.includes('ડ્રાઇવર')) {
+      return { categoryId: 'cab_auto_driver', customCategoryName: '' };
+    }
+    if (clean.includes('deliver') || clean.includes('errand') || clean.includes('parcel') || clean.includes('डिलीवरी') || clean.includes('ડિલિવરી')) {
+      return { categoryId: 'delivery', customCategoryName: '' };
+    }
+
+    // Group 7: Education & Skill Classes
+    if (clean.includes('spoken english') || clean.includes('computer class') || clean.includes('ielts') || clean.includes('स्पोकन इंग्लिश')) {
+      return { categoryId: 'computer_spoken_english', customCategoryName: '' };
+    }
+    if (clean.includes('music') || clean.includes('dance') || clean.includes('drawing') || clean.includes('guitar') || clean.includes('संगीत') || clean.includes('डांस')) {
+      return { categoryId: 'music_dance_art', customCategoryName: '' };
+    }
+    if (clean.includes('study') || clean.includes('project') || clean.includes('assignment') || clean.includes('प्रोजेक्ट') || clean.includes('પ્રોજેક્ટ')) {
+      return { categoryId: 'study_project', customCategoryName: '' };
+    }
+    if (clean.includes('tutor') || clean.includes('teacher') || clean.includes('coaching') || clean.includes('tuition') || clean.includes('ट्यूशन') || clean.includes('टीचर') || clean.includes('ટ્યુશન')) {
       return { categoryId: 'tutor', customCategoryName: '' };
+    }
+
+    // Group 8: Sports & Fitness Partners
+    if (clean.includes('cricket') || clean.includes('football') || clean.includes('turf') || clean.includes('क्रिकेट') || clean.includes('ક્રિકેટ')) {
+      return { categoryId: 'cricket', customCategoryName: '' };
+    }
+    if (clean.includes('badminton') || clean.includes('tennis') || clean.includes('बैडमिंटन') || clean.includes('બેડમિન્ટન')) {
+      return { categoryId: 'badminton', customCategoryName: '' };
+    }
+    if (clean.includes('running') || clean.includes('yoga') || clean.includes('cycling') || clean.includes('jogging') || clean.includes('रनिंग') || clean.includes('योगा') || clean.includes('યોગા')) {
+      return { categoryId: 'running_yoga', customCategoryName: '' };
+    }
+    if (clean.includes('gym') || clean.includes('workout') || clean.includes('fitness') || clean.includes('जिम') || clean.includes('જિમ')) {
+      return { categoryId: 'gym_fitness', customCategoryName: '' };
+    }
+
+    // Group 9: Social, Lifestyle & Care
+    if (clean.includes('chai') || clean.includes('coffee') || clean.includes('tea') || clean.includes('meetup') || clean.includes('चाय') || clean.includes('कॉफी') || clean.includes('ચા-કોફી')) {
+      return { categoryId: 'chai_coffee', customCategoryName: '' };
+    }
+    if (clean.includes('walk partner') || clean.includes('companion') || clean.includes('वॉक') || clean.includes('साथी')) {
+      return { categoryId: 'companion', customCategoryName: '' };
+    }
+    if (clean.includes('chess') || clean.includes('board game') || clean.includes('ludo') || clean.includes('carrom') || clean.includes('शतरंज') || clean.includes('लूडो') || clean.includes('ચેસ')) {
+      return { categoryId: 'board_games', customCategoryName: '' };
+    }
+    if (clean.includes('senior') || clean.includes('elder') || clean.includes('बुजुर्ग') || clean.includes('વડીલો')) {
+      return { categoryId: 'senior_help', customCategoryName: '' };
+    }
+    if (clean.includes('pet') || clean.includes('dog walk') || clean.includes('पेट वॉक') || clean.includes('ડોગ')) {
+      return { categoryId: 'pet_walking', customCategoryName: '' };
     }
   }
 
@@ -743,7 +1127,7 @@ export function getFreeHelperProfiles(includePending = false): FreeHelperProfile
 export function saveFreeHelperProfile(
   profile: Omit<FreeHelperProfile, 'id' | 'rating' | 'completedTasks' | 'createdAt' | 'masterCategory'> & {
     id?: string;
-    masterCategory?: 'utility_emergency' | 'sports_fitness' | 'social_casual' | 'daily_errands';
+    masterCategory?: MasterCategoryId;
     govtIdUploaded?: boolean;
     idDocUrl?: string;
     isVerified?: boolean;
@@ -758,7 +1142,7 @@ export function saveFreeHelperProfile(
     ...profile,
     categoryId: norm.categoryId,
     customCategoryName: profile.customCategoryName || norm.customCategoryName,
-    masterCategory: profile.masterCategory || (matched ? matched.masterCategory : 'utility_emergency'),
+    masterCategory: profile.masterCategory || (matched ? matched.masterCategory : 'home_repair'),
     id: profile.id || 'hp_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
     rating: 5.0,
     completedTasks: 0,
@@ -787,5 +1171,3 @@ export function saveFreeHelperProfile(
 
   return newProfile;
 }
-
-
