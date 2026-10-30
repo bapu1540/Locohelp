@@ -254,6 +254,58 @@ export async function signInWithGoogle(): Promise<{ success: boolean; user?: any
 // ==========================================
 
 let cachedMessagingInstance: Messaging | null = null;
+let cachedRuntimePublicConfig: {
+  firebaseConfig?: Record<string, string>;
+  vapidKey?: string;
+} | null = null;
+
+async function getRuntimeFirebasePublicConfig(): Promise<{
+  firebaseConfig: typeof firebaseConfig;
+  vapidKey: string;
+}> {
+  const inlineVapidKey = String(
+    (import.meta as any).env?.VITE_FIREBASE_VAPID_KEY ||
+      process.env.VITE_FIREBASE_VAPID_KEY ||
+      ''
+  ).trim();
+
+  if (
+    firebaseConfig.apiKey &&
+    firebaseConfig.apiKey !== 'AIzaSyDummyKeyForLocoHelpAuthInit2026' &&
+    inlineVapidKey
+  ) {
+    return { firebaseConfig, vapidKey: inlineVapidKey };
+  }
+
+  if (!cachedRuntimePublicConfig) {
+    try {
+      const res = await fetch('/api/firebase-public-config', { cache: 'no-store' });
+      if (res.ok) {
+        cachedRuntimePublicConfig = await res.json();
+      }
+    } catch {}
+  }
+
+  const serverCfg = cachedRuntimePublicConfig?.firebaseConfig || {};
+  const mergedConfig = {
+    apiKey:
+      serverCfg.apiKey && serverCfg.apiKey !== 'AIzaSyDummyKeyForLocoHelpAuthInit2026'
+        ? serverCfg.apiKey
+        : firebaseConfig.apiKey,
+    authDomain: serverCfg.authDomain || firebaseConfig.authDomain,
+    projectId: serverCfg.projectId || firebaseConfig.projectId,
+    storageBucket: serverCfg.storageBucket || firebaseConfig.storageBucket,
+    messagingSenderId: serverCfg.messagingSenderId || firebaseConfig.messagingSenderId,
+    appId: serverCfg.appId || firebaseConfig.appId
+  };
+  const resolvedVapidKey =
+    inlineVapidKey || String(cachedRuntimePublicConfig?.vapidKey || '').trim();
+
+  return {
+    firebaseConfig: mergedConfig,
+    vapidKey: resolvedVapidKey
+  };
+}
 
 export async function getFirebaseMessagingInstance(): Promise<Messaging | null> {
   if (typeof window === 'undefined' || !('Notification' in window)) return null;
@@ -261,7 +313,19 @@ export async function getFirebaseMessagingInstance(): Promise<Messaging | null> 
   try {
     const supported = await isSupported().catch(() => false);
     if (!supported) return null;
-    cachedMessagingInstance = getMessaging(app);
+
+    const { firebaseConfig: liveConfig } = await getRuntimeFirebasePublicConfig();
+    let targetApp = app;
+    if (
+      liveConfig.apiKey &&
+      liveConfig.apiKey !== 'AIzaSyDummyKeyForLocoHelpAuthInit2026' &&
+      firebaseConfig.apiKey === 'AIzaSyDummyKeyForLocoHelpAuthInit2026'
+    ) {
+      const existingRuntimeApp = getApps().find((a) => a.name === 'locohelp-fcm-runtime');
+      targetApp = existingRuntimeApp || initializeApp(liveConfig, 'locohelp-fcm-runtime');
+    }
+
+    cachedMessagingInstance = getMessaging(targetApp);
     return cachedMessagingInstance;
   } catch (err) {
     console.warn('[FCM] Messaging initialization notice:', err);
@@ -304,7 +368,10 @@ export async function requestAndRegisterFcmToken(options?: {
       return {
         success: false,
         permission,
-        error: permission === 'denied' ? 'Notification permission denied in browser settings.' : 'Notification permission not granted.'
+        error:
+          permission === 'denied'
+            ? 'Notification permission denied in browser settings.'
+            : 'Notification permission not granted.'
       };
     }
 
@@ -320,11 +387,7 @@ export async function requestAndRegisterFcmToken(options?: {
       }
     }
 
-    const vapidKey =
-      (import.meta as any).env?.VITE_FIREBASE_VAPID_KEY ||
-      process.env.VITE_FIREBASE_VAPID_KEY ||
-      '';
-
+    const { vapidKey } = await getRuntimeFirebasePublicConfig();
     const messaging = await getFirebaseMessagingInstance();
     let fcmToken = '';
 
@@ -349,9 +412,31 @@ export async function requestAndRegisterFcmToken(options?: {
       return {
         success: false,
         permission,
-        error: 'FCM token could not be retrieved. Ensure VITE_FIREBASE_VAPID_KEY and Firebase project credentials are configured.'
+        error:
+          'FCM token could not be retrieved. Ensure VITE_FIREBASE_VAPID_KEY and Firebase project credentials are configured.'
       };
     }
+
+    let fallbackUserId = options?.userId || '';
+    let fallbackEmail = options?.email || '';
+    let fallbackName = options?.name || '';
+    try {
+      const savedUserRaw = localStorage.getItem('locohelp_user');
+      if (savedUserRaw) {
+        const parsedUser = JSON.parse(savedUserRaw);
+        if (!fallbackUserId) fallbackUserId = parsedUser?.uid || parsedUser?.id || '';
+        if (!fallbackEmail) fallbackEmail = parsedUser?.email || '';
+        if (!fallbackName) fallbackName = parsedUser?.name || parsedUser?.displayName || '';
+      }
+      if (!fallbackUserId) {
+        let deviceGuestId = localStorage.getItem('locohelp_device_push_id') || '';
+        if (!deviceGuestId) {
+          deviceGuestId = 'device_' + Math.random().toString(36).substring(2, 12);
+          localStorage.setItem('locohelp_device_push_id', deviceGuestId);
+        }
+        fallbackUserId = deviceGuestId;
+      }
+    } catch {}
 
     const syncRes = await saveUserFcmTokenOnServer({
       fcmToken,
@@ -362,9 +447,9 @@ export async function requestAndRegisterFcmToken(options?: {
       location: options?.location,
       latitude: options?.latitude,
       longitude: options?.longitude,
-      userId: options?.userId,
-      email: options?.email,
-      name: options?.name
+      userId: fallbackUserId,
+      email: fallbackEmail,
+      name: fallbackName
     });
 
     try {
@@ -413,5 +498,6 @@ export async function subscribeToForegroundPushMessages(
     return null;
   }
 }
+
 
 

@@ -1,12 +1,69 @@
 /* eslint-disable no-undef */
-// Firebase Cloud Messaging Background Service Worker for LocoHelp Web Push Notifications
+// Unified PWA + Firebase Cloud Messaging Background Service Worker for LocoHelp
+const CACHE_NAME = 'locohelp-pwa-v9';
+const STATIC_ASSETS = [
+  '/manifest.json',
+  '/pwa-192x192.png',
+  '/pwa-512x512.png',
+  '/pwa-maskable-512x512.png',
+  '/apple-touch-icon.png',
+  '/favicon.png',
+  '/icon.svg'
+];
 
-self.addEventListener('install', () => {
+self.addEventListener('install', (event) => {
   self.skipWaiting();
+  event.waitUntil(
+    caches
+      .keys()
+      .then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
+      .then(() =>
+        caches.open(CACHE_NAME).then((cache) => {
+          return cache.addAll(STATIC_ASSETS).catch(() => {});
+        })
+      )
+  );
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    caches
+      .keys()
+      .then((keys) =>
+        Promise.all(
+          keys
+            .filter((key) => key !== CACHE_NAME)
+            .map((key) => caches.delete(key))
+        )
+      )
+      .then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener('fetch', (event) => {
+  const { request } = event;
+  if (request.method !== 'GET') return;
+
+  const url = new URL(request.url);
+
+  // Never intercept API calls, Admin routes, Vite source/deps, or JS/TS/CSS module requests
+  if (
+    url.pathname.startsWith('/api/') ||
+    url.pathname.startsWith('/bapu-admin') ||
+    url.pathname.startsWith('/src/') ||
+    url.pathname.startsWith('/node_modules/') ||
+    url.pathname.startsWith('/@') ||
+    url.search.includes('v=') ||
+    url.search.includes('t=') ||
+    /\.(tsx?|jsx?|mjs|css|map)$/i.test(url.pathname)
+  ) {
+    return;
+  }
+
+  // Only handle static PWA icons & manifest with network-first fallback
+  if (STATIC_ASSETS.includes(url.pathname)) {
+    event.respondWith(fetch(request).catch(() => caches.match(request)));
+  }
 });
 
 let fcmMessagingInitialized = false;
@@ -16,12 +73,12 @@ try {
   importScripts('https://www.gstatic.com/firebasejs/10.13.2/firebase-messaging-compat.js');
 
   const swFirebaseConfig = self.__FIREBASE_CONFIG__ || {
-    apiKey: "AIzaSyDummyKeyForLocoHelpAuthInit2026",
-    authDomain: "locohelp-app.firebaseapp.com",
-    projectId: "locohelp-app",
-    storageBucket: "locohelp-app.appspot.com",
-    messagingSenderId: "1029384756",
-    appId: "1:1029384756:web:abc123def456"
+    apiKey: 'AIzaSyDummyKeyForLocoHelpAuthInit2026',
+    authDomain: 'locohelp-app.firebaseapp.com',
+    projectId: 'locohelp-app',
+    storageBucket: 'locohelp-app.appspot.com',
+    messagingSenderId: '1029384756',
+    appId: '1:1029384756:web:abc123def456'
   };
 
   if (
@@ -29,7 +86,9 @@ try {
     swFirebaseConfig.apiKey &&
     swFirebaseConfig.apiKey !== 'AIzaSyDummyKeyForLocoHelpAuthInit2026'
   ) {
-    firebase.initializeApp(swFirebaseConfig);
+    if (!firebase.apps || firebase.apps.length === 0) {
+      firebase.initializeApp(swFirebaseConfig);
+    }
     const messaging = firebase.messaging();
     fcmMessagingInitialized = true;
 
@@ -51,11 +110,16 @@ try {
         body: notificationBody,
         icon: '/pwa-192x192.png',
         badge: '/pwa-192x192.png',
-        tag: (payload && payload.data && payload.data.postId) || 'locohelp-local-request',
+        vibrate: [200, 100, 200],
+        tag:
+          (payload && payload.data && (payload.data.conversationId || payload.data.postId)) ||
+          'locohelp-local-request',
         renotify: true,
+        requireInteraction: true,
         data: {
           url: targetUrl,
-          postId: (payload && payload.data && payload.data.postId) || ''
+          postId: (payload && payload.data && payload.data.postId) || '',
+          conversationId: (payload && payload.data && payload.data.conversationId) || ''
         }
       };
 
@@ -93,11 +157,16 @@ self.addEventListener('push', (event) => {
         body,
         icon: '/pwa-192x192.png',
         badge: '/pwa-192x192.png',
-        tag: (payload.data && payload.data.postId) || 'locohelp-local-request',
+        vibrate: [200, 100, 200],
+        tag:
+          (payload.data && (payload.data.conversationId || payload.data.postId)) ||
+          'locohelp-local-request',
         renotify: true,
+        requireInteraction: true,
         data: {
           url: targetUrl,
-          postId: (payload.data && payload.data.postId) || ''
+          postId: (payload.data && payload.data.postId) || '',
+          conversationId: (payload.data && payload.data.conversationId) || ''
         }
       })
     );
@@ -106,7 +175,7 @@ self.addEventListener('push', (event) => {
   }
 });
 
-// Handle notification click events: focus existing window or open post URL
+// Handle notification click events: focus existing window or open target post/chat URL
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 

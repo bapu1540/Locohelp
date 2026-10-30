@@ -232,6 +232,8 @@ async function sendFcmMulticastPush(payload: {
     return { successCount: 0, failureCount: 0, invalidTokens };
   }
 
+  const notificationTag = data?.conversationId || data?.postId || "locohelp-local-request";
+
   // 1. Try firebase-admin sendEachForMulticast if available
   const adminMessaging = await getFirebaseAdminMessaging();
   if (adminMessaging && typeof adminMessaging.sendEachForMulticast === "function") {
@@ -239,12 +241,28 @@ async function sendFcmMulticastPush(payload: {
       tokens,
       notification: { title, body },
       data,
+      android: {
+        priority: "high",
+        notification: {
+          sound: "default",
+          defaultVibrateTimings: true,
+          priority: "high"
+        }
+      },
       webpush: {
+        headers: {
+          Urgency: "high",
+          TTL: "86400"
+        },
         notification: {
           title,
           body,
           icon: "/pwa-192x192.png",
-          badge: "/pwa-192x192.png"
+          badge: "/pwa-192x192.png",
+          tag: notificationTag,
+          renotify: true,
+          requireInteraction: true,
+          vibrate: [200, 100, 200]
         },
         fcmOptions: { link: postUrl }
       }
@@ -298,12 +316,27 @@ async function sendFcmMulticastPush(payload: {
               token,
               notification: { title, body },
               data,
+              android: {
+                priority: "HIGH",
+                notification: {
+                  sound: "default",
+                  default_vibrate_timings: true
+                }
+              },
               webpush: {
+                headers: {
+                  Urgency: "high",
+                  TTL: "86400"
+                },
                 notification: {
                   title,
                   body,
                   icon: "/pwa-192x192.png",
-                  badge: "/pwa-192x192.png"
+                  badge: "/pwa-192x192.png",
+                  tag: notificationTag,
+                  renotify: true,
+                  requireInteraction: true,
+                  vibrate: [200, 100, 200]
                 },
                 fcm_options: { link: postUrl }
               }
@@ -1636,6 +1669,22 @@ async function initPostgresTables(pool: pg.Pool): Promise<string[]> {
   await execSafeDDL(pool, `ALTER TABLE users ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION`, "users.longitude");
   await execSafeDDL(pool, `ALTER TABLE users ADD COLUMN IF NOT EXISTS fcm_updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()`, "users.fcm_updated_at");
   await execSafeDDL(pool, `ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()`, "users.created_at");
+
+  // Multi-device FCM Web Push Tokens table (supports multiple browsers/devices per user)
+  await execSafeDDL(
+    pool,
+    `CREATE TABLE IF NOT EXISTS user_fcm_tokens (
+      token TEXT PRIMARY KEY,
+      user_id TEXT,
+      email TEXT,
+      name TEXT,
+      area TEXT,
+      city TEXT,
+      location TEXT,
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )`,
+    "create user_fcm_tokens"
+  );
 
   // Legacy "user" table compatibility
   await execSafeDDL(
@@ -4093,10 +4142,28 @@ async function startServer() {
   app.post("/api/signup", authLoginLimiter, signupHandler);
   app.post("/api/users", authLoginLimiter, signupHandler);
 
-  // Save or update logged-in user's FCM Web Push token and current area/location in PostgreSQL
-  app.post("/api/users/fcm-token", requireAuth, async (req: express.Request, res: express.Response) => {
+  // Expose public Firebase Web Config & VAPID key at runtime so browser push always has valid Railway keys
+  app.get("/api/firebase-public-config", (_req: express.Request, res: express.Response) => {
+    const vapidKey = String(
+      process.env.VITE_FIREBASE_VAPID_KEY || process.env.FIREBASE_VAPID_KEY || ""
+    ).trim();
+    return res.json({
+      firebaseConfig: {
+        apiKey: firebaseServerConfig.apiKey || "AIzaSyDummyKeyForLocoHelpAuthInit2026",
+        authDomain: firebaseServerConfig.authDomain || "locohelp-app.firebaseapp.com",
+        projectId: firebaseServerConfig.projectId || "locohelp-app",
+        storageBucket: firebaseServerConfig.storageBucket || "locohelp-app.appspot.com",
+        messagingSenderId: firebaseServerConfig.messagingSenderId || "1029384756",
+        appId: firebaseServerConfig.appId || "1:1029384756:web:abc123def456"
+      },
+      vapidKey
+    });
+  });
+
+  // Save or update user's FCM Web Push token and current area/location in PostgreSQL
+  app.post("/api/users/fcm-token", async (req: express.Request, res: express.Response) => {
     try {
-      const caller = (req as any).user || extractRequestUser(req);
+      const caller = extractRequestUser(req);
       const body = req.body || {};
       const fcmToken = String(body.fcm_token || body.fcmToken || "").trim();
       if (!fcmToken) {
@@ -4115,13 +4182,29 @@ async function startServer() {
       const latitude = typeof body.latitude === "number" && Number.isFinite(body.latitude) ? body.latitude : null;
       const longitude = typeof body.longitude === "number" && Number.isFinite(body.longitude) ? body.longitude : null;
 
-      if (!uid && !email) {
-        return res.status(401).json({ error: "Authentication required to save FCM token" });
-      }
-
-      const resolvedId = uid || `email_${email.replace(/[^a-z0-9]/g, "_")}`;
+      const resolvedId =
+        uid ||
+        (email ? `email_${email.replace(/[^a-z0-9]/g, "_")}` : `device_${fcmToken.slice(0, 24).replace(/[^a-zA-Z0-9]/g, "_")}`);
 
       if (dbPool && isDbConnected) {
+        // 1. Always upsert into multi-device user_fcm_tokens table
+        await dbPool
+          .query(
+            `INSERT INTO user_fcm_tokens (token, user_id, email, name, area, city, location, updated_at)
+             VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6, $7, NOW())
+             ON CONFLICT (token) DO UPDATE SET
+               user_id = COALESCE(NULLIF(EXCLUDED.user_id, ''), user_fcm_tokens.user_id),
+               email = COALESCE(NULLIF(EXCLUDED.email, ''), user_fcm_tokens.email),
+               name = COALESCE(NULLIF(EXCLUDED.name, ''), user_fcm_tokens.name),
+               area = COALESCE(NULLIF(EXCLUDED.area, ''), user_fcm_tokens.area),
+               city = COALESCE(NULLIF(EXCLUDED.city, ''), user_fcm_tokens.city),
+               location = COALESCE(NULLIF(EXCLUDED.location, ''), user_fcm_tokens.location),
+               updated_at = NOW()`,
+            [fcmToken, resolvedId, email, name, area, city, location]
+          )
+          .catch(() => {});
+
+        // 2. Also upsert into users table for primary user record compatibility
         await dbPool.query(
           `INSERT INTO users (id, name, email, fcm_token, area, city, location, latitude, longitude, fcm_updated_at, created_at)
            VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6, $7, $8, $9, NOW(), NOW())
@@ -4145,20 +4228,22 @@ async function startServer() {
                  latitude = COALESCE($5, latitude),
                  longitude = COALESCE($6, longitude),
                  fcm_updated_at = NOW()
-             WHERE id = $7 OR (email IS NOT NULL AND LOWER(email) = LOWER($8))`,
+             WHERE id = $7 OR (email IS NOT NULL AND $8 <> '' AND LOWER(email) = LOWER($8))`,
             [fcmToken, area, city, location, latitude, longitude, resolvedId, email]
           ).catch(() => {});
         });
 
-        // Also update profiles table if user has a profile row
-        await dbPool.query(
-          `UPDATE profiles
-           SET city = COALESCE(NULLIF($1, ''), city),
-               sector = COALESCE(NULLIF($2, ''), sector),
-               updated_at = NOW()
-           WHERE uid = $3 OR (email IS NOT NULL AND LOWER(email) = LOWER($4))`,
-          [city, area, resolvedId, email]
-        ).catch(() => {});
+        // 3. Also update profiles table if user has a profile row
+        if (uid || email) {
+          await dbPool.query(
+            `UPDATE profiles
+             SET city = COALESCE(NULLIF($1, ''), city),
+                 sector = COALESCE(NULLIF($2, ''), sector),
+                 updated_at = NOW()
+             WHERE uid = $3 OR (email IS NOT NULL AND $4 <> '' AND LOWER(email) = LOWER($4))`,
+            [city, area, resolvedId, email]
+          ).catch(() => {});
+        }
       }
 
       return res.json({
@@ -5413,29 +5498,36 @@ async function startServer() {
           if (!getParsedFirebaseServiceAccount()) return;
 
           const postArea = (intentRecord.area || intentRecord.city || intentRecord.location || "Local Area").trim();
-          const postCity = (intentRecord.city || "").trim();
-          const postLoc = (intentRecord.location || "").trim();
+          const authorIdVal = String(intentRecord.authorId || "").trim();
+          const authorEmailVal = String(intentRecord.authorEmail || "").trim();
 
-          const tokenQuery = await dbPool.query(
-            `SELECT DISTINCT u.fcm_token, u.area, u.city, u.location, p.city AS profile_city, p.sector AS profile_area
-             FROM users u
-             LEFT JOIN profiles p ON (p.uid = u.id OR (u.email IS NOT NULL AND u.email <> '' AND LOWER(p.email) = LOWER(u.email)))
-             WHERE u.fcm_token IS NOT NULL
-               AND TRIM(u.fcm_token) <> ''
-               AND u.id <> $1
-               AND ($2 = '' OR u.email IS NULL OR LOWER(u.email) <> LOWER($2))`,
-            [intentRecord.authorId || "", intentRecord.authorEmail || ""]
-          );
-
-          if (!tokenQuery.rows || tokenQuery.rows.length === 0) return;
-
-          const norm = (s: any) => String(s || "").trim().toLowerCase();
-          const pAreaNorm = norm(intentRecord.area);
-          const pCityNorm = norm(postCity);
-          const pLocNorm = norm(postLoc);
+          const [usersTokenQuery, multiDeviceTokenQuery] = await Promise.all([
+            dbPool
+              .query(
+                `SELECT DISTINCT u.fcm_token
+                 FROM users u
+                 WHERE u.fcm_token IS NOT NULL
+                   AND TRIM(u.fcm_token) <> ''
+                   AND ($1 = '' OR LOWER(u.id) <> LOWER($1))
+                   AND ($2 = '' OR u.email IS NULL OR LOWER(u.email) <> LOWER($2))`,
+                [authorIdVal, authorEmailVal]
+              )
+              .catch(() => ({ rows: [] as any[] })),
+            dbPool
+              .query(
+                `SELECT DISTINCT token AS fcm_token
+                 FROM user_fcm_tokens
+                 WHERE token IS NOT NULL
+                   AND TRIM(token) <> ''
+                   AND ($1 = '' OR user_id IS NULL OR LOWER(user_id) <> LOWER($1))
+                   AND ($2 = '' OR email IS NULL OR LOWER(email) <> LOWER($2))`,
+                [authorIdVal, authorEmailVal]
+              )
+              .catch(() => ({ rows: [] as any[] }))
+          ]);
 
           const matchedTokens = new Set<string>();
-          for (const row of tokenQuery.rows) {
+          for (const row of [...(usersTokenQuery.rows || []), ...(multiDeviceTokenQuery.rows || [])]) {
             const token = String(row.fcm_token || "").trim();
             if (!token) continue;
             matchedTokens.add(token);
@@ -5484,6 +5576,9 @@ async function startServer() {
           if (response.invalidTokens.length > 0 && dbPool) {
             await dbPool
               .query(`UPDATE users SET fcm_token = NULL WHERE fcm_token = ANY($1::text[])`, [response.invalidTokens])
+              .catch(() => {});
+            await dbPool
+              .query(`DELETE FROM user_fcm_tokens WHERE token = ANY($1::text[])`, [response.invalidTokens])
               .catch(() => {});
           }
         } catch (pushErr: any) {
@@ -7080,39 +7175,60 @@ async function startServer() {
         });
       }
 
-      // 3. Trigger FCM Push Notification to receiverId (either Post Owner when Helper replies, or Helper when Post Owner replies)
+      // 3. Trigger FCM Push Notification to receiverId (for both Post Replies AND Direct Expert/User Chats)
       (async () => {
         try {
           if (!dbPool || !isDbConnected) return;
           if (!getParsedFirebaseServiceAccount()) return;
-          if (!postId || postId === "general" || !resolvedReceiverId) return;
 
           const targetReceiverId = String(resolvedReceiverId || "").trim();
-          const targetReceiverEmail = isSenderPostOwner ? helperEmailVal : postOwnerEmail;
-          if (!targetReceiverId && !targetReceiverEmail) return;
+          const explicitReceiverEmail = sanitizeServerText(
+            message.receiverEmail || message.helperEmail || "",
+            150
+          ).toLowerCase();
+          const targetReceiverEmail =
+            (isSenderPostOwner ? helperEmailVal : postOwnerEmail) || explicitReceiverEmail;
 
-          const tokenRes = await dbPool
-            .query(
-              `SELECT DISTINCT fcm_token
-               FROM users
-               WHERE fcm_token IS NOT NULL
-                 AND TRIM(fcm_token) <> ''
-                 AND (
-                   LOWER(id) = LOWER($1)
-                   OR ($2 <> '' AND email IS NOT NULL AND LOWER(email) = LOWER($2))
-                   OR ($2 <> '' AND LOWER(id) = LOWER($3))
-                 )`,
-              [
-                targetReceiverId,
-                targetReceiverEmail || "",
-                targetReceiverEmail ? `email_${targetReceiverEmail.replace(/[^a-z0-9]/g, "_")}` : ""
-              ]
-            )
-            .catch(() => ({ rows: [] as any[] }));
+          if ((!targetReceiverId || targetReceiverId === "general") && !targetReceiverEmail) return;
+
+          const syntheticEmailId = targetReceiverEmail
+            ? `email_${targetReceiverEmail.replace(/[^a-z0-9]/g, "_")}`
+            : "";
+
+          const [usersTokenRes, multiTokenRes] = await Promise.all([
+            dbPool
+              .query(
+                `SELECT DISTINCT fcm_token
+                 FROM users
+                 WHERE fcm_token IS NOT NULL
+                   AND TRIM(fcm_token) <> ''
+                   AND (
+                     ($1 <> '' AND LOWER(id) = LOWER($1))
+                     OR ($2 <> '' AND email IS NOT NULL AND LOWER(email) = LOWER($2))
+                     OR ($3 <> '' AND LOWER(id) = LOWER($3))
+                   )`,
+                [targetReceiverId, targetReceiverEmail || "", syntheticEmailId]
+              )
+              .catch(() => ({ rows: [] as any[] })),
+            dbPool
+              .query(
+                `SELECT DISTINCT token AS fcm_token
+                 FROM user_fcm_tokens
+                 WHERE token IS NOT NULL
+                   AND TRIM(token) <> ''
+                   AND (
+                     ($1 <> '' AND user_id IS NOT NULL AND LOWER(user_id) = LOWER($1))
+                     OR ($2 <> '' AND email IS NOT NULL AND LOWER(email) = LOWER($2))
+                     OR ($3 <> '' AND user_id IS NOT NULL AND LOWER(user_id) = LOWER($3))
+                   )`,
+                [targetReceiverId, targetReceiverEmail || "", syntheticEmailId]
+              )
+              .catch(() => ({ rows: [] as any[] }))
+          ]);
 
           const receiverTokens = Array.from(
             new Set(
-              tokenRes.rows
+              [...(usersTokenRes.rows || []), ...(multiTokenRes.rows || [])]
                 .map((r: any) => String(r.fcm_token || "").trim())
                 .filter(Boolean)
             )
@@ -7125,12 +7241,18 @@ async function startServer() {
               ? String(req.headers.origin)
               : `${req.protocol || "https"}://${req.get("host") || "localhost:3000"}`
           ).replace(/\/+$/, "");
-          const replyUrl = `${originUrl}/?postId=${encodeURIComponent(postId)}&viewResponses=1`;
 
-          const pushTitle = isSenderPostOwner ? `💬 Reply from ${senderDisplay}` : "💬 New Response on your Post!";
-          const pushBody = isSenderPostOwner
-            ? `${senderDisplay}: ${previewText.slice(0, 90)}`
-            : `${senderDisplay} replied to your request. Tap to view response.`;
+          const isDirectChat = !postId || postId === "general";
+          const replyUrl = isDirectChat
+            ? `${originUrl}/`
+            : `${originUrl}/?postId=${encodeURIComponent(postId)}&viewResponses=1`;
+
+          const pushTitle = isDirectChat
+            ? `💬 New Message from ${senderDisplay}`
+            : isSenderPostOwner
+            ? `💬 Reply from ${senderDisplay}`
+            : "💬 New Response on your Post!";
+          const pushBody = `${senderDisplay}: ${previewText.slice(0, 90)}`;
 
           const pushRes = await sendFcmMulticastPush({
             tokens: receiverTokens,
@@ -7140,8 +7262,8 @@ async function startServer() {
             data: {
               title: pushTitle,
               body: pushBody,
-              postId: String(postId),
-              conversationId: String(effectiveConvId),
+              postId: String(postId || "general"),
+              conversationId: String(effectiveConvId || ""),
               responderName: String(senderDisplay),
               url: replyUrl,
               click_action: replyUrl
@@ -7151,6 +7273,9 @@ async function startServer() {
           if (pushRes.invalidTokens.length > 0 && dbPool) {
             await dbPool
               .query(`UPDATE users SET fcm_token = NULL WHERE fcm_token = ANY($1::text[])`, [pushRes.invalidTokens])
+              .catch(() => {});
+            await dbPool
+              .query(`DELETE FROM user_fcm_tokens WHERE token = ANY($1::text[])`, [pushRes.invalidTokens])
               .catch(() => {});
           }
         } catch (err: any) {
@@ -11604,28 +11729,14 @@ async function startServer() {
     });
   });
 
-  app.get("/sw.js", (_req, res) => {
-    res.setHeader("Content-Type", "application/javascript; charset=utf-8");
-    res.setHeader("Service-Worker-Allowed", "/");
-    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
-    try {
-      const swFile = path.join(publicDir, "sw.js");
-      if (fs.existsSync(swFile)) {
-        const content = fs.readFileSync(swFile, "utf-8");
-        return res.status(200).send(content);
-      }
-    } catch (_e) {}
-    return res.status(200).send(
-      "self.addEventListener('install', () => self.skipWaiting()); self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));"
-    );
-  });
-
-  app.get("/firebase-messaging-sw.js", (_req, res) => {
+  const serveUnifiedServiceWorker = (_req: express.Request, res: express.Response) => {
     res.setHeader("Content-Type", "application/javascript; charset=utf-8");
     res.setHeader("Service-Worker-Allowed", "/");
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
     try {
       const fcmSwFile = path.join(publicDir, "firebase-messaging-sw.js");
+      const swFile = path.join(publicDir, "sw.js");
+      const targetSwFile = fs.existsSync(fcmSwFile) ? fcmSwFile : swFile;
       const configScript = `self.__FIREBASE_CONFIG__ = ${JSON.stringify({
         apiKey: firebaseServerConfig.apiKey || "AIzaSyDummyKeyForLocoHelpAuthInit2026",
         authDomain: firebaseServerConfig.authDomain || "locohelp-app.firebaseapp.com",
@@ -11634,15 +11745,18 @@ async function startServer() {
         messagingSenderId: firebaseServerConfig.messagingSenderId || "1029384756",
         appId: firebaseServerConfig.appId || "1:1029384756:web:abc123def456"
       })};\n`;
-      if (fs.existsSync(fcmSwFile)) {
-        const content = fs.readFileSync(fcmSwFile, "utf-8");
+      if (fs.existsSync(targetSwFile)) {
+        const content = fs.readFileSync(targetSwFile, "utf-8");
         return res.status(200).send(configScript + content);
       }
     } catch (_e) {}
     return res.status(200).send(
       "self.addEventListener('install', () => self.skipWaiting()); self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));"
     );
-  });
+  };
+
+  app.get("/sw.js", serveUnifiedServiceWorker);
+  app.get("/firebase-messaging-sw.js", serveUnifiedServiceWorker);
 
   // Browser cache headers: never cache CSS/JS/HTML/Vite modules so style updates apply immediately on mobile
   app.use((req, res, next) => {

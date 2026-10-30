@@ -73,7 +73,7 @@
         if ('caches' in window) {
           caches.keys().then(function(keys) {
             keys.forEach(function(k) {
-              if (k !== 'locohelp-pwa-v8') {
+              if (k !== 'locohelp-pwa-v9') {
                 caches.delete(k);
               }
             });
@@ -81,11 +81,11 @@
         }
         if ('serviceWorker' in navigator) {
           window.addEventListener('load', function() {
-            fetch('/sw.js', { cache: 'no-store' })
+            fetch('/firebase-messaging-sw.js', { cache: 'no-store' })
               .then(function(res) {
                 var ct = (res && res.headers && res.headers.get('content-type')) || '';
                 if (res && res.ok && ct.indexOf('javascript') !== -1) {
-                  return navigator.serviceWorker.register('/sw.js', { scope: '/' });
+                  return navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/' });
                 }
               })
               .catch(function() {
