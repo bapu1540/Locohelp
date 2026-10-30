@@ -71,22 +71,18 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
   const loadShops = async () => {
     try {
       const res = await fetch(`/api/shops?_t=${Date.now()}`);
-      let serverShops: RegisteredShop[] = [];
       if (res.ok) {
         const data = await res.json();
-        if (Array.isArray(data)) {
-          serverShops = data.filter((s: any) => !String(s.id || '').startsWith('sample_shop_') && (s.isVerified === true || s.status === 'approved'));
-        }
+        const serverShops: RegisteredShop[] = Array.isArray(data)
+          ? data.filter((s: any) => s && s.id && !String(s.id || '').startsWith('sample_shop_') && (s.isVerified === true || s.status === 'approved'))
+          : [];
+        setShopsList(serverShops);
+        try {
+          localStorage.setItem('locohelp_registered_shops', JSON.stringify(serverShops));
+        } catch {}
+        return;
       }
-      const stored = localStorage.getItem('locohelp_registered_shops');
-      const localShops: RegisteredShop[] = stored ? JSON.parse(stored) : [];
-      const approvedLocal = localShops.filter((s: any) => !String(s.id || '').startsWith('sample_shop_') && (s.isVerified === true || s.status === 'approved'));
-
-      const merged = new Map<string, RegisteredShop>();
-      [...serverShops, ...approvedLocal].forEach(s => {
-        if (s && s.id) merged.set(s.id, s);
-      });
-      setShopsList(Array.from(merged.values()));
+      setShopsList([]);
     } catch (e) {
       setShopsList([]);
     }
@@ -99,13 +95,10 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data)) {
-          // Sync with local storage
-          const stored = localStorage.getItem('locohelp_free_helper_profiles');
-          const localArr = stored ? JSON.parse(stored) : [];
-          const mergedMap = new Map<string, any>();
-          localArr.forEach((h: any) => { if (h && h.id) mergedMap.set(h.id, h); });
-          data.forEach((h: any) => { if (h && h.id) mergedMap.set(h.id, { ...(mergedMap.get(h.id) || {}), ...h, isVerified: true, status: 'approved' }); });
-          localStorage.setItem('locohelp_free_helper_profiles', JSON.stringify(Array.from(mergedMap.values())));
+          const verifiedServer = data.filter((h: any) => h && h.id && (h.isVerified === true || h.status === 'approved'));
+          try {
+            localStorage.setItem('locohelp_free_helper_profiles', JSON.stringify(verifiedServer));
+          } catch {}
         }
       }
       const userHelpers = getFreeHelperProfiles(false);

@@ -970,14 +970,17 @@ export default function HomeScreen({
         const idRaw = localStorage.getItem('locohelp_deleted_posts');
         if (idRaw) deletedIds = JSON.parse(idRaw);
         const customRaw = localStorage.getItem('locohelp_custom_intents');
+        const myIdsRaw = localStorage.getItem('locohelp_my_post_ids');
+        const myIdsSet = new Set<string>(myIdsRaw ? JSON.parse(myIdsRaw) : []);
         if (customRaw) {
           const parsed: Intent[] = JSON.parse(customRaw);
           const now = Date.now();
-          // Only preserve in-flight posts created on this phone within the last 15 seconds
+          // Preserve newly created posts on this device for 5 minutes so background polls never wipe a user's post
           justCreatedCustom = parsed.filter(item => {
             if (!item || !item.id || deletedIds.includes(item.id)) return false;
             const createdMs = new Date(item.createdAt || 0).getTime();
-            return now - createdMs < 15 * 1000;
+            const maxWindowMs = myIdsSet.has(item.id) ? 5 * 60 * 1000 : 60 * 1000;
+            return now - createdMs < maxWindowMs;
           });
         }
       } catch (e) {

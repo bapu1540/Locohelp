@@ -400,7 +400,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
 
     // Sync Helper Profile from Server (including latest Admin approval status)
     getHelpers(true).then(serverHelpers => {
-      if (Array.isArray(serverHelpers) && serverHelpers.length > 0) {
+      if (Array.isArray(serverHelpers)) {
         const matched = serverHelpers.find((h: any) =>
           (foundHelper && h.id === foundHelper.id) ||
           (cleanEmail && (h.email || '').toLowerCase() === cleanEmail) ||
@@ -418,6 +418,11 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
           }
           try {
             localStorage.setItem('locohelp_my_helper_profile', JSON.stringify(matched));
+          } catch (e) {}
+        } else if (foundHelper) {
+          setMyHelperProfile(null);
+          try {
+            localStorage.removeItem('locohelp_my_helper_profile');
           } catch (e) {}
         }
       }
@@ -453,19 +458,6 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
           setMyBusinessProfile(parsedBiz);
         }
       }
-      const stored = localStorage.getItem('locohelp_registered_shops');
-      const userShops: RegisteredShop[] = stored ? JSON.parse(stored) : [];
-      const approvedLocal = userShops.filter(s => s && s.id && !String(s.id).startsWith('sample_shop_') && (s.isVerified === true || s.status === 'approved'));
-      setRegisteredShopsList(approvedLocal);
-
-      if (!myBizRaw && (cleanEmail || userKey || cleanPhone)) {
-        const myShop = userShops.find(s =>
-          (cleanEmail && (s.ownerEmail || '').toLowerCase() === cleanEmail) ||
-          (userKey && userKey !== 'guest' && s.userId === userKey) ||
-          (cleanPhone && (s.phone || '').replace(/\D/g, '') === cleanPhone)
-        );
-        if (myShop) setMyBusinessProfile(myShop);
-      }
     } catch (e) {}
 
     // Fetch all shops to check user's own business status + filter public directory to approved only
@@ -473,6 +465,9 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
       if (Array.isArray(cloudShops)) {
         const approvedOnly = cloudShops.filter(s => s && s.id && !String(s.id).startsWith('sample_shop_') && (s.isVerified === true || s.status === 'approved'));
         setRegisteredShopsList(approvedOnly);
+        try {
+          localStorage.setItem('locohelp_registered_shops', JSON.stringify(approvedOnly));
+        } catch (e) {}
 
         if (cleanEmail || userKey || cleanPhone) {
           const matchedMyShop = cloudShops.find((s: any) =>
@@ -484,6 +479,11 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
             setMyBusinessProfile(matchedMyShop);
             try {
               localStorage.setItem('locohelp_my_business_profile', JSON.stringify(matchedMyShop));
+            } catch (e) {}
+          } else {
+            setMyBusinessProfile(null);
+            try {
+              localStorage.removeItem('locohelp_my_business_profile');
             } catch (e) {}
           }
         }

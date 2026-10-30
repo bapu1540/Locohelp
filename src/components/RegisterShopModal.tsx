@@ -101,28 +101,19 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
 
   const [registeredShopsList, setRegisteredShopsList] = useState<RegisteredShop[]>([]);
 
-  // Load approved registered shops from localStorage & backend
+  // Load approved registered shops from backend (and sync localStorage)
   useEffect(() => {
     if (!isOpen) return;
     setActiveTab(initialTab);
-
-    try {
-      const stored = localStorage.getItem('locohelp_registered_shops');
-      if (stored) {
-        const parsed: RegisteredShop[] = JSON.parse(stored);
-        if (Array.isArray(parsed)) {
-          const cleaned = parsed.filter(s => s && s.id && !String(s.id).startsWith('sample_shop_'));
-          localStorage.setItem('locohelp_registered_shops', JSON.stringify(cleaned));
-          setRegisteredShopsList(cleaned.filter(s => s.isVerified === true || s.status === 'approved'));
-        }
-      }
-    } catch (e) {}
 
     // Backend fetch (returns only admin-approved businesses by default)
     getShops(false).then((cloudShops) => {
       if (Array.isArray(cloudShops)) {
         const approvedOnly = cloudShops.filter(s => s && s.id && !String(s.id).startsWith('sample_shop_') && (s.isVerified === true || s.status === 'approved'));
         setRegisteredShopsList(approvedOnly);
+        try {
+          localStorage.setItem('locohelp_registered_shops', JSON.stringify(approvedOnly));
+        } catch {}
       }
     }).catch(() => {});
   }, [isOpen]);

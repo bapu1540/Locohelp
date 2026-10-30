@@ -340,7 +340,7 @@ export function sanitizePayload<T>(payload: T): T {
 // CLIENT-SIDE COOLDOWN HELPERS (30s POSTS, 60s OTP)
 // ==========================================
 
-const POST_COOLDOWN_MS = 30 * 1000; // 30 seconds
+const POST_COOLDOWN_MS = 3 * 1000; // 3 seconds
 const OTP_COOLDOWN_MS = 60 * 1000;  // 60 seconds
 
 export function getPostCooldownRemainingSeconds(): number {

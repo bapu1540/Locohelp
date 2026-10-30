@@ -209,8 +209,6 @@ export async function changeAdminPasswordOnServer(
 const isClientDummyPost = (item: any): boolean => {
   if (!item) return true;
   const idStr = String(item.id || '').trim().toLowerCase();
-  const descStr = String(item.description || item.title || item.content || '').trim();
-  const descLower = descStr.toLowerCase();
   if (
     idStr.startsWith('seed_') ||
     idStr.startsWith('sample_') ||
@@ -218,13 +216,6 @@ const isClientDummyPost = (item: any): boolean => {
     idStr.startsWith('dummy_') ||
     idStr.includes('m660z') ||
     idStr.includes('t9140')
-  ) {
-    return true;
-  }
-  if (
-    descStr.includes('તાત્કાલિક પ્લમ્બર જોઈએ છે') ||
-    descLower === 'urgent plumber needed' ||
-    descLower.includes('urgent plumber needed in sector')
   ) {
     return true;
   }
@@ -297,11 +288,6 @@ export async function fetchLiveIntents(): Promise<Intent[]> {
  */
 export async function broadcastIntentToServer(intent: Intent): Promise<Intent> {
   const cleanIntent = sanitizePayload(intent);
-
-  const cooldownRem = getPostCooldownRemainingSeconds();
-  if (cooldownRem > 0) {
-    throw new Error(`Please wait ${cooldownRem} seconds before creating another post (30s anti-spam cooldown).`);
-  }
 
   // Always save locally first so user never loses their post
   try {
@@ -1553,25 +1539,39 @@ export async function deleteCategoryImageOnServer(
 
 export interface SecurityVaultRecord {
   vaultKey: string;
+  vaultId?: string;
   entityType: string;
   recordId: string;
   actionStatus: string;
   firstRegisteredAt: string;
   lastUpdatedAt: string;
   deletedAt: string | null;
+  deletedBy?: string;
   isDeletedFromPublic: boolean;
   name: string;
   phone: string;
   email: string;
   area: string;
+  address?: string;
   category: string;
+  skillsOrDescription?: string;
+  postContent?: string;
   idDocumentWatermarked: string;
   photoUrl: string;
+  workPhotoUrl?: string;
+  realAccountId?: string;
+  realAccountName?: string;
+  realAccountEmail?: string;
+  realAccountPhone?: string;
+  ipAddress?: string;
+  userAgent?: string;
   latestSnapshot: Record<string, any>;
   originalRegistrationSnapshot: Record<string, any>;
   history: Array<{
     timestamp: string;
     action: string;
+    ipAddress?: string;
+    userAgent?: string;
     snapshotSummary?: {
       name?: string;
       phone?: string;
@@ -1599,108 +1599,12 @@ export async function fetchAdminSecurityVault(): Promise<SecurityVaultRecord[]> 
 // ==========================================
 export async function syncBrowserDataToPostgres(): Promise<void> {
   try {
-    const users: any[] = [];
-    const profiles: any[] = [];
-    let businesses: any[] = [];
-    let ads: any[] = [];
-    let posts: any[] = [];
-
-    const getDeletedSet = (key: string): Set<string> => {
-      try {
-        const raw = localStorage.getItem(key);
-        return raw ? new Set(JSON.parse(raw)) : new Set();
-      } catch {
-        return new Set();
-      }
-    };
-
-    const deletedUsers = getDeletedSet('locohelp_deleted_users');
-    const deletedHelpers = getDeletedSet('locohelp_deleted_helpers');
-    const deletedShops = getDeletedSet('locohelp_deleted_shops');
-    const deletedPosts = getDeletedSet('locohelp_deleted_posts');
-
-    try {
-      const uRaw = localStorage.getItem('locohelp_user');
-      if (uRaw) {
-        const u = JSON.parse(uRaw);
-        const uid = String(u?.uid || u?.id || u?.email || '');
-        if (u && uid && !deletedUsers.has(uid)) {
-          users.push(u);
-        }
-      }
-    } catch {}
-
-    try {
-      const helpersRaw = localStorage.getItem('locohelp_free_helper_profiles');
-      if (helpersRaw) {
-        const parsed = JSON.parse(helpersRaw);
-        if (Array.isArray(parsed)) {
-          profiles.push(
-            ...parsed.filter(
-              (p: any) => p && p.id && !deletedHelpers.has(String(p.id)) && !deletedUsers.has(String(p.id))
-            )
-          );
-        }
-      }
-      const myHelperRaw = localStorage.getItem('locohelp_my_helper_profile');
-      if (myHelperRaw) {
-        const mh = JSON.parse(myHelperRaw);
-        if (
-          mh &&
-          mh.id &&
-          !deletedHelpers.has(String(mh.id)) &&
-          !deletedUsers.has(String(mh.id)) &&
-          !profiles.some(p => p && p.id === mh.id)
-        ) {
-          profiles.push(mh);
-        }
-      }
-    } catch {}
-
-    try {
-      const shopsRaw = localStorage.getItem('locohelp_registered_shops');
-      if (shopsRaw) {
-        const parsed = JSON.parse(shopsRaw);
-        if (Array.isArray(parsed)) {
-          businesses = parsed.filter((s: any) => s && s.id && !deletedShops.has(String(s.id)));
-        }
-      }
-    } catch {}
-
-    try {
-      const adsRaw = localStorage.getItem('locohelp_ad_banners');
-      if (adsRaw) {
-        const parsed = JSON.parse(adsRaw);
-        if (Array.isArray(parsed)) ads = parsed;
-      }
-    } catch {}
-
-    try {
-      const postsRaw = localStorage.getItem('locohelp_custom_intents');
-      if (postsRaw) {
-        const parsed = JSON.parse(postsRaw);
-        if (Array.isArray(parsed)) {
-          posts = parsed.filter(
-            (p: any) => p && p.id && !deletedPosts.has(String(p.id)) && !isClientDummyPost(p)
-          );
-        }
-      }
-    } catch {}
-
-    // Always call /api/sync-browser-data on app load so ensureTablesExist() runs on the server
+    // Only ping /api/sync-browser-data to ensure server tables exist;
+    // never re-upload browser localStorage profiles/users/helpers/shops so admin-deleted accounts never resurrect.
     await fetch('/api/sync-browser-data', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-      body: JSON.stringify({
-        user: users[0] || null,
-        users,
-        profiles,
-        helpers: profiles,
-        businesses,
-        shops: businesses,
-        ads,
-        posts
-      })
+      body: JSON.stringify({})
     });
   } catch (e) {
     // Non-blocking background sync

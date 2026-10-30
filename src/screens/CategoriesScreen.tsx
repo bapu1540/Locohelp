@@ -402,42 +402,10 @@ export default function CategoriesScreen({
       } catch {}
 
       const res = await fetch(`/api/helpers?_t=${Date.now()}`);
-      let serverList: any[] = [];
       if (res.ok) {
         const data = await res.json();
-        if (Array.isArray(data)) serverList = data;
-      }
-
-      let localAll: FreeHelperProfile[] = [];
-      try {
-        const raw = localStorage.getItem('locohelp_free_helper_profiles');
-        if (raw) localAll = JSON.parse(raw);
-      } catch {}
-
-      const combinedMap = new Map<string, any>();
-      if (Array.isArray(localAll)) {
-        localAll.forEach((h: any) => {
-          if (h && h.id && !deletedIds.includes(String(h.id))) {
-            combinedMap.set(String(h.id), h);
-          }
-        });
-      }
-      if (Array.isArray(serverList)) {
-        serverList.forEach((h: any) => {
-          if (h && h.id && !deletedIds.includes(String(h.id))) {
-            combinedMap.set(String(h.id), {
-              ...(combinedMap.get(String(h.id)) || {}),
-              ...h,
-              isVerified: h.isVerified ?? true,
-              status: h.status || 'approved',
-            });
-          }
-        });
-      }
-
-      const combined = Array.from(combinedMap.values());
-      if (combined.length > 0) {
-        const normalizedAll = combined
+        const serverList = Array.isArray(data) ? data : [];
+        const normalizedAll = serverList
           .filter(
             (h: any) =>
               h &&
@@ -459,6 +427,8 @@ export default function CategoriesScreen({
               categoryId: norm.categoryId,
               customCategoryName:
                 h.customCategoryName || norm.customCategoryName,
+              isVerified: h.isVerified === true || h.status === 'approved',
+              status: h.status || (h.isVerified ? 'approved' : 'pending'),
             };
           });
         const verifiedOnly = normalizedAll.filter(
@@ -468,14 +438,14 @@ export default function CategoriesScreen({
         try {
           localStorage.setItem(
             'locohelp_free_helper_profiles',
-            JSON.stringify(normalizedAll)
+            JSON.stringify(verifiedOnly)
           );
         } catch {}
-      } else {
-        setHelpers(getFreeHelperProfiles(false));
+        return;
       }
+      setHelpers([]);
     } catch {
-      setHelpers(getFreeHelperProfiles(false));
+      setHelpers([]);
     }
   };
 

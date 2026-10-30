@@ -498,17 +498,13 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         const cleanIntents = liveIntents.filter(i => {
           if (!i || !i.id || deletedPostsSet.has(String(i.id))) return false;
           const idLow = String(i.id).toLowerCase();
-          const descStr = String(i.description || i.title || '').trim();
-          const descLow = descStr.toLowerCase();
           if (
             idLow.includes('m660z') ||
             idLow.includes('t9140') ||
             idLow.startsWith('seed_') ||
             idLow.startsWith('sample_') ||
             idLow.startsWith('mock_') ||
-            idLow.startsWith('dummy_') ||
-            descStr.includes('તાત્કાલિક પ્લમ્બર જોઈએ છે') ||
-            descLow === 'urgent plumber needed'
+            idLow.startsWith('dummy_')
           ) {
             return false;
           }
@@ -521,9 +517,9 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
       let loadedHelpersList: any[] = [];
       try {
         const fetchedHelpers = await getHelpers(true);
-        const localHelpers = getFreeHelperProfiles(true);
+        const sourceHelpers = Array.isArray(fetchedHelpers) ? fetchedHelpers : getFreeHelperProfiles(true);
         const mergedHelpersMap = new Map<string, any>();
-        [...(Array.isArray(localHelpers) ? localHelpers : []), ...(Array.isArray(fetchedHelpers) ? fetchedHelpers : [])].forEach(h => {
+        (Array.isArray(sourceHelpers) ? sourceHelpers : []).forEach(h => {
           if (!h || !h.id || deletedHelpersSet.has(String(h.id)) || deletedUsersSet.has(String(h.id))) return;
           const existing = mergedHelpersMap.get(h.id) || {};
           const rawSt = String(h.status || existing.status || '').toLowerCase();
@@ -1299,7 +1295,8 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
           photoUrl: creatingItem.photos[0] || creatingItem.photoUrl || '',
           photos: creatingItem.photos,
           isVerified: true,
-          status: 'approved'
+          status: 'approved',
+          adminDirectCreate: true
         };
         const res = await fetch('/api/shops', {
           method: 'POST',
@@ -1342,7 +1339,8 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
           area: creatingItem.areaOrLocation.trim() || 'Local Area',
           photoUrl: creatingItem.photoUrl || '',
           isVerified: true,
-          status: 'approved'
+          status: 'approved',
+          adminDirectCreate: true
         };
         const res = await fetch('/api/helpers', {
           method: 'POST',
@@ -1376,6 +1374,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
             category: norm.categoryId,
             status: 'approved',
             isVerified: true,
+            adminDirectCreate: true,
             myHelperProfile: data
           };
           await fetch('/api/profiles', {
@@ -3818,8 +3817,9 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                 <div className="flex flex-wrap gap-2">
                   {[
                     { id: 'all', label: `All Vault Records (${securityVaultRecords.length})` },
-                    { id: 'deleted', label: `🚨 Deleted by User (${securityVaultRecords.filter(r => r.isDeletedFromPublic || r.actionStatus?.includes('DELETED')).length})` },
+                    { id: 'deleted', label: `🚨 Deleted by User/Admin (${securityVaultRecords.filter(r => r.isDeletedFromPublic || r.actionStatus?.includes('DELETED') || r.actionStatus?.includes('REMOVED')).length})` },
                     { id: 'with_id', label: `🪪 With Watermarked Govt ID (${securityVaultRecords.filter(r => Boolean(r.idDocumentWatermarked)).length})` },
+                    { id: 'help_post', label: `📢 Help Posts (${securityVaultRecords.filter(r => r.entityType === 'help_post').length})` },
                     { id: 'helper', label: `Service Experts (${securityVaultRecords.filter(r => r.entityType === 'helper').length})` },
                     { id: 'user_profile', label: `User Accounts (${securityVaultRecords.filter(r => r.entityType === 'user_profile' || r.entityType === 'auth_user' || r.entityType === 'verification').length})` },
                     { id: 'business', label: `Businesses (${securityVaultRecords.filter(r => r.entityType === 'business').length})` },
@@ -3846,15 +3846,16 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
             {(() => {
               const q = vaultSearch.trim().toLowerCase();
               const filteredVault = securityVaultRecords.filter((rec) => {
-                if (vaultFilter === 'deleted' && !rec.isDeletedFromPublic && !rec.actionStatus?.includes('DELETED')) return false;
+                if (vaultFilter === 'deleted' && !rec.isDeletedFromPublic && !rec.actionStatus?.includes('DELETED') && !rec.actionStatus?.includes('REMOVED')) return false;
                 if (vaultFilter === 'with_id' && !rec.idDocumentWatermarked) return false;
+                if (vaultFilter === 'help_post' && rec.entityType !== 'help_post') return false;
                 if (vaultFilter === 'helper' && rec.entityType !== 'helper') return false;
                 if (vaultFilter === 'user_profile' && rec.entityType !== 'user_profile' && rec.entityType !== 'auth_user' && rec.entityType !== 'verification') return false;
                 if (vaultFilter === 'business' && rec.entityType !== 'business') return false;
                 if (vaultFilter === 'job' && rec.entityType !== 'job_seeker' && rec.entityType !== 'employer') return false;
 
                 if (!q) return true;
-                const haystack = `${rec.name} ${rec.phone} ${rec.email} ${rec.area} ${rec.category} ${rec.entityType} ${rec.recordId} ${rec.actionStatus}`.toLowerCase();
+                const haystack = `${rec.name} ${rec.phone} ${rec.email} ${rec.realAccountName || ''} ${rec.realAccountEmail || ''} ${rec.realAccountPhone || ''} ${rec.ipAddress || ''} ${rec.userAgent || ''} ${rec.area} ${rec.category} ${rec.entityType} ${rec.recordId} ${rec.actionStatus}`.toLowerCase();
                 return haystack.includes(q);
               });
 
@@ -3863,7 +3864,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                   <div className="rounded-3xl bg-[#111827] border border-slate-800 p-10 text-center">
                     <Lock className="w-10 h-10 text-emerald-500/60 mx-auto mb-3" />
                     <p className="text-sm font-black text-white">No matching records in Security Vault</p>
-                    <p className="text-xs text-slate-400 mt-1">All registered users, service experts, businesses, and deleted accounts are automatically encrypted and preserved here.</p>
+                    <p className="text-xs text-slate-400 mt-1">All registered users, service experts, businesses, posts, and deleted accounts are automatically encrypted and preserved here.</p>
                   </div>
                 );
               }
@@ -3871,10 +3872,10 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
               return (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {filteredVault.map((rec) => {
-                    const isDeleted = rec.isDeletedFromPublic || rec.actionStatus?.includes('DELETED');
+                    const isDeleted = rec.isDeletedFromPublic || rec.actionStatus?.includes('DELETED') || rec.actionStatus?.includes('REMOVED');
                     return (
                       <div
-                        key={rec.vaultKey}
+                        key={rec.vaultKey || rec.vaultId || rec.recordId}
                         className={`rounded-2xl bg-[#111827] border p-4 sm:p-5 flex flex-col justify-between gap-4 shadow-md ${
                           isDeleted
                             ? 'border-rose-500/50 bg-gradient-to-br from-rose-950/25 via-[#111827] to-[#111827]'
@@ -3929,6 +3930,11 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                                   Category / Role: {rec.category}
                                 </p>
                               )}
+                              {rec.postContent && (
+                                <p className="text-xs text-slate-300 line-clamp-2 mt-1 bg-slate-900/80 px-2.5 py-1.5 rounded-lg border border-slate-800">
+                                  {rec.postContent}
+                                </p>
+                              )}
                               <p className="text-[11px] text-slate-400 font-mono break-all mt-0.5">
                                 Vault ID: {rec.recordId}
                               </p>
@@ -3939,17 +3945,44 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-3 rounded-xl bg-slate-900/90 border border-slate-800 text-xs">
                             <div className="flex items-center gap-1.5 text-slate-200 font-bold">
                               <Phone className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                              <span>{rec.phone || 'No Phone'}</span>
+                              <span>{rec.phone || rec.realAccountPhone || 'No Phone'}</span>
                             </div>
                             <div className="flex items-center gap-1.5 text-slate-200 font-bold truncate">
                               <Mail className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                              <span className="truncate">{rec.email || 'No Email'}</span>
+                              <span className="truncate">{rec.email || rec.realAccountEmail || 'No Email'}</span>
                             </div>
                             <div className="flex items-center gap-1.5 text-slate-300 font-bold sm:col-span-2">
                               <MapPin className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                               <span>{rec.area || 'Area not specified'}</span>
                             </div>
                           </div>
+
+                          {/* Forensic & Real Login Account Details (IP / Device / Real Account) */}
+                          {(rec.realAccountEmail || rec.realAccountPhone || rec.ipAddress || rec.userAgent) && (
+                            <div className="p-2.5 rounded-xl bg-indigo-950/30 border border-indigo-500/30 space-y-1 text-[11px]">
+                              <p className="font-black text-indigo-300 flex items-center gap-1">
+                                🕵️ Real Login Account &amp; Device Evidence:
+                              </p>
+                              {(rec.realAccountEmail || rec.realAccountPhone) && (
+                                <p className="text-slate-200 font-bold break-all">
+                                  Account: <span className="text-cyan-300">{rec.realAccountName || rec.name}</span>
+                                  {rec.realAccountEmail ? ` • ${rec.realAccountEmail}` : ''}
+                                  {rec.realAccountPhone ? ` • ${rec.realAccountPhone}` : ''}
+                                </p>
+                              )}
+                              {rec.ipAddress && (
+                                <p className="text-slate-300 font-mono">
+                                  IP Address: <span className="text-amber-300 font-bold">{rec.ipAddress}</span>
+                                  {rec.deletedBy ? ` • Deleted By: ${rec.deletedBy}` : ''}
+                                </p>
+                              )}
+                              {rec.userAgent && (
+                                <p className="text-slate-400 truncate" title={rec.userAgent}>
+                                  Device: {rec.userAgent}
+                                </p>
+                              )}
+                            </div>
+                          )}
 
                           {/* Timestamps */}
                           <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
@@ -4042,6 +4075,86 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
               </div>
 
               <div className="p-6 overflow-y-auto space-y-4 text-xs sm:text-sm">
+                {/* Forensic & Real Login Account Evidence Box */}
+                {(viewingItem.data.realAccountEmail || viewingItem.data.realAccountPhone || viewingItem.data.ipAddress || viewingItem.data.userAgent) && (
+                  <div className="p-3.5 rounded-2xl bg-indigo-950/35 border border-indigo-500/40 space-y-2">
+                    <p className="text-xs font-black text-indigo-300 flex items-center gap-1.5">
+                      🕵️ Real Registered Account &amp; Forensic Evidence (Cyber Cell / Admin Proof):
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                      <div className="p-2 rounded-lg bg-slate-900/90 border border-slate-800">
+                        <span className="text-[10px] font-black uppercase text-slate-400 block">Real Account Name</span>
+                        <span className="font-bold text-white break-words">{viewingItem.data.realAccountName || viewingItem.data.name || 'N/A'}</span>
+                      </div>
+                      <div className="p-2 rounded-lg bg-slate-900/90 border border-slate-800">
+                        <span className="text-[10px] font-black uppercase text-slate-400 block">Registered Email</span>
+                        <span className="font-bold text-cyan-300 break-all">{viewingItem.data.realAccountEmail || viewingItem.data.email || 'N/A'}</span>
+                      </div>
+                      <div className="p-2 rounded-lg bg-slate-900/90 border border-slate-800">
+                        <span className="text-[10px] font-black uppercase text-slate-400 block">Registered Phone</span>
+                        <span className="font-bold text-emerald-300 break-words">{viewingItem.data.realAccountPhone || viewingItem.data.phone || 'N/A'}</span>
+                      </div>
+                      <div className="p-2 rounded-lg bg-slate-900/90 border border-slate-800">
+                        <span className="text-[10px] font-black uppercase text-slate-400 block">Client IP Address</span>
+                        <span className="font-mono font-bold text-amber-300 break-all">{viewingItem.data.ipAddress || 'Not Recorded'}</span>
+                      </div>
+                      {viewingItem.data.userAgent && (
+                        <div className="p-2 rounded-lg bg-slate-900/90 border border-slate-800 sm:col-span-2">
+                          <span className="text-[10px] font-black uppercase text-slate-400 block">Device / Browser (User-Agent)</span>
+                          <span className="font-mono text-[11px] text-slate-200 break-all">{viewingItem.data.userAgent}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Preserved Post / Profile / Work Photo Evidence */}
+                {(viewingItem.data.photoUrl || viewingItem.data.workPhotoUrl) && (
+                  <div className="p-3 rounded-2xl bg-slate-950 border border-amber-500/30 space-y-2">
+                    <p className="text-xs font-black text-amber-300">
+                      📸 Preserved Photo / Post Attachment Evidence (Kept in Firebase Storage):
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {viewingItem.data.photoUrl && (
+                        <div className="rounded-xl border border-slate-800 bg-slate-900 p-2 text-center">
+                          <img
+                            src={viewingItem.data.photoUrl}
+                            alt="Preserved Evidence"
+                            loading="lazy"
+                            className="max-h-60 w-auto mx-auto object-contain rounded-lg"
+                          />
+                          <a
+                            href={viewingItem.data.photoUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-block mt-2 text-[11px] font-black text-cyan-400 hover:underline"
+                          >
+                            Open Full Photo Link ↗
+                          </a>
+                        </div>
+                      )}
+                      {viewingItem.data.workPhotoUrl && (
+                        <div className="rounded-xl border border-slate-800 bg-slate-900 p-2 text-center">
+                          <img
+                            src={viewingItem.data.workPhotoUrl}
+                            alt="Preserved Work Photo"
+                            loading="lazy"
+                            className="max-h-60 w-auto mx-auto object-contain rounded-lg"
+                          />
+                          <a
+                            href={viewingItem.data.workPhotoUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-block mt-2 text-[11px] font-black text-cyan-400 hover:underline"
+                          >
+                            Open Work Photo Link ↗
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {viewingItem.data.idDocumentWatermarked && (
                   <div className="p-3 rounded-2xl bg-slate-950 border border-cyan-500/30">
                     <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
@@ -4102,7 +4215,8 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                         <div key={idx} className="flex flex-wrap items-center justify-between gap-2 text-[11px] bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800">
                           <span className="font-black text-cyan-300">{h.action}</span>
                           <span className="text-slate-300 font-bold">
-                            {h.snapshotSummary?.name || ''} {h.snapshotSummary?.phone ? `(${h.snapshotSummary.phone})` : ''}
+                            {h.snapshotSummary?.name || h.name || ''} {(h.snapshotSummary?.phone || h.phone) ? `(${h.snapshotSummary?.phone || h.phone})` : ''}
+                            {h.ipAddress ? ` • IP: ${h.ipAddress}` : ''}
                           </span>
                           <span className="text-slate-400 font-mono">
                             {h.timestamp ? new Date(h.timestamp).toLocaleString('en-IN') : ''}

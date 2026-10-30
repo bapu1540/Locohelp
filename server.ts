@@ -977,7 +977,7 @@ const postCooldowns = new Map<string, number>(); // key -> last post timestamp m
 const otpCooldowns = new Map<string, number>();  // identifier/ip -> last otp timestamp ms
 const otpCooldownByIdentifier = otpCooldowns;
 
-const POST_COOLDOWN_MS = 30 * 1000; // 30 seconds between creating posts
+const POST_COOLDOWN_MS = 5 * 1000;  // 5 seconds between creating posts
 const OTP_COOLDOWN_MS = 60 * 1000;  // 60 seconds on OTP resend
 const OTP_RESEND_COOLDOWN_MS = OTP_COOLDOWN_MS;
 
@@ -1076,12 +1076,12 @@ const generalApiLimiter = createRateLimiter({
   message: "Too many requests from this IP. Please wait a moment and try again. / इस IP से बहुत सारे अनुरोध प्राप्त हुए हैं। कृपया कुछ देर प्रतीक्षा करें।"
 });
 
-// Strict rate limiter for registration & message POST endpoints: 10 requests per 10 minutes per IP
+// Rate limiter for registration & message POST endpoints: 60 requests per 10 minutes per IP
 const registrationAndMessageLimiter = createRateLimiter({
   windowMs: 10 * 60 * 1000, // 10 minutes
-  max: 10, // 10 requests per 10 minutes per IP
+  max: 60, // 60 requests per 10 minutes per IP
   keyPrefix: "reg_msg_limit",
-  message: "Too many requests. Please wait a few minutes before trying again. / बहुत सारे अनुरोध प्राप्त हुए हैं। कृपया 10 मिनट बाद पुनः प्रयास करें।"
+  message: "Too many requests. Please wait a few minutes before trying again. / बहुत सारे अनुरोध प्राप्त हुए हैं। कृपया कुछ देर बाद पुनः प्रयास करें।"
 });
 
 // Anti-Bot Honeypot Helper: Detect hidden trap fields filled by automated spam bots
@@ -1862,7 +1862,8 @@ async function initPostgresTables(pool: pg.Pool): Promise<string[]> {
       photo_url TEXT,
       rating NUMERIC DEFAULT 5.0,
       review_count INTEGER DEFAULT 1,
-      is_verified BOOLEAN DEFAULT true,
+      is_verified BOOLEAN DEFAULT false,
+      status TEXT DEFAULT 'pending',
       created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
     )`,
     "create shops"
@@ -1878,7 +1879,10 @@ async function initPostgresTables(pool: pg.Pool): Promise<string[]> {
   await execSafeDDL(pool, `ALTER TABLE shops ADD COLUMN IF NOT EXISTS photo_url TEXT`, "shops.photo_url");
   await execSafeDDL(pool, `ALTER TABLE shops ADD COLUMN IF NOT EXISTS rating NUMERIC DEFAULT 5.0`, "shops.rating");
   await execSafeDDL(pool, `ALTER TABLE shops ADD COLUMN IF NOT EXISTS review_count INTEGER DEFAULT 1`, "shops.review_count");
-  await execSafeDDL(pool, `ALTER TABLE shops ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT true`, "shops.is_verified");
+  await execSafeDDL(pool, `ALTER TABLE shops ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT false`, "shops.is_verified");
+  await execSafeDDL(pool, `ALTER TABLE shops ALTER COLUMN is_verified SET DEFAULT false`, "shops.is_verified default false");
+  await execSafeDDL(pool, `ALTER TABLE shops ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pending'`, "shops.status");
+  await execSafeDDL(pool, `ALTER TABLE businesses ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pending'`, "businesses.status");
   await execSafeDDL(pool, `ALTER TABLE shops ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()`, "shops.created_at");
 
   // 5. ads & ad_banners tables
@@ -2182,6 +2186,9 @@ async function initPostgresTables(pool: pg.Pool): Promise<string[]> {
   await execSafeDDL(pool, `ALTER TABLE helpers ADD COLUMN IF NOT EXISTS experience TEXT`, "helpers.experience");
   await execSafeDDL(pool, `ALTER TABLE helpers ADD COLUMN IF NOT EXISTS distance NUMERIC DEFAULT 0.5`, "helpers.distance");
   await execSafeDDL(pool, `ALTER TABLE helpers ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT false`, "helpers.is_verified");
+  await execSafeDDL(pool, `ALTER TABLE helpers ALTER COLUMN is_verified SET DEFAULT false`, "helpers.is_verified default false");
+  await execSafeDDL(pool, `ALTER TABLE helpers ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pending'`, "helpers.status");
+  await execSafeDDL(pool, `ALTER TABLE helpers ALTER COLUMN status SET DEFAULT 'pending'`, "helpers.status default pending");
   await execSafeDDL(pool, `ALTER TABLE helpers ADD COLUMN IF NOT EXISTS govt_id_uploaded BOOLEAN DEFAULT false`, "helpers.govt_id_uploaded");
   await execSafeDDL(pool, `ALTER TABLE helpers ADD COLUMN IF NOT EXISTS id_doc_url TEXT`, "helpers.id_doc_url");
 
@@ -2494,233 +2501,17 @@ async function syncJsonFilesToPostgres(pool: pg.Pool) {
     }
     writeJsonFile(CATEGORY_IMAGES_FILE, dbImageMap);
 
-    const authUsers = readJsonFile<Record<string, any>>(AUTH_USERS_FILE, {});
-    for (const [emailKey, u] of Object.entries(authUsers)) {
-      if (!u) continue;
-      const cleanEmail = String(u.email || emailKey).trim().toLowerCase();
-      if (!cleanEmail) continue;
-      const uid = String(u.uid || ('email_' + cleanEmail.replace(/[^a-z0-9]/g, '_')));
-      const name = String(u.name || cleanEmail.split('@')[0]);
-      const phone = String(u.phone || '');
-      const pwHash = String(u.passwordHash || '');
-      await pool.query(
-        `INSERT INTO users (id, name, email, password_hash, phone, role, created_at)
-         VALUES ($1, $2, $3, $4, $5, 'user', NOW())
-         ON CONFLICT (email) DO UPDATE SET
-           name = COALESCE(NULLIF(EXCLUDED.name, ''), users.name),
-           password_hash = COALESCE(NULLIF(EXCLUDED.password_hash, ''), users.password_hash),
-           phone = COALESCE(NULLIF(EXCLUDED.phone, ''), users.phone)`,
-        [uid, name, cleanEmail, pwHash, phone]
-      ).catch(() => {});
-      await pool.query(
-        `INSERT INTO "user" (id, name, phone, email, created_at)
-         VALUES ($1, $2, $3, $4, NOW())
-         ON CONFLICT (id) DO UPDATE SET name = COALESCE(NULLIF(EXCLUDED.name, ''), "user".name)`,
-        [uid, name, phone, cleanEmail]
-      ).catch(() => {});
-      if (pwHash) {
-        await pool.query(
-          `INSERT INTO user_passwords (email, uid, name, phone, password_hash, updated_at)
-           VALUES ($1, $2, $3, $4, $5, NOW())
-           ON CONFLICT (email) DO UPDATE SET password_hash = COALESCE(NULLIF(EXCLUDED.password_hash, ''), user_passwords.password_hash)`,
-          [cleanEmail, uid, name, phone, pwHash]
-        ).catch(() => {});
-      }
-    }
-
-    const profiles = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
-    for (const [uidKey, p] of Object.entries(profiles)) {
-      if (!p) continue;
-      const uid = String(p.uid || p.id || uidKey);
-      const name = String(p.full_name || p.name || p.displayName || 'Community Member');
-      const email = String(p.email || '').trim().toLowerCase();
-      const phone = String(p.phone || '');
-      const avatar = String(p.avatar_url || p.photoURL || '');
-      const skills = Array.isArray(p.skills) ? p.skills.join(', ') : String(p.skills || '');
-      const address = String(p.address || p.area || '');
-      const experience = String(p.experience || '');
-      const isVerif = Boolean(p.isVerified || p.is_verified || p.status === 'approved');
-      await pool.query(
-        `INSERT INTO profiles (uid, id, user_id, name, full_name, email, phone, avatar_url, image_url, skills, address, experience, verified, is_verified, status, my_helper_profile, raw_json, updated_at)
-         VALUES ($1, $1, $1, $2, $2, $3, $4, $5, $5, $6, $7, $8, $9, $9, $10, $11, $12, NOW())
-         ON CONFLICT (uid) DO UPDATE SET
-           name = COALESCE(NULLIF(EXCLUDED.name, ''), profiles.name),
-           full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), profiles.full_name),
-           email = COALESCE(NULLIF(EXCLUDED.email, ''), profiles.email),
-           phone = COALESCE(NULLIF(EXCLUDED.phone, ''), profiles.phone),
-           raw_json = COALESCE(EXCLUDED.raw_json, profiles.raw_json)`,
-        [uid, name, email, phone, avatar, skills, address, experience, isVerif, isVerif ? 'approved' : (p.status || 'pending'), p.myHelperProfile ? JSON.stringify(p.myHelperProfile) : null, JSON.stringify(p)]
-      ).catch(() => {});
-      if (email) {
-        await pool.query(
-          `INSERT INTO users (id, name, email, phone, avatar_url, created_at)
-           VALUES ($1, $2, $3, $4, $5, NOW())
-           ON CONFLICT (email) DO NOTHING`,
-          [uid, name, email, phone, avatar]
-        ).catch(() => {});
-      }
-    }
-
-    const helpers = readJsonFile<any[]>(HELPERS_FILE, []);
-    for (const h of helpers) {
-      if (!h || !h.id) continue;
-      const isVerif = Boolean(h.isVerified || h.is_verified || h.status === 'approved');
-      const skillsArr = Array.isArray(h.skills) ? h.skills : [String(h.categoryId || 'general')];
-      await pool.query(
-        `INSERT INTO helpers (id, name, category_id, phone, skills, area, experience, distance, is_verified, govt_id_uploaded, id_doc_url, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
-         ON CONFLICT (id) DO UPDATE SET
-           name = EXCLUDED.name,
-           category_id = EXCLUDED.category_id,
-           phone = EXCLUDED.phone,
-           is_verified = EXCLUDED.is_verified`,
-        [h.id, h.name || 'Service Expert', h.categoryId || 'other', h.phone || '', skillsArr, h.area || 'Local Area', h.experience || '1 Year', Number(h.distance || 0.5), isVerif, Boolean(h.govtIdUploaded), h.idDocUrl || null]
-      ).catch(() => {});
-
-      await pool.query(
-        `INSERT INTO profiles (uid, id, user_id, name, full_name, email, category_id, category_name, phone, whatsapp, city, sector, address, experience, skills, description, image_url, verified, is_verified, status, rating, raw_json, created_at, updated_at)
-         VALUES ($1, $1, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11, $12, $13, $14, $15, $15, $16, $17, $18, NOW(), NOW())
-         ON CONFLICT (uid) DO UPDATE SET
-           id = EXCLUDED.id,
-           name = EXCLUDED.name,
-           category_id = EXCLUDED.category_id,
-           category_name = EXCLUDED.category_name,
-           phone = EXCLUDED.phone,
-           city = EXCLUDED.city,
-           sector = EXCLUDED.sector,
-           experience = EXCLUDED.experience,
-           image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), profiles.image_url),
-           verified = EXCLUDED.verified,
-           is_verified = EXCLUDED.is_verified,
-           status = EXCLUDED.status,
-           raw_json = EXCLUDED.raw_json,
-           updated_at = NOW()`,
-        [
-          h.id,
-          h.userId || h.id,
-          h.name || 'Service Expert',
-          h.email || '',
-          h.categoryId || 'other',
-          h.customCategoryName || h.categoryId || 'other',
-          h.phone || '',
-          h.whatsapp || h.phone || '',
-          h.city || 'Gandhinagar',
-          h.area || 'Local Area',
-          h.experience || '1 Year',
-          skillsArr.join(', '),
-          h.description || skillsArr.join(', '),
-          h.photoUrl || h.photo_url || '',
-          isVerif,
-          isVerif ? 'approved' : (h.status || 'pending'),
-          Number(h.rating || 5.0),
-          JSON.stringify(h)
-        ]
-      ).catch(() => {});
-    }
-
-    const shops = readJsonFile<any[]>(SHOPS_FILE, []);
-    for (const s of shops) {
-      if (!s || !s.id || String(s.id).startsWith('sample_shop_')) continue;
-      const isApproved = Boolean(s.isVerified || s.is_verified || s.status === 'approved');
-      const bName = s.name || s.businessName || s.business_name || 'Local Shop';
-      const cat = s.category || s.categoryLabel || 'Retail & Services';
-      const imgUrl = s.photoUrl || s.photo_url || (Array.isArray(s.photos) && s.photos[0]) || '';
-      await pool.query(
-        `INSERT INTO businesses (id, user_id, owner_id, shop_name, business_name, category, phone, address, sector, description, image_url, is_approved, is_verified, raw_json, created_at)
-         VALUES ($1, $2, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11, NOW())
-         ON CONFLICT (id) DO UPDATE SET
-           shop_name = EXCLUDED.shop_name,
-           business_name = EXCLUDED.business_name,
-           category = EXCLUDED.category,
-           phone = EXCLUDED.phone,
-           address = EXCLUDED.address,
-           sector = EXCLUDED.sector,
-           description = EXCLUDED.description,
-           image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), businesses.image_url),
-           is_approved = EXCLUDED.is_approved,
-           is_verified = EXCLUDED.is_verified,
-           raw_json = EXCLUDED.raw_json`,
-        [s.id, s.userId || s.owner_id || 'Owner', bName, cat, s.phone || '', s.address || s.area || '', s.area || '', s.description || '', imgUrl, isApproved, JSON.stringify(s)]
-      ).catch(() => {});
-
-      await pool.query(
-        `INSERT INTO shops (id, name, type, category_label, owner_name, phone, area, address, description, photo_url, rating, review_count, is_verified, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())
-         ON CONFLICT (id) DO UPDATE SET
-           name = EXCLUDED.name,
-           phone = EXCLUDED.phone,
-           is_verified = EXCLUDED.is_verified`,
-        [s.id, bName, s.type || 'shop', cat, s.ownerName || 'Owner', s.phone || '', s.area || '', s.address || '', s.description || '', imgUrl, Number(s.rating || 5.0), Number(s.reviewCount || 1), isApproved]
-      ).catch(() => {});
-    }
-
-    const ads = readJsonFile<any[]>(ADS_FILE, []);
-    for (const a of ads) {
-      if (!a || !a.id) continue;
-      const imgUrl = a.photoUrl || (Array.isArray(a.photos) && a.photos[0]) || '';
-      await pool.query(
-        `INSERT INTO ads (id, title, subtitle, target_url, market_area, status, description, image_url, raw_json, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
-         ON CONFLICT (id) DO UPDATE SET
-           title = EXCLUDED.title,
-           subtitle = EXCLUDED.subtitle,
-           target_url = EXCLUDED.target_url,
-           market_area = EXCLUDED.market_area,
-           status = EXCLUDED.status,
-           description = EXCLUDED.description,
-           image_url = EXCLUDED.image_url,
-           raw_json = EXCLUDED.raw_json`,
-        [a.id, a.offerTitle || a.businessName || 'Featured Ad', a.businessName || a.offerBadge || '', a.destinationUrl || '', a.area || 'Local Market', a.isActive === false ? 'inactive' : 'active', a.description || '', imgUrl, JSON.stringify(a)]
-      ).catch(() => {});
-
-      await pool.query(
-        `INSERT INTO ad_banners (id, data, created_at) VALUES ($1, $2, NOW())
-         ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data`,
-        [a.id, JSON.stringify(a)]
-      ).catch(() => {});
-    }
-
-    const intents = readJsonFile<any[]>(INTENTS_FILE, []);
-    for (const i of intents) {
-      if (!i || !i.id) continue;
-      await pool.query(
-        `INSERT INTO posts (id, user_id, author_name, content, image_url, category, city, raw_json, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
-         ON CONFLICT (id) DO UPDATE SET
-           content = EXCLUDED.content,
-           category = EXCLUDED.category,
-           city = EXCLUDED.city,
-           raw_json = EXCLUDED.raw_json`,
-        [i.id, i.authorId || 'user', i.authorName || 'Community Member', i.description || i.title || '', i.imageUrl || i.photoUrl || '', i.category || 'General', i.city || i.location || 'Gandhinagar', JSON.stringify(i)]
-      ).catch(() => {});
-
-      await pool.query(
-        `INSERT INTO listings (id, user_id, title, description, location, created_at)
-         VALUES ($1, $2, $3, $4, $5, NOW())
-         ON CONFLICT (id) DO UPDATE SET description = EXCLUDED.description`,
-        [i.id, i.authorId || 'user', i.category || i.title || 'General', i.description || '', i.location || i.city || 'Gandhinagar']
-      ).catch(() => {});
-    }
-
-    const jobs = readJsonFile<any[]>(JOB_PORTAL_FILE, []);
-    for (const j of jobs) {
-      if (!j || !j.id) continue;
-      await pool.query(
-        `INSERT INTO job_portal_items (id, type, status, data, created_at)
-         VALUES ($1, $2, $3, $4, NOW())
-         ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, data = EXCLUDED.data`,
-        [j.id, j.type || 'job_seeker', j.status || 'pending', JSON.stringify(j)]
-      ).catch(() => {});
-    }
-
+    // PostgreSQL is the single authoritative source of truth.
+    // Never re-insert local JSON cache files (users, profiles, helpers, shops, posts) back into PostgreSQL,
+    // so accounts/posts deleted from Admin never resurrect on server restart or DB sync.
     await pool.query(`
       UPDATE categories c
       SET registered_count = COALESCE((
-        SELECT COUNT(*) FROM helpers h WHERE h.category_id = c.id AND h.is_verified = true
+        SELECT COUNT(*) FROM helpers h WHERE h.category_id = c.id AND h.is_verified = true AND COALESCE(h.is_deleted, false) = false
       ), 0)
     `).catch(() => {});
   } catch (syncErr: any) {
-    console.warn("[Railway PostgreSQL] Initial JSON-to-DB sync note:", syncErr.message);
+    console.warn("[Railway PostgreSQL] Initial DB sync note:", syncErr.message);
   }
 }
 
@@ -2728,7 +2519,8 @@ async function archiveToSecurityVault(
   entityType: SecurityVaultEntityType,
   recordId: string,
   payload: Record<string, any>,
-  actionStatus: SecurityVaultActionStatus = "ACTIVE_REGISTERED"
+  actionStatus: SecurityVaultActionStatus = "ACTIVE_REGISTERED",
+  req?: express.Request
 ): Promise<void> {
   try {
     const cleanId = String(recordId || payload?.id || payload?.uid || "").trim();
@@ -2744,7 +2536,106 @@ async function archiveToSecurityVault(
         }
       } catch {}
     }
+    if (!existingCipher) {
+      try {
+        const vaultMap = readJsonFile<Record<string, string>>(SECURITY_VAULT_FILE, {});
+        if (vaultMap[vaultKey]) existingCipher = vaultMap[vaultKey];
+      } catch {}
+    }
     const existingDecrypted = existingCipher ? decryptVaultPayload(existingCipher) : null;
+
+    const reqUser = req ? ((req as any).user || extractRequestUser(req)) : null;
+    const candidateUserId = String(
+      payload.userId ||
+      payload.user_id ||
+      payload.authorId ||
+      payload.author_id ||
+      payload.owner_id ||
+      payload.uid ||
+      existingDecrypted?.realAccountId ||
+      (reqUser && !reqUser.isAdmin ? reqUser.uid : "") ||
+      cleanId
+    ).trim();
+
+    const candidateEmail = String(
+      payload.email ||
+      payload.ownerEmail ||
+      payload.userEmail ||
+      payload.authorEmail ||
+      existingDecrypted?.realAccountEmail ||
+      existingDecrypted?.email ||
+      (reqUser && !reqUser.isAdmin ? reqUser.email : "") ||
+      ""
+    ).trim().toLowerCase();
+
+    let realAccountId = existingDecrypted?.realAccountId || candidateUserId || "";
+    let realAccountName = existingDecrypted?.realAccountName || "";
+    let realAccountEmail = existingDecrypted?.realAccountEmail || candidateEmail || "";
+    let realAccountPhone = existingDecrypted?.realAccountPhone || "";
+    let resolvedGovId = "";
+    let auditIp = "";
+    let auditUa = "";
+
+    if (dbPool && isDbConnected) {
+      try {
+        if (candidateUserId || candidateEmail) {
+          const uRes = await dbPool.query(
+            `SELECT id, name, email, phone FROM users
+             WHERE ($1 <> '' AND id = $1) OR ($2 <> '' AND LOWER(email) = LOWER($2))
+             LIMIT 1`,
+            [candidateUserId, candidateEmail]
+          ).catch(() => ({ rows: [] as any[] }));
+          if (uRes.rows.length > 0) {
+            const uRow = uRes.rows[0];
+            realAccountId = uRow.id || realAccountId;
+            realAccountName = uRow.name || realAccountName;
+            realAccountEmail = uRow.email || realAccountEmail;
+            realAccountPhone = uRow.phone || realAccountPhone;
+          }
+
+          const pRes = await dbPool.query(
+            `SELECT uid, name, full_name, email, phone, raw_json FROM profiles
+             WHERE ($1 <> '' AND (uid = $1 OR id = $1 OR user_id = $1))
+                OR ($2 <> '' AND LOWER(email) = LOWER($2))
+             LIMIT 1`,
+            [candidateUserId, realAccountEmail || candidateEmail]
+          ).catch(() => ({ rows: [] as any[] }));
+          if (pRes.rows.length > 0) {
+            const pRow = pRes.rows[0];
+            realAccountId = realAccountId || pRow.uid || "";
+            realAccountName = realAccountName || pRow.full_name || pRow.name || "";
+            realAccountEmail = realAccountEmail || pRow.email || "";
+            realAccountPhone = realAccountPhone || pRow.phone || "";
+          }
+
+          const vRes = await dbPool.query(
+            `SELECT id_document_watermarked, user_phone, user_email, user_name FROM verification_requests
+             WHERE ($1 <> '' AND (entity_id = $1 OR user_id = $1))
+                OR ($2 <> '' AND (entity_id = $2 OR user_id = $2))
+                OR ($3 <> '' AND LOWER(user_email) = LOWER($3))
+             ORDER BY created_at DESC LIMIT 1`,
+            [cleanId, realAccountId, realAccountEmail || candidateEmail]
+          ).catch(() => ({ rows: [] as any[] }));
+          if (vRes.rows.length > 0) {
+            resolvedGovId = vRes.rows[0].id_document_watermarked || "";
+            realAccountPhone = realAccountPhone || vRes.rows[0].user_phone || "";
+            realAccountEmail = realAccountEmail || vRes.rows[0].user_email || "";
+            realAccountName = realAccountName || vRes.rows[0].user_name || "";
+          }
+
+          const aRes = await dbPool.query(
+            `SELECT ip_address, user_agent FROM security_audit_logs
+             WHERE user_id = $1 OR user_id = $2 OR ($3 <> '' AND LOWER(user_id) = LOWER($3))
+             ORDER BY created_at DESC LIMIT 1`,
+            [cleanId, realAccountId, realAccountEmail || candidateEmail]
+          ).catch(() => ({ rows: [] as any[] }));
+          if (aRes.rows.length > 0) {
+            auditIp = aRes.rows[0].ip_address || "";
+            auditUa = aRes.rows[0].user_agent || "";
+          }
+        }
+      } catch {}
+    }
 
     const nowIso = new Date().toISOString();
     const nameVal =
@@ -2756,6 +2647,7 @@ async function archiveToSecurityVault(
       payload.businessName ||
       payload.userName ||
       payload.authorName ||
+      realAccountName ||
       existingDecrypted?.name ||
       "Unknown User";
 
@@ -2764,6 +2656,7 @@ async function archiveToSecurityVault(
       payload.whatsapp ||
       payload.userPhone ||
       payload.authorPhone ||
+      realAccountPhone ||
       existingDecrypted?.phone ||
       "";
 
@@ -2772,6 +2665,7 @@ async function archiveToSecurityVault(
       payload.ownerEmail ||
       payload.userEmail ||
       payload.authorEmail ||
+      realAccountEmail ||
       existingDecrypted?.email ||
       "";
 
@@ -2779,12 +2673,16 @@ async function archiveToSecurityVault(
       payload.area ||
       payload.address ||
       payload.location ||
+      payload.sector ||
+      payload.city ||
       existingDecrypted?.area ||
       "";
 
     const categoryVal =
       payload.categoryId ||
+      payload.category_id ||
       payload.categoryLabel ||
+      payload.category_label ||
       payload.category ||
       payload.jobRole ||
       payload.title ||
@@ -2793,40 +2691,100 @@ async function archiveToSecurityVault(
 
     const govIdDoc =
       payload.idDocumentWatermarked ||
+      payload.id_document_watermarked ||
       payload.idDocUrl ||
       payload.id_doc_url ||
+      resolvedGovId ||
       existingDecrypted?.idDocumentWatermarked ||
       "";
 
     const photoVal =
       payload.photoUrl ||
       payload.photo_url ||
+      payload.image_url ||
+      payload.imageUrl ||
       payload.avatar_url ||
+      payload.avatarUrl ||
       payload.photoURL ||
       payload.photoOrLogoUrl ||
       (Array.isArray(payload.photos) && payload.photos[0]) ||
       existingDecrypted?.photoUrl ||
       "";
 
+    const workPhotoVal =
+      payload.workPhotoUrl ||
+      payload.work_photo_url ||
+      existingDecrypted?.workPhotoUrl ||
+      "";
+
+    const postContentVal =
+      payload.description ||
+      payload.content ||
+      payload.details ||
+      existingDecrypted?.postContent ||
+      "";
+
+    const reqIp = req ? getClientIp(req) : "";
+    const reqUa = req ? getClientUserAgent(req) : "";
+    const finalIpAddress =
+      (reqIp && reqIp !== "unknown" ? reqIp : "") ||
+      payload.ipAddress ||
+      auditIp ||
+      existingDecrypted?.ipAddress ||
+      "";
+    const finalUserAgent =
+      (reqUa && reqUa !== "unknown" ? reqUa : "") ||
+      payload.userAgent ||
+      auditUa ||
+      existingDecrypted?.userAgent ||
+      "";
+
+    const preserveExistingDeletion = Boolean(
+      !req &&
+      actionStatus === "ACTIVE_REGISTERED" &&
+      (existingDecrypted?.isDeletedFromPublic ||
+        existingDecrypted?.actionStatus === "DELETED_BY_USER" ||
+        existingDecrypted?.actionStatus === "ADMIN_REMOVED_PUBLIC")
+    );
+    const effectiveActionStatus = preserveExistingDeletion
+      ? (existingDecrypted.actionStatus as "DELETED_BY_USER" | "ADMIN_REMOVED_PUBLIC")
+      : actionStatus;
+
+    const deletedByVal =
+      effectiveActionStatus === "DELETED_BY_USER"
+        ? existingDecrypted?.deletedBy || "User (Self-Deleted)"
+        : effectiveActionStatus === "ADMIN_REMOVED_PUBLIC"
+        ? existingDecrypted?.deletedBy || "Admin"
+        : existingDecrypted?.deletedBy || "";
+
     const prevHistory = Array.isArray(existingDecrypted?.history) ? existingDecrypted.history : [];
     const historySnapshot = {
-      action: actionStatus,
+      action: effectiveActionStatus,
       timestamp: nowIso,
       name: nameVal,
       phone: phoneVal,
       email: emailVal,
-      area: areaVal
+      area: areaVal,
+      ipAddress: finalIpAddress,
+      userAgent: finalUserAgent,
+      snapshotSummary: {
+        name: nameVal,
+        phone: phoneVal || realAccountPhone,
+        email: emailVal || realAccountEmail,
+        area: areaVal
+      }
     };
 
     const mergedVaultRecord = {
+      vaultKey: vaultKey,
       vaultId: vaultKey,
       recordId: cleanId,
       entityType,
-      actionStatus,
+      actionStatus: effectiveActionStatus,
       isDeletedFromPublic:
-        actionStatus === "DELETED_BY_USER" ||
-        actionStatus === "ADMIN_REMOVED_PUBLIC" ||
-        Boolean(existingDecrypted?.isDeletedFromPublic && actionStatus !== "ACTIVE_REGISTERED"),
+        effectiveActionStatus === "DELETED_BY_USER" ||
+        effectiveActionStatus === "ADMIN_REMOVED_PUBLIC" ||
+        Boolean(existingDecrypted?.isDeletedFromPublic && effectiveActionStatus !== "ACTIVE_REGISTERED"),
       name: nameVal,
       phone: phoneVal,
       email: emailVal,
@@ -2835,30 +2793,52 @@ async function archiveToSecurityVault(
       category: categoryVal,
       skillsOrDescription:
         (Array.isArray(payload.skills) ? payload.skills.join(", ") : payload.skills) ||
-        payload.description ||
+        postContentVal ||
         existingDecrypted?.skillsOrDescription ||
         "",
+      postContent: postContentVal,
       experience: payload.experience || existingDecrypted?.experience || "",
       photoUrl: photoVal,
+      workPhotoUrl: workPhotoVal,
       idDocumentWatermarked: govIdDoc,
       hasGovtId: Boolean(govIdDoc),
+      realAccountId: realAccountId || cleanId,
+      realAccountName: realAccountName || nameVal,
+      realAccountEmail: realAccountEmail || emailVal,
+      realAccountPhone: realAccountPhone || phoneVal,
+      ipAddress: finalIpAddress,
+      userAgent: finalUserAgent,
+      deletedBy: deletedByVal,
       firstRegisteredAt: existingDecrypted?.firstRegisteredAt || payload.createdAt || payload.created_at || nowIso,
-      lastUpdatedAt: nowIso,
+      lastUpdatedAt: preserveExistingDeletion ? (existingDecrypted?.lastUpdatedAt || nowIso) : nowIso,
       deletedAt:
-        actionStatus === "DELETED_BY_USER" || actionStatus === "ADMIN_REMOVED_PUBLIC"
-          ? nowIso
+        effectiveActionStatus === "DELETED_BY_USER" || effectiveActionStatus === "ADMIN_REMOVED_PUBLIC"
+          ? existingDecrypted?.deletedAt || nowIso
           : existingDecrypted?.deletedAt || null,
       originalRegistrationSnapshot: existingDecrypted?.originalRegistrationSnapshot || {
         name: nameVal,
         phone: phoneVal,
         email: emailVal,
+        realAccountName: realAccountName || nameVal,
+        realAccountEmail: realAccountEmail || emailVal,
+        realAccountPhone: realAccountPhone || phoneVal,
         area: areaVal,
-        category: categoryVal
+        category: categoryVal,
+        photoUrl: photoVal,
+        idDocumentWatermarked: govIdDoc,
+        ipAddress: finalIpAddress,
+        userAgent: finalUserAgent
       },
-      history: [...prevHistory.slice(-19), historySnapshot]
+      history: preserveExistingDeletion ? prevHistory : [...prevHistory.slice(-19), historySnapshot]
     };
 
     const encryptedHex = encryptVaultPayload(mergedVaultRecord);
+
+    try {
+      const vaultMap = readJsonFile<Record<string, string>>(SECURITY_VAULT_FILE, {});
+      vaultMap[vaultKey] = encryptedHex;
+      writeJsonFile(SECURITY_VAULT_FILE, vaultMap);
+    } catch {}
 
     if (dbPool && isDbConnected) {
       try {
@@ -2869,7 +2849,7 @@ async function archiveToSecurityVault(
              action_status = EXCLUDED.action_status,
              encrypted_payload = EXCLUDED.encrypted_payload,
              updated_at = NOW()`,
-          [vaultKey, entityType, actionStatus, encryptedHex]
+          [vaultKey, entityType, effectiveActionStatus, encryptedHex]
         );
       } catch (_dbErr) {}
     }
@@ -3220,8 +3200,8 @@ async function startServer() {
     }
   });
 
-  // Dedicated Firebase Storage Delete Endpoint
-  app.post("/api/storage/delete", async (req, res) => {
+  // Dedicated Firebase Storage Delete Endpoint (Admin Protected)
+  app.post("/api/storage/delete", requireAdmin, async (req, res) => {
     try {
       const { fileUrl, storagePath } = req.body || {};
       const deletedCount = await deleteFilesFromFirebaseStorage(fileUrl || storagePath);
@@ -3667,10 +3647,35 @@ async function startServer() {
     }
   });
 
-  // Delete a suggestion (Admin moderation or author)
+  // Delete a suggestion (Admin moderation or verified suggestion author only)
   app.delete("/api/suggestions/:id", requireAuth, async (req, res) => {
     try {
       const { id } = req.params;
+      const caller = (req as any).user || extractRequestUser(req);
+      const isAdminCaller = isRequestAdmin(req) || isAuthorizedAdmin(caller);
+
+      if (!isAdminCaller) {
+        let suggestionOwnerEmail = "";
+        if (dbPool && isDbConnected) {
+          try {
+            const checkRes = await dbPool.query("SELECT user_email FROM suggestions WHERE id = $1 LIMIT 1", [id]);
+            if (checkRes.rows.length > 0) {
+              suggestionOwnerEmail = String(checkRes.rows[0].user_email || "").trim().toLowerCase();
+            }
+          } catch {}
+        }
+        if (!suggestionOwnerEmail) {
+          const memMatch = memorySuggestions.find(s => s.id === id);
+          if (memMatch) {
+            suggestionOwnerEmail = String(memMatch.userEmail || "").trim().toLowerCase();
+          }
+        }
+        const callerEmail = String(caller?.email || "").trim().toLowerCase();
+        if (!callerEmail || !suggestionOwnerEmail || callerEmail !== suggestionOwnerEmail) {
+          return res.status(403).json({ error: "Forbidden: Only Admin or the suggestion author can delete this suggestion." });
+        }
+      }
+
       if (dbPool && isDbConnected) {
         try {
           await dbPool.query("DELETE FROM suggestions WHERE id = $1", [id]);
@@ -3861,7 +3866,7 @@ async function startServer() {
 
       const requestedStatus = profile.status === 'deletion_requested'
         ? 'deletion_requested'
-        : (isAdminCaller && (profile.status === 'approved' || profile.isVerified === true) ? 'approved' : 'pending');
+        : (isAdminCaller && profile.adminDirectCreate === true && (profile.status === 'approved' || profile.isVerified === true) ? 'approved' : 'pending');
       const isApprovedStatus = requestedStatus === 'approved';
       const normalizedHelper = myHelper
         ? {
@@ -3881,10 +3886,7 @@ async function startServer() {
 
           if (existingProfRes.rows.length > 0) {
             const prevRow = existingProfRes.rows[0];
-            const prevAvatar = prevRow.avatar_url || prevRow.image_url || "";
-            if (prevAvatar && uploadedAvatar && prevAvatar !== uploadedAvatar) {
-              await deleteFilesFromFirebaseStorage(prevAvatar);
-            }
+            // Preserve previous avatar in Firebase Storage so profile_edit_history & Security Vault retain tamper-proof photo evidence
             const historyId = "hist_prof_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6);
             const updatedSnapshot = {
               uid,
@@ -3951,8 +3953,8 @@ async function startServer() {
           `, [uid, fullName, phone, email]);
 
           await dbPool.query(`
-            INSERT INTO profiles (uid, id, user_id, name, full_name, category_id, category_name, email, phone, whatsapp, city, sector, avatar_url, image_url, skills, address, experience, description, verified, rating, my_helper_profile, created_at, updated_at)
-            VALUES ($1, $1, $1, $2, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11, $12, $13, $14, $15, 5.0, $16, NOW(), NOW())
+            INSERT INTO profiles (uid, id, user_id, name, full_name, category_id, category_name, email, phone, whatsapp, city, sector, avatar_url, image_url, skills, address, experience, description, verified, is_verified, status, rating, my_helper_profile, created_at, updated_at)
+            VALUES ($1, $1, $1, $2, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11, $12, $13, $14, $15, $15, $16, 5.0, $17, NOW(), NOW())
             ON CONFLICT (uid) DO UPDATE SET
               id = COALESCE(profiles.id, EXCLUDED.id),
               user_id = COALESCE(profiles.user_id, EXCLUDED.user_id),
@@ -3972,9 +3974,11 @@ async function startServer() {
               experience = EXCLUDED.experience,
               description = COALESCE(NULLIF(EXCLUDED.description, ''), profiles.description),
               verified = EXCLUDED.verified,
+              is_verified = EXCLUDED.is_verified,
+              status = EXCLUDED.status,
               my_helper_profile = COALESCE(EXCLUDED.my_helper_profile, profiles.my_helper_profile),
               updated_at = NOW()
-          `, [uid, fullName, categoryId, categoryName, email, phone, whatsapp, city, sector, avatarUrl, skills, address, experience, description, isApprovedStatus, normalizedHelper ? JSON.stringify(normalizedHelper) : null]);
+          `, [uid, fullName, categoryId, categoryName, email, phone, whatsapp, city, sector, avatarUrl, skills, address, experience, description, isApprovedStatus, requestedStatus, normalizedHelper ? JSON.stringify(normalizedHelper) : null]);
 
           if (categoryId) {
             await dbPool.query(
@@ -3983,14 +3987,33 @@ async function startServer() {
             ).catch(() => {});
           }
 
-          if (!isAdminCaller) {
+          if (!isApprovedStatus) {
             await dbPool.query(
               "UPDATE helpers SET is_verified = false WHERE id = $1 OR phone = $2",
               [normalizedHelper?.id || uid, phone]
             ).catch(() => {});
+            const verifId = 'verif_usr_' + (normalizedHelper?.id || uid);
+            const verifTitle = `User Profile (${categoryName || categoryId || 'Member'}) - ${sector || city || 'Local Area'}`;
             await dbPool.query(
-              "UPDATE verification_requests SET status = $1 WHERE entity_id = $2 OR user_id = $2",
-              [requestedStatus === 'deletion_requested' ? 'deletion_requested' : 'pending', normalizedHelper?.id || uid]
+              `INSERT INTO verification_requests (id, entity_type, entity_id, user_id, user_name, user_email, user_phone, title, id_document_watermarked, status, created_at)
+               VALUES ($1, 'user_profile', $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+               ON CONFLICT (id) DO UPDATE SET
+                 status = EXCLUDED.status,
+                 user_name = EXCLUDED.user_name,
+                 user_email = COALESCE(NULLIF(EXCLUDED.user_email, ''), verification_requests.user_email),
+                 user_phone = COALESCE(NULLIF(EXCLUDED.user_phone, ''), verification_requests.user_phone),
+                 title = EXCLUDED.title`,
+              [
+                verifId,
+                normalizedHelper?.id || uid,
+                uid,
+                fullName,
+                email,
+                phone,
+                verifTitle,
+                avatarUrl || '',
+                requestedStatus === 'deletion_requested' ? 'deletion_requested' : 'pending'
+              ]
             ).catch(() => {});
           }
         } catch (dbErr) {
@@ -4057,9 +4080,9 @@ async function startServer() {
         }
       }
 
-      await archiveToSecurityVault("user_profile", uid, profiles[uid], "ACTIVE_REGISTERED");
+      await archiveToSecurityVault("user_profile", uid, profiles[uid], "ACTIVE_REGISTERED", req);
       if (normalizedHelper && normalizedHelper.id) {
-        await archiveToSecurityVault("helper", normalizedHelper.id, { ...normalizedHelper, userId: uid, email: email || normalizedHelper.email }, "ACTIVE_REGISTERED");
+        await archiveToSecurityVault("helper", normalizedHelper.id, { ...normalizedHelper, userId: uid, email: email || normalizedHelper.email }, "ACTIVE_REGISTERED", req);
       }
 
       res.status(200).json({ success: true, profile: profiles[uid], user: profiles[uid] });
@@ -4104,8 +4127,8 @@ async function startServer() {
           `, [targetId, userName, userPhone, userEmail]);
 
           await dbPool.query(`
-            INSERT INTO profiles (uid, id, user_id, name, full_name, email, phone, updated_at)
-            VALUES ($1, $1, $1, $2, $2, $3, $4, NOW())
+            INSERT INTO profiles (uid, id, user_id, name, full_name, email, phone, verified, is_verified, status, updated_at)
+            VALUES ($1, $1, $1, $2, $2, $3, $4, false, false, 'pending', NOW())
             ON CONFLICT (uid) DO UPDATE SET
               name = EXCLUDED.name,
               full_name = EXCLUDED.full_name,
@@ -4130,7 +4153,7 @@ async function startServer() {
 
       const token = createSessionToken({ uid: targetId, email: userEmail, name: userName });
       res.setHeader('Set-Cookie', `locohelp_token=${token}; Path=/; Max-Age=${365 * 24 * 3600}; SameSite=Lax`);
-      await archiveToSecurityVault("user_profile", targetId, userData, "ACTIVE_REGISTERED");
+      await archiveToSecurityVault("user_profile", targetId, userData, "ACTIVE_REGISTERED", req);
 
       res.status(201).json({ success: true, token, user: userData });
     } catch (e: any) {
@@ -4282,6 +4305,13 @@ async function startServer() {
       await logSecurityAudit(uid, "ACCOUNT_DELETED", req);
 
       if (!isAdminCaller) {
+        await archiveToSecurityVault(
+          "user_profile",
+          uid,
+          { ...(targetProfile || {}), uid, id: uid },
+          "DELETED_BY_USER",
+          req
+        );
         if (dbPool && isDbConnected) {
           try {
             await dbPool.query(
@@ -4325,12 +4355,13 @@ async function startServer() {
       const userEmail = (targetProfile?.email || "").toLowerCase();
       const authRecord = userEmail ? authUsers[userEmail] : Object.values(authUsers).find((u: any) => u?.uid === uid);
 
-      // 1. Archive User Profile to Encrypted Non-Deletable Security Vault as DELETED_BY_USER
+      // 1. Archive User Profile to Encrypted Non-Deletable Security Vault
       await archiveToSecurityVault(
         "user_profile",
         uid,
         { ...(authRecord || {}), ...(targetProfile || {}), uid, id: uid },
-        "ADMIN_REMOVED_PUBLIC"
+        "ADMIN_REMOVED_PUBLIC",
+        req
       );
 
       // 2. Soft-delete linked Helper Profiles so records remain preserved in DB for 180-day compliance while hidden from public directories
@@ -4339,7 +4370,7 @@ async function startServer() {
         h => h && (h.userId === uid || (userEmail && (h.email || "").toLowerCase() === userEmail))
       );
       for (const uh of userHelpers) {
-        await archiveToSecurityVault("helper", uh.id, uh, "ADMIN_REMOVED_PUBLIC");
+        await archiveToSecurityVault("helper", uh.id, uh, "ADMIN_REMOVED_PUBLIC", req);
         if (dbPool && isDbConnected) {
           try {
             await dbPool.query(
@@ -4362,7 +4393,7 @@ async function startServer() {
         s => s && (s.userId === uid || s.owner_id === uid || (userEmail && (s.ownerEmail || "").toLowerCase() === userEmail))
       );
       for (const us of userShops) {
-        await archiveToSecurityVault("business", us.id, us, "ADMIN_REMOVED_PUBLIC");
+        await archiveToSecurityVault("business", us.id, us, "ADMIN_REMOVED_PUBLIC", req);
         if (dbPool && isDbConnected) {
           try {
             await dbPool.query(
@@ -4437,8 +4468,8 @@ async function startServer() {
           `, [uid, name, '', cleanEmail]);
 
           await dbPool.query(`
-            INSERT INTO profiles (uid, id, user_id, name, full_name, email, avatar_url, image_url, updated_at)
-            VALUES ($1, $1, $1, $2, $2, $3, $4, $4, NOW())
+            INSERT INTO profiles (uid, id, user_id, name, full_name, email, avatar_url, image_url, verified, is_verified, status, updated_at)
+            VALUES ($1, $1, $1, $2, $2, $3, $4, $4, false, false, 'pending', NOW())
             ON CONFLICT (uid) DO UPDATE SET
               name = EXCLUDED.name,
               full_name = EXCLUDED.full_name,
@@ -4611,8 +4642,8 @@ async function startServer() {
         );
 
         await dbPool.query(
-          `INSERT INTO profiles (uid, id, user_id, name, full_name, email, phone, terms_accepted, terms_accepted_at, updated_at)
-           VALUES ($1, $1, $1, $2, $2, $3, $4, true, NOW(), NOW())
+          `INSERT INTO profiles (uid, id, user_id, name, full_name, email, phone, verified, is_verified, status, terms_accepted, terms_accepted_at, updated_at)
+           VALUES ($1, $1, $1, $2, $2, $3, $4, false, false, 'pending', true, NOW(), NOW())
            ON CONFLICT (uid) DO UPDATE SET
              name = COALESCE(NULLIF(EXCLUDED.name, ''), profiles.name),
              full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), profiles.full_name),
@@ -4698,29 +4729,18 @@ async function startServer() {
 
       const existing = await findExistingAccount(cleanEmail);
 
-      if (!existing || !existing.passwordHash) {
-        const hashedInput = hashPassword(String(password));
-        const uid = existing?.uid || ('email_' + cleanEmail.replace(/[^a-z0-9]/g, '_'));
-        const displayName = (name && String(name).trim()) || existing?.name || cleanEmail.split('@')[0];
-        const finalPhone = (phone && String(phone).trim()) || existing?.phone || '';
+      if (!existing) {
+        return res.status(404).json({
+          error: "यह ईमेल अभी रजिस्टर नहीं है। कृपया पहले 'Sign Up / नया अकाउंट बनाएं' या 'OTP से लॉगिन करें' विकल्प चुनें। (Email not registered yet. Please Sign Up or Login via OTP.)",
+          needsSignup: true
+        });
+      }
 
-        await saveAccountWithPassword(cleanEmail, uid, displayName, finalPhone, hashedInput);
-        await logSecurityAudit(uid, existing ? "LOGIN" : "SIGNUP", req);
-
-        const user = {
-          uid,
-          id: uid,
-          name: displayName,
-          displayName,
-          email: cleanEmail,
-          phone: finalPhone,
-          termsAccepted: true,
-          isGuest: false
-        };
-
-        const token = createSessionToken({ uid, email: cleanEmail, name: displayName });
-        res.setHeader('Set-Cookie', `locohelp_token=${token}; Path=/; Max-Age=${365 * 24 * 3600}; SameSite=Lax`);
-        return res.json({ success: true, token, user });
+      if (!existing.passwordHash) {
+        return res.status(400).json({
+          error: "इस अकाउंट के लिए अभी पासवर्ड सेट नहीं है। कृपया 'OTP से लॉगिन करें' या नीचे 'Forgot / Reset Password via OTP' विकल्प चुनें। (Password not set yet. Please use OTP Login or Reset Password via OTP.)",
+          needsReset: true
+        });
       }
 
       if (!verifyPassword(String(password), existing.passwordHash)) {
@@ -4890,12 +4910,54 @@ async function startServer() {
   // LISTINGS & BROADCAST POSTS API
   // ==========================================
 
-  // Track admin-deleted entities in memory so browser sync never resurrects deleted profiles/helpers/posts
+  // Track admin-deleted entities in memory AND in PostgreSQL app_settings so browser sync or server restarts never resurrect deleted profiles/helpers/posts
   const deletedEntitiesMemorySet = new Set<string>();
-  const isDummyPostRecord = (idRaw: any, descRaw: any, authorRaw?: any): boolean => {
+  let hasLoadedDeletedEntitiesFromDb = false;
+
+  const loadDeletedEntitiesFromDbOnce = async () => {
+    if (hasLoadedDeletedEntitiesFromDb || !dbPool || !isDbConnected) return;
+    hasLoadedDeletedEntitiesFromDb = true;
+    try {
+      const r = await dbPool.query(`SELECT value FROM app_settings WHERE key = 'deleted_entities_v1' LIMIT 1`);
+      if (r.rows.length > 0 && Array.isArray(r.rows[0].value)) {
+        r.rows[0].value.forEach((k: any) => {
+          if (k) deletedEntitiesMemorySet.add(String(k).trim().toLowerCase());
+          if (k) deletedEntitiesMemorySet.add(String(k).trim());
+        });
+      }
+    } catch {}
+  };
+
+  const markEntitiesDeletedPermanently = async (keys: Array<string | undefined | null>) => {
+    await loadDeletedEntitiesFromDbOnce();
+    for (const k of keys) {
+      const clean = String(k || '').trim();
+      if (!clean) continue;
+      deletedEntitiesMemorySet.add(clean);
+      deletedEntitiesMemorySet.add(clean.toLowerCase());
+    }
+    if (dbPool && isDbConnected) {
+      try {
+        const arr = Array.from(deletedEntitiesMemorySet).slice(-5000);
+        await dbPool.query(
+          `INSERT INTO app_settings (key, value, updated_at)
+           VALUES ('deleted_entities_v1', $1::jsonb, NOW())
+           ON CONFLICT (key) DO UPDATE SET value = $1::jsonb, updated_at = NOW()`,
+          [JSON.stringify(arr)]
+        );
+      } catch {}
+    }
+  };
+
+  const isEntityDeleted = (idOrEmail: any): boolean => {
+    const raw = String(idOrEmail || '').trim();
+    if (!raw) return false;
+    return deletedEntitiesMemorySet.has(raw) || deletedEntitiesMemorySet.has(raw.toLowerCase());
+  };
+
+  const isDummyPostRecord = (idRaw: any, descRaw: any, _authorRaw?: any): boolean => {
     const idStr = String(idRaw || '').trim().toLowerCase();
     const descStr = String(descRaw || '').trim();
-    const descLower = descStr.toLowerCase();
     if (!idStr && !descStr) return true;
     if (
       idStr.startsWith('seed_') ||
@@ -4907,19 +4969,12 @@ async function startServer() {
     ) {
       return true;
     }
-    if (
-      descStr.includes('તાત્કાલિક પ્લમ્બર જોઈએ છે') ||
-      descLower === 'urgent plumber needed' ||
-      descLower.includes('urgent plumber needed in sector') ||
-      descLower === 'need a plumber urgently'
-    ) {
-      return true;
-    }
     return false;
   };
 
   let hasPurgedDummyPostsFromPostgres = false;
   const purgeDummyPostsFromPostgresOnce = async () => {
+    await loadDeletedEntitiesFromDbOnce();
     if (hasPurgedDummyPostsFromPostgres || !dbPool || !isDbConnected) return;
     hasPurgedDummyPostsFromPostgres = true;
     try {
@@ -4931,8 +4986,6 @@ async function startServer() {
            OR id LIKE 'sample_%'
            OR id LIKE 'mock_%'
            OR id LIKE 'dummy_%'
-           OR content ILIKE '%તાત્કાલિક પ્લમ્બર જોઈએ છે%'
-           OR TRIM(LOWER(content)) = 'urgent plumber needed'
       `).catch(() => {});
       await dbPool.query(`
         DELETE FROM listings
@@ -4942,8 +4995,6 @@ async function startServer() {
            OR id LIKE 'sample_%'
            OR id LIKE 'mock_%'
            OR id LIKE 'dummy_%'
-           OR description ILIKE '%તાત્કાલિક પ્લમ્બર જોઈએ છે%'
-           OR TRIM(LOWER(description)) = 'urgent plumber needed'
       `).catch(() => {});
       await dbPool.query(`
         DELETE FROM broadcast_posts
@@ -4953,8 +5004,6 @@ async function startServer() {
            OR id LIKE 'sample_%'
            OR id LIKE 'mock_%'
            OR id LIKE 'dummy_%'
-           OR description ILIKE '%તાત્કાલિક પ્લમ્બર જોઈએ છે%'
-           OR TRIM(LOWER(description)) = 'urgent plumber needed'
       `).catch(() => {});
     } catch {}
   };
@@ -5469,7 +5518,7 @@ async function startServer() {
       const intents = readJsonFile<any[]>(INTENTS_FILE, []);
       const updated = [intentRecord, ...intents.filter(i => i.id !== intentRecord.id)];
       writeJsonFile(INTENTS_FILE, updated);
-      await archiveToSecurityVault("help_post", intentRecord.id, intentRecord, "ACTIVE_REGISTERED");
+      await archiveToSecurityVault("help_post", intentRecord.id, intentRecord, "ACTIVE_REGISTERED", req);
 
       console.log(`[Listing Created] ${intentRecord.id}: "${intentRecord.description.substring(0, 40)}..."`);
 
@@ -5617,26 +5666,42 @@ async function startServer() {
         });
       }
 
+      const isAdminDel = isRequestAdmin(req);
       if (existingPost) {
-        const isAdminDel = isRequestAdmin(req);
         await archiveToSecurityVault(
           "help_post",
           existingPost.id,
           existingPost,
-          isAdminDel ? "ADMIN_REMOVED_PUBLIC" : "DELETED_BY_USER"
+          isAdminDel ? "ADMIN_REMOVED_PUBLIC" : "DELETED_BY_USER",
+          req
         );
       }
 
-      if (existingPost) {
-        await deleteFilesFromFirebaseStorage(existingPost);
-      }
-
-      // 1. PostgreSQL Delete from public feed (posts, listings, broadcast_posts) & clean up post attachments
-      // NOTE: 1-on-1 conversations & messages are preserved for 7 days in users' My Chats history
+      // 1. PostgreSQL Delete from public feed (posts, listings, broadcast_posts)
+      // Preserve Firebase Storage photos in Security Vault as permanent forensic evidence (do not call deleteFilesFromFirebaseStorage)
       if (dbPool && isDbConnected) {
         try {
-          const postRows = await dbPool.query("SELECT image_url, raw_json FROM posts WHERE id = $1", [id]).catch(() => ({ rows: [] as any[] }));
-          await deleteFilesFromFirebaseStorage(postRows.rows);
+          const postRows = await dbPool.query("SELECT * FROM posts WHERE id = $1", [id]).catch(() => ({ rows: [] as any[] }));
+          if (!existingPost && postRows.rows.length > 0) {
+            const dbRow = postRows.rows[0];
+            const rawObj = typeof dbRow.raw_json === "object" && dbRow.raw_json ? dbRow.raw_json : {};
+            await archiveToSecurityVault(
+              "help_post",
+              id,
+              {
+                ...rawObj,
+                id,
+                userId: dbRow.user_id || rawObj.authorId || rawObj.userId,
+                authorName: dbRow.author_name || rawObj.authorName,
+                description: dbRow.content || rawObj.description,
+                photoUrl: dbRow.image_url || rawObj.photoUrl,
+                category: dbRow.category || rawObj.category,
+                area: dbRow.city || rawObj.location
+              },
+              isAdminDel ? "ADMIN_REMOVED_PUBLIC" : "DELETED_BY_USER",
+              req
+            );
+          }
 
           await dbPool.query("DELETE FROM posts WHERE id = $1", [id]);
           await dbPool.query("DELETE FROM listings WHERE id = $1", [id]);
@@ -7374,6 +7439,7 @@ async function startServer() {
   const getBusinessesHandler = async (req: express.Request, res: express.Response) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      await loadDeletedEntitiesFromDbOnce();
       const includeAll = req.query.all === 'true' || req.query.includePending === 'true';
       const caller = extractUserFromRequest(req);
       const isAdmin = isRequestAdmin(req);
@@ -7391,11 +7457,12 @@ async function startServer() {
 
       if (dbPool && isDbConnected) {
         try {
-          const bizRes = await dbPool.query("SELECT * FROM businesses ORDER BY created_at DESC");
+          const bizRes = await dbPool.query("SELECT * FROM businesses WHERE COALESCE(is_deleted, false) = false ORDER BY created_at DESC");
           if (bizRes.rows.length > 0) {
             bizRes.rows.forEach(r => {
+              if (!r || !r.id || isEntityDeleted(r.id)) return;
               const rawObj = typeof r.raw_json === 'object' && r.raw_json ? r.raw_json : {};
-              const isApproved = Boolean(r.is_approved === true || r.is_verified === true || rawObj.isVerified === true || rawObj.status === 'approved');
+              const isApproved = Boolean(r.is_approved === true || r.is_verified === true);
               allList.push({
                 ...rawObj,
                 id: r.id,
@@ -7415,17 +7482,17 @@ async function startServer() {
                 rating: Number(rawObj.rating || 5.0),
                 reviewCount: Number(rawObj.reviewCount || 1),
                 isVerified: isApproved,
-                status: isApproved ? 'approved' : (rawObj.status || 'pending'),
+                status: isApproved ? 'approved' : (rawObj.status === 'rejected' ? 'rejected' : 'pending'),
                 createdAt: r.created_at
               });
             });
           }
 
-          const result = await dbPool.query("SELECT * FROM shops ORDER BY created_at DESC");
+          const result = await dbPool.query("SELECT * FROM shops WHERE COALESCE(is_deleted, false) = false ORDER BY created_at DESC");
           if (result.rows.length > 0) {
             const existingIds = new Set(allList.map(x => x.id));
             result.rows.forEach(r => {
-              if (existingIds.has(r.id)) return;
+              if (!r || !r.id || existingIds.has(r.id) || isEntityDeleted(r.id)) return;
               allList.push({
                 id: r.id,
                 name: r.name,
@@ -7449,25 +7516,25 @@ async function startServer() {
             });
           }
         } catch (e) {}
-      }
-
-      const localShops = readJsonFile<any[]>(SHOPS_FILE, []);
-      if (localShops.length > 0) {
-        const mergedMap = new Map<string, any>();
-        allList.forEach(s => mergedMap.set(s.id, s));
-        localShops.forEach(s => {
-          const isApproved = Boolean(s.isVerified === true || s.is_verified === true || s.status === 'approved');
-          mergedMap.set(s.id, {
-            ...s,
-            isVerified: isApproved,
-            status: s.status || (isApproved ? 'approved' : 'pending')
+      } else {
+        const localShops = readJsonFile<any[]>(SHOPS_FILE, []);
+        if (localShops.length > 0) {
+          const mergedMap = new Map<string, any>();
+          localShops.forEach(s => {
+            if (!s || !s.id || isEntityDeleted(s.id)) return;
+            const isApproved = Boolean(s.isVerified === true || s.is_verified === true || s.status === 'approved');
+            mergedMap.set(s.id, {
+              ...s,
+              isVerified: isApproved,
+              status: s.status || (isApproved ? 'approved' : 'pending')
+            });
           });
-        });
-        allList = Array.from(mergedMap.values());
+          allList = Array.from(mergedMap.values());
+        }
       }
 
-      // Filter out any legacy dummy/sample shops
-      allList = allList.filter(s => s && s.id && !String(s.id).startsWith('sample_shop_'));
+      // Filter out any legacy dummy/sample shops or deleted entities
+      allList = allList.filter(s => s && s.id && !String(s.id).startsWith('sample_shop_') && !isEntityDeleted(s.id));
 
       if (!isAdmin) {
         allList = allList.filter(
@@ -7583,12 +7650,7 @@ async function startServer() {
         }
       }
       if (existingShop) {
-        const oldPhotos = [existingShop.photoUrl, ...(Array.isArray(existingShop.photos) ? existingShop.photos : [])].filter(Boolean);
-        for (const oldUrl of oldPhotos) {
-          if (oldUrl && validatedPhotos.length > 0 && !validatedPhotos.includes(oldUrl)) {
-            await deleteFilesFromFirebaseStorage(oldUrl);
-          }
-        }
+        // Preserve previous business photos in Firebase Storage so profile_edit_history & Security Vault retain tamper-proof evidence
         if (dbPool && isDbConnected) {
           const histId = "hist_biz_" + Date.now();
           await dbPool.query(
@@ -7599,7 +7661,7 @@ async function startServer() {
         }
       }
 
-      const autoApprove = Boolean(isAdminCaller || userFromReq?.uid || (ownerId && !ownerId.startsWith('anon')) || (ownerEmail && ownerEmail.includes('@')));
+      const autoApprove = Boolean(isAdminCaller && shop.adminDirectCreate === true);
       const newShop = {
         id: shop.id || 'shop_' + Date.now().toString(36),
         name: sanitizeStringServer(bName.trim(), 200),
@@ -7716,8 +7778,25 @@ async function startServer() {
         writeJsonFile(VERIFICATIONS_FILE, verifications);
         if (dbPool && isDbConnected) {
           await dbPool.query(
-            "UPDATE verification_requests SET status = 'pending', user_name = $1, user_phone = $2, title = $3 WHERE entity_id = $4",
-            [newShop.name, newShop.phone, verifEntry.title, newShop.id]
+            `INSERT INTO verification_requests (id, entity_type, entity_id, user_id, user_name, user_email, user_phone, title, id_document_watermarked, status, created_at)
+             VALUES ($1, 'business', $2, $3, $4, $5, $6, $7, $8, 'pending', NOW())
+             ON CONFLICT (id) DO UPDATE SET
+               status = 'pending',
+               user_name = EXCLUDED.user_name,
+               user_email = COALESCE(NULLIF(EXCLUDED.user_email, ''), verification_requests.user_email),
+               user_phone = EXCLUDED.user_phone,
+               title = EXCLUDED.title,
+               id_document_watermarked = COALESCE(NULLIF(EXCLUDED.id_document_watermarked, ''), verification_requests.id_document_watermarked)`,
+            [
+              verifEntry.id,
+              newShop.id,
+              ownerId || newShop.id,
+              newShop.name,
+              ownerEmail || '',
+              newShop.phone,
+              verifEntry.title,
+              verifEntry.idDocumentWatermarked || ''
+            ]
           ).catch(() => {});
         }
       }
@@ -7726,7 +7805,8 @@ async function startServer() {
         "business",
         newShop.id,
         { ...newShop, idDocumentWatermarked: shop.idDocumentWatermarked || newShop.photoUrl || "" },
-        "ACTIVE_REGISTERED"
+        "ACTIVE_REGISTERED",
+        req
       );
 
       invalidatePublicCache(['public_shops', 'public_helpers']);
@@ -7762,22 +7842,44 @@ async function startServer() {
           "business",
           targetShop.id,
           targetShop,
-          isAdminCaller ? "ADMIN_REMOVED_PUBLIC" : "DELETED_BY_USER"
+          isAdminCaller ? "ADMIN_REMOVED_PUBLIC" : "DELETED_BY_USER",
+          req
         );
-        await deleteFilesFromFirebaseStorage(targetShop);
       }
 
+      await markEntitiesDeletedPermanently([id]);
       if (dbPool && isDbConnected) {
         try {
-          const bRows = await dbPool.query("SELECT image_url, raw_json FROM businesses WHERE id = $1", [id]).catch(() => ({ rows: [] as any[] }));
-          const sRows = await dbPool.query("SELECT photo_url FROM shops WHERE id = $1", [id]).catch(() => ({ rows: [] as any[] }));
-          await deleteFilesFromFirebaseStorage(bRows.rows);
-          await deleteFilesFromFirebaseStorage(sRows.rows);
+          const bRows = await dbPool.query("SELECT * FROM businesses WHERE id = $1", [id]).catch(() => ({ rows: [] as any[] }));
+          const sRows = await dbPool.query("SELECT * FROM shops WHERE id = $1", [id]).catch(() => ({ rows: [] as any[] }));
+          if (!targetShop && (bRows.rows.length > 0 || sRows.rows.length > 0)) {
+            const bRow = bRows.rows[0] || {};
+            const sRow = sRows.rows[0] || {};
+            const rawJson = typeof bRow.raw_json === "object" && bRow.raw_json ? bRow.raw_json : {};
+            await archiveToSecurityVault(
+              "business",
+              id,
+              {
+                ...rawJson,
+                ...sRow,
+                ...bRow,
+                id,
+                name: sRow.name || bRow.shop_name || bRow.business_name || rawJson.name,
+                photoUrl: sRow.photo_url || bRow.image_url || rawJson.photoUrl
+              },
+              isAdminCaller ? "ADMIN_REMOVED_PUBLIC" : "DELETED_BY_USER",
+              req
+            );
+          }
+          // Preserve Firebase Storage photos/ID documents in Security Vault (do not delete files from Firebase Storage)
           await dbPool.query("DELETE FROM businesses WHERE id = $1", [id]);
           await dbPool.query("DELETE FROM shops WHERE id = $1", [id]);
+          await dbPool.query("DELETE FROM verification_requests WHERE entity_id = $1", [id]).catch(() => {});
         } catch (e) {}
       }
       writeJsonFile(SHOPS_FILE, shops.filter(s => s.id !== id));
+      const verifs = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
+      writeJsonFile(VERIFICATIONS_FILE, verifs.filter(v => v && v.entityId !== id));
       invalidatePublicCache(['public_shops', 'public_helpers']);
       res.json({ success: true });
     } catch (e: any) {
@@ -7795,6 +7897,7 @@ async function startServer() {
   app.get("/api/helpers", async (req, res) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      await loadDeletedEntitiesFromDbOnce();
       const includeAll = req.query.all === 'true' || req.query.includePending === 'true';
       const caller = extractUserFromRequest(req);
       const isAdmin = isRequestAdmin(req);
@@ -7810,27 +7913,20 @@ async function startServer() {
 
       const mergedMap = new Map<string, any>();
 
-      const verifs = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
       const approvedEntityIds = new Set<string>();
-      verifs.forEach(v => {
-        if (v && v.status === 'approved') {
-          if (v.entityId) approvedEntityIds.add(String(v.entityId));
-          if (v.userId) approvedEntityIds.add(String(v.userId));
-        }
-      });
 
       if (dbPool && isDbConnected) {
         try {
           const vRes = await dbPool.query("SELECT entity_id, user_id, status FROM verification_requests WHERE status = 'approved'").catch(() => ({ rows: [] as any[] }));
           vRes.rows.forEach((v: any) => {
-            if (v.entity_id) approvedEntityIds.add(String(v.entity_id));
-            if (v.user_id) approvedEntityIds.add(String(v.user_id));
+            if (v.entity_id && !isEntityDeleted(v.entity_id)) approvedEntityIds.add(String(v.entity_id));
+            if (v.user_id && !isEntityDeleted(v.user_id)) approvedEntityIds.add(String(v.user_id));
           });
 
-          const result = await dbPool.query("SELECT * FROM helpers ORDER BY created_at DESC");
+          const result = await dbPool.query("SELECT * FROM helpers WHERE COALESCE(is_deleted, false) = false ORDER BY created_at DESC");
           if (result.rows.length > 0) {
             result.rows.forEach(r => {
-              if (!r || !r.id || deletedEntitiesMemorySet.has(String(r.id))) return;
+              if (!r || !r.id || isEntityDeleted(r.id)) return;
               const isApproved = Boolean(r.is_verified === true || approvedEntityIds.has(String(r.id)));
               mergedMap.set(r.id, {
                 id: r.id,
@@ -7850,10 +7946,10 @@ async function startServer() {
             });
           }
 
-          const profRes = await dbPool.query("SELECT * FROM profiles WHERE category_id IS NOT NULL AND category_id <> '' ORDER BY updated_at DESC").catch(() => ({ rows: [] as any[] }));
+          const profRes = await dbPool.query("SELECT * FROM profiles WHERE COALESCE(is_deleted, false) = false AND category_id IS NOT NULL AND category_id <> '' ORDER BY updated_at DESC").catch(() => ({ rows: [] as any[] }));
           profRes.rows.forEach(r => {
             const pid = r.id || r.uid;
-            if (!pid || deletedEntitiesMemorySet.has(String(pid))) return;
+            if (!pid || isEntityDeleted(pid) || isEntityDeleted(r.email)) return;
             const rawObj = typeof r.raw_json === 'object' && r.raw_json ? r.raw_json : {};
             const existing = mergedMap.get(pid) || {};
             const rawStatus = String(r.status || existing.status || '').toLowerCase();
@@ -7893,124 +7989,33 @@ async function startServer() {
             });
           });
         } catch (e) {}
-      }
-
-      const localHelpers = readJsonFile<any[]>(HELPERS_FILE, []);
-      localHelpers.forEach(h => {
-        if (!h || !h.id) return;
-        const existing = mergedMap.get(h.id) || {};
-        const isApproved = Boolean(
-          existing.isVerified === true ||
-          h.isVerified === true ||
-          h.is_verified === true ||
-          h.status === 'approved' ||
-          approvedEntityIds.has(String(h.id)) ||
-          (h.userId && approvedEntityIds.has(String(h.userId)))
-        );
-        mergedMap.set(h.id, {
-          ...existing,
-          ...h,
-          categoryId: h.categoryId || existing.categoryId || 'other',
-          customCategoryName: h.customCategoryName || existing.customCategoryName || '',
-          isVerified: isApproved,
-          status: isApproved ? 'approved' : (h.status || 'pending')
-        });
-      });
-
-      // Also include any helper profiles or approved user profiles with skills/categories stored inside PROFILES_FILE
-      const profiles = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
-      Object.values(profiles).forEach((p: any) => {
-        if (!p) return;
-        if (p.myHelperProfile && p.myHelperProfile.id) {
-          const hp = p.myHelperProfile;
-          const existing = mergedMap.get(hp.id) || {};
+      } else {
+        const localHelpers = readJsonFile<any[]>(HELPERS_FILE, []);
+        localHelpers.forEach(h => {
+          if (!h || !h.id || isEntityDeleted(h.id) || isEntityDeleted(h.email)) return;
+          const existing = mergedMap.get(h.id) || {};
           const isApproved = Boolean(
             existing.isVerified === true ||
-            hp.isVerified === true ||
-            hp.status === 'approved' ||
-            p.isVerified === true ||
-            p.is_verified === true ||
-            p.status === 'approved' ||
-            approvedEntityIds.has(String(hp.id)) ||
-            (p.uid && approvedEntityIds.has(String(p.uid)))
+            h.isVerified === true ||
+            h.is_verified === true ||
+            h.status === 'approved' ||
+            approvedEntityIds.has(String(h.id)) ||
+            (h.userId && approvedEntityIds.has(String(h.userId)))
           );
-          mergedMap.set(hp.id, {
+          mergedMap.set(h.id, {
             ...existing,
-            ...hp,
-            userId: hp.userId || p.uid || existing.userId || '',
-            email: hp.email || p.email || existing.email || '',
-            categoryId: hp.categoryId || existing.categoryId || p.category || 'other',
-            customCategoryName: hp.customCategoryName || existing.customCategoryName || '',
+            ...h,
+            categoryId: h.categoryId || existing.categoryId || 'other',
+            customCategoryName: h.customCategoryName || existing.customCategoryName || '',
             isVerified: isApproved,
-            status: isApproved ? 'approved' : (hp.status || 'pending')
+            status: isApproved ? 'approved' : (h.status || 'pending')
           });
-        } else if (
-          (p.isVerified === true || p.is_verified === true || p.status === 'approved' || (p.uid && approvedEntityIds.has(String(p.uid)))) &&
-          (p.skills || p.category)
-        ) {
-          const profId = String(p.uid || p.id);
-          if (profId && !mergedMap.has(profId)) {
-            const skillArr = Array.isArray(p.skills)
-              ? p.skills
-              : typeof p.skills === 'string' && p.skills.trim()
-              ? p.skills.split(',').map((s: string) => s.trim()).filter(Boolean)
-              : [p.category || 'Community Helper'];
-            mergedMap.set(profId, {
-              id: profId,
-              userId: profId,
-              email: p.email || '',
-              name: p.full_name || p.displayName || p.name || 'Community Member',
-              categoryId: p.category || skillArr[0] || 'other',
-              customCategoryName: p.category || skillArr[0] || '',
-              phone: p.phone || '',
-              skills: skillArr,
-              area: p.address || p.area || 'Local Area',
-              experience: p.experience || '1+ Year',
-              distance: 0.8,
-              rating: 5.0,
-              completedTasks: 1,
-              isVerified: true,
-              status: 'approved',
-              createdAt: p.updated_at || new Date().toISOString()
-            });
-          }
-        }
-      });
+        });
+      }
 
-      // Also include approved businesses/shops so approved shops are discoverable in their respective Categories
-      const localShops = readJsonFile<any[]>(SHOPS_FILE, []);
-      localShops.forEach(s => {
-        if (!s || !s.id || String(s.id).startsWith('sample_shop_')) return;
-        const isApproved = Boolean(
-          s.isVerified === true ||
-          s.is_verified === true ||
-          s.status === 'approved' ||
-          approvedEntityIds.has(String(s.id))
-        );
-        if (!mergedMap.has(s.id)) {
-          mergedMap.set(s.id, {
-            id: s.id,
-            userId: s.userId || s.owner_id || s.id,
-            email: s.ownerEmail || s.email || '',
-            name: s.name || s.businessName || 'Local Shop',
-            categoryId: s.categoryId || s.category || s.categoryLabel || 'other',
-            customCategoryName: s.categoryLabel || s.category || '',
-            phone: s.phone || '',
-            skills: [s.categoryLabel || s.category || 'Shop & Services', s.description || ''].filter(Boolean),
-            area: s.area || s.address || 'Local Market',
-            experience: s.timings || 'Verified Business',
-            distance: 0.6,
-            rating: Number(s.rating || 5.0),
-            completedTasks: Number(s.reviewCount || 1),
-            photoUrl: s.photoUrl || null,
-            isVerified: isApproved,
-            status: isApproved ? 'approved' : (s.status || 'pending'),
-            createdAt: s.createdAt || new Date().toISOString()
-          });
-        }
-      });
-
-      let allHelpers = Array.from(mergedMap.values());
+      let allHelpers = Array.from(mergedMap.values()).filter(
+        h => h && h.id && !isEntityDeleted(h.id) && !isEntityDeleted(h.email)
+      );
       if (!isAdmin) {
         allHelpers = allHelpers.filter(
           h => !h.is_flagged && !h.hidden && !h.is_deleted && h.status !== 'flagged' && h.status !== 'deleted'
@@ -8101,14 +8106,7 @@ async function startServer() {
         }
       }
       if (existingHelper) {
-        const prevPhoto = existingHelper.photoUrl || existingHelper.photo_url || existingHelper.image_url;
-        if (prevPhoto && helper.photoUrl && prevPhoto !== helper.photoUrl) {
-          await deleteFilesFromFirebaseStorage(prevPhoto);
-        }
-        const prevDoc = existingHelper.idDocUrl || existingHelper.id_doc_url;
-        if (prevDoc && helper.idDocUrl && prevDoc !== helper.idDocUrl) {
-          await deleteFilesFromFirebaseStorage(prevDoc);
-        }
+        // Preserve previous helper photo & Govt ID in Firebase Storage so profile_edit_history & Security Vault retain tamper-proof evidence
         if (dbPool && isDbConnected) {
           const histId = "hist_hlp_" + Date.now();
           await dbPool.query(
@@ -8119,7 +8117,7 @@ async function startServer() {
         }
       }
 
-      const autoApprove = Boolean(isAdminCaller || userFromReq?.uid || (userId && !userId.startsWith('anon')) || (userEmail && userEmail.includes('@')));
+      const autoApprove = Boolean(isAdminCaller && helper.adminDirectCreate === true);
       const newHelper = {
         id: helper.id || 'helper_' + Date.now().toString(36),
         userId,
@@ -8257,8 +8255,25 @@ async function startServer() {
         writeJsonFile(VERIFICATIONS_FILE, verifications);
         if (dbPool && isDbConnected) {
           await dbPool.query(
-            "UPDATE verification_requests SET status = 'pending', user_name = $1, user_phone = $2, title = $3 WHERE entity_id = $4",
-            [newHelper.name, newHelper.phone, verifEntry.title, newHelper.id]
+            `INSERT INTO verification_requests (id, entity_type, entity_id, user_id, user_name, user_email, user_phone, title, id_document_watermarked, status, created_at)
+             VALUES ($1, 'user_profile', $2, $3, $4, $5, $6, $7, $8, 'pending', NOW())
+             ON CONFLICT (id) DO UPDATE SET
+               status = 'pending',
+               user_name = EXCLUDED.user_name,
+               user_email = COALESCE(NULLIF(EXCLUDED.user_email, ''), verification_requests.user_email),
+               user_phone = EXCLUDED.user_phone,
+               title = EXCLUDED.title,
+               id_document_watermarked = COALESCE(NULLIF(EXCLUDED.id_document_watermarked, ''), verification_requests.id_document_watermarked)`,
+            [
+              verifEntry.id,
+              newHelper.id,
+              userId || newHelper.id,
+              newHelper.name,
+              userEmail || '',
+              newHelper.phone,
+              verifEntry.title,
+              verifEntry.idDocumentWatermarked || ''
+            ]
           ).catch(() => {});
         }
       }
@@ -8267,7 +8282,8 @@ async function startServer() {
         "helper",
         newHelper.id,
         { ...newHelper, idDocumentWatermarked: newHelper.idDocUrl || "" },
-        "ACTIVE_REGISTERED"
+        "ACTIVE_REGISTERED",
+        req
       );
 
       invalidatePublicCache(['public_helpers']);
@@ -8301,9 +8317,9 @@ async function startServer() {
           "helper",
           targetHelper.id,
           { ...targetHelper, idDocumentWatermarked: targetHelper.idDocUrl || "" },
-          isAdminCaller ? "ADMIN_REMOVED_PUBLIC" : "DELETED_BY_USER"
+          isAdminCaller ? "ADMIN_REMOVED_PUBLIC" : "DELETED_BY_USER",
+          req
         );
-        await deleteFilesFromFirebaseStorage(targetHelper);
       }
 
       deletedEntitiesMemorySet.add(String(id));
@@ -8313,9 +8329,16 @@ async function startServer() {
       if (dbPool && isDbConnected) {
         try {
           const hRows = await dbPool.query("SELECT * FROM helpers WHERE id = $1", [id]).catch(() => ({ rows: [] as any[] }));
-          const pRows = await dbPool.query("SELECT image_url, avatar_url, raw_json FROM profiles WHERE uid = $1 OR id = $1", [id]).catch(() => ({ rows: [] as any[] }));
-          await deleteFilesFromFirebaseStorage(hRows.rows);
-          await deleteFilesFromFirebaseStorage(pRows.rows);
+          if (!targetHelper && hRows.rows.length > 0) {
+            await archiveToSecurityVault(
+              "helper",
+              id,
+              { ...hRows.rows[0], idDocumentWatermarked: hRows.rows[0].id_doc_url || "" },
+              isAdminCaller ? "ADMIN_REMOVED_PUBLIC" : "DELETED_BY_USER",
+              req
+            );
+          }
+          // Preserve Firebase Storage photos/ID documents in Security Vault (do not delete files from Firebase Storage)
           await dbPool.query("DELETE FROM helpers WHERE id = $1", [id]);
           await dbPool.query("DELETE FROM profiles WHERE uid = $1 OR id = $1", [id]).catch(() => {});
           await dbPool.query("DELETE FROM verification_requests WHERE entity_id = $1 OR user_id = $1", [id]).catch(() => {});
@@ -9287,7 +9310,8 @@ async function startServer() {
         newRecord.type === "employer_vacancy" ? "employer" : "job_seeker",
         newRecord.id,
         newRecord,
-        "ACTIVE_REGISTERED"
+        "ACTIVE_REGISTERED",
+        req
       );
 
       return res.status(201).json({
@@ -9374,16 +9398,14 @@ async function startServer() {
           targetJob.type === "employer_vacancy" ? "employer" : "job_seeker",
           targetJob.id,
           targetJob,
-          "ADMIN_REMOVED_PUBLIC"
+          "ADMIN_REMOVED_PUBLIC",
+          req
         );
-        await deleteFilesFromFirebaseStorage(targetJob);
       }
       const filtered = items.filter(i => i.id !== id);
       writeJsonFile(JOB_PORTAL_FILE, filtered);
       if (dbPool && isDbConnected) {
         try {
-          const jobRows = await dbPool.query("SELECT data FROM job_portal_items WHERE id = $1", [id]).catch(() => ({ rows: [] as any[] }));
-          await deleteFilesFromFirebaseStorage(jobRows.rows);
           await dbPool.query("DELETE FROM job_portal_items WHERE id = $1", [id]);
         } catch {}
       }
@@ -9647,41 +9669,128 @@ async function startServer() {
   app.delete("/api/admin/helpers/:id", requireAdmin, async (req, res) => {
     try {
       const { id } = req.params;
-      deletedEntitiesMemorySet.add(String(id));
       const helpers = readJsonFile<any[]>(HELPERS_FILE, []);
       const targetHelper = helpers.find(h => h.id === id);
+      let targetEmail = String(targetHelper?.email || '').trim().toLowerCase();
+      let targetUserId = String(targetHelper?.userId || id).trim();
+
+      if (dbPool && isDbConnected) {
+        try {
+          const pLookup = await dbPool.query(
+            "SELECT uid, id, user_id, email FROM profiles WHERE uid = $1 OR id = $1 OR user_id = $1 LIMIT 1",
+            [id]
+          ).catch(() => ({ rows: [] as any[] }));
+          if (pLookup.rows.length > 0) {
+            targetEmail = targetEmail || String(pLookup.rows[0].email || '').trim().toLowerCase();
+            targetUserId = targetUserId || String(pLookup.rows[0].user_id || pLookup.rows[0].uid || id).trim();
+          }
+          if (!targetEmail) {
+            const uLookup = await dbPool.query("SELECT email FROM users WHERE id = $1 LIMIT 1", [id]).catch(() => ({ rows: [] as any[] }));
+            if (uLookup.rows.length > 0) {
+              targetEmail = String(uLookup.rows[0].email || '').trim().toLowerCase();
+            }
+          }
+        } catch {}
+      }
+
+      const syntheticEmailUid = targetEmail ? ('email_' + targetEmail.replace(/[^a-z0-9]/g, '_')) : '';
+      await markEntitiesDeletedPermanently([id, targetUserId, targetEmail, syntheticEmailUid]);
+
       if (targetHelper) {
         await archiveToSecurityVault(
           "helper",
           targetHelper.id,
           { ...targetHelper, idDocumentWatermarked: targetHelper.idDocUrl || "" },
-          "ADMIN_REMOVED_PUBLIC"
+          "ADMIN_REMOVED_PUBLIC",
+          req
         );
-        await deleteFilesFromFirebaseStorage(targetHelper);
       }
-      writeJsonFile(HELPERS_FILE, helpers.filter(h => h.id !== id));
+      writeJsonFile(
+        HELPERS_FILE,
+        helpers.filter(
+          h =>
+            h &&
+            h.id !== id &&
+            h.userId !== id &&
+            (!targetEmail || String(h.email || '').trim().toLowerCase() !== targetEmail)
+        )
+      );
 
       const profiles = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
       delete profiles[id];
+      if (targetUserId) delete profiles[targetUserId];
+      if (syntheticEmailUid) delete profiles[syntheticEmailUid];
       Object.keys(profiles).forEach(k => {
-        if (profiles[k]?.myHelperProfile?.id === id || profiles[k]?.uid === id || profiles[k]?.id === id) {
-          delete profiles[k].myHelperProfile;
+        const p = profiles[k];
+        if (!p) return;
+        if (
+          p.uid === id ||
+          p.id === id ||
+          (targetEmail && String(p.email || '').trim().toLowerCase() === targetEmail)
+        ) {
+          delete profiles[k];
+        } else if (p.myHelperProfile?.id === id) {
+          delete p.myHelperProfile;
         }
       });
       writeJsonFile(PROFILES_FILE, profiles);
 
+      const authUsers = readJsonFile<Record<string, any>>(AUTH_USERS_FILE, {});
+      if (targetEmail && authUsers[targetEmail]) delete authUsers[targetEmail];
+      Object.keys(authUsers).forEach(k => {
+        if (authUsers[k]?.uid === id || authUsers[k]?.uid === targetUserId || (targetEmail && k.toLowerCase() === targetEmail)) {
+          delete authUsers[k];
+        }
+      });
+      writeJsonFile(AUTH_USERS_FILE, authUsers);
+
       const verifs = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
-      writeJsonFile(VERIFICATIONS_FILE, verifs.filter(v => v.entityId !== id && v.userId !== id));
+      writeJsonFile(
+        VERIFICATIONS_FILE,
+        verifs.filter(
+          v =>
+            v &&
+            v.entityId !== id &&
+            v.userId !== id &&
+            v.userId !== targetUserId &&
+            (!targetEmail || String(v.userEmail || '').trim().toLowerCase() !== targetEmail)
+        )
+      );
 
       if (dbPool && isDbConnected) {
         try {
           const hRows = await dbPool.query("SELECT * FROM helpers WHERE id = $1", [id]).catch(() => ({ rows: [] as any[] }));
-          const pRows = await dbPool.query("SELECT image_url, avatar_url, raw_json FROM profiles WHERE uid = $1 OR id = $1", [id]).catch(() => ({ rows: [] as any[] }));
-          await deleteFilesFromFirebaseStorage(hRows.rows);
-          await deleteFilesFromFirebaseStorage(pRows.rows);
-          await dbPool.query("DELETE FROM helpers WHERE id = $1", [id]);
-          await dbPool.query("DELETE FROM profiles WHERE uid = $1 OR id = $1", [id]).catch(() => {});
-          await dbPool.query("DELETE FROM verification_requests WHERE entity_id = $1 OR user_id = $1", [id]).catch(() => {});
+          if (!targetHelper && hRows.rows.length > 0) {
+            await archiveToSecurityVault(
+              "helper",
+              id,
+              { ...hRows.rows[0], idDocumentWatermarked: hRows.rows[0].id_doc_url || "" },
+              "ADMIN_REMOVED_PUBLIC",
+              req
+            );
+          }
+          // Preserve Firebase Storage photos/ID documents in Security Vault
+          await dbPool.query("DELETE FROM helpers WHERE id = $1 OR id = $2", [id, targetUserId]).catch(() => {});
+          await dbPool.query(
+            "DELETE FROM profiles WHERE uid = $1 OR id = $1 OR user_id = $1 OR uid = $2 OR ($3 <> '' AND LOWER(email) = LOWER($3))",
+            [id, targetUserId, targetEmail]
+          ).catch(() => {});
+          await dbPool.query(
+            'DELETE FROM "user" WHERE id = $1 OR id = $2 OR ($3 <> \'\' AND LOWER(email) = LOWER($3))',
+            [id, targetUserId, targetEmail]
+          ).catch(() => {});
+          await dbPool.query(
+            "DELETE FROM users WHERE id = $1 OR id = $2 OR ($3 <> '' AND LOWER(email) = LOWER($3))",
+            [id, targetUserId, targetEmail]
+          ).catch(() => {});
+          await dbPool.query(
+            "DELETE FROM user_passwords WHERE uid = $1 OR uid = $2 OR ($3 <> '' AND LOWER(email) = LOWER($3))",
+            [id, targetUserId, targetEmail]
+          ).catch(() => {});
+          await dbPool.query(
+            "DELETE FROM verification_requests WHERE entity_id = $1 OR user_id = $1 OR user_id = $2 OR ($3 <> '' AND LOWER(user_email) = LOWER($3))",
+            [id, targetUserId, targetEmail]
+          ).catch(() => {});
         } catch (e) {}
       }
 
@@ -9696,6 +9805,7 @@ async function startServer() {
   app.get("/api/admin/profiles", requireAdmin, async (_req, res) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      await loadDeletedEntitiesFromDbOnce();
       const userMap = new Map<string, any>();
       const userVerifMap = new Map<string, any>();
 
@@ -9703,8 +9813,7 @@ async function startServer() {
         try {
           const vRes = await dbPool.query("SELECT * FROM verification_requests WHERE entity_type = 'user_profile' ORDER BY created_at DESC").catch(() => ({ rows: [] as any[] }));
           vRes.rows.forEach((v: any) => {
-            if (v.entity_id && deletedEntitiesMemorySet.has(String(v.entity_id))) return;
-            if (v.user_id && deletedEntitiesMemorySet.has(String(v.user_id))) return;
+            if (isEntityDeleted(v.entity_id) || isEntityDeleted(v.user_id) || isEntityDeleted(v.user_email)) return;
             const mappedV = {
               id: v.id,
               entityType: v.entity_type,
@@ -9726,9 +9835,9 @@ async function startServer() {
           const uRes = await dbPool.query("SELECT * FROM users WHERE COALESCE(is_deleted, false) = false ORDER BY created_at DESC").catch(() => ({ rows: [] as any[] }));
           uRes.rows.forEach((u: any) => {
             const uid = String(u.id || u.email || '');
-            if (!uid || deletedEntitiesMemorySet.has(uid)) return;
+            if (!uid || isEntityDeleted(uid) || isEntityDeleted(u.email)) return;
             const matchedVerif = userVerifMap.get(uid) || userVerifMap.get(String(u.email || '').toLowerCase());
-            const status = String(matchedVerif?.status || 'approved').toLowerCase();
+            const status = String(matchedVerif?.status || 'pending').toLowerCase();
             userMap.set(uid, {
               uid,
               id: uid,
@@ -9752,7 +9861,7 @@ async function startServer() {
           const pRes = await dbPool.query("SELECT * FROM profiles WHERE COALESCE(is_deleted, false) = false ORDER BY updated_at DESC").catch(() => ({ rows: [] as any[] }));
           pRes.rows.forEach((p: any) => {
             const uid = String(p.uid || p.id || p.email || '');
-            if (!uid || deletedEntitiesMemorySet.has(uid)) return;
+            if (!uid || isEntityDeleted(uid) || isEntityDeleted(p.email)) return;
             const existing = userMap.get(uid) || {};
             const matchedVerif = userVerifMap.get(uid) || userVerifMap.get(String(p.email || '').toLowerCase());
             const pStatusLower = String(p.status || '').toLowerCase();
@@ -9762,8 +9871,7 @@ async function startServer() {
               p.verified === true ||
               p.is_verified === true ||
               pStatusLower === 'approved' ||
-              vStatusLower === 'approved' ||
-              existing.isVerified === true
+              vStatusLower === 'approved'
             );
             const status = isRejected ? 'rejected' : (isVerif ? 'approved' : (pStatusLower || vStatusLower || 'pending'));
             userMap.set(uid, {
@@ -9959,36 +10067,113 @@ async function startServer() {
   app.delete("/api/admin/profiles/:uid", requireAdmin, async (req, res) => {
     try {
       const { uid } = req.params;
-      deletedEntitiesMemorySet.add(String(uid));
-
-      // Also clean up local in-memory files
       const profilesFileMap = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
-      delete profilesFileMap[uid];
-      writeJsonFile(PROFILES_FILE, profilesFileMap);
-
-      const helpersFileList = readJsonFile<any[]>(HELPERS_FILE, []);
-      writeJsonFile(HELPERS_FILE, helpersFileList.filter(h => h && h.id !== uid && h.userId !== uid));
-
-      const verifs = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
-      writeJsonFile(VERIFICATIONS_FILE, verifs.filter(v => v && v.entityId !== uid && v.userId !== uid && v.id !== uid));
+      let targetEmail = String(profilesFileMap[uid]?.email || '').trim().toLowerCase();
+      if (!targetEmail && uid.includes('@')) {
+        targetEmail = uid.trim().toLowerCase();
+      }
 
       if (dbPool && isDbConnected) {
         try {
-          const pRes = await dbPool.query("SELECT * FROM profiles WHERE uid = $1 OR id = $1 LIMIT 1", [uid]);
-          if (pRes.rows.length > 0) {
-            await archiveToSecurityVault("user_profile", uid, pRes.rows[0], "ADMIN_REMOVED_PUBLIC");
-            await deleteFilesFromFirebaseStorage(pRes.rows[0]);
+          const pResLookup = await dbPool.query(
+            "SELECT email FROM profiles WHERE uid = $1 OR id = $1 OR user_id = $1 LIMIT 1",
+            [uid]
+          ).catch(() => ({ rows: [] as any[] }));
+          if (pResLookup.rows.length > 0 && pResLookup.rows[0].email) {
+            targetEmail = String(pResLookup.rows[0].email).trim().toLowerCase();
           }
-          const uRes = await dbPool.query("SELECT avatar_url FROM users WHERE id = $1", [uid]).catch(() => ({ rows: [] as any[] }));
-          const vRes = await dbPool.query("SELECT id_document_watermarked FROM verification_requests WHERE user_id = $1 OR entity_id = $1 OR id = $1", [uid]).catch(() => ({ rows: [] as any[] }));
-          await deleteFilesFromFirebaseStorage(uRes.rows);
-          await deleteFilesFromFirebaseStorage(vRes.rows);
+          if (!targetEmail) {
+            const uResLookup = await dbPool.query("SELECT email FROM users WHERE id = $1 LIMIT 1", [uid]).catch(() => ({ rows: [] as any[] }));
+            if (uResLookup.rows.length > 0 && uResLookup.rows[0].email) {
+              targetEmail = String(uResLookup.rows[0].email).trim().toLowerCase();
+            }
+          }
+        } catch {}
+      }
 
-          await dbPool.query('DELETE FROM "user" WHERE id = $1', [uid]).catch(() => {});
-          await dbPool.query('DELETE FROM users WHERE id = $1', [uid]).catch(() => {});
-          await dbPool.query("DELETE FROM profiles WHERE uid = $1 OR id = $1", [uid]).catch(() => {});
-          await dbPool.query("DELETE FROM helpers WHERE id = $1", [uid]).catch(() => {});
-          await dbPool.query("DELETE FROM verification_requests WHERE user_id = $1 OR entity_id = $1 OR id = $1", [uid]).catch(() => {});
+      const syntheticEmailUid = targetEmail ? ('email_' + targetEmail.replace(/[^a-z0-9]/g, '_')) : '';
+      await markEntitiesDeletedPermanently([uid, targetEmail, syntheticEmailUid]);
+
+      // Clean up local in-memory files
+      delete profilesFileMap[uid];
+      if (syntheticEmailUid) delete profilesFileMap[syntheticEmailUid];
+      Object.keys(profilesFileMap).forEach(k => {
+        const p = profilesFileMap[k];
+        if (p && (p.uid === uid || p.id === uid || (targetEmail && String(p.email || '').trim().toLowerCase() === targetEmail))) {
+          delete profilesFileMap[k];
+        }
+      });
+      writeJsonFile(PROFILES_FILE, profilesFileMap);
+
+      const authUsers = readJsonFile<Record<string, any>>(AUTH_USERS_FILE, {});
+      if (targetEmail && authUsers[targetEmail]) delete authUsers[targetEmail];
+      Object.keys(authUsers).forEach(k => {
+        if (authUsers[k]?.uid === uid || (targetEmail && k.toLowerCase() === targetEmail)) {
+          delete authUsers[k];
+        }
+      });
+      writeJsonFile(AUTH_USERS_FILE, authUsers);
+
+      const helpersFileList = readJsonFile<any[]>(HELPERS_FILE, []);
+      writeJsonFile(
+        HELPERS_FILE,
+        helpersFileList.filter(
+          h =>
+            h &&
+            h.id !== uid &&
+            h.userId !== uid &&
+            (!targetEmail || String(h.email || '').trim().toLowerCase() !== targetEmail)
+        )
+      );
+
+      const verifs = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
+      writeJsonFile(
+        VERIFICATIONS_FILE,
+        verifs.filter(
+          v =>
+            v &&
+            v.entityId !== uid &&
+            v.userId !== uid &&
+            v.id !== uid &&
+            (!targetEmail || String(v.userEmail || '').trim().toLowerCase() !== targetEmail)
+        )
+      );
+
+      if (dbPool && isDbConnected) {
+        try {
+          const pRes = await dbPool.query(
+            "SELECT * FROM profiles WHERE uid = $1 OR id = $1 OR user_id = $1 OR ($2 <> '' AND LOWER(email) = LOWER($2)) LIMIT 1",
+            [uid, targetEmail]
+          );
+          if (pRes.rows.length > 0) {
+            await archiveToSecurityVault("user_profile", uid, pRes.rows[0], "ADMIN_REMOVED_PUBLIC", req);
+          }
+          // Preserve Firebase Storage avatar/ID documents in Security Vault
+
+          await dbPool.query(
+            'DELETE FROM "user" WHERE id = $1 OR id = $2 OR ($3 <> \'\' AND LOWER(email) = LOWER($3))',
+            [uid, syntheticEmailUid, targetEmail]
+          ).catch(() => {});
+          await dbPool.query(
+            "DELETE FROM users WHERE id = $1 OR id = $2 OR ($3 <> '' AND LOWER(email) = LOWER($3))",
+            [uid, syntheticEmailUid, targetEmail]
+          ).catch(() => {});
+          await dbPool.query(
+            "DELETE FROM user_passwords WHERE uid = $1 OR uid = $2 OR ($3 <> '' AND LOWER(email) = LOWER($3))",
+            [uid, syntheticEmailUid, targetEmail]
+          ).catch(() => {});
+          await dbPool.query(
+            "DELETE FROM profiles WHERE uid = $1 OR id = $1 OR user_id = $1 OR uid = $2 OR ($3 <> '' AND LOWER(email) = LOWER($3))",
+            [uid, syntheticEmailUid, targetEmail]
+          ).catch(() => {});
+          await dbPool.query(
+            "DELETE FROM helpers WHERE id = $1 OR id = $2",
+            [uid, syntheticEmailUid]
+          ).catch(() => {});
+          await dbPool.query(
+            "DELETE FROM verification_requests WHERE user_id = $1 OR entity_id = $1 OR id = $1 OR user_id = $2 OR ($3 <> '' AND LOWER(user_email) = LOWER($3))",
+            [uid, syntheticEmailUid, targetEmail]
+          ).catch(() => {});
         } catch (e) {}
       }
 
@@ -10420,7 +10605,8 @@ async function startServer() {
           idDocumentWatermarked: safeDoc,
           createdAt: newEntry.createdAt
         },
-        "ACTIVE_REGISTERED"
+        "ACTIVE_REGISTERED",
+        req
       );
 
       res.status(201).json({
@@ -10445,29 +10631,39 @@ async function startServer() {
       await syncExistingRecordsToSecurityVault();
 
       const vaultMap = readJsonFile<Record<string, string>>(SECURITY_VAULT_FILE, {});
-      const combinedCiphers = new Map<string, string>();
+      const decryptedMap = new Map<string, any>();
+
       Object.entries(vaultMap).forEach(([k, v]) => {
-        if (k && v) combinedCiphers.set(k, v);
+        if (k && v) {
+          const rec = decryptVaultPayload(v);
+          if (rec && rec.recordId) {
+            decryptedMap.set(k, rec);
+          }
+        }
       });
 
       if (dbPool && isDbConnected) {
         try {
           const dbRes = await dbPool.query("SELECT id, encrypted_payload FROM security_vault ORDER BY updated_at DESC");
           for (const row of dbRes.rows) {
-            if (row.id && row.encrypted_payload && !combinedCiphers.has(row.id)) {
-              combinedCiphers.set(row.id, row.encrypted_payload);
+            if (row.id && row.encrypted_payload) {
+              const dbRec = decryptVaultPayload(row.encrypted_payload);
+              if (dbRec && dbRec.recordId) {
+                const existing = decryptedMap.get(row.id);
+                if (
+                  !existing ||
+                  (dbRec.isDeletedFromPublic && !existing.isDeletedFromPublic) ||
+                  new Date(dbRec.lastUpdatedAt || 0).getTime() >= new Date(existing.lastUpdatedAt || 0).getTime()
+                ) {
+                  decryptedMap.set(row.id, dbRec);
+                }
+              }
             }
           }
         } catch (_dbErr) {}
       }
 
-      const decryptedRecords: any[] = [];
-      for (const [, cipherStr] of combinedCiphers.entries()) {
-        const rec = decryptVaultPayload(cipherStr);
-        if (rec && rec.recordId) {
-          decryptedRecords.push(rec);
-        }
-      }
+      const decryptedRecords: any[] = Array.from(decryptedMap.values());
 
       decryptedRecords.sort(
         (a, b) =>
@@ -11012,8 +11208,8 @@ async function startServer() {
           `, [user.uid, user.displayName, user.phone, user.email]);
 
           await dbPool.query(`
-            INSERT INTO profiles (uid, id, user_id, name, full_name, email, phone, terms_accepted, terms_accepted_at, updated_at)
-            VALUES ($1, $1, $1, $2, $2, $3, $4, true, NOW(), NOW())
+            INSERT INTO profiles (uid, id, user_id, name, full_name, email, phone, verified, is_verified, status, terms_accepted, terms_accepted_at, updated_at)
+            VALUES ($1, $1, $1, $2, $2, $3, $4, false, false, 'pending', true, NOW(), NOW())
             ON CONFLICT (uid) DO UPDATE SET
               name = EXCLUDED.name,
               full_name = EXCLUDED.full_name,
@@ -11215,11 +11411,11 @@ async function startServer() {
     }
   };
 
-  app.put("/api/categories/:id", upsertCategoryImageHandler);
-  app.post("/api/categories", upsertCategoryImageHandler);
-  app.post("/api/category-images", upsertCategoryImageHandler);
+  app.put("/api/categories/:id", requireAdmin, upsertCategoryImageHandler);
+  app.post("/api/categories", requireAdmin, upsertCategoryImageHandler);
+  app.post("/api/category-images", requireAdmin, upsertCategoryImageHandler);
 
-  app.delete("/api/category-images/:categoryId", async (req, res) => {
+  app.delete("/api/category-images/:categoryId", requireAdmin, async (req, res) => {
     try {
       const cleanId = String(req.params.categoryId || "").trim();
       if (!cleanId) {
@@ -11254,211 +11450,13 @@ async function startServer() {
   // ==========================================
   // STEP 5: AUTO-MIGRATE BROWSER LOCALSTORAGE DATA TO POSTGRESQL + ADMIN DB INIT, BACKUP & RESTORE
   // ==========================================
-  app.post("/api/sync-browser-data", async (req, res) => {
+  app.post("/api/sync-browser-data", async (_req, res) => {
     try {
       await ensureTablesExist(false);
-      const body = req.body || {};
-      const userList: any[] = [];
-      if (body.user && typeof body.user === 'object') userList.push(body.user);
-      if (Array.isArray(body.users)) userList.push(...body.users);
-
-      const helpersInput: any[] = [
-        ...(Array.isArray(body.helpers) ? body.helpers : []),
-        ...(Array.isArray(body.profiles) ? body.profiles : [])
-      ];
-
-      const shopsInput: any[] = [
-        ...(Array.isArray(body.shops) ? body.shops : []),
-        ...(Array.isArray(body.businesses) ? body.businesses : [])
-      ];
-
-      const adsInput: any[] = Array.isArray(body.ads) ? body.ads : [];
-      const postsInput: any[] = Array.isArray(body.posts) ? body.posts : [];
-
-      let syncedCount = 0;
-
-      for (const user of userList) {
-        if (user && (user.email || user.uid || user.id)) {
-          const cleanEmail = String(user.email || '').trim().toLowerCase();
-          const uid = String(user.uid || user.id || ('email_' + cleanEmail.replace(/[^a-z0-9]/g, '_')));
-          const name = String(user.displayName || user.name || (cleanEmail ? cleanEmail.split('@')[0] : 'User'));
-          const phone = String(user.phone || '');
-          if (dbPool && isDbConnected) {
-            if (cleanEmail) {
-              await dbPool.query(
-                `INSERT INTO users (id, name, email, phone, role, avatar_url, created_at)
-                 VALUES ($1, $2, $3, $4, 'user', $5, NOW())
-                 ON CONFLICT (email) DO UPDATE SET
-                   name = COALESCE(NULLIF(EXCLUDED.name, ''), users.name),
-                   phone = COALESCE(NULLIF(EXCLUDED.phone, ''), users.phone)`,
-                [uid, name, cleanEmail, phone, user.photoURL || '']
-              ).catch(() => {});
-            }
-            await dbPool.query(
-              `INSERT INTO "user" (id, name, phone, email, created_at)
-               VALUES ($1, $2, $3, $4, NOW())
-               ON CONFLICT (id) DO NOTHING`,
-              [uid, name, phone, cleanEmail]
-            ).catch(() => {});
-          }
-          syncedCount++;
-        }
-      }
-
-      if (helpersInput.length > 0) {
-        const localHelpers = readJsonFile<any[]>(HELPERS_FILE, []);
-        const helperMap = new Map<string, any>();
-        localHelpers.forEach(h => { if (h && h.id && !deletedEntitiesMemorySet.has(String(h.id))) helperMap.set(h.id, h); });
-
-        for (const h of helpersInput) {
-          if (!h || !h.id || !h.name || deletedEntitiesMemorySet.has(String(h.id))) continue;
-          if (!helperMap.has(h.id)) {
-            helperMap.set(h.id, h);
-          }
-          if (dbPool && isDbConnected) {
-            const isVerif = Boolean(h.isVerified || h.is_verified || h.status === 'approved');
-            const skillsArr = Array.isArray(h.skills) ? h.skills : [String(h.categoryId || 'other')];
-            await dbPool.query(
-              `INSERT INTO helpers (id, name, category_id, phone, skills, area, experience, distance, is_verified, created_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
-               ON CONFLICT (id) DO UPDATE SET
-                 name = COALESCE(NULLIF(EXCLUDED.name, ''), helpers.name),
-                 category_id = COALESCE(NULLIF(EXCLUDED.category_id, ''), helpers.category_id),
-                 phone = COALESCE(NULLIF(EXCLUDED.phone, ''), helpers.phone)`,
-              [h.id, h.name, h.categoryId || 'other', h.phone || '', skillsArr, h.area || 'Local Area', h.experience || '1 Year', Number(h.distance || 0.5), isVerif]
-            ).catch(() => {});
-
-            await dbPool.query(
-              `INSERT INTO profiles (uid, id, user_id, name, full_name, email, category_id, category_name, phone, whatsapp, city, sector, address, experience, skills, description, image_url, verified, is_verified, status, rating, raw_json, created_at, updated_at)
-               VALUES ($1, $1, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11, $12, $13, $14, $15, $15, $16, $17, $18, NOW(), NOW())
-               ON CONFLICT (uid) DO UPDATE SET
-                 category_id = COALESCE(NULLIF(EXCLUDED.category_id, ''), profiles.category_id),
-                 phone = COALESCE(NULLIF(EXCLUDED.phone, ''), profiles.phone),
-                 raw_json = COALESCE(profiles.raw_json, EXCLUDED.raw_json)`,
-              [
-                h.id,
-                h.userId || h.id,
-                h.name,
-                h.email || '',
-                h.categoryId || 'other',
-                h.customCategoryName || h.categoryId || 'other',
-                h.phone || '',
-                h.whatsapp || h.phone || '',
-                h.city || 'Gandhinagar',
-                h.area || 'Local Area',
-                h.experience || '1 Year',
-                skillsArr.join(', '),
-                h.description || skillsArr.join(', '),
-                h.photoUrl || '',
-                isVerif,
-                isVerif ? 'approved' : (h.status || 'pending'),
-                Number(h.rating || 5.0),
-                JSON.stringify(h)
-              ]
-            ).catch(() => {});
-            syncedCount++;
-          }
-        }
-        writeJsonFile(HELPERS_FILE, Array.from(helperMap.values()));
-      }
-
-      if (shopsInput.length > 0) {
-        const localShops = readJsonFile<any[]>(SHOPS_FILE, []);
-        const shopMap = new Map<string, any>();
-        localShops.forEach(s => { if (s && s.id && !deletedEntitiesMemorySet.has(String(s.id))) shopMap.set(s.id, s); });
-
-        for (const s of shopsInput) {
-          if (!s || !s.id || String(s.id).startsWith('sample_shop_') || deletedEntitiesMemorySet.has(String(s.id))) continue;
-          const bName = s.name || s.businessName || s.business_name;
-          if (!bName) continue;
-          if (!shopMap.has(s.id)) {
-            shopMap.set(s.id, s);
-          }
-          if (dbPool && isDbConnected) {
-            const isApproved = Boolean(s.isVerified || s.is_verified || s.status === 'approved');
-            const cat = s.category || s.categoryLabel || 'Retail & Services';
-            const imgUrl = s.photoUrl || s.photo_url || (Array.isArray(s.photos) && s.photos[0]) || '';
-            await dbPool.query(
-              `INSERT INTO businesses (id, user_id, owner_id, shop_name, business_name, category, phone, address, sector, description, image_url, is_approved, is_verified, raw_json, created_at)
-               VALUES ($1, $2, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11, NOW())
-               ON CONFLICT (id) DO UPDATE SET
-                 shop_name = COALESCE(NULLIF(EXCLUDED.shop_name, ''), businesses.shop_name),
-                 business_name = COALESCE(NULLIF(EXCLUDED.business_name, ''), businesses.business_name),
-                 raw_json = COALESCE(businesses.raw_json, EXCLUDED.raw_json)`,
-              [s.id, s.userId || s.owner_id || 'Owner', bName, cat, s.phone || '', s.address || s.area || '', s.area || '', s.description || '', imgUrl, isApproved, JSON.stringify(s)]
-            ).catch(() => {});
-            await dbPool.query(
-              `INSERT INTO shops (id, name, type, category_label, owner_name, phone, area, address, description, photo_url, is_verified, created_at)
-               VALUES ($1, $2, 'shop', $3, $4, $5, $6, $7, $8, $9, $10, NOW())
-               ON CONFLICT (id) DO NOTHING`,
-              [s.id, bName, cat, s.ownerName || 'Owner', s.phone || '', s.area || '', s.address || '', s.description || '', imgUrl, isApproved]
-            ).catch(() => {});
-            syncedCount++;
-          }
-        }
-        writeJsonFile(SHOPS_FILE, Array.from(shopMap.values()));
-      }
-
-      if (adsInput.length > 0) {
-        const localAds = readJsonFile<any[]>(ADS_FILE, []);
-        const adMap = new Map<string, any>();
-        localAds.forEach(a => { if (a && a.id) adMap.set(a.id, a); });
-        for (const a of adsInput) {
-          if (!a || !a.id) continue;
-          if (!adMap.has(a.id)) adMap.set(a.id, a);
-          if (dbPool && isDbConnected) {
-            const imgUrl = a.photoUrl || (Array.isArray(a.photos) && a.photos[0]) || '';
-            await dbPool.query(
-              `INSERT INTO ads (id, title, subtitle, target_url, market_area, status, description, image_url, raw_json, created_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
-               ON CONFLICT (id) DO NOTHING`,
-              [a.id, a.offerTitle || a.businessName || 'Featured Ad', a.businessName || '', a.destinationUrl || '', a.area || 'Local Market', a.isActive === false ? 'inactive' : 'active', a.description || '', imgUrl, JSON.stringify(a)]
-            ).catch(() => {});
-            await dbPool.query(
-              `INSERT INTO ad_banners (id, data, created_at) VALUES ($1, $2, NOW()) ON CONFLICT (id) DO NOTHING`,
-              [a.id, JSON.stringify(a)]
-            ).catch(() => {});
-            syncedCount++;
-          }
-        }
-        writeJsonFile(ADS_FILE, Array.from(adMap.values()));
-      }
-
-      if (postsInput.length > 0) {
-        const deletedPostIds = readJsonFile<string[]>(DELETED_INTENTS_FILE, []);
-        const localIntents = readJsonFile<any[]>(INTENTS_FILE, []);
-        const postMap = new Map<string, any>();
-        localIntents.forEach(p => {
-          if (p && p.id && !deletedPostIds.includes(p.id) && !deletedEntitiesMemorySet.has(String(p.id)) && !isDummyPostRecord(p.id, p.description || p.title)) {
-            postMap.set(p.id, p);
-          }
-        });
-        for (const p of postsInput) {
-          if (!p || !p.id || (!p.description && !p.title)) continue;
-          if (deletedPostIds.includes(p.id) || deletedEntitiesMemorySet.has(String(p.id)) || isDummyPostRecord(p.id, p.description || p.title)) continue;
-          if (!postMap.has(p.id)) postMap.set(p.id, p);
-          if (dbPool && isDbConnected) {
-            await dbPool.query(
-              `INSERT INTO posts (id, user_id, author_name, content, image_url, category, city, raw_json, created_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
-               ON CONFLICT (id) DO NOTHING`,
-              [p.id, p.authorId || 'user', p.authorName || 'Community Member', p.description || p.title || '', p.imageUrl || '', p.category || 'General', p.city || p.location || 'Gandhinagar', JSON.stringify(p)]
-            ).catch(() => {});
-            await dbPool.query(
-              `INSERT INTO listings (id, user_id, title, description, location, created_at)
-               VALUES ($1, $2, $3, $4, $5, NOW())
-               ON CONFLICT (id) DO NOTHING`,
-              [p.id, p.authorId || 'user', p.category || 'General', p.description || p.title || '', p.location || p.city || 'Gandhinagar']
-            ).catch(() => {});
-            syncedCount++;
-          }
-        }
-        writeJsonFile(INTENTS_FILE, Array.from(postMap.values()));
-      }
-
       await purgeDummyPostsFromPostgresOnce();
-      invalidatePublicCache();
-      return res.json({ success: true, postgresConnected: isDbConnected, syncedCount });
+      // Never re-insert browser localStorage users, profiles, helpers, or shops into PostgreSQL!
+      // PostgreSQL is the single source of truth so admin-deleted entities never resurrect.
+      return res.json({ success: true, postgresConnected: isDbConnected, syncedCount: 0 });
     } catch (e: any) {
       return res.status(500).json({ error: e.message || "Failed to sync browser data" });
     }
@@ -11479,7 +11477,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/site-lock/verify", async (req, res) => {
+  app.post("/api/site-lock/verify", authLoginLimiter, async (req, res) => {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
       const { pin } = req.body || {};
@@ -11575,8 +11573,8 @@ async function startServer() {
     }
   };
 
-  app.post("/api/admin/init-db", handleInitAndRepairPostgresDb);
-  app.get("/api/admin/db-status", handleInitAndRepairPostgresDb);
+  app.post("/api/admin/init-db", requireAdmin, handleInitAndRepairPostgresDb);
+  app.get("/api/admin/db-status", requireAdmin, handleInitAndRepairPostgresDb);
 
   // Admin Full Database Backup (Download JSON of all PostgreSQL & file records)
   app.get("/api/admin/db-backup", requireAdmin, async (_req, res) => {
