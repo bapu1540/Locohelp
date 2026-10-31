@@ -493,24 +493,8 @@ function AppContent() {
           <LocoHelpLogo size={28} showText={true} textSize="sm" className="flex-shrink-0" />
         </div>
 
-        {/* 3. Right Side: [Compact Location Badge] -> [3-Dot Menu ⋮] */}
-        <div className="flex items-center gap-1.5 md:gap-3 lg:gap-4 flex-shrink-0" style={{ overflow: 'visible' }}>
-          <button
-            type="button"
-            onClick={() => {
-              setIsGlobalMenuOpen(false);
-              setIsGlobalLangOpen(false);
-              setIsGlobalLocationOpen(true);
-            }}
-            className="flex items-center gap-1 px-2 md:px-3.5 py-1 md:py-1.5 rounded-full bg-emerald-50 dark:bg-emerald-950/80 border border-emerald-300 dark:border-emerald-700 hover:bg-emerald-100 dark:hover:bg-emerald-900/80 text-emerald-800 dark:text-emerald-200 transition-all shadow-2xs active:scale-95 cursor-pointer max-w-[95px] md:max-w-none shrink-0 text-xs"
-            title={tr('Select Location (Pan-India)', 'लोकेशन चुनें (पूरा भारत)', 'લોકેશન પસંદ કરો (સમગ્ર ભારત)')}
-          >
-            <span className="text-xs shrink-0">📍</span>
-            <span className="text-xs font-black truncate md:overflow-visible md:whitespace-nowrap">
-              {globalUserLocation.district || tr('Location', 'लोकेशन', 'લોકેશન')}
-            </span>
-          </button>
-
+        {/* 3. Right Side: 3-Dot Menu (⋮) */}
+        <div className="flex items-center gap-1.5 md:gap-3 flex-shrink-0" style={{ overflow: 'visible' }}>
           {/* 3-Dot Menu (⋮) */}
           <div className="relative flex-shrink-0" style={{ overflow: 'visible' }}>
             <button
@@ -542,6 +526,24 @@ function AppContent() {
                     className="w-48 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 p-1.5 z-50 space-y-1"
                     style={{ position: 'fixed', top: '54px', right: '8px', zIndex: 10005 }}
                   >
+                    {/* Option: My Chats (Directly opens Chat Screen, totally separate from Profile) */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsGlobalMenuOpen(false);
+                        if (isGuestUser()) {
+                          setIsGlobalLoginOpen(true);
+                          return;
+                        }
+                        setActiveIntent(null);
+                        navigate('chat');
+                      }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-black text-indigo-700 dark:text-indigo-300 bg-indigo-50/70 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/80 transition-colors cursor-pointer text-left"
+                    >
+                      <MessageSquare className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                      <span>{tr('My Chats', 'मेरी बातचीत', 'મારી વાતચીત')}</span>
+                    </button>
+
                     {/* Option 1: Profile */}
                     <button
                       type="button"

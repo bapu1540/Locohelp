@@ -48,6 +48,13 @@ export default function PostResponsesModal({
     const ownerId = String(intent.authorId || currentUser?.uid || '').trim();
     const ownerEmail = String((intent as any).authorEmail || currentUser?.email || '').trim().toLowerCase();
 
+    // Mark responses for this post as seen by author so yellow pulse badge resets to 0
+    try {
+      const respCount = Number((intent as any).responseCount ?? (intent as any).response_count ?? (intent as any).repliers?.length ?? (intent as any).responses?.length ?? 1);
+      localStorage.setItem(`locohelp_seen_responses_${intent.id}`, String(respCount));
+      window.dispatchEvent(new CustomEvent('locohelp_responses_seen', { detail: { intentId: intent.id, seenCount: respCount } }));
+    } catch {}
+
     // 0. Instant 0ms seed from intent.repliers and intent.responses already attached on GET /api/posts
     try {
       const initialMap = new Map<string, ReplierGroup>();
@@ -232,6 +239,11 @@ export default function PostResponsesModal({
   const handleOpenReplierThread = async (rep: ReplierGroup) => {
     const convId = rep.conversationId || (intent?.id ? `conv_${intent.id}__${rep.senderId.toLowerCase()}` : '');
     if (intent?.id) {
+      try {
+        const respCount = Number((intent as any).responseCount ?? (intent as any).response_count ?? (intent as any).repliers?.length ?? (intent as any).responses?.length ?? 1);
+        localStorage.setItem(`locohelp_seen_responses_${intent.id}`, String(respCount));
+        window.dispatchEvent(new CustomEvent('locohelp_responses_seen', { detail: { intentId: intent.id, seenCount: respCount } }));
+      } catch {}
       fetch(`/api/intents/${encodeURIComponent(intent.id)}/mark-read`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

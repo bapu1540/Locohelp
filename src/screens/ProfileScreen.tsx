@@ -77,7 +77,88 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
     if (!silent) setIsLoadingChats(true);
     try {
       const list = await fetchPostConversations({ userId: user.uid, userEmail: user.email });
-      setRecentConversations(list || []);
+      const rawList = Array.isArray(list) ? list : [];
+
+      const myUid = String(user?.uid || '').trim().toLowerCase();
+      const myEmail = String(user?.email || localStorage.getItem('locohelp_last_logged_in_email') || '').trim().toLowerCase();
+      const myEmailUid = myEmail ? 'email_' + myEmail.replace(/[^a-z0-9]/g, '_') : '';
+
+      // De-fragment: Group deterministically by (cleanPostId, partnerIdentifier) so 1-on-1 chats never fragment into multiple parts
+      const mergedMap = new Map<string, any>();
+
+      for (const conv of rawList) {
+        if (!conv) continue;
+        const rawConvId = String(conv.conversationId || conv.id || '').trim();
+        let parsedPostId = '';
+        let parsedHelperId = '';
+        if (rawConvId.toLowerCase().startsWith('conv_') && rawConvId.includes('__')) {
+          const idx = rawConvId.indexOf('__');
+          parsedPostId = rawConvId.slice(5, idx).trim();
+          parsedHelperId = rawConvId.slice(idx + 2).trim();
+        }
+
+        const cleanPostId = String(conv.postId || conv.post_id || parsedPostId || 'general').trim().toLowerCase();
+        const helperIdStr = String(conv.helperId || conv.helper_id || conv.senderId || parsedHelperId || '').trim();
+        const helperEmailStr = String(conv.helperEmail || conv.senderEmail || '').trim().toLowerCase();
+        const posterIdStr = String(conv.posterId || conv.poster_id || '').trim();
+        const posterEmailStr = String(conv.posterEmail || conv.poster_email || '').trim().toLowerCase();
+
+        const helperIdLower = helperIdStr.toLowerCase();
+        const isHelperMe = Boolean(
+          (myUid && helperIdLower === myUid) ||
+          (myEmailUid && helperIdLower === myEmailUid) ||
+          (myEmail && (helperEmailStr === myEmail || helperIdLower === myEmail))
+        );
+        const isOwner = !isHelperMe;
+
+        // Deterministic partner key
+        const partnerKey = isOwner
+          ? (helperEmailStr || helperIdLower || 'helper')
+          : (posterEmailStr || posterIdStr.toLowerCase() || 'owner');
+
+        const dedupKey = `${cleanPostId}:::${partnerKey}`;
+
+        const existing = mergedMap.get(dedupKey);
+        const thisTime = new Date(conv.lastMessageAt || conv.last_message_at || conv.updatedAt || 0).getTime();
+        const existingTime = existing ? new Date(existing.lastMessageAt || existing.last_message_at || existing.updatedAt || 0).getTime() : 0;
+
+        const convUnread = Number(conv.unreadCount ?? conv.unread_count ?? conv.unreadPosterCount ?? conv.unreadHelperCount ?? 0);
+
+        if (!existing || thisTime >= existingTime) {
+          mergedMap.set(dedupKey, {
+            ...existing,
+            ...conv,
+            unreadCount: (existing ? Number(existing.unreadCount || 0) : 0) + convUnread,
+            count: Math.max(existing?.count || 1, Number(conv.count || 1))
+          });
+        } else {
+          existing.unreadCount = Number(existing.unreadCount || 0) + convUnread;
+        }
+      }
+
+      const deduplicatedList = Array.from(mergedMap.values()).sort((a, b) => {
+        const timeA = new Date(a.lastMessageAt || a.last_message_at || a.updatedAt || 0).getTime();
+        const timeB = new Date(b.lastMessageAt || b.last_message_at || b.updatedAt || 0).getTime();
+        return timeB - timeA;
+      });
+
+      setRecentConversations(deduplicatedList);
+
+      // Save list of chatted posts to localStorage so HomeScreen visitor knows they participated
+      try {
+        const chatted: string[] = JSON.parse(localStorage.getItem('locohelp_chatted_post_ids') || '[]');
+        let hasNew = false;
+        deduplicatedList.forEach(c => {
+          const pId = c.postId || c.post_id;
+          if (pId && !chatted.includes(pId)) {
+            chatted.push(pId);
+            hasNew = true;
+          }
+        });
+        if (hasNew) {
+          localStorage.setItem('locohelp_chatted_post_ids', JSON.stringify(chatted));
+        }
+      } catch {}
     } catch {
       if (!silent) setRecentConversations([]);
     } finally {
@@ -166,10 +247,22 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
       helperId: helperIdStr,
       selectedReplierId: helperIdStr,
       selectedReplierName: partnerName,
-      selectedReplierEmail: isOwner ? helperEmailStr : posterEmailStr,
-      selectedReplierAvatar: isOwner ? conv.helperAvatar : conv.posterAvatar,
       conversationId: resolvedConvId
     };
+
+    const targetConvId = conv.id || conv.conversationId || resolvedConvId;
+    try {
+      localStorage.setItem(`locohelp_last_viewed_conv_${targetConvId}`, new Date().toISOString());
+      localStorage.setItem(`locohelp_last_viewed_conv_${resolvedConvId}`, new Date().toISOString());
+      localStorage.setItem(`locohelp_seen_responses_${cleanPostId}`, '999');
+      window.dispatchEvent(new CustomEvent('locohelp_responses_seen', { detail: { intentId: cleanPostId } }));
+      setRecentConversations(prev =>
+        prev.map(c => ((c.id === conv.id || c.conversationId === conv.conversationId || c.postId === cleanPostId)
+          ? { ...c, unreadCount: 0, isRead: true }
+          : c))
+      );
+    } catch {}
+
     onOpenChat(intentPayload);
   };
 
@@ -1075,172 +1168,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
               )}
             </div>
 
-            {/* 7-DAY RECENT CHATS (MY CHATS) SECTION */}
-            <div className="bg-white dark:bg-slate-850 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-4 shadow-xs space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center text-white shadow-xs shrink-0">
-                    <MessageSquare className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <h3 className="text-xs sm:text-sm font-black text-slate-900 dark:text-white">
-                        {tr('My Chats (Last 7 Days)', 'मेरी बातचीत (पिछले 7 दिन)', 'મારી વાતચીત (છેલ્લા 7 દિવસ)')}
-                      </h3>
-                      {recentConversations.length > 0 && (
-                        <span className="text-[10px] bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 font-extrabold px-2 py-0.5 rounded-full border border-indigo-200 dark:border-indigo-800">
-                          {recentConversations.length}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium leading-tight mt-0.5">
-                      {tr(
-                        'Conversations auto-saved for 7 days • Delete anytime',
-                        'बातचीत 7 दिनों तक सुरक्षित • जब चाहें डिलीट करें',
-                        'વાતચીત 7 દિવસ માટે સુરક્ષિત • ગમે ત્યારે ડિલીટ કરી શકો છો'
-                      )}
-                    </p>
-                  </div>
-                </div>
 
-                <button
-                  type="button"
-                  onClick={() => loadRecentChats(false)}
-                  disabled={isLoadingChats}
-                  className="p-1.5 rounded-xl text-slate-500 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                  title={tr('Refresh Chats', 'चैट रिफ्रेश करें', 'ચેટ રિફ્રેશ કરો')}
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingChats ? 'animate-spin text-indigo-600' : ''}`} />
-                </button>
-              </div>
-
-              {/* Chat Items List */}
-              {isLoadingChats ? (
-                <div className="py-6 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-600" />
-                  <span>{tr('Loading recent chats...', 'चैट लोड हो रही हैं...', 'તાજેતરની ચેટ લોડ થઈ રહી છે...')}</span>
-                </div>
-              ) : recentConversations.length === 0 ? (
-                <div className="py-5 text-center bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 p-3 space-y-1">
-                  <p className="text-xs font-bold text-slate-600 dark:text-slate-300">
-                    {tr('No chats in the last 7 days', 'पिछले 7 दिनों में कोई बातचीत नहीं है', 'છેલ્લા 7 દિવસમાં કોઈ વાતચીત નથી')}
-                  </p>
-                  <p className="text-[11px] text-slate-400 dark:text-slate-500 max-w-xs mx-auto">
-                    {tr(
-                      'When you chat with a helper or neighbor, your conversation will appear here for 7 days.',
-                      'जब आप किसी हेल्पर या पड़ोसी से चैट करेंगे, तो वह 7 दिनों तक यहाँ दिखाई देगी।',
-                      'જ્યારે તમે કોઈ મદદગાર કે પડોશી સાથે ચેટ કરશો, તે અહીં 7 દિવસ સુધી દેખાશે.'
-                    )}
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {recentConversations.map((conv) => {
-                    const convId = conv.id || conv.conversationId;
-                    const currentUser = getCurrentUser();
-                    const myUid = String(currentUser?.uid || '').trim().toLowerCase();
-                    const myEmail = String(currentUser?.email || localStorage.getItem('locohelp_last_logged_in_email') || '').trim().toLowerCase();
-                    const myEmailUid = myEmail ? 'email_' + myEmail.replace(/[^a-z0-9]/g, '_') : '';
-                    const helperIdStr = String(conv.helperId || conv.helper_id || conv.senderId || '').trim().toLowerCase();
-                    const helperEmailStr = String(conv.helperEmail || conv.senderEmail || '').trim().toLowerCase();
-                    const posterEmailStr = String(conv.posterEmail || conv.poster_email || '').trim().toLowerCase();
-                    const isHelperMe = Boolean(
-                      (myUid && helperIdStr === myUid) ||
-                      (myEmailUid && helperIdStr === myEmailUid) ||
-                      (myEmail && (helperEmailStr === myEmail || helperIdStr === myEmail))
-                    );
-                    const isOwner = !isHelperMe;
-                    const partnerName = isOwner
-                      ? (conv.helperName || conv.senderName || (helperEmailStr ? helperEmailStr.split('@')[0] : 'Community Helper'))
-                      : (conv.posterName || (posterEmailStr ? posterEmailStr.split('@')[0] : 'Post Owner'));
-                    const partnerAvatar = isOwner ? conv.helperAvatar : conv.posterAvatar;
-                    const lastMsg = conv.lastMessage || conv.last_message || tr('Sent a message', 'संदेश भेजा', 'મેસેજ મોકલ્યો');
-                    const lastTime = conv.lastMessageAt || conv.last_message_at || conv.updatedAt;
-                    
-                    const daysAgo = lastTime ? Math.floor((Date.now() - new Date(lastTime).getTime()) / (1000 * 60 * 60 * 24)) : 0;
-                    const daysLeft = Math.max(7 - daysAgo, 1);
-
-                    return (
-                      <div
-                        key={convId}
-                        onClick={() => handleOpenConversation(conv)}
-                        className="p-3 rounded-xl border border-slate-200 dark:border-slate-700/80 bg-slate-50/50 dark:bg-slate-900/40 hover:bg-indigo-50/40 dark:hover:bg-slate-800/60 transition-all flex items-center justify-between gap-2.5 cursor-pointer group"
-                      >
-                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                          <div className="w-9 h-9 rounded-full bg-indigo-100 dark:bg-slate-800 text-indigo-700 dark:text-indigo-300 font-black text-xs flex items-center justify-center shrink-0 border border-indigo-200 dark:border-slate-700 overflow-hidden">
-                            {partnerAvatar ? (
-                              <img src={partnerAvatar} alt={partnerName} className="w-full h-full object-cover" />
-                            ) : (
-                              partnerName.slice(0, 2).toUpperCase()
-                            )}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center justify-between gap-1">
-                              <span className="text-xs font-black text-slate-900 dark:text-white truncate">
-                                {partnerName}
-                              </span>
-                              <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold shrink-0 bg-amber-50 dark:bg-amber-950/60 px-1.5 py-0.5 rounded-md border border-amber-200 dark:border-amber-800">
-                                ⏳ {daysLeft} {tr('d left', 'दिन बाकी', 'દિવસ બાકી')}
-                              </span>
-                            </div>
-                            <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-full">
-                              {lastMsg}
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-                          {convIdToDelete === convId ? (
-                            <div className="flex items-center gap-1">
-                              <button
-                                type="button"
-                                onClick={(e) => handleDeleteConversation(convId, e)}
-                                disabled={isDeletingChat}
-                                className="px-2 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-black shadow-2xs active:scale-95 transition-all cursor-pointer"
-                              >
-                                {tr('Delete', 'डिलीट', 'ડિલીટ')}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setConvIdToDelete(null);
-                                }}
-                                className="px-2 py-1 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-[10px] font-bold cursor-pointer"
-                              >
-                                {tr('Cancel', 'रद्द', 'રદ')}
-                              </button>
-                            </div>
-                          ) : (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => handleOpenConversation(conv)}
-                                className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-black shadow-2xs active:scale-95 transition-all cursor-pointer"
-                              >
-                                {tr('Open Chat', 'चैट खोलें', 'ચેટ ખોલો')}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setConvIdToDelete(convId);
-                                }}
-                                disabled={isDeletingChat}
-                                className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer"
-                                title={tr('Delete Chat', 'चैट हटाएं', 'ચેટ ડિલીટ કરો')}
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
 
             {/* Identity Verification Status Card */}
             <div className="bg-white dark:bg-slate-850 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-4 shadow-xs">

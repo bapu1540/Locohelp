@@ -775,10 +775,43 @@ export const CATEGORIES: CategoryItem[] = [
 
 export function getCategoryName(category: CategoryItem | undefined, lang: Language): string {
   if (!category) return '';
+  let str = '';
   switch (lang) {
-    case 'GU': return category.nameGu || category.nameHi || category.nameEn;
-    case 'HI': return category.nameHi || category.nameEn;
-    default: return category.nameEn;
+    case 'GU':
+      str = category.nameGu || category.nameHi || category.nameEn;
+      // Clean dual language slashes for pure Gujarati
+      return str
+        .replace(/દરજી\s*\/\s*ટેલર/, 'દરજી')
+        .replace(/સુથાર\s*\/\s*કાર્પેન્ટર/, 'સુથાર')
+        .replace(/કડિયો\s*\/\s*મિસ્ત્રી/, 'કડિયો')
+        .replace(/પંડિતજી\s*\/\s*પૂજા-પાઠ/, 'પંડિતજી અને પૂજા-પાઠ')
+        .replace(/સિક્યુરિટી ગાર્ડ\s*\/\s*વોચમેન/, 'સિક્યુરિટી ગાર્ડ')
+        .replace(/દુકાન હેલ્પર\s*\/\s*સ્ટોર સ્ટાફ/, 'દુકાન હેલ્પર')
+        .trim();
+    case 'HI':
+      str = category.nameHi || category.nameEn;
+      // Clean dual language slashes for pure Hindi
+      return str
+        .replace(/दर्जी\s*\/\s*टेलर/, 'दर्जी')
+        .replace(/कारपेंटर\s*\/\s*सुथार/, 'सुथार / बढ़ई')
+        .replace(/कड़िया\s*\/\s*मिस्त्री/, 'कड़िया / मिस्त्री')
+        .replace(/पंडित जी\s*\/\s*पूजा-पाठ/, 'पंडित जी और पूजा-पाठ')
+        .replace(/सिक्योरिटी गार्ड\s*\/\s*वॉचमैन/, 'सिक्योरिटी गार्ड')
+        .replace(/दुकान हेल्पर\s*\/\s*स्टोर स्टाफ/, 'दुकान हेल्पर')
+        .trim();
+    default:
+      str = category.nameEn;
+      // Clean Hindi/Gujarati transliterations for pure English
+      return str
+        .replace(/\s*\/\s*Darzi/, '')
+        .replace(/\s*\/\s*Suthar/, '')
+        .replace(/\s*\/\s*Kadiyo/, '')
+        .replace(/\s*\/\s*Pooja Path/, '')
+        .replace(/\s*\/\s*Watchman/, '')
+        .replace(/\s*\/\s*Store Staff/, '')
+        .replace(/Real Estate\s*\/\s*/, '')
+        .replace(/\s*\/\s*Agent/, '')
+        .trim();
   }
 }
 

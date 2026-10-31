@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Intent } from '../types';
-import { ArrowLeft, ShieldAlert, CheckCircle2, Send, MapPin, UserCheck, Paperclip, Navigation, Mic, Star, Sparkles, Trash2, Home, ShieldCheck, Check, Camera, Image as ImageIcon, X, Share2, Video, PhoneOff, MicOff, RefreshCw, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, ShieldAlert, CheckCircle2, Send, MapPin, UserCheck, Paperclip, Navigation, Mic, Star, Sparkles, Trash2, Home, ShieldCheck, Check, Camera, Image as ImageIcon, X, Share2, Video, PhoneOff, MicOff, RefreshCw, AlertTriangle, MessageSquare } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { getCurrentUser, isMessageSentByUser } from '../auth';
 import { useLanguage, COMPLIANCE_REPORT_REASONS } from '../i18n';
@@ -14,7 +14,8 @@ import {
   fetchChatBlockStatus,
   blockUserInChatOnServer,
   unblockUserInChatOnServer,
-  submitChatReportToServer
+  submitChatReportToServer,
+  fetchPostConversations
 } from '../api';
 import { validateUploadedFile, sanitizeText } from '../lib/security';
 import { compressImageToWebP } from '../lib/imageCompression';
@@ -25,12 +26,45 @@ interface ChatScreenProps {
   intent: Intent | null;
   onBack: () => void;
   onReport: () => void;
+  isModal?: boolean;
 }
 
-export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps) {
+export default function ChatScreen({ intent, onBack, onReport, isModal = false }: ChatScreenProps) {
   const { language, t, tr } = useLanguage();
-  const chatId = intent?.id || 'chat_community_helper';
+  const [currentIntent, setCurrentIntent] = useState<Intent | null>(intent);
+
+  useEffect(() => {
+    setCurrentIntent(intent);
+  }, [intent]);
+
+  const [allUserConversations, setAllUserConversations] = useState<any[]>([]);
+  const [isLoadingAllChats, setIsLoadingAllChats] = useState(false);
+
   const currentUser = getCurrentUser();
+
+  const loadAllChats = async () => {
+    if (!currentUser || isGuestUser()) {
+      setAllUserConversations([]);
+      return;
+    }
+    setIsLoadingAllChats(true);
+    try {
+      const list = await fetchPostConversations({ userId: currentUser.uid, userEmail: currentUser.email });
+      setAllUserConversations(Array.isArray(list) ? list : []);
+    } catch {
+      setAllUserConversations([]);
+    } finally {
+      setIsLoadingAllChats(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!currentIntent) {
+      loadAllChats();
+    }
+  }, [currentIntent]);
+
+  const chatId = currentIntent?.id || (currentIntent ? 'chat_community_helper' : '');
 
   // Determine whether the logged-in user is the Post Owner (User A) or a Helper/Responder (User B)
   const isPostOwner = React.useMemo(() => {
@@ -38,37 +72,37 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
       const myPostIds: string[] = JSON.parse(localStorage.getItem('locohelp_my_post_ids') || '[]');
       if (chatId && myPostIds.includes(chatId)) return true;
     } catch {}
-    if (!intent?.authorId && !(intent as any)?.authorEmail) return false;
+    if (!currentIntent?.authorId && !(currentIntent as any)?.authorEmail) return false;
     return isMessageSentByUser(
       {
-        sender_id: intent.authorId,
-        sender_email: (intent as any).authorEmail
+        sender_id: currentIntent?.authorId || '',
+        sender_email: (currentIntent as any)?.authorEmail
       },
       currentUser
     );
-  }, [chatId, intent?.authorId, (intent as any)?.authorEmail, currentUser]);
+  }, [chatId, currentIntent?.authorId, (currentIntent as any)?.authorEmail, currentUser]);
 
   const [selectedReplierId, setSelectedReplierId] = useState<string | null>(
-    (intent as any)?.selectedReplierId || (intent as any)?.helperId || null
+    (currentIntent as any)?.selectedReplierId || (currentIntent as any)?.helperId || null
   );
   const [selectedReplierName, setSelectedReplierName] = useState<string | null>(
-    (intent as any)?.selectedReplierName || null
+    (currentIntent as any)?.selectedReplierName || null
   );
   const [selectedReplierEmail, setSelectedReplierEmail] = useState<string | null>(
-    (intent as any)?.selectedReplierEmail || null
+    (currentIntent as any)?.selectedReplierEmail || null
   );
   const [selectedReplierAvatar, setSelectedReplierAvatar] = useState<string | null>(
-    (intent as any)?.selectedReplierAvatar || null
+    (currentIntent as any)?.selectedReplierAvatar || null
   );
 
   // For Helper (User B), helperId is the conversation's helperId or their own UID; for Post Owner (User A), helperId MUST be selectedReplierId
   const activeHelperId = isPostOwner
-    ? (selectedReplierId || (intent as any)?.helperId || '')
-    : ((intent as any)?.helperId || (currentUser?.uid && currentUser.uid !== 'guest_user' ? currentUser.uid : '') || selectedReplierId || '');
+    ? (selectedReplierId || (currentIntent as any)?.helperId || '')
+    : ((currentIntent as any)?.helperId || (currentUser?.uid && currentUser.uid !== 'guest_user' ? currentUser.uid : '') || selectedReplierId || '');
 
   // Deterministic 1-on-1 conversation ID per (post_id, helper_id)
   const activeConversationId = React.useMemo(() => {
-    const passedConvId = String((intent as any)?.conversationId || '').trim();
+    const passedConvId = String((currentIntent as any)?.conversationId || '').trim();
     if (isPostOwner) {
       if (!selectedReplierId && passedConvId) {
         return passedConvId;
@@ -82,7 +116,7 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
     if (passedConvId) return passedConvId;
     if (activeHelperId) return `conv_${chatId}__${String(activeHelperId).toLowerCase()}`;
     return chatId;
-  }, [isPostOwner, selectedReplierId, chatId, activeHelperId, (intent as any)?.conversationId]);
+  }, [isPostOwner, selectedReplierId, chatId, activeHelperId, (currentIntent as any)?.conversationId]);
 
   const [inboxConversations, setInboxConversations] = useState<any[]>([]);
   const [messages, setMessages] = useState<{
@@ -101,6 +135,8 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
     type?: 'text' | 'pin' | 'attachment' | 'task_completed';
     attachmentUrl?: string;
     attachmentType?: string;
+    isRead?: boolean;
+    is_read?: boolean;
     createdAt?: string;
   }[]>([]);
   const [collaboratorId, setCollaboratorId] = useState<string | null>(null);
@@ -146,6 +182,10 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
   const fallbackCameraInputRef = useRef<HTMLInputElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const initialLoadRef = useRef(true);
+  const isUserNearBottomRef = useRef(true);
+  const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);
+  const [unreadNewScrollCount, setUnreadNewScrollCount] = useState(0);
+  const prevMessagesLengthRef = useRef(0);
 
   // Sync selected replier if intent prop changes (e.g., opened from View Responses modal)
   useEffect(() => {
@@ -227,7 +267,33 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
     });
   }, [chatId, isPostOwner, selectedReplierId, intent?.authorId]);
 
-  // Auto scroll message list
+  const handleContainerScroll = () => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const isNearBottom = distanceFromBottom < 100;
+    isUserNearBottomRef.current = isNearBottom;
+    if (isNearBottom) {
+      setShowScrollBottomBtn(false);
+      setUnreadNewScrollCount(0);
+    } else {
+      setShowScrollBottomBtn(true);
+    }
+  };
+
+  const scrollToBottom = () => {
+    isUserNearBottomRef.current = true;
+    setShowScrollBottomBtn(false);
+    setUnreadNewScrollCount(0);
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTo({
+        top: messagesContainerRef.current.scrollHeight,
+        behavior: 'smooth'
+      });
+    }
+  };
+
+  // Smart message scroll: auto-scroll only if already at bottom or on initial load
   useEffect(() => {
     if (initialLoadRef.current) {
       initialLoadRef.current = false;
@@ -235,14 +301,26 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
       if (messagesContainerRef.current) {
         messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
       }
+      prevMessagesLengthRef.current = messages.length;
       return;
     }
 
+    const hasNewMessage = messages.length > prevMessagesLengthRef.current;
+    prevMessagesLengthRef.current = messages.length;
+
     if (messagesContainerRef.current) {
-      messagesContainerRef.current.scrollTo({
-        top: messagesContainerRef.current.scrollHeight,
-        behavior: 'smooth'
-      });
+      if (isUserNearBottomRef.current) {
+        messagesContainerRef.current.scrollTo({
+          top: messagesContainerRef.current.scrollHeight,
+          behavior: 'smooth'
+        });
+        setShowScrollBottomBtn(false);
+        setUnreadNewScrollCount(0);
+      } else if (hasNewMessage) {
+        // Scrolled up: keep user position undisturbed and show "New Message" indicator
+        setShowScrollBottomBtn(true);
+        setUnreadNewScrollCount(prev => prev + 1);
+      }
     }
   }, [messages]);
 
@@ -573,6 +651,28 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
     // Optimistic UI update
     setMessages(prev => [...prev, messageData]);
 
+    // User's own message scrolls to bottom
+    isUserNearBottomRef.current = true;
+    setShowScrollBottomBtn(false);
+    setUnreadNewScrollCount(0);
+    setTimeout(() => {
+      if (messagesContainerRef.current) {
+        messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+      }
+    }, 50);
+
+    // Track that the current user has participated in chat on this post
+    try {
+      if (chatId) {
+        const chatted: string[] = JSON.parse(localStorage.getItem('locohelp_chatted_post_ids') || '[]');
+        if (!chatted.includes(chatId)) {
+          chatted.push(chatId);
+          localStorage.setItem('locohelp_chatted_post_ids', JSON.stringify(chatted));
+          window.dispatchEvent(new CustomEvent('locohelp_chatted_posts_updated'));
+        }
+      }
+    } catch (e) {}
+
     // Store in backend PostgreSQL conversations + messages via POST /api/chat/send
     try {
       await sendChatMessage(chatId, messageData);
@@ -795,19 +895,19 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
 
   const rawSeller = isPostOwner
     ? (selectedReplierName || 'Select a Responder')
-    : (selectedReplierName || (intent as any)?.sellerName || (intent as any)?.authorName || (intent as any)?.name);
+    : (selectedReplierName || (currentIntent as any)?.sellerName || (currentIntent as any)?.authorName || (currentIntent as any)?.name);
   const validSeller = rawSeller && rawSeller !== 'Ramesh Sharma' ? rawSeller : null;
 
   const peerName = validSeller || (!isPostOwner ? savedProfileName : null) || "Community Peer";
-  const peerBadge = (intent as any)?.badge || "Verified Community Peer";
-  const peerDistance = intent?.distance || 0.5;
-  const rawLocation = (intent as any)?.location || (intent as any)?.area || (intent as any)?.city || (() => {
+  const peerBadge = (currentIntent as any)?.badge || "Verified Community Peer";
+  const peerDistance = currentIntent?.distance || 0.5;
+  const rawLocation = (currentIntent as any)?.location || (currentIntent as any)?.area || (currentIntent as any)?.city || (() => {
     try { return localStorage.getItem('locohelp_profile_address'); } catch(e) { return null; }
   })() || "Local Area";
   const peerLocation = typeof rawLocation === 'string'
     ? rawLocation.replace(/^,\s*|,\s*$|,+/g, ',').replace(/,\s*,/g, ',').replace(/^,\s*/, '').replace(/,\s*$/, '').trim() || "Local Area"
     : "Local Area";
-  const topicDesc = intent?.description || (intent as any)?.title || "LocoHelp Direct Broadcast & Service Inquiry";
+  const topicDesc = currentIntent?.description || (currentIntent as any)?.title || "LocoHelp Direct Broadcast & Service Inquiry";
 
   const distinctRepliers = React.useMemo(() => {
     const map = new Map<string, {
@@ -872,6 +972,152 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
     return messages;
   }, [messages, isPostOwner, selectedReplierId]);
 
+  /* -------------------------------------------------------------
+   * IF NO POST/CONVERSATION IS SELECTED:
+   * Render the All Conversations List View (WhatsApp-style)
+   * ------------------------------------------------------------- */
+  if (!currentIntent) {
+    return (
+      <div className="flex flex-col h-full bg-[#FCFAF5] dark:bg-slate-900 relative overflow-hidden transition-colors">
+        {/* TOP HEADER */}
+        <div className="flex items-center justify-between px-4 py-3 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 shadow-xs z-20 sticky top-0">
+          <div className="flex items-center gap-3">
+            <button 
+              onClick={onBack} 
+              className="p-2 -ml-1 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-full transition-colors active:scale-95 cursor-pointer"
+              title={tr('Back', 'वापस जाएं', 'પાછા જાઓ')}
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-black text-xs shadow-xs">
+                <MessageSquare className="w-4 h-4" />
+              </div>
+              <h1 className="text-sm sm:text-base font-black text-slate-900 dark:text-white">
+                {tr('My Chats', 'मेरी बातचीत', 'મારી વાતચીત')}
+              </h1>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={loadAllChats}
+            disabled={isLoadingAllChats}
+            className="p-2 rounded-xl text-slate-500 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+            title={tr('Refresh Chats', 'चैट रिफ्रेश करें', 'ચેટ રિફ્રેશ કરો')}
+          >
+            <RefreshCw className={`w-4 h-4 ${isLoadingAllChats ? 'animate-spin text-indigo-600' : ''}`} />
+          </button>
+        </div>
+
+        {/* BODY */}
+        <div className="flex-1 overflow-y-auto p-3 sm:p-4">
+          {isLoadingAllChats ? (
+            <div className="py-20 text-center text-xs text-slate-400 flex flex-col items-center justify-center gap-2">
+              <RefreshCw className="w-6 h-6 animate-spin text-indigo-600" />
+              <span>{tr('Loading chats...', 'चैट लोड हो रही हैं...', 'વાતચીત લોડ થઈ રહી છે...')}</span>
+            </div>
+          ) : allUserConversations.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-24 px-4 text-center">
+              <div className="w-16 h-16 rounded-3xl bg-indigo-50 dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 flex items-center justify-center text-3xl mb-3.5 shadow-inner">
+                💬
+              </div>
+              <h3 className="text-base font-black text-slate-900 dark:text-white mb-1.5">
+                {tr('No chats yet', 'अभी तक कोई बातचीत नहीं है', 'હજુ કોઈ વાતચીત શરૂ થઈ નથી')}
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 max-w-xs mb-5 leading-relaxed">
+                {tr(
+                  'When you chat on a live broadcast post or someone replies to you, conversations will appear here.',
+                  'जब आप किसी ब्रॉडकास्ट पोस्ट पर चैट करेंगे या कोई आपको रिप्लाई करेगा, तो बातचीत यहाँ दिखेगी।',
+                  'જ્યારે તમે કોઈ લાઈવ બ્રોડકાસ્ટ પોસ્ટ પર ચેટ કરશો અથવા તમારી પોસ્ટ પર કોઈ રિપ્લાય કરશે, ત્યારે તે વાતચીત અહીં દેખાશે.'
+                )}
+              </p>
+              <button
+                type="button"
+                onClick={onBack}
+                className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black shadow-md cursor-pointer active:scale-95 transition-all"
+              >
+                {tr('View Live Broadcasts', 'लाइव ब्रॉडकास्ट देखें', 'લાઈવ બ્રોડકાસ્ટ પોસ્ટ્સ જુઓ')}
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-2 max-w-2xl mx-auto">
+              {allUserConversations.map((conv) => {
+                const convId = conv.id || conv.conversationId;
+                const partnerName = conv.helperName || conv.senderName || conv.posterName || 'Community Member';
+                const partnerAvatar = conv.helperAvatar || conv.senderAvatar || conv.posterAvatar;
+                const lastMsg = conv.lastMessage || conv.last_message || tr('Sent a message', 'संदेश भेजा', 'મેસેજ મોકલ્યો');
+                const lastTime = conv.lastMessageAt || conv.last_message_at || conv.updatedAt;
+                const hasUnread = Number(conv.unreadCount || 0) > 0;
+
+                return (
+                  <div
+                    key={convId}
+                    onClick={() => {
+                      setCurrentIntent({
+                        id: conv.postId || conv.id,
+                        authorId: conv.posterId || conv.senderId,
+                        authorName: partnerName,
+                        location: conv.location || 'Local Area',
+                        description: conv.postTitle || lastMsg,
+                        selectedReplierId: conv.helperId || conv.senderId,
+                        selectedReplierName: partnerName,
+                        selectedReplierAvatar: partnerAvatar,
+                        conversationId: convId,
+                        distance: 0.5,
+                        tags: ['#General'],
+                        status: 'open',
+                        createdAt: new Date().toISOString(),
+                        expiresAt: new Date(Date.now() + 3600000).toISOString()
+                      } as unknown as Intent);
+                    }}
+                    className={`p-3.5 rounded-2xl border transition-all flex items-center justify-between gap-3 cursor-pointer group ${
+                      hasUnread
+                        ? 'border-rose-300 dark:border-rose-800 bg-rose-50/50 dark:bg-rose-950/20 shadow-xs ring-1 ring-rose-400/30'
+                        : 'border-slate-200 dark:border-slate-700/80 bg-white dark:bg-slate-800/80 hover:bg-indigo-50/50 dark:hover:bg-slate-750 shadow-2xs'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <div className="relative">
+                        <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-indigo-500 to-indigo-700 text-white font-black text-xs flex items-center justify-center shrink-0 border border-indigo-200 dark:border-slate-700 overflow-hidden shadow-2xs">
+                          {partnerAvatar ? (
+                            <img src={partnerAvatar} alt={partnerName} className="w-full h-full object-cover" />
+                          ) : (
+                            partnerName.slice(0, 2).toUpperCase()
+                          )}
+                        </div>
+                        <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 border-2 border-white dark:border-slate-855 rounded-full" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-1 mb-0.5">
+                          <span className="text-xs font-black text-slate-900 dark:text-white truncate">
+                            {partnerName}
+                          </span>
+                          {lastTime && (
+                            <span className="text-[10px] text-slate-400 dark:text-slate-500 shrink-0">
+                              {new Date(lastTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-slate-600 dark:text-slate-300 truncate">
+                          {lastMsg}
+                        </p>
+                      </div>
+                    </div>
+                    {hasUnread && (
+                      <span className="text-[9px] bg-rose-500 text-white font-black px-1.5 py-0.5 rounded-full shadow-2xs animate-pulse shrink-0">
+                        🔴 {conv.unreadCount}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-full bg-[#FCFAF5] dark:bg-slate-900 relative overflow-hidden transition-colors">
       
@@ -879,11 +1125,16 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
       <div className="flex items-center justify-between px-4 py-3 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 shadow-xs z-20 sticky top-0">
         <div className="flex items-center gap-3">
           <button 
-            onClick={onBack} 
-            className="p-2 -ml-1 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-full transition-colors active:scale-95 cursor-pointer"
-            title="Back"
+            onClick={() => {
+              if (intent) {
+                onBack();
+              } else {
+                setCurrentIntent(null);
+              }
+            }} 
+            title={isModal ? tr('Close Chat', 'ચેટ બંધ કરો', 'ચેટ બંધ કરો') : tr('Back', 'વાપસ जाएं', 'પાછા જાઓ')}
           >
-            <ArrowLeft className="w-5 h-5" />
+            {isModal ? <X className="w-5 h-5 text-rose-600 dark:text-rose-400" /> : <ArrowLeft className="w-5 h-5" />}
           </button>
 
           {/* Profile Clickable Header */}
@@ -1041,7 +1292,7 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
       </AnimatePresence>
 
       {/* 2. MESSAGES VIEWPORT (Or Responder Selection Inbox if Post Owner hasn't picked a Helper) */}
-      <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-3.5 bg-[#F8F6F0] dark:bg-slate-950">
+      <div ref={messagesContainerRef} onScroll={handleContainerScroll} className="flex-1 overflow-y-auto p-4 space-y-3.5 bg-[#F8F6F0] dark:bg-slate-950 relative">
         {isPostOwner && !selectedReplierId ? (
           <div className="py-8 max-w-md mx-auto space-y-3">
             {distinctRepliers.length === 0 ? (
@@ -1197,11 +1448,37 @@ export default function ChatScreen({ intent, onBack, onReport }: ChatScreenProps
                   <span className={`text-[9px] font-semibold ${isMe ? 'text-indigo-100' : 'text-slate-400'}`}>
                     {msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Just now'}
                   </span>
+                  {isMe && (
+                    <span className="flex items-center text-[11px] font-extrabold leading-none tracking-tighter" title={msg.isRead ? 'Seen / Read' : 'Delivered'}>
+                      {msg.isRead ? (
+                        <span className="text-sky-300">✓✓</span>
+                      ) : (
+                        <span className="text-white/70">✓✓</span>
+                      )}
+                    </span>
+                  )}
                 </div>
               </motion.div>
             </div>
           );
         })}
+        {showScrollBottomBtn && (
+          <div className="sticky bottom-2 left-0 right-0 flex justify-center z-30 pointer-events-none">
+            <button
+              type="button"
+              onClick={scrollToBottom}
+              className="pointer-events-auto px-3.5 py-1.5 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black shadow-xl flex items-center gap-1.5 transition-all transform hover:scale-105 active:scale-95 cursor-pointer border border-white/20 animate-bounce"
+            >
+              <span>⬇️</span>
+              <span>{tr('New Messages', 'नया संदेश नीचे है', 'નવો મેસેજ નીચે છે')}</span>
+              {unreadNewScrollCount > 0 && (
+                <span className="w-4 h-4 rounded-full bg-amber-400 text-slate-950 text-[10px] font-black flex items-center justify-center">
+                  {unreadNewScrollCount}
+                </span>
+              )}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* 3. CLEAN BOTTOM ACTION BAR & INPUT */}

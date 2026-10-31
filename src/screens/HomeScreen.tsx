@@ -8,6 +8,7 @@ import { CATEGORIES, MASTER_CATEGORIES, getCategoryName, getFreeHelperProfiles }
 import UserProfileModal from './UserProfileModal';
 import AppGuideModal from './AppGuideModal';
 import PostIntentSheet from './PostIntentSheet';
+import ChatScreen from './ChatScreen';
 import { fetchLiveIntents, deleteIntentOnServer, getCachedCategoryImages, fetchCategoryImages, subscribeToRealtimeStream } from '../api';
 import AdBannerSection from '../components/AdBannerSection';
 import LocoHelpLogo from '../components/LocoHelpLogo';
@@ -77,6 +78,36 @@ export default function HomeScreen({
   const [isResponsesModalOpen, setIsResponsesModalOpen] = useState(false);
   const [isInstallAppModalOpen, setIsInstallAppModalOpen] = useState(false);
   const [categoryImages, setCategoryImages] = useState<Record<string, string>>(() => getCachedCategoryImages());
+
+  // In-Place Broadcast Post Chat Modal State
+  const [chatModalIntent, setChatModalIntent] = useState<Intent | null>(null);
+
+  // Response badge & chatted post tracking states
+  const [seenResponsesTick, setSeenResponsesTick] = useState(0);
+  const [chattedPostIds, setChattedPostIds] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('locohelp_chatted_post_ids') || '[]');
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    const handleResponsesSeen = () => setSeenResponsesTick(prev => prev + 1);
+    const handleChattedUpdated = () => {
+      try {
+        setChattedPostIds(JSON.parse(localStorage.getItem('locohelp_chatted_post_ids') || '[]'));
+      } catch {}
+    };
+    window.addEventListener('locohelp_responses_seen', handleResponsesSeen);
+    window.addEventListener('locohelp_chatted_posts_updated', handleChattedUpdated);
+    window.addEventListener('storage', handleResponsesSeen);
+    return () => {
+      window.removeEventListener('locohelp_responses_seen', handleResponsesSeen);
+      window.removeEventListener('locohelp_chatted_posts_updated', handleChattedUpdated);
+      window.removeEventListener('storage', handleResponsesSeen);
+    };
+  }, []);
 
   useEffect(() => {
     const syncCatImages = () => {
@@ -337,6 +368,7 @@ export default function HomeScreen({
 
   // Push browser history state whenever any modal / popup / chat inbox opens on HomeScreen
   const isAnyHomeModalOpen = Boolean(
+    chatModalIntent ||
     isPostSheetOpen ||
     isLangModalOpen ||
     isLoginPromptOpen ||
@@ -367,6 +399,7 @@ export default function HomeScreen({
 
   useEffect(() => {
     const handleCloseActiveModal = (e: Event) => {
+      if (chatModalIntent) { e.preventDefault(); setChatModalIntent(null); return; }
       if (postToDelete) { e.preventDefault(); setPostToDelete(null); return; }
       if (isLoginPromptOpen) { e.preventDefault(); setIsLoginPromptOpen(false); return; }
       if (isResponsesModalOpen) { e.preventDefault(); setIsResponsesModalOpen(false); return; }
@@ -386,6 +419,7 @@ export default function HomeScreen({
       if (homeSearchQuery.trim()) { e.preventDefault(); setHomeSearchQuery(''); return; }
     };
     const handleCloseAllModals = () => {
+      setChatModalIntent(null);
       setPostToDelete(null);
       setIsLoginPromptOpen(false);
       setIsResponsesModalOpen(false);
@@ -461,11 +495,11 @@ export default function HomeScreen({
         hi: 'पड़ोसियों और सर्विस एक्सपर्ट्स से चैट करने के लिए ईमेल OTP या पासवर्ड से लॉगिन करें।',
         gu: 'સ્થાનિક સર્વિસ એક્સપર્ટ્સ અને પાડોશીઓ સાથે વાત કરવા માટે ઈમેલ OTP અથવા પાસવર્ડથી લોગિન કરો!'
       });
-      setLoginSuccessAction(() => () => onOpenChat(intent));
+      setLoginSuccessAction(() => () => setChatModalIntent(intent || null));
       setIsLoginPromptOpen(true);
       return;
     }
-    onOpenChat(intent);
+    setChatModalIntent(intent || null);
   };
 
   const handleSafeOpenPostSheet = () => {
@@ -1849,13 +1883,20 @@ export default function HomeScreen({
                     ? `લાઈવ બ્રોડકાસ્ટ પોસ્ટ્સ (${searchedIntents.length})`
                     : `लाइव ब्रॉडकास्ट पोस्ट (${searchedIntents.length})`}
                 </h2>
-                <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 shrink-0">
-                  📍 {userLocation.district || 'All India'}
-                </span>
+                <button
+                  type="button"
+                  onClick={() => setIsLocationModalOpen(true)}
+                  className="inline-flex items-center gap-1 text-[11px] font-black px-2.5 py-1 rounded-full bg-emerald-100 dark:bg-emerald-950/90 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 hover:bg-emerald-200 dark:hover:bg-emerald-900 transition-all cursor-pointer shadow-2xs active:scale-95 shrink-0"
+                  title={language === 'GU' ? 'લોકેશન બદલો (સમગ્ર ભારત)' : language === 'HI' ? 'लोकेशन बदलें (पूरा भारत)' : 'Change Location (Pan-India)'}
+                >
+                  <span className="shrink-0">📍</span>
+                  <span className="truncate max-w-[110px] sm:max-w-none">{userLocation.district || 'All India'}</span>
+                  <span className="text-[9px] opacity-70 shrink-0">▾</span>
+                </button>
               </div>
 
               <div className="flex items-center gap-1.5 shrink-0">
-                {/* Category Filter Dropdown */}
+                {/* Category Filter Button */}
                 <div className="relative">
                   <button
                     type="button"
@@ -1877,51 +1918,87 @@ export default function HomeScreen({
 
                   <AnimatePresence>
                     {isHomeCategoryDropdownOpen && (
-                      <>
+                      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/60 backdrop-blur-xs">
                         <div
-                          className="fixed inset-0 z-30"
+                          className="fixed inset-0"
                           onClick={() => setIsHomeCategoryDropdownOpen(false)}
                         />
                         <motion.div
-                          initial={{ opacity: 0, y: -6, scale: 0.96 }}
-                          animate={{ opacity: 1, y: 0, scale: 1 }}
-                          exit={{ opacity: 0, y: -6, scale: 0.96 }}
-                          className="absolute right-0 top-full mt-1.5 w-52 max-h-64 overflow-y-auto bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 p-1.5 z-40 space-y-1"
+                          initial={{ opacity: 0, y: 30 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: 30 }}
+                          className="relative w-full sm:max-w-md bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 max-h-[82vh] flex flex-col z-50 overflow-hidden"
                         >
-                          <button
-                            type="button"
-                            onClick={() => {
-                              onSelectCategory?.('all');
-                              setIsHomeCategoryDropdownOpen(false);
-                            }}
-                            className={`w-full text-left px-3 py-1.5 rounded-xl text-xs font-extrabold transition-colors cursor-pointer ${
-                              selectedCategory === 'all'
-                                ? 'bg-indigo-600 text-white'
-                                : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
-                            }`}
-                          >
-                            🌐 {t('home.all')}
-                          </button>
-                          {CATEGORIES.map(cat => (
+                          {/* Modal Header */}
+                          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
+                            <div className="flex items-center gap-2">
+                              <span className="text-base">🏷️</span>
+                              <h3 className="text-xs sm:text-sm font-black text-slate-900 dark:text-white">
+                                {language === 'GU'
+                                  ? 'કેટેગરી પસંદ કરો'
+                                  : language === 'HI'
+                                  ? 'कैटेगरी चुनें'
+                                  : 'Select Category'}
+                              </h3>
+                            </div>
                             <button
-                              key={cat.id}
+                              type="button"
+                              onClick={() => setIsHomeCategoryDropdownOpen(false)}
+                              className="p-1.5 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 cursor-pointer"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+
+                          {/* Category Options List */}
+                          <div className="p-2 sm:p-3 overflow-y-auto space-y-1 flex-1">
+                            <button
                               type="button"
                               onClick={() => {
-                                onSelectCategory?.(cat.id);
+                                onSelectCategory?.('all');
                                 setIsHomeCategoryDropdownOpen(false);
                               }}
-                              className={`w-full text-left px-3 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5 ${
-                                selectedCategory === cat.id
-                                  ? 'bg-indigo-600 text-white'
-                                  : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+                              className={`w-full text-left px-3.5 py-2.5 rounded-2xl text-xs font-black transition-all cursor-pointer flex items-center justify-between ${
+                                selectedCategory === 'all'
+                                  ? 'bg-indigo-600 text-white shadow-sm'
+                                  : 'text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
                               }`}
                             >
-                              <span>🛠️</span>
-                              <span className="truncate">{getCategoryName(cat, language)}</span>
+                              <span className="flex items-center gap-2">
+                                <span>🌐</span>
+                                <span>{t('home.all')}</span>
+                              </span>
+                              {selectedCategory === 'all' && <span className="font-black">✓</span>}
                             </button>
-                          ))}
+
+                            {CATEGORIES.map(cat => {
+                              const catName = getCategoryName(cat, language);
+                              const isSelected = selectedCategory === cat.id;
+                              return (
+                                <button
+                                  key={cat.id}
+                                  type="button"
+                                  onClick={() => {
+                                    onSelectCategory?.(cat.id);
+                                    setIsHomeCategoryDropdownOpen(false);
+                                  }}
+                                  className={`w-full text-left px-3.5 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer flex items-center justify-between ${
+                                    isSelected
+                                      ? 'bg-indigo-600 text-white shadow-sm'
+                                      : 'text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+                                  }`}
+                                >
+                                  <span className="flex items-center gap-2 truncate pr-2">
+                                    <span className="shrink-0">🛠️</span>
+                                    <span className="truncate">{catName}</span>
+                                  </span>
+                                  {isSelected && <span className="shrink-0 font-black">✓</span>}
+                                </button>
+                              );
+                            })}
+                          </div>
                         </motion.div>
-                      </>
+                      </div>
                     )}
                   </AnimatePresence>
                 </div>
@@ -2011,46 +2088,56 @@ export default function HomeScreen({
                           : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700/90 hover:border-indigo-300 dark:hover:border-indigo-700'
                       }`}
                     >
-                      {/* Top Meta Row */}
-                      <div className="flex flex-wrap items-center justify-between gap-1.5 mb-2">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          {isMyOwnPost && (
-                            <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-600 text-white shadow-2xs">
-                              ⚡ {t('post.yourPost')}
-                            </span>
-                          )}
-                          <span className="text-xs font-black text-slate-800 dark:text-slate-100 flex items-center gap-1">
+                      {/* Line 1: Your Post (Live) + Location */}
+                      <div className="flex items-center gap-2 flex-wrap min-w-0 mb-1.5 pb-1 border-b border-slate-100 dark:border-slate-800/60">
+                        {isMyOwnPost ? (
+                          <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-600 text-white shadow-2xs shrink-0">
+                            ⚡ {language === 'EN' ? 'Your Post (Live)' : language === 'GU' ? 'તમારી પોસ્ટ (લાઈવ)' : 'आपकी पोस्ट (लाइव)'}
+                          </span>
+                        ) : (
+                          <span className="text-xs font-black text-slate-800 dark:text-slate-100 flex items-center gap-1 truncate shrink-0">
                             <UserCheck className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
-                            <span>{intent.authorName || 'Community Member'}</span>
+                            <span className="truncate">{intent.authorName || 'Community Member'}</span>
                           </span>
-                          <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-slate-800 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-slate-700">
-                            📍 {(intent as any).resolvedLocationBadge || intent.location || 'Local Area'}
+                        )}
+                        <span className="text-[11px] font-extrabold text-indigo-700 dark:text-indigo-300 flex items-center gap-0.5 truncate">
+                          <span className="text-xs">📍</span>
+                          <span className="truncate max-w-[180px] sm:max-w-none">
+                            {(intent as any).resolvedLocationBadge || intent.location || 'Local Area'}
                           </span>
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-                            {(intent as any).computedKm || intent.distance || 0.5} km
-                          </span>
-                        </div>
-
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full">
-                            <Clock className="w-3 h-3 text-amber-500 shrink-0" />
-                            <span>{t('home.expiresIn')} {(intent as any).minsRemaining || 55}m</span>
-                          </span>
-                          {isMyOwnPost && (
-                            <button
-                              type="button"
-                              onClick={(e) => handleDeletePost(intent.id, e)}
-                              className="p-1 rounded-lg bg-rose-50 dark:bg-rose-950/70 hover:bg-rose-100 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800/70 transition-colors cursor-pointer"
-                              title={t('home.deletePost')}
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
+                        </span>
                       </div>
 
-                      {/* Broadcast Requirement Text */}
-                      <p className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-white leading-snug break-words mb-2.5">
+                      {/* Line 2: #Category (Orange & First) -> 0.3 km -> 57m remaining */}
+                      <div className="flex items-center gap-1.5 mb-2 flex-wrap">
+                        {/* Category tag FIRST, in ORANGE badge with clear font */}
+                        {(intent.tags && intent.tags.length > 0 ? intent.tags : [intent.category ? `#${intent.category}` : '#General']).map((tag, idx) => (
+                          <span
+                            key={`${intent.id}_tag_${idx}`}
+                            className="text-xs font-black px-2 py-0.5 rounded-md bg-orange-500 text-white shadow-2xs shrink-0"
+                          >
+                            {tag.startsWith('#') ? tag : `#${tag}`}
+                          </span>
+                        ))}
+
+                        <span className="text-[10px] font-black px-1.5 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/80 shrink-0">
+                          {(intent as any).computedKm || intent.distance || 0.5} km
+                        </span>
+
+                        <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300 flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded-md border border-slate-200 dark:border-slate-700 shrink-0">
+                          <Clock className="w-3 h-3 text-amber-500 shrink-0" />
+                          <span>{(intent as any).minsRemaining || 55}m</span>
+                        </span>
+
+                        {intent.hasLocationPin && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shrink-0">
+                            📍 {t('post.pinDropped')}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Line 3: Broadcast Requirement Text - PRIMARY FOCUS with clean breathing room */}
+                      <p className="text-sm sm:text-base font-black text-slate-900 dark:text-white leading-relaxed break-words mt-2.5 mb-3">
                         {intent.description}
                       </p>
 
@@ -2066,79 +2153,82 @@ export default function HomeScreen({
                         </div>
                       )}
 
-                      {/* Tags + Bottom Actions Row */}
-                      <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-                        <div className="flex flex-wrap items-center gap-1">
-                          {(intent.tags || ['#General']).map((tag, idx) => (
-                            <span
-                              key={`${intent.id}_tag_${idx}`}
-                              className="text-[10px] font-extrabold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
-                            >
-                              {tag}
-                            </span>
-                          ))}
-                          {intent.hasLocationPin && (
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                              📍 {t('post.pinDropped')}
-                            </span>
-                          )}
-                        </div>
+                        {/* Action Buttons: WhatsApp & Delete compact, Chat prominent in center */}
+                        {(() => {
+                          const totalResponsesCount = Number((intent as any).responseCount ?? (intent as any).response_count ?? (intent as any).repliers?.length ?? (intent as any).responses?.length ?? 0);
+                          const seenResponsesCount = Number(localStorage.getItem(`locohelp_seen_responses_${intent.id}`) || 0);
+                          const unreadResponsesCount = Math.max(0, totalResponsesCount - seenResponsesCount);
+                          const hasChattedOnThisPost = chattedPostIds.includes(intent.id);
 
-                        {/* Action Buttons: Own Post vs Other User's Post */}
-                        <div className="flex items-center gap-1.5 ml-auto">
-                          {/* WhatsApp Group Share Button */}
-                          <button
-                            type="button"
-                            onClick={(e) => handleSharePostToWhatsAppGroup(intent, e)}
-                            className="px-2.5 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/70 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[11px] font-extrabold flex items-center gap-1 transition-all cursor-pointer active:scale-95"
-                            title="Share Post on WhatsApp"
-                          >
-                            <Share2 className="w-3 h-3 shrink-0" />
-                            <span>WhatsApp</span>
-                          </button>
+                          return isMyOwnPost ? (
+                            /* Owner Controls: Compact WhatsApp & Delete, Large Chat Button in Center */
+                            <div className="w-full flex items-center gap-1.5 mt-2 pt-2 border-t border-slate-100 dark:border-slate-800/80">
+                              <button
+                                type="button"
+                                onClick={(e) => handleSharePostToWhatsAppGroup(intent, e)}
+                                className="h-8 px-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/70 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[10px] font-black flex items-center justify-center gap-1 transition-all cursor-pointer active:scale-95 shrink-0"
+                                title="Share Post on WhatsApp"
+                              >
+                                <Share2 className="w-3 h-3 shrink-0" />
+                                <span>WhatsApp</span>
+                              </button>
 
-                          {isMyOwnPost ? (
-                            /* Owner Controls: View Responses Inbox & Delete (No self-chat button!) */
-                            <>
                               <button
                                 type="button"
                                 onClick={() => {
-                                  setSelectedIntentForResponses(intent);
-                                  setIsResponsesModalOpen(true);
+                                  try {
+                                    localStorage.setItem(`locohelp_seen_responses_${intent.id}`, String(totalResponsesCount));
+                                    setSeenResponsesTick(prev => prev + 1);
+                                  } catch {}
+                                  handleSafeOpenChat(intent);
                                 }}
-                                className="relative px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-black flex items-center gap-1.5 shadow-xs transition-all cursor-pointer active:scale-95"
+                                className="h-9 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black flex-1 flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer active:scale-95 truncate"
+                                title={language === 'EN' ? 'Open Chat' : language === 'GU' ? 'ચેટ ખોલો' : 'चैट खोलें'}
                               >
-                                <MessageSquare className="w-3.5 h-3.5 shrink-0" />
-                                <span>
-                                  {language === 'EN'
-                                    ? 'View Responses'
-                                    : language === 'GU'
-                                    ? 'રિસ્પોન્સ જુઓ'
-                                    : 'रिस्पॉन्स देखें'}
+                                <MessageCircle className="w-3.5 h-3.5 shrink-0" />
+                                <span className="truncate">
+                                  {language === 'EN' ? 'Chat' : language === 'GU' ? 'ચેટ' : 'चैट'}
                                 </span>
-                                <span
-                                  className={`px-1.5 py-0.5 rounded-full text-[10px] font-black leading-none ${
-                                    Number((intent as any).responseCount ?? (intent as any).response_count ?? 0) > 0
-                                      ? 'bg-amber-400 text-slate-950 shadow-2xs animate-pulse'
-                                      : 'bg-indigo-800/80 text-indigo-100'
-                                  }`}
-                                  title="Number of people who messaged on this post"
-                                >
-                                  {Number((intent as any).responseCount ?? (intent as any).response_count ?? 0)}
-                                </span>
+                                {unreadResponsesCount > 0 ? (
+                                  <span
+                                    className="px-1.5 py-0.5 rounded-full text-[9px] font-black leading-none bg-amber-400 text-slate-950 shadow-2xs animate-pulse shrink-0"
+                                    title="New responses"
+                                  >
+                                    {unreadResponsesCount}
+                                  </span>
+                                ) : totalResponsesCount > 0 ? (
+                                  <span
+                                    className="px-1.5 py-0.5 rounded-full text-[9px] font-bold leading-none bg-indigo-800/80 text-indigo-100 shrink-0"
+                                    title="Total responses"
+                                  >
+                                    {totalResponsesCount}
+                                  </span>
+                                ) : null}
                               </button>
+
                               <button
                                 type="button"
                                 onClick={(e) => handleDeletePost(intent.id, e)}
-                                className="px-2.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-extrabold flex items-center gap-1 shadow-2xs transition-all cursor-pointer active:scale-95"
+                                className="h-8 px-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800 text-[10px] font-black flex items-center justify-center gap-1 shadow-2xs transition-all cursor-pointer active:scale-95 shrink-0"
+                                title={t('home.deletePost')}
                               >
                                 <Trash2 className="w-3 h-3 shrink-0" />
                                 <span>{t('home.deletePost')}</span>
                               </button>
-                            </>
+                            </div>
                           ) : (
-                            /* Visitor Controls: Report/Block, View Author Profile & Direct Chat */
-                            <>
+                            /* Visitor Controls: 4-column equal grid */
+                            <div className="w-full grid grid-cols-4 gap-1 sm:gap-1.5 mt-2.5 pt-2 border-t border-slate-100 dark:border-slate-800/80">
+                              <button
+                                type="button"
+                                onClick={(e) => handleSharePostToWhatsAppGroup(intent, e)}
+                                className="h-9 px-1 rounded-xl bg-emerald-50 dark:bg-emerald-950/70 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[10px] sm:text-[11px] font-black flex items-center justify-center gap-1 transition-all cursor-pointer active:scale-95 truncate"
+                                title="Share Post on WhatsApp"
+                              >
+                                <Share2 className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" />
+                                <span className="truncate">WhatsApp</span>
+                              </button>
+
                               <button
                                 type="button"
                                 onClick={(e) => {
@@ -2154,12 +2244,13 @@ export default function HomeScreen({
                                     })
                                   );
                                 }}
-                                className="px-2.5 py-1.5 rounded-xl bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800 text-[11px] font-extrabold flex items-center gap-1 transition-all cursor-pointer active:scale-95"
+                                className="h-9 px-1 rounded-xl bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800 text-[10px] sm:text-[11px] font-black flex items-center justify-center gap-1 transition-all cursor-pointer active:scale-95 truncate"
                                 title={t('rep.reportAndBlockBtn')}
                               >
-                                <ShieldAlert className="w-3 h-3 shrink-0" />
-                                <span>{t('rep.reportAndBlockBtn')}</span>
+                                <ShieldAlert className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" />
+                                <span className="truncate">{tr('Report', 'रिपोर्ट', 'રિપોર્ટ')}</span>
                               </button>
+
                               <button
                                 type="button"
                                 onClick={() =>
@@ -2168,23 +2259,33 @@ export default function HomeScreen({
                                     distance: (intent as any).computedKm || intent.distance || 0.5
                                   })
                                 }
-                                className="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-[11px] font-extrabold flex items-center gap-1 transition-all cursor-pointer active:scale-95"
+                                className="h-9 px-1 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-[10px] sm:text-[11px] font-black flex items-center justify-center gap-1 transition-all cursor-pointer active:scale-95 truncate"
+                                title={t('home.viewProfile')}
                               >
-                                <User className="w-3 h-3 shrink-0" />
-                                <span>{t('home.viewProfile')}</span>
+                                <User className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" />
+                                <span className="truncate">{tr('Profile', 'प्रोफाइल', 'પ્રોફાઇલ')}</span>
                               </button>
+
                               <button
                                 type="button"
                                 onClick={() => handleSafeOpenChat(intent)}
-                                className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-black flex items-center gap-1 shadow-xs transition-all cursor-pointer active:scale-95"
+                                className={`h-9 px-1 rounded-xl text-[10px] sm:text-[11px] font-black flex items-center justify-center gap-1 shadow-xs transition-all cursor-pointer active:scale-95 truncate ${
+                                  hasChattedOnThisPost
+                                    ? 'bg-gradient-to-r from-emerald-600 to-indigo-600 text-white ring-1 ring-emerald-400/40'
+                                    : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                                }`}
+                                title={hasChattedOnThisPost ? 'Continue conversation' : t('home.directChat')}
                               >
-                                <MessageCircle className="w-3.5 h-3.5 shrink-0" />
-                                <span>{t('home.directChat')}</span>
+                                <MessageCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" />
+                                <span className="truncate">
+                                  {hasChattedOnThisPost
+                                    ? tr('Your Chat', 'आपकी चैट', 'તમારી ચેટ')
+                                    : tr('Chat', 'चैट', 'ચેટ')}
+                                </span>
                               </button>
-                            </>
-                          )}
-                        </div>
-                      </div>
+                            </div>
+                          );
+                        })()}
                     </motion.div>
                   );
                 })}
@@ -2530,6 +2631,86 @@ export default function HomeScreen({
             onClose={() => setIsPostSheetOpen(false)}
             onPostCreated={handlePostCreated}
           />
+        )}
+      </AnimatePresence>
+
+      {/* Live Broadcast Post In-Place Chat Modal Popup */}
+      <AnimatePresence>
+        {chatModalIntent && (
+          <div
+            className="fixed inset-x-0 bottom-0 top-[52px] z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-xs p-0 sm:p-4"
+            style={{ position: 'fixed', top: '52px', left: 0, right: 0, bottom: 0, zIndex: 9000 }}
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 30, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 30, scale: 0.98 }}
+              transition={{ duration: 0.2 }}
+              className="w-full max-w-2xl h-full sm:h-[92vh] sm:max-h-[820px] bg-white dark:bg-slate-900 sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-slate-200 dark:border-slate-800"
+            >
+              {/* Modal Mini Navigation Header */}
+              <div className="px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800/90 border-b border-slate-200 dark:border-slate-700/80 flex items-center justify-between gap-2 shrink-0">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="w-7 h-7 rounded-lg bg-indigo-600 text-white flex items-center justify-center text-xs font-black shrink-0">
+                    💬
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-black text-slate-900 dark:text-white truncate">
+                      {(chatModalIntent as any).title || chatModalIntent.category || 'Live Broadcast Chat'}
+                    </p>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+                      {chatModalIntent.authorName || 'Community Member'} • {chatModalIntent.location || 'Local Area'}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const target = chatModalIntent;
+                      setChatModalIntent(null);
+                      onOpenChat(target);
+                    }}
+                    className="p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer text-xs flex items-center gap-1 font-bold"
+                    title={tr('Expand Fullscreen', 'फुल स्क्रीन करें', 'ફુલ સ્ક્રીન કરો')}
+                  >
+                    <span>⛶</span>
+                    <span className="hidden sm:inline text-[11px]">{tr('Full Screen', 'फुल स्क्रीन', 'ફુલ સ્ક્રીન')}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setChatModalIntent(null)}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer"
+                    title={tr('Close Chat', 'चैट बंद करें', 'ચેટ બંધ કરો')}
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Chat Screen Component Container */}
+              <div className="flex-1 min-h-0 relative overflow-hidden flex flex-col">
+                <ChatScreen
+                  intent={chatModalIntent}
+                  isModal={true}
+                  onBack={() => setChatModalIntent(null)}
+                  onReport={() => {
+                    setChatModalIntent(null);
+                    window.dispatchEvent(
+                      new CustomEvent('locohelp_open_report_modal', {
+                        detail: {
+                          reportedUserId: chatModalIntent.authorId || (chatModalIntent as any).user_id || '',
+                          reportedUserName: chatModalIntent.authorName || (chatModalIntent as any).author_name || 'Community Member',
+                          reportedPostId: chatModalIntent.id,
+                          reportedPostTitle: chatModalIntent.description
+                        }
+                      })
+                    );
+                  }}
+                />
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
 
