@@ -10,4 +10,5 @@ data/*.json
 data/*.enc
 bun.lock
 bun.lockb
+package-lock.json
 
