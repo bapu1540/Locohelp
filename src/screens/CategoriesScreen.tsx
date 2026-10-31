@@ -265,6 +265,7 @@ function getMainCategoryPalette(id: string): CategoryColorPalette {
         subIconBg: '#E0E7FF',
         subIconColor: '#4F46E5',
       };
+    case 'cctv_mobile':
     case 'business_staff':
       return {
         mainBg: 'linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%)',
@@ -278,6 +279,20 @@ function getMainCategoryPalette(id: string): CategoryColorPalette {
         subBorder: '#BFDBFE',
         subIconBg: '#DBEAFE',
         subIconColor: '#2563EB',
+      };
+    case 'hospital_medical':
+      return {
+        mainBg: 'linear-gradient(135deg, #FEF2F2 0%, #FEE2E2 100%)',
+        mainBorder: '#FCA5A5',
+        iconBg: '#DC2626',
+        textColor: '#7F1D1D',
+        badgeBg: '#FFFFFF',
+        badgeText: '#B91C1C',
+        badgeBorder: '#FCA5A5',
+        subBg: '#FEF2F2',
+        subBorder: '#FECACA',
+        subIconBg: '#FEE2E2',
+        subIconColor: '#DC2626',
       };
     case 'brokers_agents':
       return {
@@ -306,6 +321,20 @@ function getMainCategoryPalette(id: string): CategoryColorPalette {
         subBorder: '#FED7AA',
         subIconBg: '#FFEDD5',
         subIconColor: '#EA580C',
+      };
+    case 'tempo_transport':
+      return {
+        mainBg: 'linear-gradient(135deg, #FEFCE8 0%, #FEF08A 100%)',
+        mainBorder: '#FDE047',
+        iconBg: '#B45309',
+        textColor: '#713F12',
+        badgeBg: '#FFFFFF',
+        badgeText: '#A16207',
+        badgeBorder: '#FDE047',
+        subBg: '#FEFCE8',
+        subBorder: '#FEF08A',
+        subIconBg: '#FEF9C3',
+        subIconColor: '#B45309',
       };
     case 'education_classes':
       return {
@@ -1010,41 +1039,59 @@ export default function CategoriesScreen({
           </div>
 
           {filteredHelpers.length === 0 ? (
-            <div className="bg-white dark:bg-slate-800/90 rounded-2xl p-6 text-center border border-slate-200/80 dark:border-slate-700/80">
-              <p className="text-sm font-bold text-slate-700 dark:text-slate-200 mb-1">
+            <div className="bg-gradient-to-br from-orange-50/90 via-white to-amber-50/70 dark:from-slate-800/95 dark:via-slate-800 dark:to-slate-800/90 rounded-2xl p-6 text-center border border-orange-200/80 dark:border-slate-700/80 shadow-xs">
+              <div className="w-12 h-12 rounded-2xl bg-orange-100 dark:bg-orange-950/50 text-orange-600 dark:text-orange-400 flex items-center justify-center mx-auto mb-3 text-xl shadow-2xs">
+                🚀
+              </div>
+              <p className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white mb-2">
                 {tr(
-                  'No service experts found in this category yet',
-                  'इस श्रेणी में अभी कोई एक्सपर्ट रजिस्टर्ड नहीं है',
-                  'આ કેટેગરીમાં હજુ કોઈ એક્સપર્ટ રજિસ્ટર્ડ નથી'
+                  'Verified Local Service Experts Joining Soon!',
+                  'आपके एरिया के वेरिफाइड सर्विस एक्सपर्ट्स जल्द जुड़ रहे हैं!',
+                  'તમારા વિસ્તારના વેરિફાઇડ સર્વિસ એક્સપર્ટ્સ ટૂંક સમયમાં જોડાઈ રહ્યા છે!'
                 )}
               </p>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+              <p className="text-xs sm:text-[13px] leading-relaxed text-slate-600 dark:text-slate-300 max-w-xl mx-auto mb-4">
                 {tr(
-                  'Do you provide this service? Register your profile for FREE!',
-                  'क्या आप यह सेवा देते हैं? अभी मुफ्त में अपनी प्रोफाइल बनाएं!',
-                  'શું તમે આ સેવા આપો છો? અત્યારે જ મફતમાં તમારી પ્રોફાઇલ બનાવો!'
+                  "Onboarding of verified local experts in this category is currently underway. If you have an urgent requirement right now, click 'Create Post' on the Home page, or if you provide this service yourself, register your free profile below!",
+                  "इस कैटेगरी में लोकल कारीगरों और एक्सपर्ट्स को जोड़ने का काम चालू है। अगर आपको अभी तुरंत काम है तो आप होम पेज पर 'पोस्ट बनाएं' पर क्लिक करके अपनी ज़रूरत डाल सकते हैं, या अगर आप खुद यह काम करते हैं तो नीचे बटन दबाकर मुफ्त में अपनी प्रोफाइल जोड़ें!",
+                  "આ કેટેગરીમાં લોકલ કારીગરો અને એક્સપર્ટ્સને જોડવાનું કામ ચાલુ છે. જો તમારે અત્યારે તાત્કાલિક કામ હોય તો હોમ પેજ પર 'પોસ્ટ બનાવો' પર ક્લિક કરીને તમારી જરૂરિયાત મૂકી શકો છો, અથવા જો તમે પોતે આ કામ કરો છો તો નીચે બટન દબાવીને મફતમાં તમારી પ્રોફાઇલ જોડો!"
                 )}
               </p>
-              <button
-                type="button"
-                onClick={() => {
-                  if (isGuestUser()) {
-                    setIsLoginPromptOpen(true);
-                    return;
-                  }
-                  setIsRegisterModalOpen(true);
-                }}
-                style={{
-                  background: 'linear-gradient(135deg, #FF6600 0%, #E03E00 100%)',
-                }}
-                className="px-4 py-2 rounded-xl text-white text-xs font-bold shadow-sm cursor-pointer"
-              >
-                {tr(
-                  '+ Register as Expert (Free)',
-                  '+ फ्री एक्सपर्ट प्रोफाइल बनाएं',
-                  '+ ફ્રી એક્સપર્ટ પ્રોફાઇલ બનાવો'
+              <div className="flex flex-wrap items-center justify-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isGuestUser()) {
+                      setIsLoginPromptOpen(true);
+                      return;
+                    }
+                    setIsRegisterModalOpen(true);
+                  }}
+                  style={{
+                    background: 'linear-gradient(135deg, #FF6600 0%, #E03E00 100%)',
+                  }}
+                  className="px-4 py-2.5 rounded-xl text-white text-xs font-extrabold shadow-sm cursor-pointer hover:brightness-105 transition-all"
+                >
+                  {tr(
+                    '+ Register as Expert (Free)',
+                    '+ फ्री एक्सपर्ट प्रोफाइल बनाएं',
+                    '+ ફ્રી એક્સપર્ટ પ્રોફાઇલ બનાવો'
+                  )}
+                </button>
+                {onBack && (
+                  <button
+                    type="button"
+                    onClick={onBack}
+                    className="px-4 py-2.5 rounded-xl bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-xs font-bold cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-600 transition-all"
+                  >
+                    {tr(
+                      '← Back to Home',
+                      '← होम पेज पर जाएं',
+                      '← હોમ પેજ પર જાઓ'
+                    )}
+                  </button>
                 )}
-              </button>
+              </div>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">

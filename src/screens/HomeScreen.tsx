@@ -27,6 +27,7 @@ import { requestAndRegisterFcmToken, subscribeToForegroundPushMessages } from '.
 import InstallAppModal from '../components/InstallAppModal';
 import RedWarningTicker from '../components/RedWarningTicker';
 import PublicSuggestionsBanner from '../components/PublicSuggestionsBanner';
+import HomeCategoryGrid from '../components/HomeCategoryGrid';
 
 interface HomeScreenProps {
   onNavigate: (screen: Screen) => void;
@@ -1928,11 +1929,10 @@ export default function HomeScreen({
             </div>
           </div>
 
-          {/* 3. Browse Service Experts Banner (Blue #0066FF) */}
-          <div 
-            onClick={() => onNavigate('categories')}
+          {/* 3. Browse Service Experts Heading Banner (Blue #0066FF - Non-clickable heading) */}
+          <div
             style={{ background: 'linear-gradient(135deg, #0066FF 0%, #0044CC 100%)' }}
-            className="w-full rounded-2xl p-3.5 text-white shadow-lg shadow-blue-500/25 cursor-pointer active:scale-[0.98] transition-all border-2 border-blue-300 dark:border-blue-400 hover:brightness-105 flex items-center justify-between gap-3"
+            className="w-full rounded-2xl p-3.5 text-white shadow-lg shadow-blue-500/25 cursor-default select-none border-2 border-blue-300 dark:border-blue-400 flex items-center justify-between gap-3"
           >
             <div className="flex items-center gap-2.5">
               <span className="text-xl shrink-0">🔍</span>
@@ -1941,9 +1941,15 @@ export default function HomeScreen({
               </span>
             </div>
             <div className="w-8 h-8 rounded-xl bg-white text-slate-900 flex items-center justify-center shrink-0 shadow-xs">
-              <ChevronRight className="w-5 h-5 stroke-[2.5] text-slate-900" />
+              <ChevronDown className="w-5 h-5 stroke-[2.5] text-blue-700" />
             </div>
           </div>
+
+          {/* 3B. 10 Main Categories Grid + Sub-Categories Popup Modal */}
+          <HomeCategoryGrid
+            onNavigate={onNavigate}
+            onSelectCategory={onSelectCategory}
+          />
 
           {/* 4. Business & Shop Register Banner (Vibrant Purple Theme) */}
           <div

@@ -1,0 +1,428 @@
+<!-- =====================================================
+  LocoHelp: Category Grid (square icons)
+  Isko "Browse Service Experts" button ke theek NICHE paste karein.
+  Poori file ka <style>, <section>, popup aur <script> copy karein.
+  3 bhasha: English / Hindi / Gujarati (neeche SETUP section dekhein).
+====================================================== -->
+
+<style>
+  .lh-cats { padding: 4px 0 8px; }
+
+  .lh-cats-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);   /* desktop: 5 x 2 */
+    gap: 12px;
+  }
+  @media (max-width: 900px) { .lh-cats-grid { grid-template-columns: repeat(4, 1fr); } }
+  @media (max-width: 640px) { .lh-cats-grid { grid-template-columns: repeat(3, 1fr); gap: 10px; } }
+  @media (max-width: 380px) { .lh-cats-grid { grid-template-columns: repeat(2, 1fr); } }
+
+  .lh-cat {
+    position: relative;
+    aspect-ratio: 1 / 1;                      /* square */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 10px 8px;
+    border-radius: 18px;
+    border: 1px solid var(--bd);
+    background: var(--bg);
+    color: var(--tx);
+    text-decoration: none;
+    cursor: pointer;
+    font-family: inherit;
+    transition: transform .15s ease, box-shadow .15s ease;
+  }
+  .lh-cat:hover { transform: translateY(-2px); box-shadow: 0 8px 18px -8px var(--bd); }
+  .lh-cat:active { transform: scale(.97); }
+  .lh-cat:focus-visible { outline: 3px solid var(--ic); outline-offset: 2px; }
+
+  .lh-cat-icon {
+    width: 46px; height: 46px;
+    border-radius: 14px;
+    background: var(--ic);
+    display: grid; place-items: center;
+  }
+  .lh-cat-icon svg {
+    width: 24px; height: 24px;
+    stroke: #fff; fill: none;
+    stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+  }
+
+  .lh-cat-name {
+    font-size: 12.5px;
+    font-weight: 800;
+    line-height: 1.25;
+    text-align: center;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  /* count badge (0) - upar right corner */
+  .lh-cat-count {
+    position: absolute; top: 8px; right: 8px;
+    min-width: 22px; padding: 1px 6px;
+    border-radius: 999px;
+    background: #fff;
+    border: 1px solid var(--bd);
+    font-size: 11px; font-weight: 800;
+    text-align: center;
+  }
+
+  /* colours (aapke category page jaise) */
+  .c-home    { --ic:#059669; --bg:linear-gradient(135deg,#ecfdf5,#d1fae5); --bd:#6ee7b7; --tx:#064e3b; }
+  .c-care    { --ic:#db2777; --bg:linear-gradient(135deg,#fdf2f8,#fce7f3); --bd:#f9a8d4; --tx:#831843; }
+  .c-it      { --ic:#4f46e5; --bg:linear-gradient(135deg,#eef2ff,#e0e7ff); --bd:#a5b4fc; --tx:#312e81; }
+  .c-biz     { --ic:#2563eb; --bg:linear-gradient(135deg,#eff6ff,#dbeafe); --bd:#93c5fd; --tx:#1e3a8a; }
+  .c-broker  { --ic:#0891b2; --bg:linear-gradient(135deg,#ecfeff,#cffafe); --bd:#67e8f9; --tx:#164e63; }
+  .c-vehicle { --ic:#ea580c; --bg:linear-gradient(135deg,#fff7ed,#ffedd5); --bd:#fdba74; --tx:#7c2d12; }
+  .c-edu     { --ic:#7c3aed; --bg:linear-gradient(135deg,#f5f3ff,#ede9fe); --bd:#c4b5fd; --tx:#4c1d95; }
+  .c-sports  { --ic:#d97706; --bg:linear-gradient(135deg,#fffbeb,#fef3c7); --bd:#fcd34d; --tx:#78350f; }
+  .c-social  { --ic:#e11d48; --bg:linear-gradient(135deg,#fff1f2,#ffe4e6); --bd:#fda4af; --tx:#881337; }
+  .c-other   { --ic:#0d9488; --bg:linear-gradient(135deg,#f0fdfa,#ccfbf1); --bd:#5eead4; --tx:#134e4a; }
+
+  /* ---------- Popup (modal) ---------- */
+  .lh-modal {
+    position: fixed; inset: 0; z-index: 9999;
+    display: none; align-items: center; justify-content: center;
+    padding: 16px;
+    background: rgba(15, 23, 42, .55);
+  }
+  .lh-modal.open { display: flex; }
+
+  .lh-modal-panel {
+    width: 100%; max-width: 720px; max-height: 88vh;
+    display: flex; flex-direction: column;
+    background: #fff; border-radius: 22px;
+    border: 1px solid var(--bd);
+    box-shadow: 0 24px 60px -20px rgba(0,0,0,.45);
+    overflow: hidden;
+    animation: lhPop .18s ease-out;
+  }
+  @keyframes lhPop { from { transform: translateY(14px); opacity: 0; } to { transform: none; opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { .lh-modal-panel { animation: none; } }
+
+  .lh-modal-head {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 16px;
+    background: var(--bg); color: var(--tx);
+    border-bottom: 1px solid var(--bd);
+  }
+  .lh-modal-head .lh-cat-icon { flex: none; }
+  .lh-modal-title { flex: 1; font-size: 16px; font-weight: 800; line-height: 1.25; margin: 0; }
+  .lh-modal-close {
+    flex: none; width: 36px; height: 36px; border-radius: 12px;
+    border: 1px solid var(--bd); background: #fff; color: var(--tx);
+    display: grid; place-items: center; cursor: pointer;
+  }
+  .lh-modal-close:focus-visible { outline: 3px solid var(--ic); outline-offset: 2px; }
+  .lh-modal-close svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2.4; stroke-linecap: round; }
+
+  .lh-sub-list {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+    padding: 14px 16px 18px; overflow-y: auto;
+    background: #fff;
+  }
+  @media (max-width: 560px) {
+    .lh-modal { align-items: flex-end; padding: 0; }
+    .lh-modal-panel { max-width: none; border-radius: 22px 22px 0 0; max-height: 85vh; }
+    .lh-sub-list { grid-template-columns: 1fr; }
+  }
+
+  .lh-sub {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px; border-radius: 14px;
+    border: 1px solid var(--bd); background: var(--bg); color: var(--tx);
+    font: inherit; font-size: 13px; font-weight: 700; text-align: left;
+    cursor: pointer; transition: transform .12s ease;
+  }
+  .lh-sub:hover { transform: translateY(-1px); }
+  .lh-sub:focus-visible { outline: 3px solid var(--ic); outline-offset: 2px; }
+  .lh-sub-ic {
+    flex: none; width: 32px; height: 32px; border-radius: 10px;
+    background: #fff; border: 1px solid var(--bd);
+    display: grid; place-items: center;
+  }
+  .lh-sub-ic svg { width: 17px; height: 17px; stroke: var(--ic); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .lh-sub-name { flex: 1; line-height: 1.25; }
+  .lh-sub .lh-cat-count { position: static; }
+  .lh-sub-arrow { flex: none; width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+</style>
+
+<section class="lh-cats" aria-label="Service categories">
+  <div class="lh-cats-grid" id="lhGrid"></div>
+</section>
+
+<!-- Popup: JS isi ko bharta hai -->
+<div class="lh-modal" id="lhModal" aria-hidden="true">
+  <div class="lh-modal-panel" role="dialog" aria-modal="true" aria-labelledby="lhModalTitle" id="lhPanel">
+    <div class="lh-modal-head">
+      <span class="lh-cat-icon" id="lhModalIcon"></span>
+      <h2 class="lh-modal-title" id="lhModalTitle"></h2>
+      <button type="button" class="lh-modal-close" id="lhModalClose" aria-label="Close">
+        <svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+      </button>
+    </div>
+    <div class="lh-sub-list" id="lhSubList"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  /* =====================================================
+     SETUP 1: Bhasha kaise pata chale
+     Neeche getLang() in jagah dekhta hai (is order me):
+       1. window.currentLang
+       2. localStorage ki keys: lang, language, selectedLanguage, locohelp_lang, i18nextLng
+       3. <html lang="...">
+     Agar aapki website alag jagah bhasha rakhti hai, to sirf getLang() badal dein.
+     Bhasha badalne par categories apne aap badal jaati hain (har 0.4 sec check hota hai),
+     ya seedha ye chala sakte hain:  LocoCategories.setLang('hi')   // 'en' | 'hi' | 'gu'
+     ===================================================== */
+  var LANG_KEYS = ['lang', 'language', 'selectedLanguage', 'locohelp_lang', 'i18nextLng'];
+
+  function normalize(v) {
+    v = String(v || '').toLowerCase();
+    if (v.indexOf('hi') === 0 || v.indexOf('hindi') > -1 || v.indexOf('हिं') > -1) return 'hi';
+    if (v.indexOf('gu') === 0 || v.indexOf('gujarati') > -1 || v.indexOf('ગુજ') > -1) return 'gu';
+    return 'en';
+  }
+  function getLang() {
+    if (window.currentLang) return normalize(window.currentLang);
+    try {
+      for (var i = 0; i < LANG_KEYS.length; i++) {
+        var v = localStorage.getItem(LANG_KEYS[i]);
+        if (v) return normalize(v);
+      }
+    } catch (e) {}
+    return normalize(document.documentElement.lang);
+  }
+
+  /* =====================================================
+     SETUP 2: Categories (har naam: [English, Hindi, Gujarati])
+     ===================================================== */
+  var CATS = [
+    { key:'home', cls:'c-home',
+      icon:'<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+      name:['Home & Repair Services','घर और रिपेयर सर्विस','ઘર અને રિપેરિંગ સેવાઓ'],
+      subs:[
+        ['Plumber','प्लंबर (नल और पाइप रिपेयर)','નળ અને પાઇપ રિપેર'],
+        ['Electrician','इलेक्ट्रीशियन (बिजली रिपेयर)','વીજળી રિપેર'],
+        ['AC, Fridge & RO Repair','AC, फ्रिज और RO रिपेयर','AC, ફ્રિજ અને RO રિપેર'],
+        ['Carpenter / Suthar','बढ़ई / कारपेंटर (फर्नीचर)','સુથાર / કાર્પેન્ટર - ફર્નિચર'],
+        ['Painter','पेंटर (रंगाई / POP)','પેઇન્ટર - કલરકામ / POP'],
+        ['Mason / Kadiyo','राजमिस्त्री / मिस्त्री (निर्माण)','કડિયો / મિસ્ત્રી - બાંધકામ'],
+        ['Cleaning, Maid & Cook','घर की सफाई, कामवाली और रसोइया','ઘરની સફાઈ, કામવાળા અને રસોઈયા'],
+        ['Pest Control & Tank Cleaning','पेस्ट कंट्रोल और पानी की टंकी सफाई','પેસ્ટ કંટ્રોલ અને પાણીની ટાંકી સફાઈ']
+      ]},
+    { key:'care', cls:'c-care',
+      icon:'<circle cx="6" cy="6" r="3"/><path d="M8.12 8.12 12 12"/><path d="M20 4 8.12 15.88"/><circle cx="6" cy="18" r="3"/><path d="M14.8 14.8 20 20"/>',
+      name:['Personal Care, Fashion & Events','पर्सनल केयर, दर्जी और इवेंट','પર્સનલ કેર, દરજી અને ઇવેન્ટ'],
+      subs:[
+        ['Tailor / Darzi & Boutique','दर्जी और बुटीक','દરજી અને બુટિક'],
+        ['Beautician & Salon at Home','ब्यूटीशियन और होम सैलून','બ્યુટિશિયન અને હોમ સલૂન'],
+        ['Mehendi Artist','मेहंदी आर्टिस्ट','મહેંદી આર્ટિસ્ટ'],
+        ['Pandit Ji / Pooja Path','पंडित जी / पूजा-पाठ और ज्योतिष','પંડિતજી / પૂજા-પાઠ અને જ્યોતિષ'],
+        ['Photographer & Videographer','फोटोग्राफर और वीडियोग्राफर','ફોટોગ્રાફર અને વીડિયોગ્રાફર'],
+        ['Catering, Halwai & Event Helper','केटरिंग, हलवाई और इवेंट हेल्पर','કેટરિંગ, હલવાઈ અને ઇવેન્ટ હેલ્પર']
+      ]},
+    { key:'it', cls:'c-it',
+      icon:'<path d="m16 18 6-6-6-6"/><path d="m8 6-6 6 6 6"/>',
+      name:['IT, Tech & Digital Experts','कंप्यूटर, आईटी और डिजिटल एक्सपर्ट','કમ્પ્યુટર, આઈટી અને ડિજિટલ એક્સપર્ટ'],
+      subs:[
+        ['Web Developer','वेबसाइट डेवलपर','વેબસાઇટ ડેવલપર'],
+        ['App Developer','मोबाइल ऐप डेवलपर','મોબાઇલ એપ ડેવલપર'],
+        ['Computer & Laptop Expert','कंप्यूटर और लैपटॉप रिपेयर','કમ્પ્યુટર અને લેપટોપ રિપેર'],
+        ['CCTV & Wi-Fi Technician','CCTV कैमरा और वाई-फाई टेक्नीशियन','CCTV કેમેરા અને વાઈ-ફાઈ ટેકનિશિયન'],
+        ['Graphic Designer & Video Editor','ग्राफिक डिज़ाइनर और रील्स/वीडियो एडिटर','ગ્રાફિક ડિઝાઇનર અને રીલ્સ/વીડિયો એડિટર'],
+        ['Digital Marketing & Social Media','डिजिटल मार्केटिंग, गूगल/इंस्टाग्राम एड्स','ડિજિટલ માર્કેટિંગ, ગૂગલ/ઇન્સ્ટાગ્રામ એડ્સ'],
+        ['Mobile Repair Technician','मोबाइल स्क्रीन और पार्ट्स रिपेयर','મોબાઇલ સ્ક્રીન અને પાર્ટ્સ રિપેર']
+      ]},
+    { key:'biz', cls:'c-biz',
+      icon:'<path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/><rect width="20" height="14" x="2" y="6" rx="2"/>',
+      name:['Business, Sales & Staff','बिजनेस, सेल्स और स्टाफ','બિઝનેસ, સેલ્સ અને સ્ટાફ'],
+      subs:[
+        ['Salesman / Salesgirl','सेल्समैन / सेल्सगर्ल (दुकान और फील्ड)','સેલ્સમેન / સેલ્સગર્લ - દુકાન અને ફિલ્ડ'],
+        ['Shop Helper / Store Staff','दुकान हेल्पर / स्टोर पैकिंग स्टाफ','દુકાન હેલ્પર / સ્ટોર પેકિંગ સ્ટાફ'],
+        ['Accountant & GST/Tax Expert','अकाउंटेंट, टैली और GST/टैक्स एक्सपर्ट','એકાઉન્ટન્ટ, ટેલી અને GST/ટેક્સ એક્સપર્ટ'],
+        ['Data Entry & Back Office','डेटा एंट्री, एक्सेल और कंप्यूटर ऑपरेटर','ડેટા એન્ટ્રી, એક્સેલ અને કમ્પ્યુટર ઓપરેટર'],
+        ['Security Guard / Watchman','सिक्योरिटी गार्ड / सोसायटी वॉचमैन','સિક્યુરિટી ગાર્ડ / સોસાયટી વોચમેન'],
+        ['Receptionist & Telecaller','रिसेप्शनिस्ट और कॉलिंग एग्जीक्यूटिव','રિસેપ્શનિસ્ટ અને કોલિંગ એક્ઝિક્યુટિવ']
+      ]},
+    { key:'broker', cls:'c-broker',
+      icon:'<path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/>',
+      name:['Brokers, Agents & Consultants','ब्रोकर, एजेंट और सलाहकार','બ્રોકર, એજન્ટ અને સલાહકાર'],
+      subs:[
+        ['Real Estate / Property Broker','मकान, दुकान, फ्लैट किराये या बिक्री','મકાન, દુકાન, ફ્લેટ ભાડે કે વેચાણ'],
+        ['Vehicle Broker / Agent','पुरानी कार, बाइक खरीद-बिक्री एजेंट','જૂની કાર, બાઇક ખરીદ-વેચાણ એજન્ટ'],
+        ['RTO & License Agent','ड्राइविंग लाइसेंस, RC ट्रांसफर और बीमा','ડ્રાઇવિંગ લાઇસન્સ, RC ટ્રાન્સફર અને વીમો'],
+        ['Loan & Insurance Agent','होम/पर्सनल लोन, LIC और मेडिक्लेम','હોમ/પર્સનલ લોન, LIC અને મેડિક્લેમ'],
+        ['Legal & Documentation Help','किराया करार, नोटरी, पैन/आधार और सरकारी दस्तावेज़','ભાડા કરાર, નોટરી, પાન/આધાર અને સરકારી દસ્તાવેજ']
+      ]},
+    { key:'vehicle', cls:'c-vehicle',
+      icon:'<path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/>',
+      name:['Vehicle, Transport & Delivery','गाड़ी, ट्रांसपोर्ट और डिलीवरी','વાહન, ટ્રાન્સપોર્ટ અને ડિલિવરી'],
+      subs:[
+        ['Mechanic & Puncture Repair','मैकेनिक और पंचर रिपेयर','મિકેનિક અને પંચર રિપેર'],
+        ['Cab, Auto & Private Driver','कैब, ऑटो और प्राइवेट ड्राइवर','કેબ, રિક્ષા અને પ્રાઇવેટ ડ્રાઇવર'],
+        ['Tempo & Packers/Movers','छोटा हाथी टेम्पो और घर शिफ्टिंग','છોટા હાથી ટેમ્પો અને ઘર શિફ્ટિંગ'],
+        ['Delivery & Errands','लोकल डिलीवरी और बाज़ार से सामान लाना','લોકલ ડિલિવરી અને બજારમાંથી સામાન લાવવો']
+      ]},
+    { key:'edu', cls:'c-edu',
+      icon:'<path d="M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z"/><path d="M22 10v6"/><path d="M6 12.5V16a6 3 0 0 0 12 0v-3.5"/>',
+      name:['Education & Skill Classes','शिक्षा और कोचिंग क्लासेस','શિક્ષણ અને કોચિંગ ક્લાસીસ'],
+      subs:[
+        ['Tuition & School Teacher','होम ट्यूटर और स्कूल शिक्षक','હોમ ટ્યુટર અને સ્કૂલ શિક્ષક'],
+        ['Project & Study Help','प्रोजेक्ट, असाइनमेंट और पढ़ाई में मदद','પ્રોજેક્ટ, અસાઇનમેન્ટ અને અભ્યાસમાં મદદ'],
+        ['Computer & Spoken English Classes','कंप्यूटर और स्पोकन इंग्लिश','કમ્પ્યુટર અને સ્પોકન ઇંગ્લિશ'],
+        ['Music, Dance & Art Teacher','संगीत, गरबा/डांस और ड्राइंग शिक्षक','સંગીત, ગરબા/ડાન્સ અને ડ્રોઇંગ શિક્ષક']
+      ]},
+    { key:'sports', cls:'c-sports',
+      icon:'<path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/>',
+      name:['Sports & Fitness Partners','स्पोर्ट्स और फिटनेस साथी','સ્પોર્ટ્સ અને ફિટનેસ સાથી'],
+      subs:[
+        ['Cricket Partner & Team','बॉक्स क्रिकेट और टीम प्लेयर्स','બોક્સ ક્રિકેટ અને ટીમ પ્લેયર્સ'],
+        ['Badminton & Tennis Partner','बैडमिंटन और टेनिस साथी','બેડમિન્ટન અને ટેનિસ સાથી'],
+        ['Gym & Workout Buddy','जिम और वर्कआउट पार्टनर','જિમ અને વર્કઆઉટ પાર્ટનર'],
+        ['Running, Cycling & Yoga Partner','मॉर्निंग रनिंग, साइकिलिंग और योगा साथी','મોર્નિંગ રનિંગ, સાયકલિંગ અને યોગા સાથી']
+      ]},
+    { key:'social', cls:'c-social',
+      icon:'<path d="M10 2v2"/><path d="M14 2v2"/><path d="M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h14a4 4 0 1 1 0 8h-1"/><path d="M6 2v2"/>',
+      name:['Social, Lifestyle & Care','सोशल, लाइफस्टाइल और देखभाल','સોશિયલ, લાઈફસ્ટાઈલ અને સંભાળ'],
+      subs:[
+        ['Tea-Coffee Meetup','चाय-कॉफी मुलाकात और बातचीत','ચા-કોફી મુલાકાત અને વાતચીત'],
+        ['Evening Walk Partner','शाम की सैर और घूमने का साथी','સાંજની વોક અને ફરવાનો સાથી'],
+        ['Chess & Board Games','शतरंज, कैरम, लूडो साथी','ચેસ, કેરમ, લુડો સાથી'],
+        ['Elder Care & Companion','बुजुर्गों की मदद, दवा और देखभाल','વડીલોની મદદ, દવા અને સંભાળ'],
+        ['Pet Walk & Care','पेट वॉकिंग और डॉग केयर','પેટ વૉકિંગ અને ડૉગ કેર']
+      ]},
+    { key:'other', cls:'c-other',
+      icon:'<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/>',
+      name:['Other / Custom Category','अन्य / कस्टम श्रेणी','અન્ય / કસ્ટમ કેટેગરી'],
+      subs:[
+        ['Other / Custom Category','कोई भी अन्य लोकल हुनर या आपकी ज़रूरत','કોઈપણ અન્ય લોકલ હુનર કે તમારી જરૂરિયાત']
+      ]}
+  ];
+
+  /* ===== neeche ka code badalne ki zaroorat nahi ===== */
+  var IDX = { en: 0, hi: 1, gu: 2 };
+  var CHEVRON = '<svg class="lh-sub-arrow" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>';
+  var DOT_ICON = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="9"/></svg>';
+
+  var grid = document.getElementById('lhGrid');
+  var modal = document.getElementById('lhModal');
+  var panel = document.getElementById('lhPanel');
+  var list  = document.getElementById('lhSubList');
+  var title = document.getElementById('lhModalTitle');
+  var icon  = document.getElementById('lhModalIcon');
+  var closeBtn = document.getElementById('lhModalClose');
+
+  var lang = getLang();
+  var openKey = null;
+
+  function esc(t) { var d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
+  function svg(inner) { return '<svg viewBox="0 0 24 24">' + inner + '</svg>'; }
+  function find(key) { return CATS.filter(function (c) { return c.key === key; })[0]; }
+
+  function renderGrid() {
+    var i = IDX[lang];
+    grid.innerHTML = CATS.map(function (c) {
+      return '<a class="lh-cat ' + c.cls + '" href="#" data-cat="' + c.key + '">' +
+               '<span class="lh-cat-count" data-count="' + c.key + '">0</span>' +
+               '<span class="lh-cat-icon">' + svg(c.icon) + '</span>' +
+               '<span class="lh-cat-name">' + esc(c.name[i]) + '</span>' +
+             '</a>';
+    }).join('');
+  }
+
+  function renderModal() {
+    var c = find(openKey), i = IDX[lang];
+    if (!c) return;
+    title.textContent = c.name[i];
+    icon.innerHTML = svg(c.icon);
+    list.innerHTML = c.subs.map(function (s, n) {
+      return '<button type="button" class="lh-sub" data-cat="' + c.key + '" data-index="' + n + '">' +
+               '<span class="lh-sub-ic">' + DOT_ICON + '</span>' +
+               '<span class="lh-sub-name">' + esc(s[i]) + '</span>' +
+               '<span class="lh-cat-count">0</span>' + CHEVRON +
+             '</button>';
+    }).join('');
+  }
+
+  function openModal(key) {
+    var c = find(key);
+    if (!c) return;
+    openKey = key;
+    panel.className = 'lh-modal-panel ' + c.cls;
+    renderModal();
+    modal.classList.add('open');
+    modal.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+    closeBtn.focus();
+  }
+
+  function closeModal() {
+    modal.classList.remove('open');
+    modal.setAttribute('aria-hidden', 'true');
+    document.body.style.overflow = '';
+    var card = openKey && grid.querySelector('[data-cat="' + openKey + '"]');
+    if (card) card.focus();
+    openKey = null;
+  }
+
+  function setLang(code) {
+    code = normalize(code);
+    if (code === lang) return;
+    lang = code;
+    renderGrid();
+    if (openKey) renderModal();
+  }
+
+  // card click -> popup
+  grid.addEventListener('click', function (e) {
+    var card = e.target.closest('.lh-cat');
+    if (!card) return;
+    e.preventDefault();
+    openModal(card.dataset.cat);
+  });
+
+  // subcategory click
+  list.addEventListener('click', function (e) {
+    var btn = e.target.closest('.lh-sub');
+    if (!btn) return;
+    var c = find(btn.dataset.cat);
+    var s = c.subs[Number(btn.dataset.index)];
+    // TODO: yahan apna function lagayein, jaise: openExperts(c.key, s[0]);
+    // s[0] = English naam (database/filter ke liye best), s[IDX[lang]] = dikhne wala naam
+    console.log('Subcategory clicked:', c.key, '>', s[0]);
+    // closeModal();   // agar click ke baad popup band karna ho
+  });
+
+  closeBtn.addEventListener('click', closeModal);
+  modal.addEventListener('click', function (e) { if (e.target === modal) closeModal(); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && modal.classList.contains('open')) closeModal();
+  });
+
+  // bhasha badalne par categories bhi badlein
+  setInterval(function () { setLang(getLang()); }, 400);
+  window.addEventListener('storage', function () { setLang(getLang()); });
+
+  renderGrid();
+
+  // bahar se istemaal ke liye
+  window.LocoCategories = {
+    setLang: setLang,
+    setCount: function (key, n, subIndex) {
+      var el = (subIndex == null)
+        ? grid.querySelector('[data-count="' + key + '"]')
+        : list.querySelectorAll('.lh-sub .lh-cat-count')[subIndex];
+      if (el) el.textContent = n;
+    }
+  };
+})();
+</script>
