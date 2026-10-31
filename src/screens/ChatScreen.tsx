@@ -43,14 +43,38 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false }
   const currentUser = getCurrentUser();
 
   const loadAllChats = async () => {
-    if (!currentUser || isGuestUser()) {
+    const activeUser = getCurrentUser();
+    if (!activeUser || isGuestUser()) {
       setAllUserConversations([]);
       return;
     }
     setIsLoadingAllChats(true);
     try {
-      const list = await fetchPostConversations({ userId: currentUser.uid, userEmail: currentUser.email });
-      setAllUserConversations(Array.isArray(list) ? list : []);
+      const list = await fetchPostConversations({ userId: activeUser.uid, userEmail: activeUser.email });
+      const dedupedMap = new Map<string, any>();
+      (Array.isArray(list) ? list : []).forEach((c: any) => {
+        if (!c) return;
+        const msgText = String(c.lastMessage || c.last_message || '').trim();
+        if (!msgText) return;
+        const pId = String(c.postId || c.post_id || 'general').trim().toLowerCase();
+        const hId = String(c.helperId || c.helper_id || c.senderId || '').trim().toLowerCase();
+        const key = hId ? `${pId}__${hId}` : String(c.id || c.conversationId || Math.random());
+        const existing = dedupedMap.get(key);
+        if (!existing) {
+          dedupedMap.set(key, c);
+        } else {
+          const existingTime = new Date(existing.lastMessageAt || existing.updatedAt || 0).getTime();
+          const newTime = new Date(c.lastMessageAt || c.updatedAt || 0).getTime();
+          if (newTime >= existingTime) {
+            dedupedMap.set(key, {
+              ...existing,
+              ...c,
+              unreadCount: Math.max(Number(existing.unreadCount || 0), Number(c.unreadCount || 0))
+            });
+          }
+        }
+      });
+      setAllUserConversations(Array.from(dedupedMap.values()));
     } catch {
       setAllUserConversations([]);
     } finally {
@@ -148,7 +172,7 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false }
   const [isDeleting, setIsDeleting] = useState(false);
   const [rating, setRating] = useState(5);
   const [ratingComment, setRatingComment] = useState('');
-  const [isTaskDone, setIsTaskDone] = useState(intent?.status === 'completed');
+  const [isTaskDone, setIsTaskDone] = useState(currentIntent?.status === 'completed');
   const [showSuccessToast, setShowSuccessToast] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [zoomedImage, setZoomedImage] = useState<string | null>(null);
@@ -187,20 +211,23 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false }
   const [unreadNewScrollCount, setUnreadNewScrollCount] = useState(0);
   const prevMessagesLengthRef = useRef(0);
 
-  // Sync selected replier if intent prop changes (e.g., opened from View Responses modal)
+  // Sync selected replier if currentIntent changes (e.g., opened from My Chats list or View Responses modal)
   useEffect(() => {
-    if ((intent as any)?.selectedReplierId) {
-      setSelectedReplierId((intent as any).selectedReplierId);
-      setSelectedReplierName((intent as any).selectedReplierName || null);
-      setSelectedReplierEmail((intent as any).selectedReplierEmail || null);
-      setSelectedReplierAvatar((intent as any).selectedReplierAvatar || null);
+    if (currentIntent) {
+      const repId = (currentIntent as any).selectedReplierId || (currentIntent as any).helperId || null;
+      if (repId) {
+        setSelectedReplierId(repId);
+        setSelectedReplierName((currentIntent as any).selectedReplierName || (currentIntent as any).authorName || null);
+        setSelectedReplierEmail((currentIntent as any).selectedReplierEmail || null);
+        setSelectedReplierAvatar((currentIntent as any).selectedReplierAvatar || null);
+      }
+    } else {
+      setSelectedReplierId(null);
+      setSelectedReplierName(null);
+      setSelectedReplierEmail(null);
+      setSelectedReplierAvatar(null);
     }
-  }, [
-    (intent as any)?.selectedReplierId,
-    (intent as any)?.selectedReplierName,
-    (intent as any)?.selectedReplierEmail,
-    (intent as any)?.selectedReplierAvatar
-  ]);
+  }, [currentIntent]);
 
   // Push history state and listen for hardware Back button when any modal is open inside ChatScreen
   const isAnyChatModalOpen = Boolean(
@@ -259,13 +286,13 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false }
   useEffect(() => {
     const activeUser = getCurrentUser();
     const myId = activeUser?.uid || activeUser?.email || '';
-    const peerTargetId = isPostOwner ? (selectedReplierId || '') : (intent?.authorId || '');
+    const peerTargetId = isPostOwner ? (selectedReplierId || '') : (currentIntent?.authorId || '');
     if (!peerTargetId) return;
     fetchChatBlockStatus({ chatId, userId: myId, peerId: peerTargetId }).then(status => {
       setIsChatBlocked(status.isBlocked);
       setBlockedByMe(status.blockedByMe);
     });
-  }, [chatId, isPostOwner, selectedReplierId, intent?.authorId]);
+  }, [chatId, isPostOwner, selectedReplierId, currentIntent?.authorId]);
 
   const handleContainerScroll = () => {
     const el = messagesContainerRef.current;
@@ -357,6 +384,16 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false }
               const convList = await convRes.json();
               if (isMounted && Array.isArray(convList)) {
                 setInboxConversations(convList);
+                if (!selectedReplierId && convList.length > 0) {
+                  const firstHelper = convList[0];
+                  const firstHelperId = firstHelper.helperId || firstHelper.senderId || firstHelper.helper_id;
+                  if (firstHelperId) {
+                    setSelectedReplierId(firstHelperId);
+                    setSelectedReplierName(firstHelper.helperName || firstHelper.senderName || 'Community Helper');
+                    setSelectedReplierEmail(firstHelper.helperEmail || firstHelper.senderEmail || null);
+                    setSelectedReplierAvatar(firstHelper.helperAvatar || firstHelper.senderAvatar || null);
+                  }
+                }
               }
             }
           } catch {}
@@ -428,7 +465,9 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false }
     const pollInterval = setInterval(syncChat, 1200);
     const unsubStream = subscribeToRealtimeStream({
       onNewResponse: (payload) => {
-        if (payload?.postId === chatId) {
+        if (!currentIntent) {
+          loadAllChats();
+        } else if (payload?.postId === chatId) {
           syncChat();
         }
       }
@@ -439,7 +478,7 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false }
       clearInterval(pollInterval);
       unsubStream();
     };
-  }, [chatId, isPostOwner, selectedReplierId, activeConversationId, activeHelperId]);
+  }, [chatId, isPostOwner, selectedReplierId, activeConversationId, activeHelperId, currentIntent]);
 
   const handleToggleBlockPeer = async () => {
     if (isGuestUser()) {
@@ -449,8 +488,8 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false }
     const activeUser = getCurrentUser();
     const myId = activeUser?.uid || activeUser?.email || 'my_user';
     const myEmail = (activeUser?.email || localStorage.getItem('locohelp_last_logged_in_email') || '').trim().toLowerCase();
-    const peerTargetId = isPostOwner ? (selectedReplierId || '') : (intent?.authorId || chatId);
-    const peerTargetName = isPostOwner ? (selectedReplierName || 'User') : ((intent as any)?.authorName || 'User');
+    const peerTargetId = isPostOwner ? (selectedReplierId || '') : (currentIntent?.authorId || chatId);
+    const peerTargetName = isPostOwner ? (selectedReplierName || 'User') : ((currentIntent as any)?.authorName || 'User');
 
     if (isChatBlocked && blockedByMe) {
       const res = await unblockUserInChatOnServer({
@@ -496,8 +535,8 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false }
         activeUser?.displayName ||
         localStorage.getItem('locohelp_profile_name') ||
         (myEmail ? myEmail.split('@')[0] : 'Verified User');
-      const peerTargetId = isPostOwner ? (selectedReplierId || '') : (intent?.authorId || chatId);
-      const peerTargetName = isPostOwner ? (selectedReplierName || 'Community Peer') : ((intent as any)?.authorName || 'Community Peer');
+      const peerTargetId = isPostOwner ? (selectedReplierId || '') : (currentIntent?.authorId || chatId);
+      const peerTargetName = isPostOwner ? (selectedReplierName || 'Community Peer') : ((currentIntent as any)?.authorName || 'Community Peer');
 
       const snapshotToSave = visibleMessages.map(m => ({
         id: m.id,
@@ -529,7 +568,7 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false }
         reporterEmail: myEmail,
         reportedUserId: peerTargetId,
         reportedUserName: peerTargetName,
-        reportedPostId: intent?.id || null,
+        reportedPostId: currentIntent?.id || null,
         chatId,
         chatSnapshot: snapshotToSave,
         blockUser: alsoBlockUser
@@ -552,7 +591,7 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false }
             new CustomEvent('locohelp_report_submitted', {
               detail: {
                 reportedUserId: peerTargetId,
-                reportedPostId: intent?.id || null,
+                reportedPostId: currentIntent?.id || null,
                 blocked: alsoBlockUser,
                 autoFlaggedUser: Boolean(res.autoFlaggedUser),
                 autoFlaggedPost: Boolean(res.autoFlaggedPost)
@@ -612,9 +651,17 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false }
 
     const targetReceiverId = isPostOwner
       ? String(selectedReplierId || '').trim()
-      : String(intent?.authorId || chatId).trim();
-    const targetHelperId = isPostOwner ? String(selectedReplierId || '').trim() : activeUid;
+      : String(currentIntent?.authorId || chatId).trim();
+    const targetHelperId = isPostOwner
+      ? String(selectedReplierId || activeHelperId || '').trim()
+      : String(activeHelperId || activeUid).trim();
     const convIdToUse = activeConversationId || `conv_${chatId}__${targetHelperId.toLowerCase()}`;
+    const resolvedPostOwnerId = isPostOwner
+      ? (currentIntent?.authorId || activeUid)
+      : (currentIntent?.authorId || targetReceiverId);
+    const resolvedPostOwnerEmail = isPostOwner
+      ? ((currentIntent as any)?.authorEmail || activeEmail)
+      : ((currentIntent as any)?.authorEmail || '');
 
     const messageData: any = {
       id: 'msg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
@@ -623,8 +670,10 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false }
       postId: chatId,
       post_id: chatId,
       intent_id: chatId,
-      postOwnerId: intent?.authorId || (isPostOwner ? activeUid : targetReceiverId),
-      post_owner_id: intent?.authorId || (isPostOwner ? activeUid : targetReceiverId),
+      postOwnerId: resolvedPostOwnerId,
+      post_owner_id: resolvedPostOwnerId,
+      postOwnerEmail: resolvedPostOwnerEmail,
+      post_owner_email: resolvedPostOwnerEmail,
       helperId: targetHelperId,
       helper_id: targetHelperId,
       helperName: isPostOwner ? (selectedReplierName || 'Community Helper') : activeName,
@@ -1043,8 +1092,45 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false }
             <div className="space-y-2 max-w-2xl mx-auto">
               {allUserConversations.map((conv) => {
                 const convId = conv.id || conv.conversationId;
-                const partnerName = conv.helperName || conv.senderName || conv.posterName || 'Community Member';
-                const partnerAvatar = conv.helperAvatar || conv.senderAvatar || conv.posterAvatar;
+                const activeUser = getCurrentUser();
+                const myUid = String(activeUser?.uid || '').trim().toLowerCase();
+                const myEmail = String(activeUser?.email || '').trim().toLowerCase();
+                const emailDerivedId = myEmail ? `email_${myEmail.replace(/[^a-z0-9]/g, '_')}` : '';
+
+                const convHelperId = String(conv.helperId || conv.helper_id || conv.senderId || '').trim();
+                const convHelperEmail = String(conv.helperEmail || conv.senderEmail || '').trim().toLowerCase();
+                const convPosterId = String(conv.posterId || conv.poster_id || '').trim();
+                const convPosterEmail = String(conv.posterEmail || conv.poster_email || '').trim().toLowerCase();
+
+                let isMyOwnPostId = false;
+                try {
+                  const myPostIds: string[] = JSON.parse(localStorage.getItem('locohelp_my_post_ids') || '[]');
+                  const cPostId = String(conv.postId || conv.post_id || '').trim();
+                  if (cPostId && myPostIds.includes(cPostId)) isMyOwnPostId = true;
+                } catch {}
+
+                const isPosterMe = Boolean(
+                  isMyOwnPostId ||
+                  (myUid && convPosterId && convPosterId.toLowerCase() === myUid) ||
+                  (emailDerivedId && convPosterId && convPosterId.toLowerCase() === emailDerivedId) ||
+                  (myEmail && convPosterEmail && convPosterEmail === myEmail)
+                );
+
+                const isHelperMe = !isPosterMe && Boolean(
+                  (myUid && convHelperId && convHelperId.toLowerCase() === myUid) ||
+                  (emailDerivedId && convHelperId && convHelperId.toLowerCase() === emailDerivedId) ||
+                  (myEmail && convHelperEmail && convHelperEmail === myEmail)
+                );
+                const isOwner = isPosterMe || !isHelperMe;
+
+                const partnerName = isOwner
+                  ? (conv.helperName || conv.senderName || 'Community Helper')
+                  : (conv.posterName && conv.posterName !== 'Post Owner'
+                      ? conv.posterName
+                      : (conv.posterEmail ? conv.posterEmail.split('@')[0] : 'Post Owner'));
+                const partnerAvatar = isOwner
+                  ? (conv.helperAvatar || conv.senderAvatar || '')
+                  : (conv.posterAvatar || '');
                 const lastMsg = conv.lastMessage || conv.last_message || tr('Sent a message', 'संदेश भेजा', 'મેસેજ મોકલ્યો');
                 const lastTime = conv.lastMessageAt || conv.last_message_at || conv.updatedAt;
                 const hasUnread = Number(conv.unreadCount || 0) > 0;
@@ -1053,14 +1139,31 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false }
                   <div
                     key={convId}
                     onClick={() => {
+                      const resolvedAuthorId = isOwner
+                        ? (convPosterId || activeUser?.uid || '')
+                        : (convPosterId || conv.postId || conv.post_id || conv.id);
+                      const resolvedAuthorEmail = isOwner
+                        ? (convPosterEmail || myEmail)
+                        : convPosterEmail;
+                      const resolvedHelperId = convHelperId || (!isOwner ? (activeUser?.uid || '') : '');
+                      const resolvedHelperEmail = convHelperEmail || (!isOwner ? myEmail : '');
+
+                      setSelectedReplierId(resolvedHelperId || null);
+                      setSelectedReplierName(partnerName);
+                      setSelectedReplierEmail(isOwner ? resolvedHelperEmail : resolvedAuthorEmail);
+                      setSelectedReplierAvatar(partnerAvatar || null);
+
                       setCurrentIntent({
-                        id: conv.postId || conv.id,
-                        authorId: conv.posterId || conv.senderId,
-                        authorName: partnerName,
+                        id: conv.postId || conv.post_id || conv.id,
+                        authorId: resolvedAuthorId,
+                        authorEmail: resolvedAuthorEmail,
+                        authorName: isOwner ? (activeUser?.displayName || 'You') : partnerName,
                         location: conv.location || 'Local Area',
-                        description: conv.postTitle || lastMsg,
-                        selectedReplierId: conv.helperId || conv.senderId,
+                        description: conv.postTitle || conv.postDescription || lastMsg,
+                        helperId: resolvedHelperId,
+                        selectedReplierId: resolvedHelperId,
                         selectedReplierName: partnerName,
+                        selectedReplierEmail: isOwner ? resolvedHelperEmail : resolvedAuthorEmail,
                         selectedReplierAvatar: partnerAvatar,
                         conversationId: convId,
                         distance: 0.5,

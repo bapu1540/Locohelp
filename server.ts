@@ -5768,6 +5768,48 @@ async function startServer() {
     return null;
   };
 
+  // Server-side deterministic UUID & identity set helpers (mirrors src/auth.ts ensureValidUUID & getUserIdentitySet)
+  const ensureServerValidUUID = (str: string): string => {
+    if (!str) return "00000000-0000-4000-a000-000000000000";
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (uuidRegex.test(str)) return str.toLowerCase();
+    let h1 = 0xdeadbeef,
+      h2 = 0x41c6ce57;
+    for (let i = 0; i < str.length; i++) {
+      const ch = str.charCodeAt(i);
+      h1 = Math.imul(h1 ^ ch, 2654435761);
+      h2 = Math.imul(h2 ^ ch, 1597334677);
+    }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+    const hex1 = (h1 >>> 0).toString(16).padStart(8, "0");
+    const hex2 = (h2 >>> 0).toString(16).padStart(8, "0");
+    const hex3 = (Math.imul(h1, 31) >>> 0).toString(16).padStart(8, "0");
+    const hex4 = (Math.imul(h2, 127) >>> 0).toString(16).padStart(8, "0");
+    const full = (hex1 + hex2 + hex3 + hex4).slice(0, 32);
+    return `${full.slice(0, 8)}-${full.slice(8, 12)}-4${full.slice(13, 16)}-a${full.slice(17, 20)}-${full.slice(20, 32)}`.toLowerCase();
+  };
+
+  const buildServerIdentitySet = (id?: string, email?: string): Set<string> => {
+    const set = new Set<string>();
+    const addVal = (v?: string) => {
+      const clean = String(v || "").trim().toLowerCase();
+      if (!clean || clean === "guest" || clean === "guest_user" || clean === "general" || clean === "system") return;
+      set.add(clean);
+      set.add(ensureServerValidUUID(clean));
+    };
+    addVal(id);
+    const cleanEmail = String(email || "").trim().toLowerCase();
+    if (cleanEmail) {
+      addVal(cleanEmail);
+      const emailSlug = `email_${cleanEmail.replace(/[^a-z0-9]/g, "_")}`;
+      addVal(emailSlug);
+      const otpSlug = `otp_${cleanEmail.replace(/[^a-z0-9]/g, "_")}`;
+      addVal(otpSlug);
+    }
+    return set;
+  };
+
   // Helper: resolve authoritative poster_id, poster_name, poster_email, poster_avatar, postDescription for a postId
   // Works even after a post has been deleted from the public feed (falls back to conversations, messages, and security_vault)
   const resolvePostOwnerInfo = async (
@@ -5808,8 +5850,8 @@ async function startServer() {
             postDescription = postDescription || String(bRes.rows[0].description || "").trim();
           }
         }
-        // Fallback 1: If post was deleted from public feed, check conversations table
-        if (!posterId) {
+        // Fallback 1: Check conversations table if posterId or posterEmail is still missing
+        if (!posterId || !posterEmail) {
           const cRes = await dbPool
             .query(
               "SELECT poster_id, poster_name, poster_email, poster_avatar FROM conversations WHERE post_id = $1 AND poster_id IS NOT NULL AND TRIM(poster_id) <> '' LIMIT 1",
@@ -5817,7 +5859,7 @@ async function startServer() {
             )
             .catch(() => ({ rows: [] as any[] }));
           if (cRes.rows.length > 0) {
-            posterId = String(cRes.rows[0].poster_id || "").trim();
+            if (!posterId) posterId = String(cRes.rows[0].poster_id || "").trim();
             posterName = posterName || String(cRes.rows[0].poster_name || "").trim();
             posterEmail = posterEmail || String(cRes.rows[0].poster_email || "").trim().toLowerCase();
             posterAvatar = posterAvatar || String(cRes.rows[0].poster_avatar || "").trim();
@@ -5835,8 +5877,8 @@ async function startServer() {
             posterId = String(mRes.rows[0].post_owner_id || "").trim();
           }
         }
-        // Fallback 3: Check security_vault for archived post metadata
-        if (!posterId || !postDescription) {
+        // Fallback 3: Check security_vault for archived post metadata (including author email)
+        if (!posterId || !posterEmail || !postDescription) {
           const vRes = await dbPool
             .query("SELECT encrypted_payload FROM security_vault WHERE id = $1 LIMIT 1", [`help_post__${cleanPostId}`])
             .catch(() => ({ rows: [] as any[] }));
@@ -5850,15 +5892,26 @@ async function startServer() {
             }
           }
         }
+        // Fallback 4: Look up posterEmail from users table if posterId is known but posterEmail is still empty
+        if (posterId && !posterEmail) {
+          const uRes = await dbPool
+            .query("SELECT name, email, avatar_url FROM users WHERE LOWER(id::text) = LOWER($1) LIMIT 1", [posterId])
+            .catch(() => ({ rows: [] as any[] }));
+          if (uRes.rows.length > 0) {
+            if (!posterEmail && uRes.rows[0].email) posterEmail = String(uRes.rows[0].email).trim().toLowerCase();
+            if (!posterName && uRes.rows[0].name) posterName = String(uRes.rows[0].name).trim();
+            if (!posterAvatar && uRes.rows[0].avatar_url) posterAvatar = String(uRes.rows[0].avatar_url).trim();
+          }
+        }
       } catch {}
     }
 
-    if (!posterId) {
+    if (!posterId || !posterEmail) {
       try {
         const fileIntents = readJsonFile<any[]>(INTENTS_FILE, []);
         const found = fileIntents.find((i: any) => i && String(i.id) === cleanPostId);
         if (found) {
-          posterId = String(found.authorId || found.user_id || "").trim();
+          if (!posterId) posterId = String(found.authorId || found.user_id || "").trim();
           posterName = posterName || String(found.authorName || "").trim();
           posterEmail = posterEmail || String(found.authorEmail || "").trim().toLowerCase();
           posterAvatar = posterAvatar || String(found.authorAvatar || "").trim();
@@ -5901,15 +5954,15 @@ async function startServer() {
       let posterId = ownerInfo.posterId;
       let posterEmail = ownerInfo.posterEmail;
 
-      const isCallerPostOwner =
-        Boolean(posterId && userId && userId.toLowerCase() === posterId.toLowerCase()) ||
-        Boolean(posterEmail && userEmail && userEmail === posterEmail.toLowerCase());
+      const posterIdentities = buildServerIdentitySet(posterId, posterEmail);
+      const callerIdentities = buildServerIdentitySet(userId, userEmail);
+      const isCallerPostOwner = Array.from(callerIdentities).some((id) => posterIdentities.has(id));
 
       // Authoritative helperId: prefer parsed conv_ ID or explicit queryHelperId (as long as it's not the poster's own ID)
       let helperId =
         parsedFromQuery?.helperId ||
         parsedFromParam?.helperId ||
-        (queryHelperId && (!posterId || queryHelperId.toLowerCase() !== posterId.toLowerCase()) ? queryHelperId : "") ||
+        (queryHelperId && !posterIdentities.has(queryHelperId.toLowerCase()) ? queryHelperId : "") ||
         (!isCallerPostOwner && userId && userId !== "guest_user" ? userId : "");
       let helperEmail = "";
 
@@ -5949,20 +6002,27 @@ async function startServer() {
         try {
           let result;
           if (activeConvId && postId && helperId) {
+            const helperIdVariants = Array.from(buildServerIdentitySet(helperId, helperEmail));
+            if (helperIdVariants.length === 0) helperIdVariants.push(helperId.toLowerCase());
+            const convIdVariants = Array.from(
+              new Set([
+                activeConvId.toLowerCase(),
+                ...helperIdVariants.map((h) => buildConversationId(postId, h).toLowerCase())
+              ])
+            );
             result = await dbPool.query(
               `SELECT * FROM messages
-               WHERE LOWER(conversation_id) = LOWER($1)
+               WHERE LOWER(conversation_id) = ANY($1::text[])
                   OR (
                     (post_id = $2 OR intent_id = $2)
                     AND (
-                      LOWER(sender_id) = LOWER($3)
-                      OR LOWER(receiver_id) = LOWER($3)
-                      OR LOWER(sender_email) = LOWER($3)
-                      OR ($4 <> '' AND (LOWER(sender_email) = LOWER($4) OR LOWER(sender_id) = LOWER($4) OR LOWER(receiver_id) = LOWER($4)))
+                      LOWER(sender_id) = ANY($3::text[])
+                      OR LOWER(receiver_id) = ANY($3::text[])
+                      OR LOWER(sender_email) = ANY($3::text[])
                     )
                   )
                ORDER BY created_at ASC`,
-              [activeConvId, postId, helperId, helperEmail]
+              [convIdVariants, postId, helperIdVariants]
             );
           } else if (activeConvId) {
             result = await dbPool.query(
@@ -6165,19 +6225,18 @@ async function startServer() {
       const userEmailParam = String(req.query.userEmail || req.query.ownerEmail || req.query.owner_email || caller?.email || "").trim().toLowerCase();
 
       const ownerInfo = postId ? await resolvePostOwnerInfo(postId) : { posterId: "", posterName: "", posterEmail: "", posterAvatar: "", postDescription: "" };
-      const ownerIds = new Set<string>(
-        [ownerInfo.posterId, "owner", "me", "system"]
-          .map((s) => String(s || "").trim().toLowerCase())
-          .filter(Boolean)
-      );
+      const ownerIds = buildServerIdentitySet(ownerInfo.posterId, ownerInfo.posterEmail);
+      ["owner", "me", "system"].forEach((s) => ownerIds.add(s));
       const ownerEmails = new Set<string>(
         [ownerInfo.posterEmail]
           .map((s) => String(s || "").trim().toLowerCase())
           .filter(Boolean)
       );
+      const viewerIdentitySet = buildServerIdentitySet(userIdParam, userEmailParam);
+      const viewerIdentityArray = Array.from(viewerIdentitySet);
 
       // Normalized key helper so conversations table and messages table rows for the same (postId, helperId) ALWAYS merge into one thread
-      const getThreadKey = (pId: string, hId: string) => `${String(pId || "general").trim().toLowerCase()}__${String(hId || "").trim().toLowerCase()}`;
+      const getThreadKey = (pId: string, hId: string) => `${String(pId || "general").trim().toLowerCase()}__${ensureServerValidUUID(String(hId || "").trim().toLowerCase())}`;
 
       const conversationsMap = new Map<string, any>();
 
@@ -6196,21 +6255,21 @@ async function startServer() {
                ORDER BY last_message_at DESC`,
               [postId]
             );
-          } else if (userIdParam || userEmailParam) {
-            const emailDerivedId = userEmailParam ? `email_${userEmailParam.replace(/[^a-z0-9]/g, "_")}` : "";
+          } else if (viewerIdentityArray.length > 0) {
             convRes = await dbPool.query(
               `SELECT * FROM conversations
                WHERE (
-                 ($1 <> '' AND (LOWER(poster_id) = LOWER($1) OR LOWER(helper_id) = LOWER($1) OR LOWER(poster_email) = LOWER($1) OR LOWER(helper_email) = LOWER($1)))
-                 OR ($2 <> '' AND (LOWER(poster_email) = LOWER($2) OR LOWER(helper_email) = LOWER($2) OR LOWER(poster_id) = LOWER($2) OR LOWER(helper_id) = LOWER($2)))
-                 OR ($3 <> '' AND (LOWER(poster_id) = LOWER($3) OR LOWER(helper_id) = LOWER($3)))
+                 LOWER(poster_id) = ANY($1::text[])
+                 OR LOWER(helper_id) = ANY($1::text[])
+                 OR LOWER(poster_email) = ANY($1::text[])
+                 OR LOWER(helper_email) = ANY($1::text[])
                )
                  AND last_message IS NOT NULL
                  AND TRIM(last_message) <> ''
                  AND LOWER(helper_id) <> LOWER(poster_id)
                  AND (last_message_at IS NULL OR last_message_at >= NOW() - INTERVAL '7 days')
                ORDER BY last_message_at DESC`,
-              [userIdParam, userEmailParam, emailDerivedId]
+              [viewerIdentityArray]
             );
           }
 
@@ -6270,9 +6329,8 @@ async function startServer() {
         }
 
         // 2. Reconcile from messages table for postId OR for user's My Chats (last 7 days) so any existing replies & full message counts are included
-        if (postId || userIdParam || userEmailParam) {
+        if (postId || viewerIdentityArray.length > 0) {
           try {
-            const emailDerivedId = userEmailParam ? `email_${userEmailParam.replace(/[^a-z0-9]/g, "_")}` : "";
             const mRes = postId
               ? await dbPool
                   .query(
@@ -6284,13 +6342,14 @@ async function startServer() {
                   .query(
                     `SELECT * FROM messages
                      WHERE (
-                       ($1 <> '' AND (LOWER(sender_id) = LOWER($1) OR LOWER(receiver_id) = LOWER($1) OR LOWER(post_owner_id) = LOWER($1) OR LOWER(sender_email) = LOWER($1)))
-                       OR ($2 <> '' AND (LOWER(sender_email) = LOWER($2) OR LOWER(sender_id) = LOWER($2) OR LOWER(receiver_id) = LOWER($2) OR LOWER(post_owner_id) = LOWER($2)))
-                       OR ($3 <> '' AND (LOWER(sender_id) = LOWER($3) OR LOWER(receiver_id) = LOWER($3) OR LOWER(post_owner_id) = LOWER($3)))
+                       LOWER(sender_id) = ANY($1::text[])
+                       OR LOWER(receiver_id) = ANY($1::text[])
+                       OR LOWER(post_owner_id) = ANY($1::text[])
+                       OR LOWER(sender_email) = ANY($1::text[])
                      )
                      AND (created_at IS NULL OR created_at >= NOW() - INTERVAL '7 days')
                      ORDER BY created_at ASC`,
-                    [userIdParam, userEmailParam, emailDerivedId]
+                    [viewerIdentityArray]
                   )
                   .catch(() => ({ rows: [] as any[] }));
 
@@ -6882,9 +6941,16 @@ async function startServer() {
       const postOwnerName = sanitizeServerText(ownerInfo.posterName || "Post Owner", 120);
       const postOwnerAvatar = sanitizeServerText(ownerInfo.posterAvatar || "", 500);
 
-      const isSenderPostOwner =
-        Boolean(postOwnerId && senderIdVal.toLowerCase() === postOwnerId.toLowerCase()) ||
-        Boolean(postOwnerEmail && resolvedEmail && resolvedEmail === postOwnerEmail.toLowerCase());
+      const posterIdentities = buildServerIdentitySet(postOwnerId, postOwnerEmail);
+      if (message.postOwnerId || message.post_owner_id) {
+        buildServerIdentitySet(
+          String(message.postOwnerId || message.post_owner_id || ""),
+          String(message.postOwnerEmail || message.post_owner_email || "")
+        ).forEach((id) => posterIdentities.add(id));
+      }
+      const senderIdentities = buildServerIdentitySet(senderIdVal, resolvedEmail);
+
+      const isSenderPostOwner = Array.from(senderIdentities).some((id) => posterIdentities.has(id));
 
       // Resolve helperId and receiverId strictly for 1-on-1 isolation
       const rawReceiverId = sanitizeServerText(
@@ -6898,7 +6964,7 @@ async function startServer() {
               message.helper_id ||
               parsedBody?.helperId ||
               parsedParam?.helperId ||
-              (rawReceiverId && rawReceiverId !== postId && rawReceiverId.toLowerCase() !== postOwnerId.toLowerCase() ? rawReceiverId : ""),
+              (rawReceiverId && rawReceiverId !== postId && !posterIdentities.has(rawReceiverId.toLowerCase()) ? rawReceiverId : ""),
             150
           )
         : senderIdVal;
@@ -6908,8 +6974,8 @@ async function startServer() {
         isSenderPostOwner &&
         (!helperId ||
           helperId === postId ||
-          helperId.toLowerCase() === senderIdVal.toLowerCase() ||
-          (postOwnerId && helperId.toLowerCase() === postOwnerId.toLowerCase()))
+          senderIdentities.has(helperId.toLowerCase()) ||
+          posterIdentities.has(helperId.toLowerCase()))
       ) {
         return res.status(400).json({
           error: "Post Owner must select a specific responder from View Responses before sending a message.",
