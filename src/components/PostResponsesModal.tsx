@@ -50,7 +50,9 @@ export default function PostResponsesModal({
 
     // Mark responses for this post as seen by author so yellow pulse badge resets to 0
     try {
-      const respCount = Number((intent as any).responseCount ?? (intent as any).response_count ?? (intent as any).repliers?.length ?? (intent as any).responses?.length ?? 1);
+      const respCount = Array.isArray((intent as any).repliers) && (intent as any).repliers.length > 0
+        ? (intent as any).repliers.length
+        : Number((intent as any).responseCount ?? (intent as any).response_count ?? 1);
       localStorage.setItem(`locohelp_seen_responses_${intent.id}`, String(respCount));
       window.dispatchEvent(new CustomEvent('locohelp_responses_seen', { detail: { intentId: intent.id, seenCount: respCount } }));
     } catch {}
@@ -240,7 +242,11 @@ export default function PostResponsesModal({
     const convId = rep.conversationId || (intent?.id ? `conv_${intent.id}__${rep.senderId.toLowerCase()}` : '');
     if (intent?.id) {
       try {
-        const respCount = Number((intent as any).responseCount ?? (intent as any).response_count ?? (intent as any).repliers?.length ?? (intent as any).responses?.length ?? 1);
+        const respCount = Math.max(
+          repliers.length,
+          Array.isArray((intent as any).repliers) ? (intent as any).repliers.length : 0,
+          Number((intent as any).responseCount ?? (intent as any).response_count ?? 1)
+        );
         localStorage.setItem(`locohelp_seen_responses_${intent.id}`, String(respCount));
         window.dispatchEvent(new CustomEvent('locohelp_responses_seen', { detail: { intentId: intent.id, seenCount: respCount } }));
       } catch {}
@@ -362,18 +368,7 @@ export default function PostResponsesModal({
                               {rep.senderName[0]?.toUpperCase() || 'U'}
                             </div>
                           )}
-                          {rep.unreadCount > 0 ? (
-                            <span
-                              className="absolute -top-1 -right-1 bg-rose-600 text-white text-[9px] font-black px-1.5 py-0.2 rounded-full border border-white dark:border-slate-900 shadow-xs"
-                              title={`${rep.unreadCount} unread`}
-                            >
-                              {rep.unreadCount}
-                            </span>
-                          ) : (
-                            <span className="absolute -top-1 -right-1 bg-emerald-600 text-white text-[9px] font-black px-1.5 py-0.2 rounded-full border border-white dark:border-slate-900">
-                              {rep.count}
-                            </span>
-                          )}
+                          <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-white dark:border-slate-900 rounded-full" />
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5">
@@ -382,7 +377,7 @@ export default function PostResponsesModal({
                             </span>
                             {rep.unreadCount > 0 && (
                               <span className="text-[9px] font-black px-1.5 py-0.2 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 shrink-0">
-                                {rep.unreadCount} new
+                                {language === 'EN' ? 'New' : language === 'GU' ? 'નવું' : 'नया'}
                               </span>
                             )}
                             {isCollab && (

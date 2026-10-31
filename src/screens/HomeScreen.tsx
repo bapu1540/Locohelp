@@ -1028,23 +1028,70 @@ export default function HomeScreen({
         }
       }
 
+      const normalizeIdentity = (idVal: any, emailVal: any): string => {
+        const cleanEmail = String(emailVal || '').trim().toLowerCase();
+        if (cleanEmail) return 'email_' + cleanEmail.replace(/[^a-z0-9]/g, '_');
+        const cleanId = String(idVal || '').trim().toLowerCase();
+        if (cleanId.includes('@')) return 'email_' + cleanId.replace(/[^a-z0-9]/g, '_');
+        return cleanId;
+      };
+
+      const computeUniqueRepliersList = (postObj: any, repliersArr: any[], responsesArr: any[]): any[] => {
+        const ownerNorm = normalizeIdentity(postObj?.authorId || postObj?.user_id, postObj?.authorEmail);
+        const ownerIdLower = String(postObj?.authorId || postObj?.user_id || '').trim().toLowerCase();
+        const ownerEmailLower = String(postObj?.authorEmail || '').trim().toLowerCase();
+        const map = new Map<string, any>();
+
+        const addCandidate = (entry: any) => {
+          if (!entry) return;
+          const sId = String(entry.helperId || entry.helper_id || entry.senderId || entry.sender_id || entry.authorId || '').trim();
+          const sEmail = String(entry.helperEmail || entry.senderEmail || entry.sender_email || entry.authorEmail || '').trim().toLowerCase();
+          if (!sId && !sEmail) return;
+          if (sId.toLowerCase() === 'system' || sId.toLowerCase() === 'owner' || sId.toLowerCase() === 'me') return;
+          const sNorm = normalizeIdentity(sId, sEmail);
+          if (
+            (ownerNorm && sNorm === ownerNorm) ||
+            (ownerIdLower && sId.toLowerCase() === ownerIdLower) ||
+            (ownerEmailLower && sEmail && sEmail === ownerEmailLower)
+          ) {
+            return;
+          }
+          const key = sNorm || sEmail || sId.toLowerCase();
+          if (!map.has(key)) {
+            map.set(key, entry);
+          }
+        };
+
+        (Array.isArray(repliersArr) ? repliersArr : []).forEach(addCandidate);
+        if (map.size === 0 && Array.isArray(responsesArr) && responsesArr.length > 0) {
+          responsesArr.forEach(addCandidate);
+        }
+        return Array.from(map.values());
+      };
+
       const mergePostRecord = (existing: any, next: any): Intent => {
         if (!existing) return next;
-        const existCount = Number(existing.responseCount ?? existing.response_count ?? 0);
-        const nextCount = Number(next.responseCount ?? next.response_count ?? 0);
-        const finalCount = Math.max(existCount, nextCount);
-
         const existResponses = Array.isArray(existing.responses) ? existing.responses : [];
         const nextResponses = Array.isArray(next.responses) ? next.responses : [];
         const finalResponses = nextResponses.length >= existResponses.length ? nextResponses : existResponses;
 
         const existRepliers = Array.isArray(existing.repliers) ? existing.repliers : [];
         const nextRepliers = Array.isArray(next.repliers) ? next.repliers : [];
-        const finalRepliers = nextRepliers.length >= existRepliers.length ? nextRepliers : existRepliers;
+        const rawRepliers = nextRepliers.length > 0 ? nextRepliers : existRepliers;
+        const mergedPost = { ...existing, ...next };
+        const finalRepliers = computeUniqueRepliersList(mergedPost, rawRepliers, finalResponses);
+
+        const nextCount = Number(next.responseCount ?? next.response_count ?? 0);
+        const existCount = Number(existing.responseCount ?? existing.response_count ?? 0);
+        const finalCount =
+          finalRepliers.length > 0
+            ? finalRepliers.length
+            : isAuthoritativeServerList
+            ? nextCount
+            : Math.max(existCount, nextCount);
 
         return {
-          ...existing,
-          ...next,
+          ...mergedPost,
           responseCount: finalCount,
           response_count: finalCount,
           responses: finalResponses,
@@ -1289,16 +1336,62 @@ export default function HomeScreen({
               newResp && !prevResponses.some((r: any) => r?.id === newResp.id)
                 ? [...prevResponses, newResp]
                 : prevResponses;
-            const updatedRepliers =
+
+            const normKey = (idVal: any, emailVal: any) => {
+              const e = String(emailVal || '').trim().toLowerCase();
+              if (e) return 'email_' + e.replace(/[^a-z0-9]/g, '_');
+              const i = String(idVal || '').trim().toLowerCase();
+              if (i.includes('@')) return 'email_' + i.replace(/[^a-z0-9]/g, '_');
+              return i;
+            };
+            const ownerNorm = normKey(item.authorId || (item as any).user_id, (item as any).authorEmail);
+
+            const baseRepliers =
               Array.isArray(payload.repliers) && payload.repliers.length > 0
                 ? payload.repliers
-                : (item as any).repliers || [];
-            const nextCount = Math.max(
-              prevCount,
-              incomingCount,
-              updatedRepliers.length,
-              newResp ? prevCount + 1 : prevCount
-            );
+                : Array.isArray((item as any).repliers)
+                ? [...(item as any).repliers]
+                : [];
+
+            if (newResp) {
+              const sId = String(newResp.senderId || newResp.sender_id || newResp.authorId || payload.helperId || '').trim();
+              const sEmail = String(newResp.senderEmail || newResp.sender_email || newResp.authorEmail || '').trim().toLowerCase();
+              const sNorm = normKey(sId, sEmail);
+              const isOwnerMsg =
+                (ownerNorm && sNorm === ownerNorm) ||
+                (item.authorId && sId.toLowerCase() === String(item.authorId).trim().toLowerCase());
+              if (!isOwnerMsg && sNorm) {
+                const alreadyInList = baseRepliers.some(
+                  (r: any) => normKey(r?.helperId || r?.senderId || r?.sender_id, r?.helperEmail || r?.senderEmail) === sNorm
+                );
+                if (!alreadyInList) {
+                  baseRepliers.push({
+                    senderId: sId,
+                    helperId: sId,
+                    senderName: newResp.senderName || newResp.authorName || 'Community Helper',
+                    senderEmail: sEmail,
+                    lastMessage: newResp.text || newResp.message || 'Sent a message',
+                    updatedAt: newResp.createdAt || new Date().toISOString()
+                  });
+                }
+              }
+            }
+
+            const dedupedRepliersMap = new Map<string, any>();
+            baseRepliers.forEach((r: any) => {
+              if (!r) return;
+              const k = normKey(r.helperId || r.senderId || r.sender_id, r.helperEmail || r.senderEmail);
+              if (!k || (ownerNorm && k === ownerNorm)) return;
+              if (!dedupedRepliersMap.has(k)) dedupedRepliersMap.set(k, r);
+            });
+            const updatedRepliers = Array.from(dedupedRepliersMap.values());
+
+            const nextCount =
+              updatedRepliers.length > 0
+                ? updatedRepliers.length
+                : incomingCount > 0
+                ? incomingCount
+                : prevCount;
 
             const updatedItem = {
               ...item,
@@ -2155,8 +2248,35 @@ export default function HomeScreen({
 
                         {/* Action Buttons: WhatsApp & Delete compact, Chat prominent in center */}
                         {(() => {
-                          const totalResponsesCount = Number((intent as any).responseCount ?? (intent as any).response_count ?? (intent as any).repliers?.length ?? (intent as any).responses?.length ?? 0);
-                          const seenResponsesCount = Number(localStorage.getItem(`locohelp_seen_responses_${intent.id}`) || 0);
+                          const repliersArr = Array.isArray((intent as any).repliers) ? (intent as any).repliers : [];
+                          const responsesArr = Array.isArray((intent as any).responses) ? (intent as any).responses : [];
+                          const uniqueRepliersCount = (() => {
+                            const norm = (idVal: any, emailVal: any) => {
+                              const e = String(emailVal || '').trim().toLowerCase();
+                              if (e) return 'email_' + e.replace(/[^a-z0-9]/g, '_');
+                              const i = String(idVal || '').trim().toLowerCase();
+                              if (i.includes('@')) return 'email_' + i.replace(/[^a-z0-9]/g, '_');
+                              return i;
+                            };
+                            const ownerNorm = norm(intent.authorId || (intent as any).user_id, (intent as any).authorEmail);
+                            const set = new Set<string>();
+                            repliersArr.forEach((r: any) => {
+                              if (!r) return;
+                              const k = norm(r.helperId || r.senderId || r.sender_id, r.helperEmail || r.senderEmail);
+                              if (k && k !== 'system' && k !== ownerNorm) set.add(k);
+                            });
+                            if (set.size > 0) return set.size;
+                            responsesArr.forEach((m: any) => {
+                              if (!m) return;
+                              const k = norm(m.senderId || m.sender_id || m.authorId, m.senderEmail || m.sender_email || m.authorEmail);
+                              if (k && k !== 'system' && k !== ownerNorm) set.add(k);
+                            });
+                            if (set.size > 0) return set.size;
+                            return Number((intent as any).responseCount ?? (intent as any).response_count ?? 0);
+                          })();
+                          const totalResponsesCount = uniqueRepliersCount;
+                          const rawSeenCount = Number(localStorage.getItem(`locohelp_seen_responses_${intent.id}`) || 0);
+                          const seenResponsesCount = rawSeenCount > totalResponsesCount ? totalResponsesCount : rawSeenCount;
                           const unreadResponsesCount = Math.max(0, totalResponsesCount - seenResponsesCount);
                           const hasChattedOnThisPost = chattedPostIds.includes(intent.id);
 
@@ -2648,52 +2768,17 @@ export default function HomeScreen({
               transition={{ duration: 0.2 }}
               className="w-full max-w-2xl h-full sm:h-[92vh] sm:max-h-[820px] bg-white dark:bg-slate-900 sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-slate-200 dark:border-slate-800"
             >
-              {/* Modal Mini Navigation Header */}
-              <div className="px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800/90 border-b border-slate-200 dark:border-slate-700/80 flex items-center justify-between gap-2 shrink-0">
-                <div className="flex items-center gap-2 min-w-0">
-                  <div className="w-7 h-7 rounded-lg bg-indigo-600 text-white flex items-center justify-center text-xs font-black shrink-0">
-                    💬
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-xs font-black text-slate-900 dark:text-white truncate">
-                      {(chatModalIntent as any).title || chatModalIntent.category || 'Live Broadcast Chat'}
-                    </p>
-                    <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
-                      {chatModalIntent.authorName || 'Community Member'} • {chatModalIntent.location || 'Local Area'}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const target = chatModalIntent;
-                      setChatModalIntent(null);
-                      onOpenChat(target);
-                    }}
-                    className="p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer text-xs flex items-center gap-1 font-bold"
-                    title={tr('Expand Fullscreen', 'फुल स्क्रीन करें', 'ફુલ સ્ક્રીન કરો')}
-                  >
-                    <span>⛶</span>
-                    <span className="hidden sm:inline text-[11px]">{tr('Full Screen', 'फुल स्क्रीन', 'ફુલ સ્ક્રીન')}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setChatModalIntent(null)}
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer"
-                    title={tr('Close Chat', 'चैट बंद करें', 'ચેટ બંધ કરો')}
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Chat Screen Component Container */}
+              {/* Chat Screen Component Container (Single Unified Header inside ChatScreen) */}
               <div className="flex-1 min-h-0 relative overflow-hidden flex flex-col">
                 <ChatScreen
                   intent={chatModalIntent}
                   isModal={true}
                   onBack={() => setChatModalIntent(null)}
+                  onExpandFullScreen={() => {
+                    const target = chatModalIntent;
+                    setChatModalIntent(null);
+                    onOpenChat(target);
+                  }}
                   onReport={() => {
                     setChatModalIntent(null);
                     window.dispatchEvent(

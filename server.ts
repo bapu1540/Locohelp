@@ -5127,6 +5127,7 @@ async function startServer() {
                 id: r.id,
                 authorId: r.author_id || localMeta.authorId || 'Community Member',
                 authorName: r.author_name || localMeta.authorName || 'Community Member',
+                authorEmail: r.author_email || localMeta.authorEmail || '',
                 authorAvatar: r.author_avatar || localMeta.authorAvatar,
                 description: r.description || localMeta.description || '',
                 category: r.category || localMeta.category || 'General',
@@ -5154,10 +5155,21 @@ async function startServer() {
       }
 
       // Compute distinct response counts and full responses/repliers list per post (excluding post owner and system)
-      const responseSetsByIntent = new Map<string, Set<string>>();
       const responsesListByIntent = new Map<string, any[]>();
       const repliersByIntent = new Map<string, Map<string, any>>();
       const seenRespIdsByIntent = new Map<string, Set<string>>();
+
+      const normalizeUserIdentityKey = (idVal: string, emailVal: string): string => {
+        const cleanEmail = String(emailVal || '').trim().toLowerCase();
+        if (cleanEmail) {
+          return 'email_' + cleanEmail.replace(/[^a-z0-9]/g, '_');
+        }
+        const cleanId = String(idVal || '').trim().toLowerCase();
+        if (cleanId.includes('@')) {
+          return 'email_' + cleanId.replace(/[^a-z0-9]/g, '_');
+        }
+        return cleanId;
+      };
 
       const addResponderAndEntry = (intentIdRaw: any, rawEntry: any) => {
         const iId = String(intentIdRaw || '').trim();
@@ -5165,17 +5177,29 @@ async function startServer() {
         const postItem = mergedMap.get(iId);
         const ownerId = String(postItem?.authorId || '').trim().toLowerCase();
         const ownerEmail = String(postItem?.authorEmail || '').trim().toLowerCase();
+        const ownerNormKey = normalizeUserIdentityKey(ownerId, ownerEmail);
+
+        const entryOwnerId = String(rawEntry?.post_owner_id || rawEntry?.postOwnerId || rawEntry?.poster_id || '').trim().toLowerCase();
+        const entryOwnerEmail = String(rawEntry?.post_owner_email || rawEntry?.postOwnerEmail || rawEntry?.poster_email || '').trim().toLowerCase();
+
         const senderId = String(rawEntry?.sender_id || rawEntry?.senderId || rawEntry?.authorId || '').trim();
         const senderEmail = String(rawEntry?.sender_email || rawEntry?.senderEmail || rawEntry?.authorEmail || '').trim();
         const sId = senderId.toLowerCase();
         const sEmail = senderEmail.toLowerCase();
         if (!sId || sId === 'system' || sId === 'owner' || sId === 'me') return;
-        if ((ownerId && sId === ownerId) || (ownerEmail && sEmail && sEmail === ownerEmail) || (ownerEmail && sId === ownerEmail)) return;
-        const responderKey = sEmail || sId;
-        if (!responseSetsByIntent.has(iId)) {
-          responseSetsByIntent.set(iId, new Set());
+
+        const senderNormKey = normalizeUserIdentityKey(sId, sEmail);
+        if (
+          (ownerId && (sId === ownerId || senderNormKey === ownerId)) ||
+          (ownerEmail && ((sEmail && sEmail === ownerEmail) || sId === ownerEmail)) ||
+          (ownerNormKey && senderNormKey === ownerNormKey) ||
+          (entryOwnerId && (sId === entryOwnerId || senderNormKey === normalizeUserIdentityKey(entryOwnerId, entryOwnerEmail))) ||
+          (entryOwnerEmail && sEmail && sEmail === entryOwnerEmail)
+        ) {
+          return;
         }
-        responseSetsByIntent.get(iId)!.add(responderKey);
+
+        const responderKey = senderNormKey || sEmail || sId;
 
         const msgText = String(rawEntry?.message || rawEntry?.text || rawEntry?.content || '').trim();
         const senderName = String(rawEntry?.sender_name || rawEntry?.senderName || rawEntry?.authorName || 'Neighbor').trim();
@@ -5204,9 +5228,25 @@ async function startServer() {
         if (msgText) {
           if (!repliersByIntent.has(iId)) repliersByIntent.set(iId, new Map());
           const repMap = repliersByIntent.get(iId)!;
-          const existing = repMap.get(responderKey);
+          // Check if this replier already exists under their UID, email, or normalized key
+          let matchedKey = responderKey;
+          for (const [k, val] of repMap.entries()) {
+            const valId = String(val.senderId || '').trim().toLowerCase();
+            const valEmail = String(val.senderEmail || '').trim().toLowerCase();
+            const valNorm = normalizeUserIdentityKey(valId, valEmail);
+            if (
+              k === responderKey ||
+              (sId && valId === sId) ||
+              (sEmail && valEmail && valEmail === sEmail) ||
+              (senderNormKey && valNorm === senderNormKey)
+            ) {
+              matchedKey = k;
+              break;
+            }
+          }
+          const existing = repMap.get(matchedKey);
           if (!existing) {
-            repMap.set(responderKey, {
+            repMap.set(matchedKey, {
               senderId: senderId || responderKey,
               senderName,
               senderEmail,
@@ -5217,6 +5257,7 @@ async function startServer() {
             });
           } else {
             existing.messageCount += 1;
+            if (!existing.senderEmail && senderEmail) existing.senderEmail = senderEmail;
             if (new Date(createdAtIso).getTime() >= new Date(existing.lastMessageAt || 0).getTime()) {
               existing.lastMessage = msgText;
               existing.lastMessageAt = createdAtIso;
@@ -5240,7 +5281,7 @@ async function startServer() {
       if (dbPool && isDbConnected) {
         try {
           const convTableRes = await dbPool.query(
-            `SELECT id, post_id, poster_id, helper_id, helper_name, helper_email, helper_avatar, last_message, last_message_at, unread_poster_count, is_collaborator
+            `SELECT id, post_id, poster_id, poster_email, helper_id, helper_name, helper_email, helper_avatar, last_message, last_message_at, unread_poster_count, is_collaborator
              FROM conversations
              WHERE last_message IS NOT NULL AND TRIM(last_message) <> ''
              ORDER BY last_message_at ASC`
@@ -5248,6 +5289,8 @@ async function startServer() {
           convTableRes.rows.forEach((c: any) => {
             addResponderAndEntry(c.post_id, {
               id: c.id,
+              poster_id: c.poster_id,
+              poster_email: c.poster_email,
               sender_id: c.helper_id,
               sender_name: c.helper_name,
               sender_email: c.helper_email,
@@ -5265,14 +5308,14 @@ async function startServer() {
           });
 
           const msgCountRes = await dbPool.query(
-            "SELECT id, COALESCE(post_id, intent_id) AS post_id, sender_id, sender_name, sender_email, sender_avatar, COALESCE(text, content) AS message, created_at FROM messages WHERE COALESCE(post_id, intent_id) IS NOT NULL ORDER BY created_at ASC"
+            "SELECT id, COALESCE(post_id, intent_id) AS post_id, post_owner_id, sender_id, sender_name, sender_email, sender_avatar, COALESCE(text, content) AS message, created_at FROM messages WHERE COALESCE(post_id, intent_id) IS NOT NULL ORDER BY created_at ASC"
           ).catch(() => ({ rows: [] as any[] }));
           msgCountRes.rows.forEach((r: any) => {
             addResponderAndEntry(r.post_id, r);
           });
 
           const chatCountRes = await dbPool.query(
-            "SELECT id, COALESCE(post_id, intent_id, receiver_id) AS post_id, sender_id, sender_name, sender_email, message, sent_at AS created_at FROM chats ORDER BY sent_at ASC"
+            "SELECT id, COALESCE(post_id, intent_id, receiver_id) AS post_id, post_owner_id, sender_id, sender_name, sender_email, message, sent_at AS created_at FROM chats ORDER BY sent_at ASC"
           ).catch(() => ({ rows: [] as any[] }));
           chatCountRes.rows.forEach((r: any) => {
             addResponderAndEntry(r.post_id, r);
@@ -5291,11 +5334,11 @@ async function startServer() {
         })
         .map(i => {
           const safe = redactBulkItemForPrivacy(i, isAuth, isAdmin);
-          const count = responseSetsByIntent.get(i.id)?.size || 0;
           const postResponses = responsesListByIntent.get(i.id) || [];
           const postRepliers = Array.from(repliersByIntent.get(i.id)?.values() || []).sort(
             (a, b) => new Date(b.lastMessageAt || 0).getTime() - new Date(a.lastMessageAt || 0).getTime()
           );
+          const count = postRepliers.length;
           safe.responseCount = count;
           safe.response_count = count;
           safe.responses = postResponses;
@@ -7244,32 +7287,53 @@ async function startServer() {
             convRowsRes.rows.forEach((c: any) => {
               const hId = String(c.helper_id || "").trim();
               const hEmail = String(c.helper_email || "").trim().toLowerCase();
+              const pId = String(c.poster_id || effectivePosterId || "").trim().toLowerCase();
+              const pEmail = String(c.poster_email || postOwnerEmail || "").trim().toLowerCase();
               if (!hId) return;
-              const key = hEmail || hId.toLowerCase();
+              const normH = hEmail
+                ? "email_" + hEmail.replace(/[^a-z0-9]/g, "_")
+                : hId.includes("@")
+                ? "email_" + hId.toLowerCase().replace(/[^a-z0-9]/g, "_")
+                : hId.toLowerCase();
+              const normP = pEmail
+                ? "email_" + pEmail.replace(/[^a-z0-9]/g, "_")
+                : pId.includes("@")
+                ? "email_" + pId.replace(/[^a-z0-9]/g, "_")
+                : pId;
+              if (
+                (pId && hId.toLowerCase() === pId) ||
+                (pEmail && hEmail && hEmail === pEmail) ||
+                (normP && normH === normP)
+              ) {
+                return;
+              }
+              const key = normH || hEmail || hId.toLowerCase();
               const lastIso = c.last_message_at ? new Date(c.last_message_at).toISOString() : new Date().toISOString();
-              replierGroupsMap.set(key, {
-                id: c.id || buildConversationId(postId, hId),
-                conversationId: c.id || buildConversationId(postId, hId),
-                helperId: hId,
-                senderId: hId,
-                helperName: c.helper_name || "Community Helper",
-                senderName: c.helper_name || "Community Helper",
-                helperEmail: hEmail,
-                senderEmail: hEmail,
-                helperAvatar: c.helper_avatar || "",
-                senderAvatar: c.helper_avatar || "",
-                lastMessage: c.last_message || previewText,
-                lastMessageAt: lastIso,
-                updatedAt: lastIso,
-                count: Math.max(Number(c.unread_poster_count || 0), 1),
-                unreadCount: Number(c.unread_poster_count || 0),
-                unreadPosterCount: Number(c.unread_poster_count || 0),
-                unreadHelperCount: Number(c.unread_helper_count || 0),
-                isCollaborator: Boolean(c.is_collaborator)
-              });
+              if (!replierGroupsMap.has(key)) {
+                replierGroupsMap.set(key, {
+                  id: c.id || buildConversationId(postId, hId),
+                  conversationId: c.id || buildConversationId(postId, hId),
+                  helperId: hId,
+                  senderId: hId,
+                  helperName: c.helper_name || "Community Helper",
+                  senderName: c.helper_name || "Community Helper",
+                  helperEmail: hEmail,
+                  senderEmail: hEmail,
+                  helperAvatar: c.helper_avatar || "",
+                  senderAvatar: c.helper_avatar || "",
+                  lastMessage: c.last_message || previewText,
+                  lastMessageAt: lastIso,
+                  updatedAt: lastIso,
+                  count: 1,
+                  unreadCount: Number(c.unread_poster_count || 0),
+                  unreadPosterCount: Number(c.unread_poster_count || 0),
+                  unreadHelperCount: Number(c.unread_helper_count || 0),
+                  isCollaborator: Boolean(c.is_collaborator)
+                });
+              }
             });
 
-            updatedResponseCount = Math.max(replierGroupsMap.size, 1);
+            updatedResponseCount = replierGroupsMap.size;
           }
         } catch (syncErr) {
           console.warn("Post interaction refresh error:", syncErr);

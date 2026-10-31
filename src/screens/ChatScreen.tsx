@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Intent } from '../types';
-import { ArrowLeft, ShieldAlert, CheckCircle2, Send, MapPin, UserCheck, Paperclip, Navigation, Mic, Star, Sparkles, Trash2, Home, ShieldCheck, Check, Camera, Image as ImageIcon, X, Share2, Video, PhoneOff, MicOff, RefreshCw, AlertTriangle, MessageSquare } from 'lucide-react';
+import { ArrowLeft, ShieldAlert, CheckCircle2, Send, MapPin, UserCheck, Paperclip, Navigation, Mic, Star, Sparkles, Trash2, Home, ShieldCheck, Check, Camera, Image as ImageIcon, X, Share2, Video, PhoneOff, MicOff, RefreshCw, AlertTriangle, MessageSquare, MoreVertical } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { getCurrentUser, isMessageSentByUser } from '../auth';
 import { useLanguage, COMPLIANCE_REPORT_REASONS } from '../i18n';
@@ -27,9 +27,10 @@ interface ChatScreenProps {
   onBack: () => void;
   onReport: () => void;
   isModal?: boolean;
+  onExpandFullScreen?: () => void;
 }
 
-export default function ChatScreen({ intent, onBack, onReport, isModal = false }: ChatScreenProps) {
+export default function ChatScreen({ intent, onBack, onReport, isModal = false, onExpandFullScreen }: ChatScreenProps) {
   const { language, t, tr } = useLanguage();
   const [currentIntent, setCurrentIntent] = useState<Intent | null>(intent);
 
@@ -210,6 +211,9 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false }
   const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);
   const [unreadNewScrollCount, setUnreadNewScrollCount] = useState(0);
   const prevMessagesLengthRef = useRef(0);
+  const lastMessageIdRef = useRef<string | null>(null);
+  const [isHeaderMenuOpen, setIsHeaderMenuOpen] = useState(false);
+  const [isSafetyBannerDismissed, setIsSafetyBannerDismissed] = useState(false);
 
   // Sync selected replier if currentIntent changes (e.g., opened from My Chats list or View Responses modal)
   useEffect(() => {
@@ -265,6 +269,12 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false }
 
   // Load cached 1-on-1 messages when switching activeConversationId
   useEffect(() => {
+    initialLoadRef.current = true;
+    isUserNearBottomRef.current = true;
+    prevMessagesLengthRef.current = 0;
+    lastMessageIdRef.current = null;
+    setShowScrollBottomBtn(false);
+    setUnreadNewScrollCount(0);
     if (!activeConversationId) {
       setMessages([]);
       return;
@@ -298,13 +308,11 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false }
     const el = messagesContainerRef.current;
     if (!el) return;
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    const isNearBottom = distanceFromBottom < 100;
+    const isNearBottom = distanceFromBottom < 90;
     isUserNearBottomRef.current = isNearBottom;
     if (isNearBottom) {
       setShowScrollBottomBtn(false);
       setUnreadNewScrollCount(0);
-    } else {
-      setShowScrollBottomBtn(true);
     }
   };
 
@@ -320,20 +328,34 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false }
     }
   };
 
-  // Smart message scroll: auto-scroll only if already at bottom or on initial load
+  // Smart message scroll: auto-scroll on initial load or when near bottom; only show "New Message" button if a new message arrives while scrolled up
   useEffect(() => {
-    if (initialLoadRef.current) {
-      initialLoadRef.current = false;
-      window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+    const latestMsg = messages.length > 0 ? messages[messages.length - 1] : null;
+    const latestId = latestMsg?.id || null;
+
+    if (initialLoadRef.current || prevMessagesLengthRef.current === 0) {
+      if (messages.length > 0) {
+        initialLoadRef.current = false;
+      }
+      prevMessagesLengthRef.current = messages.length;
+      lastMessageIdRef.current = latestId;
+      setShowScrollBottomBtn(false);
+      setUnreadNewScrollCount(0);
       if (messagesContainerRef.current) {
         messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
       }
-      prevMessagesLengthRef.current = messages.length;
       return;
     }
 
-    const hasNewMessage = messages.length > prevMessagesLengthRef.current;
+    const hasNewIncomingMessage =
+      messages.length > prevMessagesLengthRef.current &&
+      latestId !== null &&
+      latestId !== lastMessageIdRef.current &&
+      latestMsg &&
+      !isMessageSentByUser(latestMsg, getCurrentUser());
+
     prevMessagesLengthRef.current = messages.length;
+    lastMessageIdRef.current = latestId;
 
     if (messagesContainerRef.current) {
       if (isUserNearBottomRef.current) {
@@ -343,8 +365,8 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false }
         });
         setShowScrollBottomBtn(false);
         setUnreadNewScrollCount(0);
-      } else if (hasNewMessage) {
-        // Scrolled up: keep user position undisturbed and show "New Message" indicator
+      } else if (hasNewIncomingMessage) {
+        // Only show "New Message" button when user is scrolled up AND a new incoming message actually arrived
         setShowScrollBottomBtn(true);
         setUnreadNewScrollCount(prev => prev + 1);
       }
@@ -1207,8 +1229,8 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false }
                       </div>
                     </div>
                     {hasUnread && (
-                      <span className="text-[9px] bg-rose-500 text-white font-black px-1.5 py-0.5 rounded-full shadow-2xs animate-pulse shrink-0">
-                        🔴 {conv.unreadCount}
+                      <span className="text-[9px] bg-rose-500 text-white font-black px-2 py-0.5 rounded-full shadow-2xs animate-pulse shrink-0">
+                        🔴 {tr('New', 'नया', 'નવું')}
                       </span>
                     )}
                   </div>
@@ -1224,157 +1246,220 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false }
   return (
     <div className="flex flex-col h-full bg-[#FCFAF5] dark:bg-slate-900 relative overflow-hidden transition-colors">
       
-      {/* 1. TOP HEADER (Clean WhatsApp / Telegram style) */}
-      <div className="flex items-center justify-between px-4 py-3 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 shadow-xs z-20 sticky top-0">
-        <div className="flex items-center gap-3">
+      {/* 1. COMPACT UNIFIED WHATSAPP-STYLE TOP HEADER */}
+      <div className="flex items-center justify-between px-3 py-2.5 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 shadow-xs z-30 sticky top-0 gap-2">
+        <div className="flex items-center gap-2.5 min-w-0 flex-1">
           <button 
+            type="button"
             onClick={() => {
-              if (intent) {
+              if (isPostOwner && selectedReplierId && distinctRepliers.length > 1) {
+                setSelectedReplierId(null);
+              } else if (intent) {
                 onBack();
               } else {
                 setCurrentIntent(null);
               }
             }} 
-            title={isModal ? tr('Close Chat', 'ચેટ બંધ કરો', 'ચેટ બંધ કરો') : tr('Back', 'વાપસ जाएं', 'પાછા જાઓ')}
+            className="p-1.5 -ml-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer shrink-0"
+            title={isModal ? tr('Close Chat', 'चैट बंद करें', 'ચેટ બંધ કરો') : tr('Back', 'वापस जाएं', 'પાછા જાઓ')}
           >
-            {isModal ? <X className="w-5 h-5 text-rose-600 dark:text-rose-400" /> : <ArrowLeft className="w-5 h-5" />}
+            {isModal && !(isPostOwner && selectedReplierId && distinctRepliers.length > 1) ? (
+              <X className="w-5 h-5 text-slate-600 dark:text-slate-300" />
+            ) : (
+              <ArrowLeft className="w-5 h-5" />
+            )}
           </button>
 
           {/* Profile Clickable Header */}
           <div 
             onClick={() => setIsProfileModalOpen(true)}
-            className="flex items-center gap-3 cursor-pointer group"
+            className="flex items-center gap-2.5 cursor-pointer group min-w-0 flex-1"
           >
-            <div className="relative">
-              <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-indigo-600 to-purple-600 text-white font-black text-sm flex items-center justify-center shadow-sm">
-                {peerName[0]}
+            <div className="relative shrink-0">
+              <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-indigo-600 to-purple-600 text-white font-black text-xs flex items-center justify-center shadow-xs">
+                {peerName[0]?.toUpperCase() || 'U'}
               </div>
-              <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-white dark:border-slate-800 rounded-full"></span>
+              <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 border-2 border-white dark:border-slate-800 rounded-full"></span>
             </div>
-            <div>
+            <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5">
-                <h2 className="text-sm font-extrabold text-slate-900 dark:text-white group-hover:text-indigo-600 transition-colors">
+                <h2 className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-white group-hover:text-indigo-600 transition-colors truncate">
                   {peerName}
                 </h2>
-                <UserCheck className="w-3.5 h-3.5 text-indigo-600" />
+                <UserCheck className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                {collaboratorId && selectedReplierId && collaboratorId === selectedReplierId && (
+                  <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 shrink-0">
+                    🤝
+                  </span>
+                )}
               </div>
-              <p 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setIsMapModalOpen(true);
-                }}
-                className="text-[10px] text-indigo-600 dark:text-indigo-400 font-extrabold flex items-center gap-1 hover:underline cursor-pointer mt-0.5"
-                title="View on Map"
-              >
-                <MapPin className="w-3 h-3" />
-                <span>{peerLocation} ({peerDistance}km)</span>
-              </p>
+              <div className="flex items-center gap-1.5 text-[10px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                <span
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsMapModalOpen(true);
+                  }}
+                  className="text-indigo-600 dark:text-indigo-400 font-bold flex items-center gap-0.5 hover:underline cursor-pointer shrink-0"
+                  title="View on Map"
+                >
+                  <MapPin className="w-2.5 h-2.5 shrink-0" />
+                  <span>{peerLocation} ({peerDistance}km)</span>
+                </span>
+                <span className="text-slate-300 dark:text-slate-600 shrink-0">•</span>
+                <span className="truncate font-semibold text-slate-600 dark:text-slate-300" title={topicDesc}>
+                  {topicDesc}
+                </span>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Top Action Buttons */}
-        <div className="flex items-center gap-1.5">
-          {selectedReplierId && (
+        {/* Right Side: Replier Switcher (ONLY if >1 people replied) + Single Clean 3-Dot Options Menu */}
+        <div className="flex items-center gap-1 shrink-0 relative">
+          {isPostOwner && distinctRepliers.length > 1 && selectedReplierId && (
             <button
               type="button"
-              onClick={() => handleCollaborateWithReplier(selectedReplierId, selectedReplierName || peerName)}
-              className={`px-2.5 py-1.5 rounded-xl text-[11px] font-black transition-all cursor-pointer ${
-                collaboratorId === selectedReplierId
-                  ? 'bg-emerald-700 text-white'
-                  : 'bg-emerald-100 hover:bg-emerald-200 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200'
-              }`}
-              title="Collaborate with this replier"
+              onClick={() => setSelectedReplierId(null)}
+              className="px-2 py-1 rounded-xl bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[10px] font-black cursor-pointer hover:bg-emerald-100 transition-colors"
+              title={tr('Switch Responder', 'जवाब देने वाले बदलें', 'જવાબ આપનાર બદલો')}
             >
-              {collaboratorId === selectedReplierId ? '✅ Collaborating' : '🤝 Collaborate'}
+              👥 {distinctRepliers.length}
             </button>
           )}
-          <button 
-            onClick={() => setIsRatingOpen(true)}
-            className={`p-2 rounded-xl transition-all cursor-pointer ${isTaskDone ? 'bg-emerald-100 text-emerald-800' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}
-            title="Complete Task"
+
+          <button
+            type="button"
+            onClick={() => setIsHeaderMenuOpen(prev => !prev)}
+            className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
+            title={tr('Chat Options', 'चैट विकल्प', 'ચેટ વિકલ્પો')}
           >
-            <CheckCircle2 className="w-4 h-4" />
+            <MoreVertical className="w-5 h-5" />
           </button>
 
-          <button 
-            onClick={handleToggleBlockPeer}
-            className={`p-2 rounded-xl transition-colors cursor-pointer flex items-center gap-1 ${
-              isChatBlocked && blockedByMe
-                ? 'bg-rose-600 text-white'
-                : 'hover:bg-rose-50 text-slate-400 hover:text-rose-600'
-            }`}
-            title={isChatBlocked && blockedByMe ? 'Unblock User' : 'Block User'}
-          >
-            <Ban className="w-4 h-4" />
-          </button>
+          {isHeaderMenuOpen && (
+            <>
+              <div
+                className="fixed inset-0 z-40"
+                onClick={() => setIsHeaderMenuOpen(false)}
+              />
+              <div className="absolute right-0 top-full mt-1.5 w-52 bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 py-1.5 z-50 text-xs font-bold overflow-hidden">
+                {selectedReplierId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsHeaderMenuOpen(false);
+                      handleCollaborateWithReplier(selectedReplierId, selectedReplierName || peerName);
+                    }}
+                    className="w-full px-3.5 py-2.5 text-left flex items-center gap-2.5 hover:bg-slate-50 dark:hover:bg-slate-700/70 text-emerald-700 dark:text-emerald-300 cursor-pointer"
+                  >
+                    <span>🤝</span>
+                    <span>
+                      {collaboratorId === selectedReplierId
+                        ? tr('Collaborating', 'सहयोगी चयनित', 'સહયોગી પસંદ કરેલ')
+                        : tr('Collaborate', 'सहयोग करें (Collaborate)', 'સહયોગ કરો (Collaborate)')}
+                    </span>
+                  </button>
+                )}
 
-          <button 
-            onClick={() => setIsReportChatModalOpen(true)}
-            className="px-2.5 py-1.5 bg-rose-50 dark:bg-rose-950/70 hover:bg-rose-100 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800 rounded-xl transition-colors cursor-pointer flex items-center gap-1 text-[11px] font-black"
-            title={tr('Report / Block User', 'रिपोर्ट / ब्लॉक करें', 'રિપોર્ટ / બ્લોક કરો')}
-          >
-            <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
-            <span>{tr('Report / Block', 'रिपोर्ट / ब्लॉक', 'રિપોર્ટ / બ્લોક')}</span>
-          </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsHeaderMenuOpen(false);
+                    setIsRatingOpen(true);
+                  }}
+                  className="w-full px-3.5 py-2.5 text-left flex items-center gap-2.5 hover:bg-slate-50 dark:hover:bg-slate-700/70 text-slate-700 dark:text-slate-200 cursor-pointer"
+                >
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>{tr('Mark Task Complete', 'काम पूरा हुआ (Complete)', 'કામ પૂર્ણ થયું (Complete)')}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsHeaderMenuOpen(false);
+                    setIsMapModalOpen(true);
+                  }}
+                  className="w-full px-3.5 py-2.5 text-left flex items-center gap-2.5 hover:bg-slate-50 dark:hover:bg-slate-700/70 text-slate-700 dark:text-slate-200 cursor-pointer"
+                >
+                  <MapPin className="w-4 h-4 text-indigo-600 shrink-0" />
+                  <span>{tr('Location & Map', 'मैप और लोकेशन', 'મેપ અને લોકેશન')}</span>
+                </button>
+
+                {isModal && onExpandFullScreen && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsHeaderMenuOpen(false);
+                      onExpandFullScreen();
+                    }}
+                    className="w-full px-3.5 py-2.5 text-left flex items-center gap-2.5 hover:bg-slate-50 dark:hover:bg-slate-700/70 text-slate-700 dark:text-slate-200 cursor-pointer"
+                  >
+                    <span className="text-sm leading-none">⛶</span>
+                    <span>{tr('Full Screen Chat', 'फुल स्क्रीन चैट', 'ફુલ સ્ક્રીન ચેટ')}</span>
+                  </button>
+                )}
+
+                <div className="my-1 border-t border-slate-100 dark:border-slate-700" />
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsHeaderMenuOpen(false);
+                    handleToggleBlockPeer();
+                  }}
+                  className="w-full px-3.5 py-2.5 text-left flex items-center gap-2.5 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 cursor-pointer"
+                >
+                  <Ban className="w-4 h-4 shrink-0" />
+                  <span>
+                    {isChatBlocked && blockedByMe
+                      ? tr('Unblock User', 'यूज़र अनब्लॉक करें', 'યુઝર અનબ્લોક કરો')
+                      : tr('Block User', 'यूज़र ब्लॉक करें', 'યુઝર બ્લોક કરો')}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsHeaderMenuOpen(false);
+                    setIsReportChatModalOpen(true);
+                  }}
+                  className="w-full px-3.5 py-2.5 text-left flex items-center gap-2.5 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 cursor-pointer"
+                >
+                  <ShieldAlert className="w-4 h-4 shrink-0" />
+                  <span>{tr('Report / Block', 'रिपोर्ट / ब्लॉक करें', 'રિપોર્ટ / બ્લોક કરો')}</span>
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
-      {/* Permanent Multilingual In-Chat Safety Warning Banner (Just below Chat Header) */}
-      <div className="px-3.5 py-2 bg-amber-50 dark:bg-amber-950/80 border-b border-amber-200 dark:border-amber-800 text-[11px] sm:text-xs font-extrabold text-amber-950 dark:text-amber-200 leading-snug shadow-2xs">
-        {language === 'EN'
-          ? '⚠️ Safety Warning: LocoHelp is only a connecting mediator. Never pay any advance money online before work is completed. Verify the person yourself.'
-          : language === 'GU'
-          ? '⚠️ સુરક્ષા ચેતવણી: LocoHelp માત્ર લોકોને જોડવાનું માધ્યમ છે. કામ પૂર્ણ થયા પહેલાં કોઈને પણ ઓનલાઈન એડવાન્સ પૈસા આપશો નહીં. વ્યક્તિની ચકાસણી જાતે કરો.'
-          : '⚠️ सुरक्षा चेतावनी: LocoHelp सिर्फ जोड़ने का माध्यम है। काम पूरा होने से पहले किसी को भी ऑनलाइन एडवांस पैसे न दें। व्यक्ति की जांच स्वयं करें।'}
-      </div>
-
-      {/* Broadcast Topic Banner */}
-      <div className="px-4 py-2 bg-indigo-50/90 dark:bg-indigo-950/50 border-b border-indigo-100 dark:border-indigo-900 flex items-center justify-between text-xs font-semibold text-indigo-900 dark:text-indigo-200">
-        <div className="flex items-center gap-1.5 truncate mr-2">
-          <span className="px-1.5 py-0.5 rounded bg-indigo-200 dark:bg-indigo-900 text-[10px] font-black uppercase text-indigo-800 dark:text-indigo-300 shrink-0">Broadcast Topic</span>
-          <span className="truncate">{topicDesc}</span>
-        </div>
-        <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 shrink-0">{peerDistance}km</span>
-      </div>
-
-      {/* Report / Block Status Notification Banner */}
-      {reportStatusBanner && (
-        <div className="px-4 py-2.5 bg-rose-600 text-white text-xs font-bold flex items-center justify-between gap-2 shadow-sm">
-          <span>{reportStatusBanner}</span>
-          <button onClick={() => setReportStatusBanner(null)} className="text-white/80 hover:text-white cursor-pointer">✕</button>
+      {/* Compact 1-Line Dismissible Safety Warning Strip */}
+      {!isSafetyBannerDismissed && (
+        <div className="px-3 py-1 bg-amber-50/95 dark:bg-amber-950/70 border-b border-amber-200/80 dark:border-amber-800/80 flex items-center justify-between gap-2 text-[10px] font-bold text-amber-900 dark:text-amber-200">
+          <span className="truncate">
+            {language === 'EN'
+              ? '⚠️ Never pay advance online before work is done. Verify in person.'
+              : language === 'GU'
+              ? '⚠️ કામ પૂર્ણ થયા પહેલા ઓનલાઈન એડવાન્સ પૈસા આપશો નહીં.'
+              : '⚠️ काम पूरा होने से पहले ऑनलाइन एडवांस पैसे न दें।'}
+          </span>
+          <button
+            type="button"
+            onClick={() => setIsSafetyBannerDismissed(true)}
+            className="text-amber-700 dark:text-amber-300 hover:text-amber-950 px-1 font-black shrink-0 cursor-pointer"
+            title={tr('Dismiss', 'हटाएं', 'બંધ કરો')}
+          >
+            ✕
+          </button>
         </div>
       )}
 
-      {/* WhatsApp-Style 1-on-1 Replier Thread Switcher (Only for Post Owner when switching between Helpers) */}
-      {isPostOwner && distinctRepliers.length > 0 && (
-        <div className="px-3 py-2 bg-emerald-50/80 dark:bg-slate-800/90 border-b border-emerald-200/70 dark:border-slate-700 flex items-center gap-2 overflow-x-auto scrollbar-hide">
-          <span className="text-[10px] font-black uppercase text-emerald-800 dark:text-emerald-300 shrink-0">
-            💬 1-on-1 Chats ({distinctRepliers.length}):
-          </span>
-          {distinctRepliers.map(rep => (
-            <button
-              key={rep.id}
-              type="button"
-              onClick={() => {
-                setSelectedReplierId(rep.id);
-                setSelectedReplierName(rep.name);
-                setSelectedReplierEmail(rep.email || null);
-                setSelectedReplierAvatar(rep.avatar || null);
-              }}
-              className={`px-2.5 py-1 rounded-xl text-[11px] font-black shrink-0 flex items-center gap-1.5 transition-all cursor-pointer ${
-                selectedReplierId === rep.id
-                  ? 'bg-emerald-600 text-white shadow-xs'
-                  : 'bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-600'
-              }`}
-            >
-              <span>{rep.name}</span>
-              <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-black/15">
-                {rep.unreadCount > 0 ? `${rep.unreadCount} new` : rep.count}
-              </span>
-              {(rep.isCollaborator || collaboratorId === rep.id) && <span>🤝</span>}
-            </button>
-          ))}
+      {/* Report / Block Status Notification Banner */}
+      {reportStatusBanner && (
+        <div className="px-4 py-2 bg-rose-600 text-white text-xs font-bold flex items-center justify-between gap-2 shadow-sm">
+          <span>{reportStatusBanner}</span>
+          <button onClick={() => setReportStatusBanner(null)} className="text-white/80 hover:text-white cursor-pointer">✕</button>
         </div>
       )}
 
@@ -1584,114 +1669,97 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false }
         )}
       </div>
 
-      {/* 3. CLEAN BOTTOM ACTION BAR & INPUT */}
-      <div className="p-3 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 flex flex-col gap-2 shadow-lg">
+      {/* 3. COMPACT WHATSAPP-STYLE BOTTOM INPUT BAR */}
+      <div className="px-2.5 py-2 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 shadow-lg">
         {isPostOwner && !selectedReplierId ? (
-          <div className="p-3 rounded-2xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-center text-xs font-bold text-slate-600 dark:text-slate-300">
-            🔒 Select a responder from the list above to open a 1-on-1 private chat. (चैट करने के लिए पहले किसी जवाब देने वाले व्यक्ति को चुनें)
+          <div className="p-2.5 rounded-2xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-center text-xs font-bold text-slate-600 dark:text-slate-300">
+            {tr(
+              '🔒 Select a person from the list above to reply.',
+              '🔒 जवाब देने के लिए ऊपर सूची से किसी व्यक्ति को चुनें।',
+              '🔒 જવાબ આપવા માટે ઉપરની યાદીમાંથી વ્યક્તિ પસંદ કરો.'
+            )}
           </div>
         ) : isChatBlocked ? (
-          <div className="p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 flex flex-col sm:flex-row items-center justify-between gap-2 text-center sm:text-left">
+          <div className="p-2.5 rounded-2xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 flex flex-col sm:flex-row items-center justify-between gap-2 text-center sm:text-left">
             <div className="flex items-center gap-2 text-xs font-extrabold text-rose-700 dark:text-rose-300">
               <Ban className="w-4 h-4 shrink-0" />
               <span>
                 {blockedByMe
-                  ? 'आपने इस यूज़र को ब्लॉक किया है। अब कोई भी संदेश नहीं भेजा जा सकता।'
-                  : 'यह बातचीत ब्लॉक कर दी गई है। संदेश नहीं भेजे जा सकते।'}
+                  ? tr('You blocked this user.', 'आपने इस यूज़र को ब्लॉक किया है।', 'તમે આ યુઝરને બ્લોક કર્યા છે.')
+                  : tr('This chat is blocked.', 'यह बातचीत ब्लॉक कर दी गई है।', 'આ વાતચીત બ્લોક કરવામાં આવી છે.')}
               </span>
             </div>
             {blockedByMe && (
               <button
                 type="button"
                 onClick={handleToggleBlockPeer}
-                className="px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-black shrink-0 cursor-pointer"
+                className="px-3 py-1 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-black shrink-0 cursor-pointer"
               >
-                अनब्लॉक करें (Unblock)
+                {tr('Unblock', 'अनब्लॉक करें', 'અનબ્લોક કરો')}
               </button>
             )}
           </div>
         ) : (
-          <>
-            {/* Quick Toolbar */}
-            <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide text-xs font-bold">
-              {/* Photo Upload from Gallery */}
-              <button
-                type="button"
-                onClick={() => imageInputRef.current?.click()}
-                className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-xl flex items-center gap-1.5 shrink-0 active:scale-95 transition-all cursor-pointer"
-                title="Upload Photo"
-              >
-                <ImageIcon className="w-3.5 h-3.5" />
-                <span>फोटो अपलोड</span>
-              </button>
-              <input type="file" ref={imageInputRef} className="hidden" onChange={handleFileUpload} accept="image/*" />
+          <form 
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSend(input);
+            }}
+            className="flex items-center gap-1.5"
+          >
+            <input type="file" ref={imageInputRef} className="hidden" onChange={handleFileUpload} accept="image/*" />
 
-              {/* Camera Capture */}
-              <button
-                type="button"
-                onClick={startCamera}
-                className="px-3 py-1.5 bg-amber-50 dark:bg-amber-950/60 hover:bg-amber-100 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 rounded-xl flex items-center gap-1.5 shrink-0 active:scale-95 transition-all cursor-pointer"
-                title="Camera Photo"
-              >
-                <Camera className="w-3.5 h-3.5" />
-                <span>कैमरा फोटो</span>
-              </button>
-
-              {/* Map Location Button */}
-              <button
-                type="button"
-                onClick={() => setIsMapModalOpen(true)}
-                className="px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-xl flex items-center gap-1.5 shrink-0 active:scale-95 transition-all cursor-pointer"
-                title="View Map Location"
-              >
-                <MapPin className="w-3.5 h-3.5" />
-                <span>मैप लोकेशन</span>
-              </button>
-
-              {/* Direct Report Chat Button in Toolbar */}
-              <button
-                type="button"
-                onClick={() => setIsReportChatModalOpen(true)}
-                className="px-3 py-1.5 bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 rounded-xl flex items-center gap-1.5 shrink-0 active:scale-95 transition-all cursor-pointer"
-                title="Report Chat or Block User"
-              >
-                <ShieldAlert className="w-3.5 h-3.5" />
-                <span>रिपोर्ट / ब्लॉक</span>
-              </button>
-            </div>
-
-            {/* Text Input Form */}
-            <form 
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleSend(input);
-              }}
-              className="flex items-center gap-2"
+            {/* Compact Attachment Icons (Gallery, Camera, Location) */}
+            <button
+              type="button"
+              onClick={() => imageInputRef.current?.click()}
+              className="p-2 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-700 rounded-full transition-colors shrink-0 cursor-pointer"
+              title={tr('Upload Photo', 'फोटो अपलोड', 'ફોટો અપલોડ')}
             >
-              <input 
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSend(input);
-                  }
-                }}
-                placeholder="Type message here..."
-                className="flex-1 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-full px-4 py-2.5 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 outline-none focus:border-indigo-500 font-medium"
-              />
+              <ImageIcon className="w-5 h-5" />
+            </button>
 
-              <button 
-                type="submit"
-                disabled={!input.trim()}
-                className="p-3 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white rounded-full active:scale-95 transition-all shadow-md shrink-0 flex items-center justify-center cursor-pointer"
-                title="Send Message"
-              >
-                <Send className="w-4 h-4" />
-              </button>
-            </form>
-          </>
+            <button
+              type="button"
+              onClick={startCamera}
+              className="p-2 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-slate-700 rounded-full transition-colors shrink-0 cursor-pointer"
+              title={tr('Camera Photo', 'कैमरा फोटो', 'કેમેરા ફોટો')}
+            >
+              <Camera className="w-5 h-5" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsMapModalOpen(true)}
+              className="p-2 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-slate-700 rounded-full transition-colors shrink-0 cursor-pointer"
+              title={tr('Share / View Location', 'मैप लोकेशन', 'મેપ લોકેશન')}
+            >
+              <MapPin className="w-5 h-5" />
+            </button>
+
+            <input 
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSend(input);
+                }
+              }}
+              placeholder={tr('Type a message...', 'संदेश लिखें...', 'મેસેજ લખો...')}
+              className="flex-1 min-w-0 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-full px-3.5 py-2 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 outline-none focus:border-indigo-500 font-medium"
+            />
+
+            <button 
+              type="submit"
+              disabled={!input.trim()}
+              className="p-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white rounded-full active:scale-95 transition-all shadow-sm shrink-0 flex items-center justify-center cursor-pointer"
+              title={tr('Send', 'भेजें', 'મોકલો')}
+            >
+              <Send className="w-4 h-4" />
+            </button>
+          </form>
         )}
       </div>
 
