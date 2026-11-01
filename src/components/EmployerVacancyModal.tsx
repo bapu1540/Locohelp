@@ -16,15 +16,21 @@ import {
   Search,
   MessageCircle,
   Plus,
-  Edit3
+  Edit3,
+  Camera,
+  Lock
 } from 'lucide-react';
 import { useLanguage } from '../i18n';
-import { submitJobPortalItem, fetchJobPortalItems } from '../api';
+import { submitJobPortalItem, fetchJobPortalItems, submitVerification } from '../api';
 import { JobPortalItem } from '../types';
 import { validateUploadedFile, checkSystemSecurityBlock } from '../lib/security';
 import { getCurrentUser, getShops, saveShop } from '../auth';
 import { isEntityOwner } from '../lib/ownership';
 import { compressImageToWebP } from '../lib/imageCompression';
+import { applyIdWatermark } from '../lib/watermark';
+import SmartLocationPicker from './SmartLocationPicker';
+import PhonePrivacyToggle from './PhonePrivacyToggle';
+import ProtectedSelfieCanvas from './ProtectedSelfieCanvas';
 
 interface EmployerVacancyModalProps {
   isOpen: boolean;
@@ -82,17 +88,25 @@ export default function EmployerVacancyModal({
   const [openingsCount, setOpeningsCount] = useState('2');
   const [urgency, setUrgency] = useState<'Immediate' | 'Within 1 Week' | 'Normal'>('Immediate');
   const [experienceRequired, setExperienceRequired] = useState('Fresher Welcome');
-  const [phone, setPhone] = useState('');
-  const [whatsapp, setWhatsapp] = useState('');
   const [area, setArea] = useState('');
   const [address, setAddress] = useState('');
   const [description, setDescription] = useState('');
   const [logoOrPhotoUrl, setLogoOrPhotoUrl] = useState<string | null>(null);
+  const [employerLiveSelfie, setEmployerLiveSelfie] = useState<string | null>(null);
+  const [isWatermarkingSelfie, setIsWatermarkingSelfie] = useState(false);
+  const [isPhonePublic, setIsPhonePublic] = useState(false);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitSuccessMessage, setSubmitSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [hpWebsiteUrl, setHpWebsiteUrl] = useState('');
+
+  const currentUser = getCurrentUser();
+  const autoPhone = (
+    currentUser?.phone ||
+    localStorage.getItem('locohelp_last_logged_in_phone') ||
+    ''
+  ).replace(/\D/g, '').slice(-10);
 
   useEffect(() => {
     if (isOpen) {
@@ -107,7 +121,7 @@ export default function EmployerVacancyModal({
   const loadRegisteredBusinesses = async () => {
     setIsLoadingBusinesses(true);
     try {
-      const currentUser = getCurrentUser();
+      const activeUser = getCurrentUser();
       const serverShops = await getShops(true);
       const map = new Map<string, any>();
 
@@ -130,7 +144,7 @@ export default function EmployerVacancyModal({
           const cached: any[] = JSON.parse(cachedRaw);
           cached.forEach(s => {
             if (s && s.id && (s.name || s.businessName) && !String(s.id).startsWith('sample_shop_')) {
-              const isMine = isEntityOwner(s, currentUser);
+              const isMine = isEntityOwner(s, activeUser);
               map.set(s.id, { ...s, isMyBusiness: isMine || map.get(s.id)?.isMyBusiness });
             }
           });
@@ -141,27 +155,27 @@ export default function EmployerVacancyModal({
       if (Array.isArray(serverShops)) {
         serverShops.forEach(s => {
           if (s && s.id && (s.name || s.businessName) && !String(s.id).startsWith('sample_shop_')) {
-            const isMine = isEntityOwner(s, currentUser);
+            const isMine = isEntityOwner(s, activeUser);
             map.set(s.id, { ...(map.get(s.id) || {}), ...s, isMyBusiness: isMine || map.get(s.id)?.isMyBusiness });
           }
         });
       }
 
       // 4. Also allow linking the logged-in user's own verified LocoHelp Profile if they don't have a separate shop entry yet
-      if (currentUser && !currentUser.isGuest && currentUser.displayName) {
+      if (activeUser && !activeUser.isGuest && activeUser.displayName) {
         const hasOwnShop = Array.from(map.values()).some(b => b.isMyBusiness);
         if (!hasOwnShop) {
-          const profileEntryId = `profile_${currentUser.uid}`;
+          const profileEntryId = `profile_${activeUser.uid}`;
           map.set(profileEntryId, {
             id: profileEntryId,
-            name: `${currentUser.displayName} (Registered Profile)`,
-            businessName: currentUser.displayName,
-            ownerName: currentUser.displayName,
-            categoryLabel: currentUser.skills || 'Retail & Shopping Mall',
-            phone: currentUser.phone || '',
-            area: currentUser.address || 'Local Market Area',
-            address: currentUser.address || '',
-            photoUrl: currentUser.photoURL || null,
+            name: `${activeUser.displayName} (Registered Profile)`,
+            businessName: activeUser.displayName,
+            ownerName: activeUser.displayName,
+            categoryLabel: activeUser.skills || 'Retail & Shopping Mall',
+            phone: activeUser.phone || autoPhone,
+            area: activeUser.address || 'Local Market Area',
+            address: activeUser.address || '',
+            photoUrl: activeUser.photoURL || null,
             isMyBusiness: true,
             isProfileLink: true
           });
@@ -169,7 +183,6 @@ export default function EmployerVacancyModal({
       }
 
       const list = Array.from(map.values());
-      // Sort user's own business first
       list.sort((a, b) => (b.isMyBusiness ? 1 : 0) - (a.isMyBusiness ? 1 : 0));
       setRegisteredBusinesses(list);
 
@@ -190,11 +203,13 @@ export default function EmployerVacancyModal({
     setCompanyOrShopName(biz.businessName || biz.name || '');
     setOwnerName(biz.ownerName || '');
     setCategory(biz.category || biz.categoryLabel || BUSINESS_CATEGORIES[0].id);
-    setPhone(biz.phone || '');
-    setWhatsapp(biz.whatsapp || biz.phone || '');
     setArea(biz.area || 'Local Area');
     setAddress(biz.address || biz.area || '');
     setLogoOrPhotoUrl(biz.photoUrl || null);
+    if (biz.idDocumentWatermarked) {
+      setEmployerLiveSelfie(biz.idDocumentWatermarked);
+    }
+    setIsPhonePublic(biz.isPhonePublic === true);
     setErrorMessage(null);
   };
 
@@ -220,12 +235,12 @@ export default function EmployerVacancyModal({
     setOpeningsCount(String(vac.openingsCount || '1'));
     setUrgency(vac.urgency || 'Immediate');
     setExperienceRequired(vac.experience || 'Fresher Welcome');
-    setPhone(vac.phone || '');
-    setWhatsapp(vac.whatsapp || '');
     setArea(vac.area || '');
     setAddress(vac.address || '');
     setDescription(vac.description || '');
     setLogoOrPhotoUrl(vac.photoOrLogoUrl || null);
+    setEmployerLiveSelfie((vac as any).idDocumentWatermarked || vac.photoOrLogoUrl || null);
+    setIsPhonePublic((vac as any).isPhonePublic === true);
     setActiveTab('new');
   };
 
@@ -267,6 +282,32 @@ export default function EmployerVacancyModal({
     }
   };
 
+  const handleLiveSelfieCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const check = await validateUploadedFile(file, { allowPdf: false });
+    if (!check.valid) {
+      setErrorMessage(tr(check.error || 'Invalid selfie image', check.errorHi || check.error || 'अमान्य सेल्फी फोटो', 'અમાન્ય સેલ્ફી ફોટો'));
+      e.target.value = '';
+      return;
+    }
+    setErrorMessage(null);
+    setIsWatermarkingSelfie(true);
+    try {
+      const watermarked = await applyIdWatermark(file, {
+        entityType: 'business',
+        userName: ownerName.trim() || companyOrShopName.trim() || currentUser?.displayName || 'Verified Employer',
+        customText: 'LOCOHELP VERIFIED EMPLOYER • LIVE SELFIE • DO NOT COPY'
+      });
+      setEmployerLiveSelfie(watermarked);
+    } catch {
+      const compressed = await compressImageToWebP(file, { maxWidth: 900, quality: 0.78 });
+      setEmployerLiveSelfie(compressed);
+    } finally {
+      setIsWatermarkingSelfie(false);
+    }
+  };
+
   // Option A Submit: Direct Job Vacancy Post from Already Registered Shop/Business
   const handleDirectVacancySubmitFromExisting = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -286,11 +327,6 @@ export default function EmployerVacancyModal({
       setErrorMessage(tr('Please enter Job Role / Required Staff Position', 'कृपया पद / आवश्यक स्टाफ का नाम दर्ज करें', 'કૃપા કરીને પદ / જરૂરી સ્ટાફનું નામ દાખલ કરો'));
       return;
     }
-    const finalPhone = phone.trim() || selectedBusiness?.phone || '';
-    if (!finalPhone) {
-      setErrorMessage(tr('Please enter Contact Mobile Number', 'कृपया संपर्क मोबाइल नंबर दर्ज करें', 'કૃપા કરીને સંપર્ક મોબાઈલ નંબર દાખલ કરો'));
-      return;
-    }
 
     const secBlockA = checkSystemSecurityBlock(companyOrShopName, jobRole, salaryOffered, area, address, description);
     if (secBlockA.blocked) {
@@ -305,8 +341,9 @@ export default function EmployerVacancyModal({
       const bizArea = selectedBusiness?.area || area.trim() || 'Local Market Area';
       const bizAddress = selectedBusiness?.address || address.trim() || bizArea;
 
-      const currentUser = getCurrentUser();
-      const userEmail = currentUser?.email || selectedBusiness?.email || selectedBusiness?.ownerEmail || localStorage.getItem('locohelp_last_logged_in_email') || '';
+      const activeUser = getCurrentUser();
+      const userEmail = activeUser?.email || selectedBusiness?.email || selectedBusiness?.ownerEmail || localStorage.getItem('locohelp_last_logged_in_email') || '';
+      const resolvedPhone = autoPhone || selectedBusiness?.phone || '';
 
       const res = await submitJobPortalItem({
         type: 'employer_vacancy',
@@ -320,12 +357,14 @@ export default function EmployerVacancyModal({
         openingsCount: Number(openingsCount) || 1,
         urgency,
         experience: experienceRequired,
-        phone: finalPhone,
-        whatsapp: whatsapp.trim() || finalPhone,
+        phone: resolvedPhone,
+        whatsapp: resolvedPhone,
+        isPhonePublic,
         area: bizArea,
         address: bizAddress,
         description: description.trim() || `Hiring for ${jobRole} at ${bizName}.`,
-        photoOrLogoUrl: selectedBusiness?.photoUrl || logoOrPhotoUrl || undefined
+        photoOrLogoUrl: selectedBusiness?.photoUrl || logoOrPhotoUrl || undefined,
+        idDocumentWatermarked: selectedBusiness?.idDocumentWatermarked || employerLiveSelfie || undefined
       } as any);
 
       setIsSubmitting(false);
@@ -365,12 +404,18 @@ export default function EmployerVacancyModal({
       setErrorMessage(tr('Please enter Job Role / Required Post', 'कृपया वेकेंसी / पद का नाम दर्ज करें', 'કૃપા કરીને વેકેન્સી / પદનું નામ દાખલ કરો'));
       return;
     }
-    if (!phone.trim()) {
-      setErrorMessage(tr('Please enter Contact Mobile Number', 'कृपया संपर्क मोबाइल नंबर दर्ज करें', 'કૃપા કરીને સંપર્ક મોબાઈલ નંબર દાખલ કરો'));
+    if (!area.trim()) {
+      setErrorMessage(tr('Please select your State, City & Market/Area from dropdown', 'कृपया ड्रॉपडाउन से अपना राज्य, शहर और मार्केट/एरिया चुनें', 'કૃપા કરીને ડ્રોપડાઉનમાંથી તમારું રાજ્ય, શહેર અને વિસ્તાર પસંદ કરો'));
       return;
     }
-    if (!area.trim()) {
-      setErrorMessage(tr('Please enter Market / Area Name', 'कृपया मार्केट / क्षेत्र का नाम दर्ज करें', 'કૃપા કરીને માર્કેટ / વિસ્તારનું નામ દાખલ કરો'));
+    if (!employerLiveSelfie) {
+      setErrorMessage(
+        tr(
+          '📸 Mandatory Verification: Please take a Live Camera Selfie of the Employer/Owner before submitting.',
+          '📸 अनिवार्य सत्यापन: फर्जी प्रोफाइल रोकने के लिए कृपया मालिक/एम्प्लॉयर की लाइव कैमरा सेल्फी (Live Selfie) लें।',
+          '📸 ફરજિયાત ચકાસણી: બોગસ પ્રોફાઈલ રોકવા માટે કૃપા કરીને માલિક/એમ્પ્લોયરની લાઈવ કેમેરા સેલ્ફી લો.'
+        )
+      );
       return;
     }
 
@@ -383,26 +428,31 @@ export default function EmployerVacancyModal({
     setIsSubmitting(true);
 
     try {
-      const currentUser = getCurrentUser();
-      const userEmail = currentUser?.email || localStorage.getItem('locohelp_last_logged_in_email') || '';
+      const activeUser = getCurrentUser();
+      const userEmail = activeUser?.email || localStorage.getItem('locohelp_last_logged_in_email') || '';
+      const resolvedPhone = autoPhone || '';
+      const shopId = 'shop_' + Date.now().toString(36);
+
       // 1. Save / Register the New Employer Business on LocoHelp (strictly pending Admin approval)
       if (!editingVacancyId) {
         const newShopObj = {
-          id: 'shop_' + Date.now().toString(36),
+          id: shopId,
           name: companyOrShopName.trim(),
           businessName: companyOrShopName.trim(),
           type: 'shop',
           category,
           categoryLabel: category,
-          ownerName: ownerName.trim() || currentUser?.displayName || 'Employer',
-          userId: currentUser?.uid || '',
+          ownerName: ownerName.trim() || activeUser?.displayName || 'Employer',
+          userId: activeUser?.uid || '',
           email: userEmail,
           ownerEmail: userEmail,
-          phone: phone.trim(),
+          phone: resolvedPhone,
+          isPhonePublic,
           area: area.trim(),
           address: address.trim() || area.trim(),
           description: description.trim() || `Employer hiring for ${jobRole.trim()}`,
           photoUrl: logoOrPhotoUrl || null,
+          idDocumentWatermarked: employerLiveSelfie,
           isVerified: false,
           status: 'pending' as const,
           createdAt: new Date().toISOString()
@@ -411,6 +461,19 @@ export default function EmployerVacancyModal({
         try {
           localStorage.setItem('locohelp_my_business', JSON.stringify(newShopObj));
         } catch (e) {}
+
+        try {
+          await submitVerification({
+            entityType: 'business',
+            entityId: shopId,
+            userId: activeUser?.uid || shopId,
+            userName: companyOrShopName.trim(),
+            userEmail: userEmail || undefined,
+            userPhone: resolvedPhone,
+            title: `${companyOrShopName.trim()} (Employer Registration + Live Selfie)`,
+            idDocumentWatermarked: employerLiveSelfie
+          });
+        } catch {}
       }
 
       // 2. Submit the Job Vacancy Requirement (strictly pending Admin approval)
@@ -427,12 +490,14 @@ export default function EmployerVacancyModal({
         openingsCount: Number(openingsCount) || 1,
         urgency,
         experience: experienceRequired,
-        phone: phone.trim(),
-        whatsapp: whatsapp.trim() || phone.trim(),
+        phone: resolvedPhone,
+        whatsapp: resolvedPhone,
+        isPhonePublic,
         area: area.trim() || 'Local Market Area',
         address: address.trim() || area.trim(),
         description: description.trim() || `Hiring for ${jobRole} at ${companyOrShopName}.`,
-        photoOrLogoUrl: logoOrPhotoUrl || undefined
+        photoOrLogoUrl: logoOrPhotoUrl || undefined,
+        idDocumentWatermarked: employerLiveSelfie
       } as any);
 
       setIsSubmitting(false);
@@ -461,6 +526,7 @@ export default function EmployerVacancyModal({
 
   const handleWhatsAppContact = (item: JobPortalItem) => {
     const targetPhone = (item.whatsapp || item.phone || '').replace(/[^0-9]/g, '');
+    if (!targetPhone) return;
     const cleanPhone = targetPhone.startsWith('91') ? targetPhone : `91${targetPhone}`;
     const text = `Namaste! Regarding the vacancy for "${item.jobRole}" at ${item.companyOrShopName} listed on LocoHelp Job Portal, I am interested in applying.`;
     const url = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`;
@@ -533,9 +599,9 @@ export default function EmployerVacancyModal({
           </button>
         </div>
 
-        {/* Top Job Posting Workflow Tabs (Strictly Ordered: 1. Live Jobs -> 2. New Registration / New Employer -> 3. Existing Business / Direct Job Post) */}
+        {/* Top Job Posting Workflow Tabs */}
         <div className="grid grid-cols-1 sm:grid-cols-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850 shrink-0 p-2 gap-1.5">
-          {/* 1. First / Leftmost: Live Jobs */}
+          {/* 1. Live Jobs */}
           <button
             type="button"
             onClick={() => {
@@ -564,7 +630,7 @@ export default function EmployerVacancyModal({
             </p>
           </button>
 
-          {/* 2. Second / Middle: New Registration / New Employer */}
+          {/* 2. New Registration / New Employer */}
           <button
             type="button"
             onClick={() => {
@@ -590,7 +656,7 @@ export default function EmployerVacancyModal({
             </p>
           </button>
 
-          {/* 3. Third / Rightmost: Existing Business / Direct Job Post */}
+          {/* 3. Existing Business / Direct Job Post */}
           <button
             type="button"
             onClick={() => {
@@ -659,7 +725,6 @@ export default function EmployerVacancyModal({
               </div>
             ) : (
               <form onSubmit={handleDirectVacancySubmitFromExisting} className="space-y-4">
-                {/* Hidden Trap Field for Bot Submissions */}
                 <input
                   type="text"
                   name="website_url_hp"
@@ -715,7 +780,6 @@ export default function EmployerVacancyModal({
                     </div>
                   ) : (
                     <>
-                      {/* Search / Select Registered Business */}
                       {registeredBusinesses.length > 2 && (
                         <div className="relative">
                           <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -764,7 +828,6 @@ export default function EmployerVacancyModal({
                         })}
                       </div>
 
-                      {/* Linked Business Summary Pill */}
                       {selectedBusiness && (
                         <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 flex items-center justify-between gap-2">
                           <div className="text-xs">
@@ -772,11 +835,11 @@ export default function EmployerVacancyModal({
                               ✓ {tr('Linked Shop/Business:', 'चयनित दुकान/बिज़नेस:', 'પસંદ કરેલ દુકાન/બિઝનેસ:')} {selectedBusiness.businessName || selectedBusiness.name}
                             </span>
                             <span className="text-[11px] text-emerald-700 dark:text-emerald-300 font-semibold">
-                              📍 {selectedBusiness.area || 'Local Area'} {selectedBusiness.phone ? `• 📞 ${selectedBusiness.phone}` : ''}
+                              📍 {selectedBusiness.area || 'Local Area'}
                             </span>
                           </div>
                           <span className="text-[10px] font-black text-emerald-800 dark:text-emerald-300 bg-white dark:bg-slate-900 px-2.5 py-1 rounded-lg border border-emerald-200 dark:border-emerald-800 shrink-0">
-                            {tr('Auto-Filled', 'ऑटो-लिंक्ड', 'ઓટો-લિંક્ડ')}
+                            {tr('Auto-Linked', 'ऑटो-लिंक्ड', 'ઓટો-લિંક્ડ')}
                           </span>
                         </div>
                       )}
@@ -825,7 +888,7 @@ export default function EmployerVacancyModal({
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                         {tr('Job Type', 'जॉब प्रकार', 'નોકરીનો પ્રકાર')}
@@ -854,25 +917,17 @@ export default function EmployerVacancyModal({
                         className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-slate-700 font-semibold"
                       />
                     </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                        {tr('Contact Phone *', 'संपर्क मोबाइल नंबर *', 'સંપર્ક મોબાઈલ નંબર *')}
-                      </label>
-                      <input
-                        type="tel"
-                        required
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        placeholder="98XXXXXXXX"
-                        className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-slate-700 font-semibold"
-                      />
-                    </div>
                   </div>
+
+                  <PhonePrivacyToggle
+                    isPhonePublic={isPhonePublic}
+                    onChange={setIsPhonePublic}
+                    phoneDisplay={autoPhone || selectedBusiness?.phone || ''}
+                  />
 
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      {tr('Work Timings & Job Responsibilities', 'काम का समय और विवरण', 'કામનો સમય અને વિગત')}
+                      {tr('Work Timings & Job Responsibilities (Optional)', 'काम का समय और विवरण (वैकल्पिक)', 'કામનો સમય અને વિગત (વૈકલ્પિક)')}
                     </label>
                     <textarea
                       rows={2}
@@ -955,7 +1010,6 @@ export default function EmployerVacancyModal({
               </div>
             ) : (
               <form onSubmit={handleNewEmployerSubmit} className="space-y-4">
-                {/* Hidden Trap Field for Bot Submissions */}
                 <input
                   type="text"
                   name="website_url_hp"
@@ -967,7 +1021,7 @@ export default function EmployerVacancyModal({
                 />
                 <div className="p-3 rounded-xl bg-orange-50 dark:bg-slate-800 border border-orange-200 dark:border-slate-700 text-xs font-bold text-orange-900 dark:text-orange-200">
                   {tr(
-                    '🏢 New Employer Registration: Register your Shop/Company/Business and post your Staff Vacancy in one step.',
+                    '🏢 New Employer Registration: Register your Shop/Company/Business and post your Staff Vacancy in one simple step.',
                     '🏢 नया एम्प्लॉयर रजिस्ट्रेशन: अपनी दुकान/कंपनी/बिज़नेस रजिस्टर करें और साथ ही अपनी स्टाफ वेकेंसी पोस्ट करें।',
                     '🏢 નવું એમ્પ્લોયર રજિસ્ટ્રેશન: તમારી દુકાન/કંપની/બિઝનેસ રજિસ્ટર કરો અને સાથે જ સ્ટાફ વેકેન્સી પોસ્ટ કરો.'
                   )}
@@ -997,11 +1051,10 @@ export default function EmployerVacancyModal({
 
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      {tr('Employer / Owner Full Name *', 'मालिक / एम्प्लॉयर का नाम *', 'માલિક / એમ્પ્લોયરનું પૂરું નામ *')}
+                      {tr('Employer / Owner Name (Optional)', 'मालिक / एम्प्लॉयर का नाम (वैकल्पिक)', 'માલિક / એમ્પ્લોયરનું નામ (વૈકલ્પિક)')}
                     </label>
                     <input
                       type="text"
-                      required
                       value={ownerName}
                       onChange={(e) => setOwnerName(e.target.value)}
                       placeholder={tr('e.g. Rajesh Sharma', 'उदा. राजेश शर्मा', 'દા.ત. રાજેશ શર્મા')}
@@ -1044,8 +1097,81 @@ export default function EmployerVacancyModal({
                   </div>
                 </div>
 
-                {/* Vacancy Type & Openings */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Standardized Smart Location Selector */}
+                <SmartLocationPicker
+                  value={area}
+                  onChange={setArea}
+                  required
+                  accentColor="amber"
+                />
+
+                {/* Phone Privacy Toggle (Private by Default + DB Re-Auth to Make Public) */}
+                <PhonePrivacyToggle
+                  isPhonePublic={isPhonePublic}
+                  onChange={setIsPhonePublic}
+                  phoneDisplay={autoPhone}
+                />
+
+                {/* Mandatory Live Camera Selfie for Employer Verification */}
+                <div className="p-3.5 rounded-2xl bg-amber-50/70 dark:bg-slate-800/80 border-2 border-amber-300 dark:border-amber-700/80 space-y-2.5">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <span className="text-xs font-black text-amber-950 dark:text-amber-300 flex items-center gap-1.5">
+                        <Camera className="w-4 h-4 text-amber-600 shrink-0" />
+                        {tr(
+                          '📸 Employer Live Camera Selfie * (Mandatory for Verification)',
+                          '📸 मालिक / एम्प्लॉयर की लाइव सेल्फी * (वेरिफिकेशन के लिए अनिवार्य)',
+                          '📸 માલિક / એમ્પ્લોયરની લાઈવ સેલ્ફી * (ચકાસણી માટે ફરજિયાત)'
+                        )}
+                      </span>
+                      <p className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 mt-0.5 leading-snug">
+                        {tr(
+                          'Protected with Anti-Download & Anti-Screenshot shield. No Government ID required.',
+                          'बिना सरकारी आईडी के असली एम्प्लॉयर की पहचान के लिए लाइव सेल्फी लें। यह फोटो डाउनलोड या स्क्रीनशॉट नहीं हो सकती।',
+                          'સરકારી આઈડી વગર સાચા એમ્પ્લોયરની ઓળખ માટે લાઈવ સેલ્ફી લો. આ ફોટો ડાઉનલોડ કે સ્ક્રીનશોટ થઈ શકતો નથી.'
+                        )}
+                      </p>
+                    </div>
+                  </div>
+
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    capture="user"
+                    onChange={handleLiveSelfieCapture}
+                    className="w-full text-xs text-slate-600 file:mr-3 file:py-2 file:px-3.5 file:rounded-xl file:border-0 file:text-xs file:font-black file:bg-amber-600 file:text-white hover:file:bg-amber-700 cursor-pointer bg-white dark:bg-slate-900 rounded-xl p-1.5 border border-amber-200 dark:border-slate-700"
+                  />
+
+                  {isWatermarkingSelfie && (
+                    <p className="text-[11px] font-bold text-amber-700 dark:text-amber-300">
+                      ⏳ {tr('Applying security watermark...', 'सुरक्षा वॉटरमार्क लगाया जा रहा है...', 'સુરક્ષા વોટરમાર્ક લાગી રહ્યું છે...')}
+                    </p>
+                  )}
+
+                  {employerLiveSelfie && (
+                    <div className="pt-1 flex items-center gap-3">
+                      <ProtectedSelfieCanvas
+                        src={employerLiveSelfie}
+                        alt="Verified Employer Selfie"
+                        width={96}
+                        height={96}
+                        className="rounded-2xl border-2 border-emerald-500 shadow-sm shrink-0"
+                      />
+                      <div className="space-y-1 text-left">
+                        <span className="inline-flex items-center gap-1 text-[11px] font-black text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950/60 px-2.5 py-0.5 rounded-full">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          {tr('Live Selfie Protected & Ready', 'लाइव सेल्फी सुरक्षित और तैयार है', 'લાઈવ સેલ્ફી સુરક્ષિત અને તૈયાર છે')}
+                        </span>
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold">
+                          🔒 {tr('Anti-Download & Watermark Shield Active', 'एंटी-डाउनलोड और वॉटरमार्क सुरक्षा सक्रिय', 'એન્ટી-ડાઉનલોડ અને વોટરમાર્ક સુરક્ષા સક્રિય')}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Optional Fields: Vacancy Type, Openings, Salary, Description, Shop Photo */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                       {tr('Job Type', 'जॉब प्रकार', 'નોકરીનો પ્રકાર')}
@@ -1064,7 +1190,7 @@ export default function EmployerVacancyModal({
 
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      {tr('Number of Vacant Openings', 'कितने लोगों की जरूरत है?', 'કેટલા લોકોની જરૂર છે?')}
+                      {tr('Openings', 'कितने स्टाफ चाहिए?', 'કેટલા લોકોની જરૂર છે?')}
                     </label>
                     <input
                       type="number"
@@ -1075,13 +1201,10 @@ export default function EmployerVacancyModal({
                       className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-slate-700 font-medium"
                     />
                   </div>
-                </div>
 
-                {/* Salary Offered & Urgency */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      {tr('Salary Offered (Monthly)', 'दी जाने वाली सैलरी', 'આપવામાં આવતો પગાર')}
+                      {tr('Salary Offered (Optional)', 'दी जाने वाली सैलरी', 'આપવામાં આવતો પગાર')}
                     </label>
                     <input
                       type="text"
@@ -1091,70 +1214,13 @@ export default function EmployerVacancyModal({
                       className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-slate-700 font-medium"
                     />
                   </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      {tr('Hiring Urgency', 'भर्ती की प्राथमिकता', 'ભરતીની તાત્કાલિકતા')}
-                    </label>
-                    <select
-                      value={urgency}
-                      onChange={(e) => setUrgency(e.target.value as any)}
-                      className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-slate-700 font-medium cursor-pointer"
-                    >
-                      <option value="Immediate">{tr('⚡ Immediate', '⚡ तुरंत भर्ती (Immediate)', '⚡ તાત્કાલિક ભરતી (Immediate)')}</option>
-                      <option value="Within 1 Week">{tr('Within 1 Week', '1 सप्ताह में', '1 અઠવાડિયામાં')}</option>
-                      <option value="Normal">{tr('Normal', 'सामान्य', 'સામાન્ય')}</option>
-                    </select>
-                  </div>
                 </div>
 
-                {/* Contact Numbers */}
+                {/* Exact Address & Job Description (Optional) */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      {tr('Calling Mobile Number *', 'मोबाइल नंबर (कॉलिंग) *', 'મોબાઈલ નંબર (કોલિંગ) *')}
-                    </label>
-                    <input
-                      type="tel"
-                      required
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                      placeholder="98XXXXXXXX"
-                      className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-slate-700 font-medium"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      {tr('WhatsApp Number', 'व्हाट्सएप नंबर', 'વોટ્સએપ નંબર')}
-                    </label>
-                    <input
-                      type="tel"
-                      value={whatsapp}
-                      onChange={(e) => setWhatsapp(e.target.value)}
-                      placeholder={phone || '98XXXXXXXX'}
-                      className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-slate-700 font-medium"
-                    />
-                  </div>
-                </div>
-
-                {/* Area & Address */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      {tr('Market / Area Name *', 'मार्केट / क्षेत्र *', 'માર્કેટ / વિસ્તાર *')}
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={area}
-                      onChange={(e) => setArea(e.target.value)}
-                      placeholder={tr('e.g. Main Market, Station Road', 'उदा. मेन मार्केट, स्टेशन रोड', 'દા.ત. મેઈન માર્કેટ, સ્ટેશન રોડ')}
-                      className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-slate-700 font-medium"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      {tr('Exact Shop / Office Address', 'दुकान / ऑफिस का पूरा पता', 'દુકાન / ઓફિસનું પૂરું સરનામું')}
+                      {tr('Shop / Office Landmark (Optional)', 'दुकान / ऑफिस लैंडमार्क (वैकल्पिक)', 'દુકાન / ઓફિસ લેન્ડમાર્ક (વૈકલ્પિક)')}
                     </label>
                     <input
                       type="text"
@@ -1164,12 +1230,23 @@ export default function EmployerVacancyModal({
                       className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-slate-700 font-medium"
                     />
                   </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      {tr('Shop / Company Photo or Logo (Optional)', 'दुकान / कंपनी का फोटो (वैकल्पिक)', 'દુકાન / કંપનીનો ફોટો (વૈકલ્પિક)')}
+                    </label>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handlePhotoUpload}
+                      className="w-full text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-amber-100 file:text-amber-800 hover:file:bg-amber-200 cursor-pointer"
+                    />
+                  </div>
                 </div>
 
-                {/* Job Details & Requirements */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {tr('Job Description & Work Timings', 'काम का विवरण व समय', 'કામની વિગત અને સમય')}
+                    {tr('Job Description & Work Timings (Optional)', 'काम का विवरण व समय (वैकल्पिक)', 'કામની વિગત અને સમય (વૈકલ્પિક)')}
                   </label>
                   <textarea
                     rows={2}
@@ -1177,19 +1254,6 @@ export default function EmployerVacancyModal({
                     onChange={(e) => setDescription(e.target.value)}
                     placeholder={tr('Specify work timings, duties, weekly off, and expectations...', 'काम के घंटे, जिम्मेदारियां और आवश्यक अनुभव आदि लिखें...', 'કામના કલાકો, જવાબદારીઓ અને જરૂરી અનુભવ વગેરે લખો...')}
                     className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-slate-700 font-medium resize-none"
-                  />
-                </div>
-
-                {/* Photo / Logo Upload */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {tr('Shop / Company Photo or Logo (Optional)', 'दुकान / कंपनी का फोटो या लोगो (वैकल्पिक)', 'દુકાન / કંપનીનો ફોટો અથવા લોગો (વૈકલ્પિક)')}
-                  </label>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handlePhotoUpload}
-                    className="w-full text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-amber-100 file:text-amber-800 hover:file:bg-amber-200 cursor-pointer"
                   />
                 </div>
 
@@ -1274,104 +1338,117 @@ export default function EmployerVacancyModal({
                   </div>
                 </div>
               ) : (
-                filteredVacancies.map((vac) => (
-                  <div
-                    key={vac.id}
-                    className="p-4 rounded-2xl bg-white dark:bg-slate-800 border-2 border-amber-100 dark:border-slate-700/80 shadow-xs hover:border-amber-300 transition-all space-y-3"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-start gap-3">
-                        <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 text-white font-black text-lg flex items-center justify-center shadow-xs shrink-0 overflow-hidden">
-                          {vac.photoOrLogoUrl ? (
-                            <img src={vac.photoOrLogoUrl} alt={vac.companyOrShopName} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-                          ) : (
-                            <span>{vac.companyOrShopName ? vac.companyOrShopName.charAt(0).toUpperCase() : '🏢'}</span>
-                          )}
+                filteredVacancies.map((vac) => {
+                  const canShowPublicPhone = Boolean((vac as any).isPhonePublic === true && vac.phone);
+                  return (
+                    <div
+                      key={vac.id}
+                      className="p-4 rounded-2xl bg-white dark:bg-slate-800 border-2 border-amber-100 dark:border-slate-700/80 shadow-xs hover:border-amber-300 transition-all space-y-3"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-start gap-3">
+                          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 text-white font-black text-lg flex items-center justify-center shadow-xs shrink-0 overflow-hidden">
+                            {vac.photoOrLogoUrl ? (
+                              <img src={vac.photoOrLogoUrl} alt={vac.companyOrShopName} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                            ) : (
+                              <span>{vac.companyOrShopName ? vac.companyOrShopName.charAt(0).toUpperCase() : '🏢'}</span>
+                            )}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <h4 className="text-sm font-black text-slate-900 dark:text-white">
+                                {vac.companyOrShopName}
+                              </h4>
+                              <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300">
+                                · {tr('Verified Employer', 'वेरिफाइड एम्प्लॉयर', 'વેરિફાઈડ એમ્પ્લોયર')}
+                              </span>
+                            </div>
+                            <p className="text-xs font-bold text-orange-600 dark:text-orange-400 mt-0.5">
+                              💼 {vac.jobRole}
+                            </p>
+                            <div className="flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                              <MapPin className="w-3 h-3 text-slate-400" />
+                              <span>{vac.area} {vac.address ? `• ${vac.address}` : ''}</span>
+                            </div>
+                          </div>
                         </div>
-                        <div>
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <h4 className="text-sm font-black text-slate-900 dark:text-white">
-                              {vac.companyOrShopName}
-                            </h4>
-                            <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300">
-                              · {tr('Verified Employer', 'वेरिफाइड एम्प्लॉयर', 'વેરિફાઈડ એમ્પ્લોયર')}
+
+                        {vac.salaryOffered && (
+                          <div className="bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 px-2.5 py-1 rounded-xl text-right shrink-0">
+                            <span className="text-[9px] uppercase font-bold text-emerald-700 dark:text-emerald-400 block">{tr('Salary', 'सैलरी', 'પગાર')}</span>
+                            <span className="text-xs font-black text-emerald-800 dark:text-emerald-300">{vac.salaryOffered}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px] bg-slate-50 dark:bg-slate-850 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
+                        <div className="flex items-center gap-1.5">
+                          <Clock className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                          <span className="text-slate-500 dark:text-slate-400 font-medium">{tr('Type:', 'प्रकार:', 'પ્રકાર:')}</span>
+                          <span className="font-bold text-slate-800 dark:text-slate-200 truncate">{vac.vacancyType || 'Full-Time'}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <Users className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                          <span className="text-slate-500 dark:text-slate-400 font-medium">{tr('Openings:', 'पद:', 'જગ્યા:')}</span>
+                          <span className="font-bold text-slate-800 dark:text-slate-200">{vac.openingsCount || 1}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 col-span-2 sm:col-span-1">
+                          <span className="text-xs">⚡</span>
+                          <span className="text-slate-500 dark:text-slate-400 font-medium">{tr('Hiring:', 'भर्ती:', 'ભરતી:')}</span>
+                          <span className="font-bold text-rose-600 dark:text-rose-400 truncate">{vac.urgency || 'Immediate'}</span>
+                        </div>
+                      </div>
+
+                      {vac.description && (
+                        <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed bg-white dark:bg-slate-800/80 p-2 rounded-lg border border-slate-100 dark:border-slate-700/60">
+                          {vac.description}
+                        </p>
+                      )}
+
+                      <div className="flex items-center gap-2 pt-1 border-t border-slate-100 dark:border-slate-700/60">
+                        {isEntityOwner(vac, getCurrentUser()) ? (
+                          <button
+                            type="button"
+                            onClick={() => handleStartEditVacancy(vac)}
+                            className="flex-1 py-2 px-3 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-black shadow-xs active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                            <span>{tr('Edit Vacancy', 'वेकेंसी एडिट करें', 'વેકેન્સી એડિટ કરો')}</span>
+                          </button>
+                        ) : canShowPublicPhone ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleWhatsAppContact(vac)}
+                              className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black shadow-xs active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                            >
+                              <MessageCircle className="w-3.5 h-3.5" />
+                              <span>{tr('Apply on WhatsApp', 'व्हाट्सएप आवेदन', 'વોટ્સએપ પર અરજી કરો')}</span>
+                            </button>
+                            <a
+                              href={`tel:${vac.phone}`}
+                              className="px-3.5 py-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 cursor-pointer"
+                            >
+                              <Phone className="w-3.5 h-3.5" />
+                              <span>{tr('Call', 'कॉल', 'કોલ')}</span>
+                            </a>
+                          </>
+                        ) : (
+                          <div className="flex-1 py-2 px-3 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 border border-slate-200 dark:border-slate-700">
+                            <Lock className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                            <span>
+                              {tr(
+                                '🔒 Number Private (Visit Shop / In-App Connect)',
+                                '🔒 मोबाइल नंबर प्राइवेट है (सीधे दुकान पर मिलें / चैट करें)',
+                                '🔒 મોબાઇલ નંબર ખાનગી છે (દુકાન પર સંપર્ક કરો)'
+                              )}
                             </span>
                           </div>
-                          <p className="text-xs font-bold text-orange-600 dark:text-orange-400 mt-0.5">
-                            💼 {vac.jobRole}
-                          </p>
-                          <div className="flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                            <MapPin className="w-3 h-3 text-slate-400" />
-                            <span>{vac.area} {vac.address ? `• ${vac.address}` : ''}</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {vac.salaryOffered && (
-                        <div className="bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 px-2.5 py-1 rounded-xl text-right shrink-0">
-                          <span className="text-[9px] uppercase font-bold text-emerald-700 dark:text-emerald-400 block">{tr('Salary', 'सैलरी', 'પગાર')}</span>
-                          <span className="text-xs font-black text-emerald-800 dark:text-emerald-300">{vac.salaryOffered}</span>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px] bg-slate-50 dark:bg-slate-850 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
-                      <div className="flex items-center gap-1.5">
-                        <Clock className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                        <span className="text-slate-500 dark:text-slate-400 font-medium">{tr('Type:', 'प्रकार:', 'પ્રકાર:')}</span>
-                        <span className="font-bold text-slate-800 dark:text-slate-200 truncate">{vac.vacancyType || 'Full-Time'}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <Users className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                        <span className="text-slate-500 dark:text-slate-400 font-medium">{tr('Openings:', 'पद:', 'જગ્યા:')}</span>
-                        <span className="font-bold text-slate-800 dark:text-slate-200">{vac.openingsCount || 1}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 col-span-2 sm:col-span-1">
-                        <span className="text-xs">⚡</span>
-                        <span className="text-slate-500 dark:text-slate-400 font-medium">{tr('Hiring:', 'भर्ती:', 'ભરતી:')}</span>
-                        <span className="font-bold text-rose-600 dark:text-rose-400 truncate">{vac.urgency || 'Immediate'}</span>
+                        )}
                       </div>
                     </div>
-
-                    {vac.description && (
-                      <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed bg-white dark:bg-slate-800/80 p-2 rounded-lg border border-slate-100 dark:border-slate-700/60">
-                        {vac.description}
-                      </p>
-                    )}
-
-                    <div className="flex items-center gap-2 pt-1 border-t border-slate-100 dark:border-slate-700/60">
-                      {isEntityOwner(vac, getCurrentUser()) ? (
-                        <button
-                          type="button"
-                          onClick={() => handleStartEditVacancy(vac)}
-                          className="flex-1 py-2 px-3 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-black shadow-xs active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                        >
-                          <Edit3 className="w-3.5 h-3.5" />
-                          <span>{tr('Edit Vacancy', 'वेकेंसी एडिट करें', 'વેકેન્સી એડિટ કરો')}</span>
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => handleWhatsAppContact(vac)}
-                          className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black shadow-xs active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                        >
-                          <MessageCircle className="w-3.5 h-3.5" />
-                          <span>{tr('Apply on WhatsApp', 'व्हाट्सएप आवेदन', 'વોટ્સએપ પર અરજી કરો')}</span>
-                        </button>
-                      )}
-
-                      {vac.phone && (
-                        <a
-                          href={`tel:${vac.phone}`}
-                          className="px-3.5 py-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 cursor-pointer"
-                        >
-                          <Phone className="w-3.5 h-3.5" />
-                          <span>{tr('Call', 'कॉल', 'કોલ')}</span>
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>

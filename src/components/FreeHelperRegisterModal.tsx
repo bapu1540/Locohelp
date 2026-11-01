@@ -1,13 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { UserPlus, X, Wrench, ShieldCheck, CheckCircle2, Clock, Edit3, MapPin, Phone, Star, AlertCircle } from 'lucide-react';
-import { CATEGORIES, MASTER_CATEGORIES, CategoryItem, getCategoryName, getMasterCategoryName, getSubCategoriesByMainId, saveFreeHelperProfile, getFreeHelperProfiles, FreeHelperProfile } from '../data/categories';
+import { Wrench, ShieldCheck, CheckCircle2, Clock, Edit3, MapPin, Phone, Star, AlertCircle, X, Lock, Camera } from 'lucide-react';
+import { CATEGORIES, MASTER_CATEGORIES, getCategoryName, getMasterCategoryName, getSubCategoriesByMainId, saveFreeHelperProfile, getFreeHelperProfiles, FreeHelperProfile } from '../data/categories';
 import { useLanguage } from '../i18n';
 import { saveHelper, getCurrentUser, getHelpers, saveUserProfile } from '../auth';
 import { submitVerification, getVerificationStatus } from '../api';
-import { validateUploadedFile, sanitizeText, checkSystemSecurityBlock } from '../lib/security';
+import { validateUploadedFile, checkSystemSecurityBlock } from '../lib/security';
 import { applyIdWatermark } from '../lib/watermark';
 import { compressImageToWebP } from '../lib/imageCompression';
+import { SmartLocationPicker } from './SmartLocationPicker';
+import { PhonePrivacyToggle } from './PhonePrivacyToggle';
+import { ProtectedSelfieCanvas } from './ProtectedSelfieCanvas';
 
 interface FreeHelperRegisterModalProps {
   isOpen: boolean;
@@ -38,7 +41,9 @@ export default function FreeHelperRegisterModal({
   const [formCategory, setFormCategory] = useState(initialCategory);
   const [customCategoryName, setCustomCategoryName] = useState('');
   const [formPhone, setFormPhone] = useState('');
+  const [isPhonePublic, setIsPhonePublic] = useState(false);
   const [formArea, setFormArea] = useState('');
+  const [formCity, setFormCity] = useState('');
   const [formExp, setFormExp] = useState('2 Years');
   const [formSkills, setFormSkills] = useState('');
   const [formPhotoUrl, setFormPhotoUrl] = useState<string | null>(null);
@@ -53,11 +58,11 @@ export default function FreeHelperRegisterModal({
     const activeUser = getCurrentUser();
     const uid = activeUser?.uid || '';
     const cleanEmail = (activeUser?.email || localStorage.getItem('locohelp_last_logged_in_email') || '').trim().toLowerCase();
-    const cleanPhone = (activeUser?.phone || '').replace(/\D/g, '');
+    const cleanPhone = (activeUser?.phone || localStorage.getItem('locohelp_last_logged_in_phone') || '').replace(/\D/g, '').slice(-10);
 
     if (activeUser?.displayName && !formName) setFormName(activeUser.displayName);
-    if (cleanEmail && !formEmail) setFormEmail(cleanEmail);
-    if (cleanPhone && !formPhone) setFormPhone(cleanPhone);
+    if (cleanEmail) setFormEmail(cleanEmail);
+    if (cleanPhone) setFormPhone(cleanPhone);
 
     const populateFormFromProfile = (prof: any) => {
       if (!prof) return;
@@ -66,20 +71,24 @@ export default function FreeHelperRegisterModal({
       setFormCategory(prof.categoryId || defaultCategory);
       setCustomCategoryName(prof.customCategoryName || '');
       setFormPhone(prof.phone || cleanPhone || '');
+      setIsPhonePublic(Boolean(prof.isPhonePublic === true));
       setFormArea(prof.area || '');
+      setFormCity(prof.city || '');
       setFormExp(prof.experience || '2 Years');
       setFormSkills(Array.isArray(prof.skills) ? prof.skills.join(', ') : (prof.skills || ''));
       setFormPhotoUrl(prof.photoUrl || null);
+      if (prof.idDocUrl || prof.id_doc_url || prof.photoUrl) {
+        setFormIdDoc(prof.idDocUrl || prof.id_doc_url || prof.photoUrl);
+      }
     };
 
-    // 1. Check local storage for existing helper profile linked to this user
     let foundLocal: FreeHelperProfile | null = null;
     try {
       const allLocal = getFreeHelperProfiles(true);
       foundLocal = allLocal.find(h =>
         (cleanEmail && (h.email || '').toLowerCase() === cleanEmail) ||
         (uid && uid !== 'guest' && h.userId === uid) ||
-        (cleanPhone && (h.phone || '').replace(/\D/g, '') === cleanPhone)
+        (cleanPhone && (h.phone || '').replace(/\D/g, '').slice(-10) === cleanPhone)
       ) || null;
 
       if (!foundLocal) {
@@ -106,14 +115,13 @@ export default function FreeHelperRegisterModal({
       setFormCategory(defaultCategory);
     }
 
-    // 2. Sync with backend server to get latest approval status
     getHelpers(true).then(serverHelpers => {
       if (Array.isArray(serverHelpers) && serverHelpers.length > 0) {
         const matchedServer = serverHelpers.find((h: any) =>
           (foundLocal && h.id === foundLocal.id) ||
           (cleanEmail && (h.email || '').toLowerCase() === cleanEmail) ||
           (uid && uid !== 'guest' && h.userId === uid) ||
-          (cleanPhone && (h.phone || '').replace(/\D/g, '') === cleanPhone)
+          (cleanPhone && (h.phone || '').replace(/\D/g, '').slice(-10) === cleanPhone)
         );
         if (matchedServer) {
           setExistingProfile(matchedServer);
@@ -138,11 +146,24 @@ export default function FreeHelperRegisterModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formName.trim() || !formPhone.trim()) return;
+    if (!formName.trim()) return;
 
     const secBlock = checkSystemSecurityBlock(formName, customCategoryName, formArea, formExp, formSkills);
     if (secBlock.blocked) {
       setFileError(secBlock.getMessage(language));
+      return;
+    }
+
+    // Mandatory Live Selfie check for Service Experts
+    const effectiveSelfie = formIdDoc || (existingProfile as any)?.idDocUrl || (existingProfile as any)?.photoUrl;
+    if (!effectiveSelfie) {
+      setFileError(
+        tr(
+          '📸 Live Camera Selfie is mandatory for Service Expert verification.',
+          '📸 सर्विस एक्सपर्ट सत्यापन के लिए लाइव कैमरा सेल्फी लेना अनिवार्य है।',
+          '📸 સર્વિસ એક્સપર્ટ ચકાસણી માટે લાઈવ કેમેરા સેલ્ફી લેવી ફરજિયાત છે.'
+        )
+      );
       return;
     }
 
@@ -151,12 +172,13 @@ export default function FreeHelperRegisterModal({
 
     const activeUser = getCurrentUser();
     const uid = activeUser?.uid || '';
-    const userEmail = (formEmail.trim() || activeUser?.email || localStorage.getItem('locohelp_last_logged_in_email') || '').toLowerCase();
-    if (!userEmail || !userEmail.includes('@')) {
-      setFileError(tr('Valid Email ID is mandatory for helper profile verification.', 'प्रोफाइल सत्यापन के लिए मान्य ईमेल आईडी अनिवार्य है।', 'પ્રોફાઈલ વેરિફિકેશન માટે માન્ય ઈમેલ આઈડી ફરજિયાત છે.'));
-      setIsSubmitting(false);
-      return;
-    }
+    const linkedPhone = (formPhone.trim() || activeUser?.phone || localStorage.getItem('locohelp_last_logged_in_phone') || '').replace(/\D/g, '').slice(-10);
+    const userEmail = (
+      formEmail.trim() ||
+      activeUser?.email ||
+      localStorage.getItem('locohelp_last_logged_in_email') ||
+      (linkedPhone ? `${linkedPhone}@phone.locohelp.com` : '')
+    ).toLowerCase();
 
     const matchedCat = CATEGORIES.find(c => c.id === formCategory);
     const trimmedCustom = customCategoryName.trim();
@@ -178,15 +200,17 @@ export default function FreeHelperRegisterModal({
       name: formName.trim(),
       categoryId: formCategory,
       customCategoryName: formCategory === 'other' ? trimmedCustom : '',
-      phone: formPhone.trim(),
+      phone: linkedPhone,
+      isPhonePublic,
       skills: skillsList,
       area: formArea.trim() || 'Local Area',
+      city: formCity.trim() || undefined,
       experience: formExp.trim() || '1 Year',
       distance: 0.5,
-      photoUrl: formPhotoUrl || (existingProfile as any)?.photoUrl || undefined,
-      govtIdUploaded: Boolean(formIdDoc || existingProfile?.govtIdUploaded),
-      idDocUrl: formIdDoc || existingProfile?.idDocUrl || undefined,
-      isVerified: false, // Pending Admin Approval on creation/update
+      photoUrl: formPhotoUrl || effectiveSelfie || undefined,
+      govtIdUploaded: true,
+      idDocUrl: effectiveSelfie,
+      isVerified: false,
       status: 'pending'
     } as any);
 
@@ -199,13 +223,22 @@ export default function FreeHelperRegisterModal({
         const scopedRaw = localStorage.getItem(`locohelp_user_profile_${uid}`);
         const scoped = scopedRaw ? JSON.parse(scopedRaw) : {};
         scoped.myHelperProfile = newHelper;
+        scoped.isPhonePublic = isPhonePublic;
         localStorage.setItem(`locohelp_user_profile_${uid}`, JSON.stringify(scoped));
-        saveUserProfile({ uid, email: userEmail, myHelperProfile: newHelper }).catch(() => {});
+        saveUserProfile({ uid, email: userEmail, phone: linkedPhone, isPhonePublic, myHelperProfile: newHelper }).catch(() => {});
       }
     } catch (e) {}
 
     try {
-      await saveHelper({ ...newHelper, website_url_hp: hpWebsiteUrl, photoUrl: formPhotoUrl || (existingProfile as any)?.photoUrl || undefined, isVerified: false, status: 'pending' });
+      await saveHelper({
+        ...newHelper,
+        isPhonePublic,
+        website_url_hp: hpWebsiteUrl,
+        photoUrl: formPhotoUrl || effectiveSelfie || undefined,
+        idDocUrl: effectiveSelfie,
+        isVerified: false,
+        status: 'pending'
+      });
     } catch (e) {}
 
     try {
@@ -217,7 +250,7 @@ export default function FreeHelperRegisterModal({
         userEmail: userEmail || undefined,
         userPhone: newHelper.phone,
         title: `Service Expert Profile (${finalCatName}) - ${newHelper.area}`,
-        idDocumentWatermarked: formIdDoc || formPhotoUrl || ''
+        idDocumentWatermarked: effectiveSelfie
       });
     } catch (verifErr) {
       console.warn("Verification submit error:", verifErr);
@@ -243,7 +276,6 @@ export default function FreeHelperRegisterModal({
         className="fixed inset-x-0 bottom-0 top-[52px] z-50 flex items-center justify-center p-3 sm:p-4"
         style={{ position: 'fixed', top: '52px', left: 0, right: 0, bottom: 0, zIndex: 5000 }}
       >
-        {/* Backdrop */}
         <motion.div 
           initial={{ opacity: 0 }} 
           animate={{ opacity: 1 }} 
@@ -252,7 +284,6 @@ export default function FreeHelperRegisterModal({
           className="absolute inset-0 bg-black/60 backdrop-blur-xs"
         />
         
-        {/* Modal Card */}
         <motion.div 
           initial={{ opacity: 0, scale: 0.92, y: 12 }} 
           animate={{ opacity: 1, scale: 1, y: 0 }} 
@@ -289,7 +320,6 @@ export default function FreeHelperRegisterModal({
 
           {existingProfile && !isEditing ? (
             <div className="space-y-4">
-              {/* Status Banner: Under Admin Review vs Active Approved */}
               {isApproved ? (
                 <div className="bg-emerald-50 dark:bg-emerald-950/50 border-2 border-emerald-400 dark:border-emerald-700 rounded-2xl p-4 flex items-start gap-3">
                   <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
@@ -338,7 +368,6 @@ export default function FreeHelperRegisterModal({
                 </div>
               )}
 
-              {/* Existing Profile Details Card */}
               <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 space-y-3">
                 <div className="flex items-start justify-between gap-2 border-b border-slate-200 dark:border-slate-800 pb-3">
                   <div>
@@ -355,8 +384,17 @@ export default function FreeHelperRegisterModal({
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
                   <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300 font-bold">
-                    <Phone className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>+91 {existingProfile.phone}</span>
+                    {(existingProfile as any).isPhonePublic ? (
+                      <>
+                        <Phone className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>{existingProfile.phone ? `+91 ${existingProfile.phone}` : tr('Public Call Enabled', 'पब्लिक कॉल चालू', 'પબ્લિક કોલ ચાલુ')}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Lock className="w-4 h-4 text-indigo-600 shrink-0" />
+                        <span>{tr('Number Private (App Chat Only)', 'नंबर प्राइवेट (सिर्फ ऐप चैट)', 'નંબર પ્રાઇવેટ (ફક્ત એપ ચેટ)')}</span>
+                      </>
+                    )}
                   </div>
                   <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300 font-bold">
                     <MapPin className="w-4 h-4 text-indigo-600 shrink-0" />
@@ -381,7 +419,6 @@ export default function FreeHelperRegisterModal({
                 </div>
               </div>
 
-              {/* Actions: Edit / Update Profile or Close */}
               <div className="flex gap-2.5 pt-1">
                 <button
                   type="button"
@@ -402,7 +439,6 @@ export default function FreeHelperRegisterModal({
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-3.5">
-              {/* Hidden Trap Field for Bot Submissions */}
               <input
                 type="text"
                 name="website_url_hp"
@@ -413,10 +449,10 @@ export default function FreeHelperRegisterModal({
                 className="hidden opacity-0 pointer-events-none absolute -left-[9999px]"
               />
 
-              {/* Helper Name */}
+              {/* 1. Helper Name */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  {t('cat.nameLabel')}
+                  {t('cat.nameLabel')} <span className="text-rose-500">*</span>
                 </label>
                 <input 
                   type="text" 
@@ -428,10 +464,10 @@ export default function FreeHelperRegisterModal({
                 />
               </div>
 
-              {/* Category / Profession */}
+              {/* 2. Category / Profession */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  {t('cat.categoryLabel')}
+                  {t('cat.categoryLabel')} <span className="text-rose-500">*</span>
                 </label>
                 <select 
                   value={formCategory}
@@ -455,7 +491,6 @@ export default function FreeHelperRegisterModal({
                   })}
                 </select>
 
-                {/* Show Custom Category Input if 'other' is selected */}
                 {formCategory === 'other' && (
                   <div className="mt-2.5">
                     <label className="block text-[11px] font-extrabold text-emerald-700 dark:text-emerald-400 mb-1">
@@ -464,7 +499,7 @@ export default function FreeHelperRegisterModal({
                     <input
                       type="text"
                       required
-                      placeholder={tr('e.g. Solar Installer, Tax Consultant, Mehndi Artist, Hospital', 'उदा. सोलर इंस्टॉलर, टैक्स सलाहकार, मेहंदी आर्टिस्ट', 'દા.ત. સોલાર ઇન્સ્ટોલર, ટેક્સ સલાહકાર, મહેંદી આર્ટિસ્ટ')}
+                      placeholder={tr('e.g. Solar Installer, Tax Consultant, Mehndi Artist', 'उदा. सोलर इंस्टॉलर, टैक्स सलाहकार, मेहंदी आर्टिस्ट', 'દા.ત. સોલાર ઇન્સ્ટોલર, ટેક્સ સલાહકાર, મહેંદી આર્ટિસ્ટ')}
                       value={customCategoryName}
                       onChange={(e) => setCustomCategoryName(e.target.value)}
                       className="w-full bg-emerald-50/60 dark:bg-slate-900 border-2 border-emerald-400 dark:border-emerald-600 rounded-xl px-3.5 py-2 text-xs font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
@@ -473,88 +508,137 @@ export default function FreeHelperRegisterModal({
                 )}
               </div>
 
-              {/* Email & Phone Number */}
+              {/* 3. Smart Location Picker (State -> City -> Area) */}
+              <SmartLocationPicker
+                language={language}
+                value={formArea}
+                onChange={(formatted, details) => {
+                  setFormArea(formatted);
+                  setFormCity(details.district);
+                }}
+              />
+
+              {/* 4. Phone Number Privacy Switch (Default Private + DB Password/Biometric to make Public) */}
+              <PhonePrivacyToggle
+                language={language}
+                isPhonePublic={isPhonePublic}
+                onChange={setIsPhonePublic}
+                phoneDisplay={formPhone ? `+91 ${formPhone}` : undefined}
+              />
+
+              {/* 5. Mandatory Live Camera Selfie (Protected against download/screenshot) */}
+              <div className="p-3.5 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/30 border-2 border-emerald-300 dark:border-emerald-800 space-y-2.5">
+                <label className="block text-xs font-black text-emerald-950 dark:text-emerald-200 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <Camera className="w-4 h-4 text-emerald-600" />
+                    <span>{tr('📸 Live Camera Selfie (Mandatory) *', '📸 लाइव कैमरा सेल्फी (अनिवार्य) *', '📸 લાઈવ કેમેરા સેલ્ફી (ફરજિયાત) *')}</span>
+                  </span>
+                  <span className="text-[10px] bg-emerald-600 text-white px-2 py-0.5 rounded-full font-extrabold">
+                    {tr('Anti-Copy Protected', 'चोरी-रोधी सुरक्षा', 'કોપી-પ્રોટેક્ટેડ')}
+                  </span>
+                </label>
+                <p className="text-[11px] text-slate-600 dark:text-slate-300 font-medium leading-relaxed">
+                  {tr(
+                    'Since we do not ask for any Government ID, a live camera selfie is mandatory for genuine Service Expert verification. Your selfie cannot be downloaded or screenshotted.',
+                    'चूंकि हम कोई सरकारी आईडी नहीं मांगते, इसलिए असली सर्विस एक्सपर्ट की पहचान के लिए लाइव सेल्फी अनिवार्य है। आपकी सेल्फी को कोई डाउनलोड या स्क्रीनशॉट नहीं कर सकता।',
+                    'અમે કોઈ સરકારી આઈડી માંગતા નથી, તેથી સાચા સર્વિસ એક્સપર્ટની ઓળખ માટે લાઈવ સેલ્ફી ફરજિયાત છે. તમારી સેલ્ફી કોઈ ડાઉનલોડ કે સ્ક્રીનશોટ કરી શકશે નહીં.'
+                  )}
+                </p>
+
+                <div className="flex items-center gap-3">
+                  {formIdDoc && (
+                    <ProtectedSelfieCanvas
+                      src={formIdDoc}
+                      className="w-20 h-24 rounded-xl shrink-0"
+                      badgeText={tr('Verified', 'सत्यापित', 'વેરિફાઈડ')}
+                    />
+                  )}
+                  <div className="flex-1">
+                    <input 
+                      type="file" 
+                      accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+                      capture="user"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        setFileError(null);
+                        if (file) {
+                          const check = await validateUploadedFile(file, { allowPdf: false });
+                          if (!check.valid) {
+                            setFileError(tr(check.error || 'Invalid image', check.errorHi || check.error || 'अमान्य फ़ोटो', 'અમાન્ય ફોટો'));
+                            setFormIdDoc(null);
+                            e.target.value = '';
+                            return;
+                          }
+                          try {
+                            const watermarkedDataUrl = await applyIdWatermark(file, {
+                              userName: formName.trim() || 'Service Expert',
+                              customText: 'LOCOHELP VERIFIED LIVE SELFIE • DO NOT COPY'
+                            });
+                            setFormIdDoc(watermarkedDataUrl);
+                          } catch {
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                              setFormIdDoc(reader.result as string);
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        }
+                      }}
+                      className="w-full text-xs text-slate-600 file:mr-2.5 file:py-2 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-extrabold file:bg-emerald-600 file:text-white hover:file:bg-emerald-700 cursor-pointer bg-white dark:bg-slate-900 border border-emerald-200 dark:border-slate-700 rounded-xl px-2 py-1.5"
+                    />
+                  </div>
+                </div>
+
+                {fileError && (
+                  <p className="text-[11px] text-rose-600 dark:text-rose-400 font-bold mt-1 flex items-center gap-1">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" /> {fileError}
+                  </p>
+                )}
+                {formIdDoc && !fileError && (
+                  <p className="text-[10px] text-emerald-700 dark:text-emerald-400 font-bold flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> {tr('Live Selfie captured & watermark-protected!', 'लाइव सेल्फी सुरक्षित रूप से जुड़ गई!', 'લાઈવ સેલ્ફી સુરક્ષિત રીતે જોડાઈ ગઈ!')}
+                  </p>
+                )}
+              </div>
+
+              {/* Optional Experience & Skills */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {tr('Verified Email ID *', 'सत्यापित ईमेल आईडी *', 'વેરિફાઈડ ઈમેલ આઈડી *')}
+                    {t('cat.expLabel')} <span className="text-[10px] text-slate-400 font-normal">({tr('Optional', 'वैकल्पिक', 'વૈકલ્પિક')})</span>
                   </label>
-                  <input 
-                    type="email" 
-                    required
-                    placeholder="name@email.com"
-                    value={formEmail}
-                    onChange={(e) => setFormEmail(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                  />
+                  <select 
+                    value={formExp}
+                    onChange={(e) => setFormExp(e.target.value)}
+                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none font-medium"
+                  >
+                    <option value="6 Months">{tr('6 Months', '6 महीने', '6 મહિના')}</option>
+                    <option value="1 Year">{tr('1 Year', '1 साल', '1 વર્ષ')}</option>
+                    <option value="2 Years">{tr('2 Years', '2 साल', '2 વર્ષ')}</option>
+                    <option value="3-5 Years">{tr('3 - 5 Years', '3 - 5 साल', '3 - 5 વર્ષ')}</option>
+                    <option value="5-10 Years">{tr('5 - 10 Years', '5 - 10 साल', '5 - 10 વર્ષ')}</option>
+                    <option value="10+ Years">{tr('10+ Years', '10+ साल', '10+ વર્ષ')}</option>
+                  </select>
                 </div>
+
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {t('cat.phoneLabel')}
+                    {t('cat.skillsLabel')} <span className="text-[10px] text-slate-400 font-normal">({tr('Optional', 'वैकल्पिक', 'વૈકલ્પિક')})</span>
                   </label>
                   <input 
-                    type="tel" 
-                    required
-                    placeholder="98XXXXXXXX"
-                    value={formPhone}
-                    onChange={(e) => setFormPhone(e.target.value)}
+                    type="text" 
+                    placeholder={t('cat.skillsPlaceholder')}
+                    value={formSkills}
+                    onChange={(e) => setFormSkills(e.target.value)}
                     className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                   />
                 </div>
               </div>
 
-              {/* Area / Mohalla */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  {t('cat.areaLabel')}
-                </label>
-                <input 
-                  type="text" 
-                  placeholder={t('cat.areaPlaceholder')}
-                  value={formArea}
-                  onChange={(e) => setFormArea(e.target.value)}
-                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                />
-              </div>
-
-              {/* Experience */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  {t('cat.expLabel')}
-                </label>
-                <select 
-                  value={formExp}
-                  onChange={(e) => setFormExp(e.target.value)}
-                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none font-medium"
-                >
-                  <option value="6 Months">{tr('6 Months', '6 महीने', '6 મહિના')}</option>
-                  <option value="1 Year">{tr('1 Year', '1 साल', '1 વર્ષ')}</option>
-                  <option value="2 Years">{tr('2 Years', '2 साल', '2 વર્ષ')}</option>
-                  <option value="3-5 Years">{tr('3 - 5 Years', '3 - 5 साल', '3 - 5 વર્ષ')}</option>
-                  <option value="5-10 Years">{tr('5 - 10 Years', '5 - 10 साल', '5 - 10 વર્ષ')}</option>
-                  <option value="10+ Years">{tr('10+ Years', '10+ साल', '10+ વર્ષ')}</option>
-                </select>
-              </div>
-
-              {/* Skills / Specialties */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  {t('cat.skillsLabel')}
-                </label>
-                <input 
-                  type="text" 
-                  placeholder={t('cat.skillsPlaceholder')}
-                  value={formSkills}
-                  onChange={(e) => setFormSkills(e.target.value)}
-                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                />
-              </div>
-
-              {/* Profile / Work Photo Upload (Max 2MB) */}
+              {/* Optional Work Photo */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1 flex items-center justify-between">
-                  <span>{tr('Profile / Work Photo (JPG/PNG/WebP max 2MB)', 'प्रोफाइल / काम की फोटो (अधिकतम 2MB)', 'પ્રોફાઈલ / કામનો ફોટો (મહત્તમ 2MB)')}</span>
-                  <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">{tr('Recommended 📸', 'सुझाया गया 📸', 'ભલામણ કરેલ 📸')}</span>
+                  <span>{tr('Work / Shop Photo (Optional)', 'काम / औज़ार की फोटो (वैकल्पिक)', 'કામનો ફોટો (વૈકલ્પિક)')}</span>
                 </label>
                 <div className="flex items-center gap-3">
                   {formPhotoUrl && (
@@ -591,76 +675,8 @@ export default function FreeHelperRegisterModal({
                         }
                       }
                     }}
-                    className="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-emerald-100 file:text-emerald-800 dark:file:bg-emerald-950 dark:file:text-emerald-300 hover:file:bg-emerald-200 cursor-pointer bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-2 py-1.5"
+                    className="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200 cursor-pointer bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-2 py-1.5"
                   />
-                </div>
-              </div>
-
-              {/* Live Selfie / Visiting Card / Work Proof (Play Store Safe Verification) */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1 flex items-center justify-between">
-                  <span>{tr('📸 Live Selfie or Visiting Card / Work Proof (Optional)', '📸 लाइव सेल्फी या विजिटिंग कार्ड / काम का फोटो (वैकल्पिक)', '📸 લાઈવ સેલ્ફી અથવા વિઝિટિંગ કાર્ડ / કામનો ફોટો (વૈકલ્પિક)')}</span>
-                  <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">{tr('Verified Badge ⭐', 'वेरिफाइड बैज ⭐', 'વેરિફાઈડ બેજ ⭐')}</span>
-                </label>
-                <p className="text-[10px] text-slate-500 dark:text-slate-400 mb-1.5">
-                  {tr(
-                    'Take a clear Live Selfie from camera or upload your Visiting Card / Shop / Work photo for Admin verification.',
-                    'फर्जी प्रोफाइल रोकने और वेरिफाइड बैज पाने के लिए अपनी लाइव सेल्फी लें या विजिटिंग कार्ड/काम की फोटो अपलोड करें।',
-                    'બોગસ પ્રોફાઈલ રોકવા અને વેરિફાઈડ બેજ માટે તમારી લાઈવ સેલ્ફી લો અથવા વિઝિટિંગ કાર્ડ/કામનો ફોટો અપલોડ કરો.'
-                  )}
-                </p>
-                <input 
-                  type="file" 
-                  accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
-                  capture="user"
-                  onChange={async (e) => {
-                    const file = e.target.files?.[0];
-                    setFileError(null);
-                    if (file) {
-                      const check = await validateUploadedFile(file, { allowPdf: false });
-                      if (!check.valid) {
-                        setFileError(tr(check.error || 'Invalid image', check.errorHi || check.error || 'अमान्य फ़ोटो', 'અમાન્ય ફોટો'));
-                        setFormIdDoc(null);
-                        e.target.value = '';
-                        return;
-                      }
-                      try {
-                        const watermarkedDataUrl = await applyIdWatermark(file, {
-                          userName: formName.trim() || 'Helper',
-                          customText: 'FOR LOCOHELP VERIFICATION ONLY • LIVE SELFIE / WORK PROOF'
-                        });
-                        setFormIdDoc(watermarkedDataUrl);
-                      } catch {
-                        const reader = new FileReader();
-                        reader.onloadend = () => {
-                          setFormIdDoc(reader.result as string);
-                        };
-                        reader.readAsDataURL(file);
-                      }
-                    }
-                  }}
-                  className="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-emerald-50 file:text-emerald-700 dark:file:bg-emerald-950 dark:file:text-emerald-300 hover:file:bg-emerald-100 cursor-pointer bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-2 py-1.5"
-                />
-                {fileError && (
-                  <p className="text-[10px] text-rose-600 dark:text-rose-400 font-bold mt-1 flex items-center gap-1">
-                    <AlertCircle className="w-3 h-3 shrink-0" /> {fileError}
-                  </p>
-                )}
-                {formIdDoc && !fileError && (
-                  <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold mt-1 flex items-center gap-1">
-                    <CheckCircle2 className="w-3 h-3" /> {tr('Live Selfie / Work Proof Attached & Protected for Admin Review!', 'लाइव सेल्फी / काम का प्रूफ एडमिन जांच के लिए सुरक्षित रूप से जुड़ गया!', 'લાઈવ સેલ્ફી / કામનો ફોટો એડમિન ચકાસણી માટે જોડાઈ ગયો!')}
-                  </p>
-                )}
-              </div>
-
-              {/* Privacy note */}
-              <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/80 rounded-xl p-3 text-[11px] text-emerald-800 dark:text-emerald-300 flex items-start gap-2">
-                <ShieldCheck className="w-4 h-4 shrink-0 text-emerald-600 mt-0.5" />
-                <div>
-                  <p className="font-bold">{t('cat.privacyGuarantee')}</p>
-                  <p className="text-[10px] text-emerald-700/80 dark:text-emerald-400 mt-0.5">
-                    {t('cat.privacyDesc')}
-                  </p>
                 </div>
               </div>
 

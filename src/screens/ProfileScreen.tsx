@@ -18,6 +18,9 @@ import { applyIdWatermark } from '../lib/watermark';
 import { validateUploadedFile, sanitizeText } from '../lib/security';
 import { compressImageToWebP } from '../lib/imageCompression';
 import { Screen } from '../types';
+import SmartLocationPicker from '../components/SmartLocationPicker';
+import PhonePrivacyToggle from '../components/PhonePrivacyToggle';
+import ProtectedSelfieCanvas from '../components/ProtectedSelfieCanvas';
 
 interface ProfileScreenProps {
   onBack: () => void;
@@ -49,6 +52,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
   const [userSkills, setUserSkills] = useState('');
   const [userExp, setUserExp] = useState('');
   const [userAddress, setUserAddress] = useState('');
+  const [isUserPhonePublic, setIsUserPhonePublic] = useState(false);
   const [hasExistingUserProfile, setHasExistingUserProfile] = useState(false);
   const [isEditingUserProfile, setIsEditingUserProfile] = useState(false);
   const [isSavedNotice, setIsSavedNotice] = useState(false);
@@ -281,6 +285,8 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
   const [helperIdFrontName, setHelperIdFrontName] = useState<string | null>(null);
   const [helperIdBackDoc, setHelperIdBackDoc] = useState<string | null>(null);
   const [helperIdBackName, setHelperIdBackName] = useState<string | null>(null);
+  const [isHelperPhonePublic, setIsHelperPhonePublic] = useState(false);
+  const [helperErrorMsg, setHelperErrorMsg] = useState<string | null>(null);
   const [isSubmittingHelper, setIsSubmittingHelper] = useState(false);
   const [showApprovalNoticeModal, setShowApprovalNoticeModal] = useState(false);
   const [myHelperProfile, setMyHelperProfile] = useState<any>(null);
@@ -302,6 +308,8 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
   const [shopPhotos, setShopPhotos] = useState<string[]>([]);
   const [shopIdDoc, setShopIdDoc] = useState<string | null>(null);
   const [shopIdDocName, setShopIdDocName] = useState<string | null>(null);
+  const [isShopPhonePublic, setIsShopPhonePublic] = useState(false);
+  const [shopErrorMsg, setShopErrorMsg] = useState<string | null>(null);
   const [isWatermarkingShopId, setIsWatermarkingShopId] = useState(false);
   const [isSubmittingShop, setIsSubmittingShop] = useState(false);
   const [shopSubmitSuccess, setShopSubmitSuccess] = useState(false);
@@ -350,6 +358,8 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
     if (prof.phone) setHelperPhone(prof.phone);
     if (prof.area) setHelperArea(prof.area);
     if (prof.experience) setHelperExp(prof.experience);
+    if (prof.idDocUrl) setHelperIdFrontDoc(prof.idDocUrl);
+    setIsHelperPhonePublic(prof.isPhonePublic === true);
     if (prof.skills) {
       setHelperSkills(Array.isArray(prof.skills) ? prof.skills.join(', ') : String(prof.skills));
     }
@@ -470,6 +480,9 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
           if (data.skills) setUserSkills(data.skills);
           if (data.address) setUserAddress(data.address);
           if (data.experience || data.exp) setUserExp(data.experience || data.exp);
+          if (typeof data.isPhonePublic === 'boolean' || typeof data.is_phone_public === 'boolean') {
+            setIsUserPhonePublic(Boolean(data.isPhonePublic ?? data.is_phone_public));
+          }
           const remotePhoto = data.avatar_url || data.profilePhoto || '';
           if (remotePhoto && remotePhoto !== 'https://lh3.googleusercontent.com/a/default-user') {
             setProfilePhoto(remotePhoto);
@@ -677,7 +690,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
   const handleSaveSimpleProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     const activeUser = getCurrentUser();
-    const cleanPhone = userPhone.replace(/\D/g, '') || activeUser?.phone || '';
+    const cleanPhone = (userPhone || activeUser?.phone || localStorage.getItem('locohelp_last_logged_in_phone') || '').replace(/\D/g, '').slice(-10);
     const userKey = activeUser?.uid || (cleanPhone ? `phone_${cleanPhone}` : 'guest');
 
     const safeName = sanitizeText(userName, 120);
@@ -685,7 +698,6 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
     const safeAddress = sanitizeText(userAddress, 300);
     const safeExp = sanitizeText(userExp, 120);
 
-    // Requirement 3: When an already approved user edits profile details, revert status to 'pending' so it requires Admin re-approval
     const newStatus = 'pending';
     const newIsVerified = false;
     const updatedHelper = myHelperProfile
@@ -696,7 +708,9 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
       uid: userKey,
       full_name: safeName || (cleanPhone ? `User ${cleanPhone.slice(-4)}` : 'Community User'),
       email: sanitizeText(userEmail || activeUser?.email || '', 150),
-      phone: sanitizeText(userPhone || cleanPhone, 30),
+      phone: sanitizeText(cleanPhone || userPhone, 30),
+      isPhonePublic: isUserPhonePublic,
+      is_phone_public: isUserPhonePublic,
       skills: safeSkills,
       address: safeAddress,
       experience: safeExp,
@@ -730,7 +744,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
         uid: userKey,
         displayName: safeName || current?.displayName,
         email: profileData.email || current?.email,
-        phone: userPhone || current?.phone
+        phone: cleanPhone || userPhone || current?.phone
       }));
       window.dispatchEvent(new Event('locohelp_profile_updated'));
       window.dispatchEvent(new Event('storage'));
@@ -766,13 +780,34 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
   // -------------------------------------------------------------
   const handleSaveHelperProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!helperName.trim() || !helperPhone.trim()) return;
+    setHelperErrorMsg(null);
+    if (!helperName.trim()) {
+      setHelperErrorMsg(tr('Please enter your Name', 'कृपया अपना नाम दर्ज करें', 'કૃપા કરીને તમારું નામ દાખલ કરો'));
+      return;
+    }
+    if (!helperArea.trim()) {
+      setHelperErrorMsg(tr('Please select your State, City & Area from dropdown', 'कृपया ड्रॉपडाउन से अपना राज्य, शहर और एरिया चुनें', 'કૃપા કરીને ડ્રોપડાઉનમાંથી તમારું રાજ્ય, શહેર અને વિસ્તાર પસંદ કરો'));
+      return;
+    }
+
+    const finalDoc = helperIdFrontDoc || helperIdBackDoc || myHelperProfile?.idDocUrl;
+    if (!finalDoc) {
+      setHelperErrorMsg(
+        tr(
+          '📸 Mandatory Verification: Please take a Live Camera Selfie before saving your Service Expert profile.',
+          '📸 अनिवार्य सत्यापन: सर्विस एक्सपर्ट प्रोफाइल सेव करने के लिए अपनी लाइव कैमरा सेल्फी (Live Selfie) लेना अनिवार्य है।',
+          '📸 ફરજિયાત ચકાસણી: સર્વિસ એક્સપર્ટ પ્રોફાઈલ સેવ કરવા માટે લાઈવ કેમેરા સેલ્ફી લેવી ફરજિયાત છે.'
+        )
+      );
+      return;
+    }
 
     setIsSubmittingHelper(true);
 
     const activeUser = getCurrentUser();
     const uid = activeUser?.uid || '';
     const cleanEmail = (userEmail || activeUser?.email || localStorage.getItem('locohelp_last_logged_in_email') || '').trim().toLowerCase();
+    const resolvedHelperPhone = (helperPhone || userPhone || activeUser?.phone || localStorage.getItem('locohelp_last_logged_in_phone') || '').replace(/\D/g, '').slice(-10);
 
     const safeCustomCat = sanitizeText(customCategoryName.trim(), 100);
     const matchedCat = CATEGORIES.find(c => c.id === helperCategory);
@@ -788,10 +823,8 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
       skillsList.unshift(safeCustomCat);
     }
 
-    const finalDoc = helperIdFrontDoc || helperIdBackDoc || myHelperProfile?.idDocUrl;
     const finalWorkPhoto = helperWorkPhoto || myHelperProfile?.photoUrl;
 
-    // Requirement 3: On profile edit, automatically revert status to 'pending' & isVerified to false
     const newHelper = saveFreeHelperProfile({
       id: myHelperProfile?.id,
       userId: uid || myHelperProfile?.userId,
@@ -799,7 +832,8 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
       name: sanitizeText(helperName.trim(), 120),
       categoryId: helperCategory,
       customCategoryName: helperCategory === 'other' ? safeCustomCat : undefined,
-      phone: sanitizeText(helperPhone.trim(), 30),
+      phone: sanitizeText(resolvedHelperPhone, 30),
+      isPhonePublic: isHelperPhonePublic,
       skills: skillsList,
       area: sanitizeText(helperArea.trim() || 'Local Area', 150),
       experience: sanitizeText(helperExp.trim() || '1 Year', 60),
@@ -807,7 +841,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
       photoUrl: finalWorkPhoto || undefined,
       govtIdUploaded: Boolean(finalDoc),
       idDocUrl: finalDoc || undefined,
-      isVerified: false, // Re-approval required from Admin on edit
+      isVerified: false,
       status: 'pending',
     } as any);
 
@@ -829,10 +863,9 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
 
     try {
       const helperId = newHelper.id || `helper_${Date.now()}`;
-      await saveHelper({ ...newHelper, id: helperId, photoUrl: finalWorkPhoto, isVerified: false, status: 'pending' });
+      await saveHelper({ ...newHelper, id: helperId, photoUrl: finalWorkPhoto, isPhonePublic: isHelperPhonePublic, isVerified: false, status: 'pending' });
     } catch (e) {}
 
-    // Submit to Admin Verification Queue for re-approval
     try {
       await submitVerification({
         entityType: 'user_profile',
@@ -841,7 +874,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
         userName: newHelper.name,
         userEmail: cleanEmail || undefined,
         userPhone: newHelper.phone,
-        title: `Service Expert Profile (${finalCatName}) - ${finalDoc ? 'Live Selfie & Work Proof' : 'Profile Verification'} (Re-approval Request)`,
+        title: `Service Expert Profile (${finalCatName}) - Live Selfie & Work Proof`,
         idDocumentWatermarked: finalDoc || ''
       });
       setVerificationStatus('pending');
@@ -861,7 +894,8 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
     if (!file) return;
 
     setUploadErrorMsg(null);
-    const check = await validateUploadedFile(file, { allowPdf: true });
+    setShopErrorMsg(null);
+    const check = await validateUploadedFile(file, { allowPdf: false });
     if (!check.valid) {
       setUploadErrorMsg(check.error || 'Invalid file uploaded.');
       e.target.value = '';
@@ -875,7 +909,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
       const watermarked = await applyIdWatermark(file, {
         entityType: 'business',
         userName: shopName.trim() || ownerName.trim() || 'Business Owner',
-        customText: 'FOR LOCOHELP VERIFICATION ONLY • DO NOT REUSE • BUSINESS ID'
+        customText: 'LOCOHELP VERIFIED OWNER • LIVE SELFIE • DO NOT COPY'
       });
       setShopIdDoc(watermarked);
     } catch (err: any) {
@@ -887,13 +921,34 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
 
   const handleRegisterShop = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!shopName.trim() || !shopPhone.trim()) return;
+    setShopErrorMsg(null);
+    if (!shopName.trim()) {
+      setShopErrorMsg(tr('Please enter Business / Shop Name', 'कृपया दुकान / बिज़नेस का नाम दर्ज करें', 'કૃપા કરીને દુકાન / બિઝનેસનું નામ દાખલ કરો'));
+      return;
+    }
+    if (!shopArea.trim()) {
+      setShopErrorMsg(tr('Please select State, City & Area from dropdown', 'कृपया ड्रॉपडाउन से राज्य, शहर और एरिया चुनें', 'કૃપા કરીને ડ્રોપડાઉનમાંથી રાજ્ય, શહેર અને વિસ્તાર પસંદ કરો'));
+      return;
+    }
+
+    const finalShopSelfie = shopIdDoc || (myBusinessProfile as any)?.idDocumentWatermarked;
+    if (!finalShopSelfie) {
+      setShopErrorMsg(
+        tr(
+          '📸 Mandatory Verification: Please take an Owner Live Camera Selfie before registering your Shop/Business.',
+          '📸 अनिवार्य सत्यापन: अपनी दुकान/बिज़नेस रजिस्टर करने के लिए मालिक की लाइव कैमरा सेल्फी (Live Selfie) लेना अनिवार्य है।',
+          '📸 ફરજિયાત ચકાસણી: તમારી દુકાન/બિઝનેસ રજિસ્ટર કરવા માટે માલિકની લાઈવ કેમેરા સેલ્ફી લેવી ફરજિયાત છે.'
+        )
+      );
+      return;
+    }
 
     setIsSubmittingShop(true);
 
     const activeUser = getCurrentUser();
     const uid = activeUser?.uid || '';
     const cleanEmail = (userEmail || activeUser?.email || localStorage.getItem('locohelp_last_logged_in_email') || '').trim().toLowerCase();
+    const resolvedShopPhone = (shopPhone || userPhone || activeUser?.phone || localStorage.getItem('locohelp_last_logged_in_phone') || '').replace(/\D/g, '').slice(-10);
 
     const typeObj = SHOP_TYPES.find(t => t.id === shopType);
     const label = shopType === 'other' && customShopType.trim()
@@ -912,16 +967,17 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
       type: shopType as any,
       categoryLabel: label,
       ownerName: ownerName.trim() || userName.trim() || 'Owner',
-      phone: shopPhone.trim(),
+      phone: resolvedShopPhone,
+      isPhonePublic: isShopPhonePublic,
       timings: shopTimings.trim() || '9:00 AM - 9:00 PM',
       area: shopArea.trim() || 'Local Area',
-      address: shopAddress.trim() || 'Market Area',
+      address: shopAddress.trim() || shopArea.trim() || 'Market Area',
       description: shopDescription.trim() || 'Welcome to our business!',
       photoUrl: finalPhotos[0] || shopPhoto || myBusinessProfile?.photoUrl || undefined,
       photos: finalPhotos.length > 0 ? finalPhotos : undefined,
       rating: 5.0,
       reviewCount: 1,
-      isVerified: false, // Requires Admin Approval before going live
+      isVerified: false,
       status: 'pending',
       createdAt: new Date().toISOString()
     };
@@ -931,8 +987,8 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
       const existingShops: RegisteredShop[] = existingStr ? JSON.parse(existingStr) : [];
       const updatedShops = [newShop, ...existingShops.filter(s => s && s.id && s.id !== shopId && !String(s.id).startsWith('sample_shop_'))];
       localStorage.setItem('locohelp_registered_shops', JSON.stringify(updatedShops));
-      localStorage.setItem('locohelp_my_business_profile', JSON.stringify(newShop));
-      setMyBusinessProfile(newShop);
+      localStorage.setItem('locohelp_my_business_profile', JSON.stringify({ ...newShop, idDocumentWatermarked: finalShopSelfie }));
+      setMyBusinessProfile({ ...newShop, idDocumentWatermarked: finalShopSelfie } as any);
       setIsEditingBusiness(false);
     } catch (e) {}
 
@@ -941,11 +997,11 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
         ...newShop,
         photos: finalPhotos,
         timings: newShop.timings,
-        idDocumentWatermarked: shopIdDoc || finalPhotos[0] || shopPhoto || ''
+        isPhonePublic: isShopPhonePublic,
+        idDocumentWatermarked: finalShopSelfie
       });
     } catch (err) {}
 
-    // Always submit to Admin Verification Queue so Admin can approve the Business
     try {
       await submitVerification({
         entityType: 'business',
@@ -953,9 +1009,9 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
         userId: uid || ownerName.trim() || shopName.trim(),
         userName: shopName.trim(),
         userEmail: cleanEmail || undefined,
-        userPhone: shopPhone.trim(),
-        title: `${shopName.trim()} (${label}) - Business Registration Approval`,
-        idDocumentWatermarked: shopIdDoc || shopPhoto || ''
+        userPhone: resolvedShopPhone,
+        title: `${shopName.trim()} (${label}) - Business Registration + Owner Live Selfie`,
+        idDocumentWatermarked: finalShopSelfie
       });
     } catch (verifErr) {}
 
@@ -1327,61 +1383,19 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   </div>
                 </div>
 
-                <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
-                    {tr('Mobile Number (Optional • Strictly Private 🔒)', 'मोबाइल नंबर (वैकल्पिक • पूर्णतः गोपनीय 🔒)', 'મોબાઈલ નંબર (વૈકલ્પિક • સંપૂર્ણ ખાનગી 🔒)')}
-                  </label>
-                  <div className="relative">
-                    <span className="text-slate-400 font-bold absolute left-3 top-1/2 -translate-y-1/2 text-xs">+91</span>
-                    <input 
-                      type="tel" 
-                      value={userPhone} 
-                      onChange={(e) => setUserPhone(e.target.value)}
-                      placeholder={tr('98765 43210 (Never shown publicly)', '98765 43210 (कभी पब्लिक नहीं दिखेगा)', '98765 43210 (ક્યારેય જાહેરમાં નહીં દેખાય)')}
-                      className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl pl-11 pr-3 py-2 text-xs font-bold text-slate-900 dark:text-white outline-none focus:border-indigo-500" 
-                    />
-                  </div>
-                  <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">
-                    {tr(
-                      '🔒 Your mobile number will never be shown publicly. You can share it privately in chat if you wish.',
-                      '🔒 आपका मोबाइल नंबर किसी भी पब्लिक यूज़र को नहीं दिखेगा। जिसको नंबर देना हो वह चैट में लिखकर दे सकता है।',
-                      '🔒 તમારો મોબાઈલ નંબર કોઈપણ પબ્લિક યુઝરને નહીં દેખાય. જેને નંબર આપવો હોય તેને ચેટમાં લખીને આપી શકો છો.'
-                    )}
-                  </p>
-                </div>
+                {/* Smart Location Selector */}
+                <SmartLocationPicker
+                  value={userAddress}
+                  onChange={setUserAddress}
+                  accentColor="indigo"
+                />
 
-                <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
-                    {tr('Registered Email Address *', 'रजिस्टर्ड ईमेल पता *', 'રજિસ્ટર્ડ ઈમેલ એડ્રેસ *')}
-                  </label>
-                  <div className="relative">
-                    <Mail className="w-4 h-4 text-blue-500 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input 
-                      type="email" 
-                      required
-                      value={userEmail} 
-                      onChange={(e) => setUserEmail(e.target.value)} 
-                      placeholder="your.email@gmail.com" 
-                      className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl pl-9 pr-3 py-2 text-xs font-semibold text-slate-900 dark:text-white outline-none focus:border-indigo-500" 
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
-                    {tr('Area / Locality', 'क्षेत्र / इलाका', 'વિસ્તાર / સોસાયટી')}
-                  </label>
-                  <div className="relative">
-                    <MapPin className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input 
-                      type="text" 
-                      value={userAddress} 
-                      onChange={(e) => setUserAddress(e.target.value)} 
-                      placeholder={tr('e.g. Main Market, Navrangpura', 'उदा. मेन मार्केट, नवरंगपुरा', 'દા.ત. મેઈન માર્કેટ, નવરંગપુરા')}
-                      className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl pl-9 pr-3 py-2 text-xs font-medium text-slate-900 dark:text-white outline-none focus:border-indigo-500" 
-                    />
-                  </div>
-                </div>
+                {/* Phone Privacy Toggle (Private by Default + DB Re-Auth to Make Public) */}
+                <PhonePrivacyToggle
+                  isPhonePublic={isUserPhonePublic}
+                  onChange={setIsUserPhonePublic}
+                  phoneDisplay={userPhone || getCurrentUser()?.phone || ''}
+                />
 
                 <button 
                   type="submit" 
@@ -1591,43 +1605,31 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   )}
                 </div>
 
-                {/* 3. Mobile Number */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {tr('Mobile Number *', 'मोबाइल नंबर *', 'મોબાઈલ નંબર *')}
-                  </label>
-                  <div className="relative">
-                    <span className="text-slate-400 font-bold absolute left-3.5 top-1/2 -translate-y-1/2 text-xs">+91</span>
-                    <input 
-                      type="tel" 
-                      required
-                      placeholder="98765 43210"
-                      value={helperPhone}
-                      onChange={(e) => setHelperPhone(e.target.value)}
-                      className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl pl-11 pr-3.5 py-2.5 text-xs font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                    />
+                {helperErrorMsg && (
+                  <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-xs font-bold text-rose-700 dark:text-rose-300">
+                    ⚠️ {helperErrorMsg}
                   </div>
-                </div>
+                )}
 
-                {/* 4. Area / Locality */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {tr('Area / Locality *', 'क्षेत्र / इलाका *', 'વિસ્તાર / સોસાયટી *')}
-                  </label>
-                  <input 
-                    type="text" 
-                    required
-                    placeholder={tr('e.g. Main Market, Sector 15', 'उदा. मेन मार्केट, सेक्टर 15', 'દા.ત. મેઈન માર્કેટ, સેક્ટર 15')}
-                    value={helperArea}
-                    onChange={(e) => setHelperArea(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                  />
-                </div>
+                {/* 3. Smart Location Picker */}
+                <SmartLocationPicker
+                  value={helperArea}
+                  onChange={setHelperArea}
+                  required
+                  accentColor="emerald"
+                />
+
+                {/* 4. Phone Privacy Toggle */}
+                <PhonePrivacyToggle
+                  isPhonePublic={isHelperPhonePublic}
+                  onChange={setIsHelperPhonePublic}
+                  phoneDisplay={helperPhone || userPhone || getCurrentUser()?.phone || ''}
+                />
 
                 {/* 5. Experience */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {tr('Experience *', 'अनुभव *', 'અનુભવ *')}
+                    {tr('Experience', 'अनुभव', 'અનુભવ')}
                   </label>
                   <select 
                     value={helperExp}
@@ -1643,10 +1645,10 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   </select>
                 </div>
 
-                {/* 6. Skills */}
+                {/* 6. Skills (Optional) */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {tr('Skills / Specialties', 'कौशल / विशेषज्ञता', 'કૌશલ્ય / વિશેષતા')}
+                    {tr('Skills / Specialties (Optional)', 'कौशल / विशेषज्ञता (वैकल्पिक)', 'કૌશલ્ય / વિશેષતા (વૈકલ્પિક)')}
                   </label>
                   <input 
                     type="text" 
@@ -1657,10 +1659,10 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   />
                 </div>
 
-                {/* Profile / Work Photo Upload for Local Helper */}
+                {/* Profile / Work Photo Upload for Local Helper (Optional) */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {tr('Profile / Work Photo (JPG, PNG, WebP Max 2MB)', 'प्रोफाइल या काम की फ़ोटो (JPG, PNG, WebP Max 2MB)', 'પ્રોફાઈલ અથવા કામનો ફોટો (JPG, PNG, WebP Max 2MB)')}
+                    {tr('Work Photo (Optional • JPG, PNG, WebP Max 2MB)', 'काम की फ़ोटो (वैकल्पिक • Max 2MB)', 'કામનો ફોટો (વૈકલ્પિક • Max 2MB)')}
                   </label>
                   <input
                     type="file"
@@ -1703,103 +1705,71 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   )}
                 </div>
 
-                {/* 7. Live Selfie & Visiting Card / Work Photo Verification (Play Store Safe) */}
-                <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-                  <label className="block text-xs font-extrabold text-slate-800 dark:text-slate-200">
-                    {tr('📸 Live Selfie & Visiting Card / Work Proof (For Verified Badge)', '📸 लाइव सेल्फी और विजिटिंग कार्ड / काम का फोटो (वेरिफाइड बैज हेतु)', '📸 લાઈવ સેલ્ફી અને વિઝિટિંગ કાર્ડ / કામનો ફોટો (વેરિફાઈડ બેજ માટે)')}
+                {/* 7. Mandatory Live Camera Selfie Verification (Anti-Download & Anti-Screenshot Protected) */}
+                <div className="space-y-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
+                  <label className="block text-xs font-extrabold text-emerald-900 dark:text-emerald-300">
+                    {tr('📸 Mandatory Live Camera Selfie * (Anti-Download & Anti-Screenshot Protected)', '📸 अपनी लाइव कैमरा सेल्फी लें * (वेरिफिकेशन के लिए अनिवार्य)', '📸 તમારી લાઈવ કેમેરા સેલ્ફી લો * (ચકાસણી માટે ફરજિયાત)')}
                   </label>
                   <p className="text-[10px] text-slate-500 font-medium -mt-1">
-                    {tr('Take your clear Live Selfie and upload your Visiting Card or Shop/Work photo to prevent fake profiles.', 'फर्जी प्रोफाइल रोकने के लिए अपनी साफ लाइव सेल्फी लें और अपना विजिटिंग कार्ड या काम/दुकान का फोटो अपलोड करें।', 'બોગસ પ્રોફાઈલ રોકવા માટે તમારી લાઈવ સેલ્ફી લો અને વિઝિટિંગ કાર્ડ કે કામનો ફોટો અપલોડ કરો.')}
+                    {tr('Take your clear Live Selfie for genuine Service Expert verification. Protected on Canvas so nobody can download or copy it.', 'फर्जी प्रोफाइल रोकने के लिए अपनी साफ लाइव सेल्फी लें। यह फोटो सुरक्षित है और कोई इसे डाउनलोड या कॉपी नहीं कर सकता।', 'બોગસ પ્રોફાઈલ રોકવા માટે તમારી લાઈવ સેલ્ફી લો. આ ફોટો સુરક્ષિત છે અને કોઈ તેને ડાઉનલોડ કરી શકતું નથી.')}
                   </p>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    {/* Live Selfie Upload */}
-                    <div className="bg-slate-50 dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700">
-                      <span className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                        {tr('📸 1. Live Selfie Photo', '📸 1. अपनी लाइव सेल्फी फोटो', '📸 1. તમારી લાઈવ સેલ્ફી ફોટો')}
-                      </span>
-                      <input 
-                        type="file" 
-                        accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
-                        capture="user"
-                        onChange={async (e) => {
-                          const file = e.target.files?.[0];
-                          if (file) {
-                            setUploadErrorMsg(null);
-                            const check = await validateUploadedFile(file, { allowPdf: false });
-                            if (!check.valid) {
-                              setUploadErrorMsg(check.error || 'Invalid image uploaded.');
-                              e.target.value = '';
-                              return;
-                            }
-                            setHelperIdFrontName(file.name);
-                            try {
-                              const watermarked = await applyIdWatermark(file, {
-                                userName: helperName.trim() || userName || 'Service Expert',
-                                customText: 'FOR LOCOHELP VERIFICATION ONLY • LIVE SELFIE'
-                              });
-                              setHelperIdFrontDoc(watermarked);
-                            } catch {
-                              const reader = new FileReader();
-                              reader.onloadend = () => {
-                                setHelperIdFrontDoc(reader.result as string);
-                              };
-                              reader.readAsDataURL(file);
-                            }
+                  <div className="bg-emerald-50/60 dark:bg-slate-900 p-3 rounded-xl border-2 border-emerald-300 dark:border-emerald-700 space-y-2">
+                    <input 
+                      type="file" 
+                      accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+                      capture="user"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          setUploadErrorMsg(null);
+                          setHelperErrorMsg(null);
+                          const check = await validateUploadedFile(file, { allowPdf: false });
+                          if (!check.valid) {
+                            setUploadErrorMsg(check.error || 'Invalid image uploaded.');
+                            e.target.value = '';
+                            return;
                           }
-                        }}
-                        className="w-full text-[11px] text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded-lg file:border-0 file:text-[10px] file:font-bold file:bg-emerald-50 file:text-emerald-700 dark:file:bg-emerald-950 dark:file:text-emerald-300 cursor-pointer"
-                      />
-                      {helperIdFrontName && (
-                        <p className="text-[10px] text-emerald-600 font-bold mt-1 flex items-center gap-1 truncate">
-                          <CheckCircle2 className="w-3 h-3 shrink-0" /> Live Selfie Attached: {helperIdFrontName}
-                        </p>
-                      )}
-                    </div>
-
-                    {/* Visiting Card / Work Photo Upload */}
-                    <div className="bg-slate-50 dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700">
-                      <span className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                        {tr('🪪 2. Visiting Card / Work Photo', '🪪 2. विजिटिंग कार्ड / काम की फोटो', '🪪 2. વિઝિટિંગ કાર્ડ / કામનો ફોટો')}
-                      </span>
-                      <input 
-                        type="file" 
-                        accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
-                        onChange={async (e) => {
-                          const file = e.target.files?.[0];
-                          if (file) {
-                            setUploadErrorMsg(null);
-                            const check = await validateUploadedFile(file, { allowPdf: false });
-                            if (!check.valid) {
-                              setUploadErrorMsg(check.error || 'Invalid image uploaded.');
-                              e.target.value = '';
-                              return;
-                            }
-                            setHelperIdBackName(file.name);
-                            try {
-                              const watermarked = await applyIdWatermark(file, {
-                                userName: helperName.trim() || userName || 'Service Expert',
-                                customText: 'FOR LOCOHELP VERIFICATION ONLY • WORK PROOF'
-                              });
-                              setHelperIdBackDoc(watermarked);
-                            } catch {
-                              const reader = new FileReader();
-                              reader.onloadend = () => {
-                                setHelperIdBackDoc(reader.result as string);
-                              };
-                              reader.readAsDataURL(file);
-                            }
+                          setHelperIdFrontName(file.name);
+                          try {
+                            const watermarked = await applyIdWatermark(file, {
+                              userName: helperName.trim() || userName || 'Service Expert',
+                              customText: 'LOCOHELP VERIFIED EXPERT • LIVE SELFIE • DO NOT COPY'
+                            });
+                            setHelperIdFrontDoc(watermarked);
+                          } catch {
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                              setHelperIdFrontDoc(reader.result as string);
+                            };
+                            reader.readAsDataURL(file);
                           }
-                        }}
-                        className="w-full text-[11px] text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded-lg file:border-0 file:text-[10px] file:font-bold file:bg-emerald-50 file:text-emerald-700 dark:file:bg-emerald-950 dark:file:text-emerald-300 cursor-pointer"
-                      />
-                      {helperIdBackName && (
-                        <p className="text-[10px] text-emerald-600 font-bold mt-1 flex items-center gap-1 truncate">
-                          <CheckCircle2 className="w-3 h-3 shrink-0" /> Work Proof Attached: {helperIdBackName}
-                        </p>
-                      )}
-                    </div>
+                        }
+                      }}
+                      className="w-full text-[11px] text-slate-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-black file:bg-emerald-600 file:text-white cursor-pointer"
+                    />
+                    {(helperIdFrontDoc || myHelperProfile?.idDocUrl) && (
+                      <div className="flex items-center gap-3 pt-1">
+                        <ProtectedSelfieCanvas
+                          src={helperIdFrontDoc || myHelperProfile?.idDocUrl}
+                          alt="Verified Expert Live Selfie"
+                          width={88}
+                          height={88}
+                          className="rounded-xl border-2 border-emerald-500 shadow-xs shrink-0"
+                        />
+                        <div className="text-left space-y-0.5">
+                          <p className="text-[11px] text-emerald-700 dark:text-emerald-300 font-black flex items-center gap-1">
+                            <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                            {tr('Live Selfie Protected & Attached', 'लाइव सेल्फी सुरक्षित और संलग्न है', 'લાઈવ સેલ્ફી સુરક્ષિત અને જોડાયેલ છે')}
+                          </p>
+                          <p className="text-[10px] text-slate-500 font-semibold">
+                            🔒 {tr('Anti-Download & Watermark Active', 'एंटी-डाउनलोड और वॉटरमार्क सक्रिय', 'એન્ટી-ડાઉનલોડ અને વોટરમાર્ક સક્રિય')}
+                          </p>
+                        </div>
+                      </div>
+                    )}
                   </div>
+
                   {uploadErrorMsg && (
                     <div className="p-2 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-[11px] font-bold text-rose-700 dark:text-rose-300 flex items-center gap-1.5">
                       <AlertCircle className="w-3.5 h-3.5 shrink-0" />
@@ -1973,15 +1943,20 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   )}
                 </div>
 
+                {shopErrorMsg && (
+                  <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-xs font-bold text-rose-700 dark:text-rose-300">
+                    ⚠️ {shopErrorMsg}
+                  </div>
+                )}
+
                 {/* 3. Owner Name & Timings */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      {tr('Owner / Manager Name *', 'मालिक / मैनेजर का नाम *', 'માલિક / મેનેજરનું નામ *')}
+                      {tr('Owner / Manager Name (Optional)', 'मालिक / मैनेजर का नाम (वैकल्पिक)', 'માલિક / મેનેજરનું નામ (વૈકલ્પિક)')}
                     </label>
                     <input 
                       type="text" 
-                      required
                       placeholder={tr('Owner Name', 'मालिक का नाम', 'માલિકનું નામ')}
                       value={ownerName}
                       onChange={(e) => setOwnerName(e.target.value)}
@@ -1990,11 +1965,10 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      {tr('Shop Timings *', 'दुकान का समय *', 'દુકાનનો સમય *')}
+                      {tr('Shop Timings (Optional)', 'दुकान का समय (वैकल्पिक)', 'દુકાનનો સમય (વૈકલ્પિક)')}
                     </label>
                     <input 
                       type="text" 
-                      required
                       placeholder="e.g. 9:00 AM - 9:00 PM"
                       value={shopTimings}
                       onChange={(e) => setShopTimings(e.target.value)}
@@ -2003,43 +1977,25 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   </div>
                 </div>
 
-                {/* 4. Phone Number */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {tr('Contact / WhatsApp Number *', 'संपर्क / व्हाट्सएप नंबर *', 'સંપર્ક / વોટ્સએપ નંબર *')}
-                  </label>
-                  <div className="relative">
-                    <span className="text-slate-400 font-bold absolute left-3.5 top-1/2 -translate-y-1/2 text-xs">+91</span>
-                    <input 
-                      type="tel" 
-                      required
-                      placeholder="98765 43210"
-                      value={shopPhone}
-                      onChange={(e) => setShopPhone(e.target.value)}
-                      className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl pl-11 pr-3.5 py-2.5 text-xs font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-amber-500 focus:outline-none"
-                    />
-                  </div>
-                </div>
+                {/* 4. Smart Location Picker */}
+                <SmartLocationPicker
+                  value={shopArea}
+                  onChange={setShopArea}
+                  required
+                  accentColor="amber"
+                />
 
-                {/* 5. Area / Locality */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {tr('Address / City / Area *', 'पता / शहर / क्षेत्र *', 'સરનામું / શહેર / વિસ્તાર *')}
-                  </label>
-                  <input 
-                    type="text" 
-                    required
-                    placeholder={tr('e.g. Main Market, Near Bus Station', 'उदा. मेन मार्केट, बस स्टैंड के पास', 'દા.ત. મેઈન માર્કેટ, બસ સ્ટેન્ડ પાસે')}
-                    value={shopArea}
-                    onChange={(e) => setShopArea(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-900 dark:text-white focus:ring-2 focus:ring-amber-500 focus:outline-none"
-                  />
-                </div>
+                {/* 5. Phone Privacy Toggle */}
+                <PhonePrivacyToggle
+                  isPhonePublic={isShopPhonePublic}
+                  onChange={setIsShopPhonePublic}
+                  phoneDisplay={shopPhone || userPhone || getCurrentUser()?.phone || ''}
+                />
 
-                {/* 6. Address */}
+                {/* 6. Address (Optional) */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {tr('Full Shop Address / Landmark', 'दुकान का पूरा पता / लैंडमार्क', 'દુકાનનું પૂરું સરનામું / લેન્ડમાર્ક')}
+                    {tr('Shop Landmark / Floor (Optional)', 'दुकान का लैंडमार्क (वैकल्पिक)', 'દુકાનનું લેન્ડમાર્ક (વૈકલ્પિક)')}
                   </label>
                   <input 
                     type="text" 
@@ -2050,10 +2006,10 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   />
                 </div>
 
-                {/* 7. Description */}
+                {/* 7. Description (Optional) */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {tr('Description / Offers / Services', 'विवरण / ऑफर / सेवाएं', 'વિગત / ઓફર / સેવાઓ')}
+                    {tr('Description / Offers / Services (Optional)', 'विवरण / ऑफर / सेवाएं (वैकल्पिक)', 'વિગત / ઓફર / સેવાઓ (વૈકલ્પિક)')}
                   </label>
                   <textarea 
                     rows={2}
@@ -2064,10 +2020,10 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   />
                 </div>
 
-                {/* 8. Multiple Shop Photos Upload (2-3 images max 2MB each) */}
+                {/* 8. Multiple Shop Photos Upload (Optional) */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {tr('Shop / Business Photos (Upload 2-3 photos • Max 2MB each)', 'दुकान / बिज़नेस की फ़ोटो (2-3 फ़ोटो अपलोड करें • Max 2MB)', 'દુકાન / બિઝનેસના ફોટા (2-3 ફોટા અપલોડ કરો • Max 2MB)')}
+                    {tr('Shop / Business Photos (Optional • Up to 3 photos)', 'दुकान / बिज़नेस की फ़ोटो (वैकल्पिक • 2-3 फ़ोटो)', 'દુકાન / બિઝનેસના ફોટા (વૈકલ્પિક)')}
                   </label>
                   <input 
                     type="file" 
@@ -2138,22 +2094,37 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   )}
                 </div>
 
-                {/* 9. Owner Live Selfie / Visiting Card Upload */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {tr('📸 Owner Live Selfie or Shop Visiting Card / Bill Book (JPG, PNG, WebP ≤ 2MB)', '📸 मालिक की लाइव सेल्फी या दुकान का विजिटिंग कार्ड / बिल बुक', '📸 માલિકની લાઈવ સેલ્ફી અથવા દુકાનનું વિઝિટિંગ કાર્ડ / બિલ બુક')}
+                {/* 9. Mandatory Owner Live Camera Selfie */}
+                <div className="p-3 rounded-2xl bg-amber-50/70 dark:bg-slate-900 border-2 border-amber-300 dark:border-amber-700 space-y-2">
+                  <label className="block text-xs font-black text-amber-950 dark:text-amber-300">
+                    {tr('📸 Owner Live Camera Selfie * (Mandatory • Anti-Download Protected)', '📸 मालिक की लाइव कैमरा सेल्फी * (वेरिफिकेशन के लिए अनिवार्य)', '📸 માલિકની લાઈવ કેમેરા સેલ્ફી * (ચકાસણી માટે ફરજિયાત)')}
                   </label>
                   <input 
                     type="file" 
                     accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
                     capture="user"
                     onChange={handleIdDocUploadShop}
-                    className="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-amber-50 file:text-amber-700 dark:file:bg-amber-950 dark:file:text-amber-300 cursor-pointer bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-2 py-1.5"
+                    className="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-black file:bg-amber-600 file:text-white cursor-pointer bg-white dark:bg-slate-800 border border-amber-200 dark:border-slate-700 rounded-xl px-2 py-1.5"
                   />
-                  {shopIdDocName && (
-                    <p className="text-[10px] text-amber-600 dark:text-amber-400 font-bold mt-1 flex items-center gap-1">
-                      <CheckCircle2 className="w-3.5 h-3.5" /> Verification Photo Attached: {shopIdDocName}
-                    </p>
+                  {(shopIdDoc || (myBusinessProfile as any)?.idDocumentWatermarked) && (
+                    <div className="flex items-center gap-3 pt-1">
+                      <ProtectedSelfieCanvas
+                        src={shopIdDoc || (myBusinessProfile as any)?.idDocumentWatermarked}
+                        alt="Verified Shop Owner Selfie"
+                        width={88}
+                        height={88}
+                        className="rounded-xl border-2 border-emerald-500 shadow-xs shrink-0"
+                      />
+                      <div className="text-left space-y-0.5">
+                        <p className="text-[11px] text-emerald-700 dark:text-emerald-300 font-black flex items-center gap-1">
+                          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                          {tr('Owner Live Selfie Protected & Ready', 'मालिक की लाइव सेल्फी सुरक्षित और तैयार है', 'માલિકની લાઈવ સેલ્ફી સુરક્ષિત અને તૈયાર છે')}
+                        </p>
+                        <p className="text-[10px] text-slate-500 font-semibold">
+                          🔒 {tr('Anti-Download & Watermark Active', 'एंटी-डाउनलोड और वॉटरमार्क सक्रिय', 'એન્ટી-ડાઉનલોડ અને વોટરમાર્ક સક્રિય')}
+                        </p>
+                      </div>
+                    </div>
                   )}
                   {uploadErrorMsg && (
                     <div className="mt-2 p-2 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-[11px] font-bold text-rose-700 dark:text-rose-300 flex items-center gap-1.5">
@@ -2194,7 +2165,6 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                 </div>
               </div>
 
-              {/* Search input for registered shops */}
               <div className="relative">
                 <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
@@ -2212,45 +2182,55 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                     {tr('No approved businesses found matching search.', 'कोई अप्रूव्ड बिज़नेस नहीं मिला।', 'કોઈ મંજૂર થયેલ બિઝનેસ મળ્યો નથી.')}
                   </p>
                 ) : (
-                  filteredShops.map((shop) => (
-                    <div 
-                      key={shop.id}
-                      className="p-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl flex items-start justify-between gap-2"
-                    >
-                      {shop.photoUrl && (
-                        <img src={shop.photoUrl} alt="" className="w-12 h-12 rounded-lg object-cover shrink-0 border border-slate-200 dark:border-slate-700" />
-                      )}
-                      <div className="min-w-0 flex-1 pr-2 space-y-0.5">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="text-xs font-black text-slate-900 dark:text-white truncate">
-                            {shop.name}
-                          </span>
-                          <span className="text-[9px] bg-emerald-600 text-white font-black px-1.5 py-0.2 rounded-full">
-                            🛡️ {tr('Verified', 'वेरिफाइड', 'વેરિફાઈડ')}
-                          </span>
+                  filteredShops.map((shop) => {
+                    const canShowPublicPhone = Boolean((shop as any).isPhonePublic === true && shop.phone);
+                    return (
+                      <div 
+                        key={shop.id}
+                        className="p-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl flex items-start justify-between gap-2"
+                      >
+                        {shop.photoUrl && (
+                          <img src={shop.photoUrl} alt="" className="w-12 h-12 rounded-lg object-cover shrink-0 border border-slate-200 dark:border-slate-700" />
+                        )}
+                        <div className="min-w-0 flex-1 pr-2 space-y-0.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-xs font-black text-slate-900 dark:text-white truncate">
+                              {shop.name}
+                            </span>
+                            <span className="text-[9px] bg-emerald-600 text-white font-black px-1.5 py-0.2 rounded-full">
+                              🛡️ {tr('Verified', 'वेरिफाइड', 'વેરિફાઈડ')}
+                            </span>
+                          </div>
+                          <p className="text-[11px] font-bold text-amber-600 dark:text-amber-400">{shop.categoryLabel}</p>
+                          <p className="text-[10px] text-slate-500 flex items-center gap-1">
+                            <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
+                            <span>{shop.area} • {shop.address}</span>
+                          </p>
+                          <p className="text-[11px] text-slate-600 dark:text-slate-300 pt-0.5">{shop.description}</p>
                         </div>
-                        <p className="text-[11px] font-bold text-amber-600 dark:text-amber-400">{shop.categoryLabel}</p>
-                        <p className="text-[10px] text-slate-500 flex items-center gap-1">
-                          <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
-                          <span>{shop.area} • {shop.address}</span>
-                        </p>
-                        <p className="text-[11px] text-slate-600 dark:text-slate-300 pt-0.5">{shop.description}</p>
-                      </div>
 
-                      <div className="flex flex-col gap-1 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => handleWhatsAppContact(shop)}
-                          className="bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-extrabold px-2.5 py-1.5 rounded-lg flex items-center gap-1 shadow-xs cursor-pointer"
-                        >
-                          <Phone className="w-3 h-3" /> WhatsApp
-                        </button>
+                        <div className="flex flex-col gap-1 shrink-0">
+                          {canShowPublicPhone ? (
+                            <button
+                              type="button"
+                              onClick={() => handleWhatsAppContact(shop)}
+                              className="bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-extrabold px-2.5 py-1.5 rounded-lg flex items-center gap-1 shadow-xs cursor-pointer"
+                            >
+                              <Phone className="w-3 h-3" /> WhatsApp
+                            </button>
+                          ) : (
+                            <span className="text-[10px] font-bold text-slate-500 bg-slate-200/70 dark:bg-slate-800 px-2 py-1 rounded-lg flex items-center gap-1">
+                              <Lock className="w-3 h-3 text-emerald-600" /> {tr('Private', 'प्राइवेट', 'ખાનગી')}
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </div>
+
 
           </div>
         )}

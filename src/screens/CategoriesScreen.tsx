@@ -1204,7 +1204,7 @@ export default function CategoriesScreen({
                               <Flag className="w-3.5 h-3.5" />
                             </button>
 
-                            {helper.phone && (
+                            {(helper as any).isPhonePublic === true && helper.phone && (
                               <a
                                 href={`https://wa.me/91${helper.phone.replace(
                                   /\D/g,

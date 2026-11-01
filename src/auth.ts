@@ -7,7 +7,11 @@ import {
   sanitizePayload,
   sanitizeText,
   getOtpCooldownRemainingSeconds,
-  recordOtpSentTimestamp
+  recordOtpSentTimestamp,
+  MAX_DAILY_MOBILE_OTP,
+  getDailyMobileOtpStatus,
+  syncDailyMobileOtpCount,
+  recordDailyMobileOtpSent
 } from './lib/security';
 import {
   sendFirebasePhoneOtp,
@@ -491,7 +495,69 @@ export function localizeServerAuthError(
 }
 
 /**
- * Sends 6-Digit SMS OTP via Firebase Phone Authentication (with 60-second anti-spam cooldown)
+ * Fetches current daily Mobile OTP usage (out of 3 per day) from server + local storage
+ */
+export async function fetchMobileOtpDailyQuota(phone: string): Promise<{
+  usedToday: number;
+  remainingToday: number;
+  maxPerDay: number;
+  dailyLimitReached: boolean;
+  cooldownRemaining: number;
+}> {
+  const norm = normalizeIndianPhoneE164(phone);
+  const localStatus = getDailyMobileOtpStatus(norm.valid ? norm.tenDigits : phone);
+  const cooldownKey = norm.valid ? `phone_${norm.tenDigits}` : '';
+  const localCooldown = cooldownKey ? getOtpCooldownRemainingSeconds(cooldownKey) : 0;
+
+  if (!norm.valid) {
+    return {
+      ...localStatus,
+      cooldownRemaining: localCooldown
+    };
+  }
+
+  try {
+    const res = await fetch(`/api/auth/mobile-otp-quota?phone=${encodeURIComponent(norm.tenDigits)}`, {
+      cache: 'no-store'
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const mergedUsed = Math.min(
+        MAX_DAILY_MOBILE_OTP,
+        Math.max(localStatus.usedToday, Number(data.usedToday) || 0)
+      );
+      if (mergedUsed > localStatus.usedToday) {
+        syncDailyMobileOtpCount(norm.tenDigits, mergedUsed);
+      }
+      return {
+        usedToday: mergedUsed,
+        remainingToday: Math.max(0, MAX_DAILY_MOBILE_OTP - mergedUsed),
+        maxPerDay: MAX_DAILY_MOBILE_OTP,
+        dailyLimitReached: mergedUsed >= MAX_DAILY_MOBILE_OTP || Boolean(data.dailyLimitReached),
+        cooldownRemaining: Math.max(localCooldown, Number(data.cooldownRemaining) || 0)
+      };
+    }
+  } catch {}
+
+  return {
+    ...localStatus,
+    cooldownRemaining: localCooldown
+  };
+}
+
+function getDailyLimitExceededMessage(): string {
+  return trAuth(
+    '⚠️ Daily Mobile OTP limit (3/3) reached! To prevent spam & excess SMS charges, only 3 Mobile OTPs can be sent per day. Please sign in using Password, Fingerprint, or Email OTP, or try again tomorrow.',
+    '⚠️ आज की मोबाइल OTP सीमा (3/3) पूरी हो चुकी है! सुरक्षा और बॉट-स्पैम रोकने के लिए 1 दिन में अधिकतम 3 बार ही मोबाइल OTP भेजा जा सकता है। कृपया ऊपर "पासवर्ड", "फिंगरप्रिंट" या "ईमेल OTP" से लॉगिन करें, या कल प्रयास करें।',
+    '⚠️ આજની મોબાઇલ OTP મર્યાદા (3/3) પૂર્ણ થઈ ગઈ છે! સુરક્ષા અને બોટ-સ્પામ રોકવા માટે 1 દિવસમાં મહત્તમ 3 વાર જ મોબાઇલ OTP મોકલી શકાય છે. કૃપા કરીને ઉપર "પાસવર્ડ", "ફિંગરપ્રિન્ટ" અથવા "ઈમેલ OTP" થી લોગિન કરો, અથવા આવતીકાલે પ્રયાસ કરો.'
+  );
+}
+
+/**
+ * Sends 6-Digit SMS OTP via Firebase Phone Authentication
+ * Strictly enforces:
+ * 1) Maximum 3 Mobile OTPs per Day (24h / IST calendar day) in PostgreSQL + Client Storage
+ * 2) 60-Second Cooldown between consecutive OTP requests
  */
 export async function sendMobileOtp(
   phone: string,
@@ -501,6 +567,10 @@ export async function sendMobileOtp(
   error?: string;
   phoneE164?: string;
   cooldownRemaining?: number;
+  usedToday?: number;
+  remainingToday?: number;
+  maxPerDay?: number;
+  dailyLimitReached?: boolean;
 }> {
   const norm = normalizeIndianPhoneE164(phone);
   if (!norm.valid) {
@@ -514,12 +584,29 @@ export async function sendMobileOtp(
     };
   }
 
+  // 1. Check client-side daily 3-OTP limit first
+  const localQuota = getDailyMobileOtpStatus(norm.tenDigits);
+  if (localQuota.dailyLimitReached) {
+    return {
+      success: false,
+      usedToday: MAX_DAILY_MOBILE_OTP,
+      remainingToday: 0,
+      maxPerDay: MAX_DAILY_MOBILE_OTP,
+      dailyLimitReached: true,
+      error: getDailyLimitExceededMessage()
+    };
+  }
+
+  // 2. Check 60-second cooldown
   const cooldownKey = `phone_${norm.tenDigits}`;
   const rem = getOtpCooldownRemainingSeconds(cooldownKey);
   if (rem > 0) {
     return {
       success: false,
       cooldownRemaining: rem,
+      usedToday: localQuota.usedToday,
+      remainingToday: localQuota.remainingToday,
+      maxPerDay: MAX_DAILY_MOBILE_OTP,
       error: trAuth(
         `Please wait ${rem} seconds before requesting a new OTP.`,
         `कृपया नया OTP भेजने से पहले ${rem} सेकंड प्रतीक्षा करें।`,
@@ -528,10 +615,65 @@ export async function sendMobileOtp(
     };
   }
 
+  // 3. Check & reserve daily OTP slot on PostgreSQL server BEFORE invoking Firebase SMS
+  let serverUsedCount: number | undefined = undefined;
+  let serverSlotReserved = false;
+  try {
+    const guardRes = await fetch('/api/auth/mobile-otp-guard', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: norm.tenDigits, action: 'consume' })
+    });
+    const guardData = await guardRes.json().catch(() => ({}));
+
+    if (!guardRes.ok || !guardData.success) {
+      if (guardData.dailyLimitReached) {
+        syncDailyMobileOtpCount(norm.tenDigits, MAX_DAILY_MOBILE_OTP);
+        return {
+          success: false,
+          usedToday: MAX_DAILY_MOBILE_OTP,
+          remainingToday: 0,
+          maxPerDay: MAX_DAILY_MOBILE_OTP,
+          dailyLimitReached: true,
+          error: getDailyLimitExceededMessage()
+        };
+      }
+      if (guardData.cooldownRemaining) {
+        return {
+          success: false,
+          cooldownRemaining: Number(guardData.cooldownRemaining),
+          usedToday: guardData.usedToday ?? localQuota.usedToday,
+          remainingToday: guardData.remainingToday ?? localQuota.remainingToday,
+          maxPerDay: MAX_DAILY_MOBILE_OTP,
+          error: trAuth(
+            `Please wait ${guardData.cooldownRemaining} seconds before requesting a new OTP.`,
+            `कृपया नया OTP भेजने से पहले ${guardData.cooldownRemaining} सेकंड प्रतीक्षा करें।`,
+            `કૃપા કરીને નવો OTP મોકલતા પહેલા ${guardData.cooldownRemaining} સેકન્ડ રાહ જુઓ.`
+          )
+        };
+      }
+    } else {
+      serverSlotReserved = true;
+      serverUsedCount = Number(guardData.usedToday) || localQuota.usedToday + 1;
+    }
+  } catch {}
+
+  // 4. Trigger Firebase Phone Auth SMS
   const res = await sendFirebasePhoneOtp(norm.tenDigits, recaptchaContainerId);
   if (!res.success) {
+    // Rollback server slot if Firebase failed before sending SMS (e.g., domain setup / network error)
+    if (serverSlotReserved) {
+      fetch('/api/auth/mobile-otp-guard', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: norm.tenDigits, action: 'rollback' })
+      }).catch(() => {});
+    }
     return {
       success: false,
+      usedToday: localQuota.usedToday,
+      remainingToday: localQuota.remainingToday,
+      maxPerDay: MAX_DAILY_MOBILE_OTP,
       error:
         res.error ||
         trAuth(
@@ -542,11 +684,18 @@ export async function sendMobileOtp(
     };
   }
 
+  // 5. Record sent timestamp & daily count (max 3/day)
   recordOtpSentTimestamp(cooldownKey);
+  const updatedQuota = recordDailyMobileOtpSent(norm.tenDigits, serverUsedCount);
+
   return {
     success: true,
     phoneE164: res.phoneE164,
-    cooldownRemaining: 60
+    cooldownRemaining: 60,
+    usedToday: updatedQuota.usedToday,
+    remainingToday: updatedQuota.remainingToday,
+    maxPerDay: MAX_DAILY_MOBILE_OTP,
+    dailyLimitReached: updatedQuota.dailyLimitReached
   };
 }
 
@@ -1478,6 +1627,200 @@ export async function signInWithBiometricPasskey(): Promise<{
 }
 
 /**
+ * Verifies the currently logged-in user's identity against the PostgreSQL database
+ * (either via bcrypt Password hash or WebAuthn Biometric Passkey stored in user_biometric_credentials)
+ * before allowing sensitive actions like switching their mobile number from Private to Public.
+ */
+export async function verifyDatabaseReauth(options: {
+  mode: 'password' | 'biometric';
+  password?: string;
+  setNewPassword?: boolean;
+}): Promise<{
+  success: boolean;
+  noPasswordSet?: boolean;
+  error?: string;
+}> {
+  const activeUser = getCurrentUser();
+  if (!activeUser || activeUser.isGuest || activeUser.uid === 'guest_user') {
+    return {
+      success: false,
+      error: trAuth(
+        'Please sign in first.',
+        'कृपया पहले लॉगिन करें।',
+        'કૃપા કરીને પહેલા લોગિન કરો.'
+      )
+    };
+  }
+
+  if (options.mode === 'password') {
+    const cleanPass = String(options.password || '').trim();
+    if (cleanPass.length < 6) {
+      return {
+        success: false,
+        error: trAuth(
+          'Password must be at least 6 characters.',
+          'पासवर्ड कम से कम 6 अक्षरों का होना चाहिए।',
+          'પાસવર્ડ ઓછામાં ઓછો 6 અક્ષરોનો હોવો જોઈએ.'
+        )
+      };
+    }
+    try {
+      const res = await fetch('/api/auth/verify-reauth', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          mode: 'password',
+          uid: activeUser.uid,
+          email: activeUser.email || '',
+          phone: activeUser.phone || '',
+          password: cleanPass,
+          setNewPassword: Boolean(options.setNewPassword)
+        })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        return {
+          success: false,
+          noPasswordSet: Boolean(data.noPasswordSet),
+          error: localizeServerAuthError(
+            data.error,
+            'Incorrect password. Please enter your registered LocoHelp password.',
+            'गलत पासवर्ड! कृपया अपना सही LocoHelp पासवर्ड दर्ज करें।',
+            'ખોટો પાસવર્ડ! કૃપા કરીને તમારો સાચો LocoHelp પાસવર્ડ દાખલ કરો.'
+          )
+        };
+      }
+      return { success: true };
+    } catch {
+      return {
+        success: false,
+        error: trAuth(
+          'Network error while verifying password.',
+          'पासवर्ड जांचते समय नेटवर्क समस्या आई।',
+          'પાસવર્ડ તપાસતી વખતે નેટવર્ક સમસ્યા આવી.'
+        )
+      };
+    }
+  }
+
+  // Mode: Biometric Passkey verified against PostgreSQL database
+  try {
+    const supported = await isBiometricSupported();
+    if (!supported) {
+      return {
+        success: false,
+        error: trAuth(
+          'Fingerprint / Face Lock is not supported on this device. Please use Password tab.',
+          'इस डिवाइस पर फिंगरप्रिंट उपलब्ध नहीं है। कृपया पासवर्ड टैब का उपयोग करें।',
+          'આ ડિવાઇસ પર ફિંગરપ્રિન્ટ ઉપલબ્ધ નથી. કૃપા કરીને પાસવર્ડ ટેબનો ઉપયોગ કરો.'
+        )
+      };
+    }
+
+    let saved = getSavedBiometricInfo();
+    if (!saved) {
+      // Register passkey for current logged-in user and save to PostgreSQL user_biometric_credentials
+      const regRes = await registerBiometricPasskey(activeUser);
+      if (!regRes.success) {
+        return {
+          success: false,
+          error: regRes.error
+        };
+      }
+      saved = getSavedBiometricInfo();
+    } else {
+      // Prompt hardware biometric assertion
+      const challenge = new Uint8Array(32);
+      crypto.getRandomValues(challenge);
+      const publicKeyOptions: PublicKeyCredentialRequestOptions = {
+        challenge,
+        rpId: window.location.hostname,
+        userVerification: 'required',
+        timeout: 60000
+      };
+      if (saved.rawIdBase64) {
+        publicKeyOptions.allowCredentials = [
+          {
+            id: base64UrlToUint8Array(saved.rawIdBase64),
+            type: 'public-key',
+            transports: ['internal']
+          }
+        ];
+      }
+      const assertion = (await navigator.credentials.get({
+        publicKey: publicKeyOptions
+      })) as PublicKeyCredential | null;
+
+      if (!assertion) {
+        return {
+          success: false,
+          error: trAuth(
+            'Fingerprint verification was cancelled.',
+            'फिंगरप्रिंट सत्यापन रद्द किया गया।',
+            'ફિંગરપ્રિન્ટ ચકાસણી રદ કરવામાં આવી.'
+          )
+        };
+      }
+    }
+
+    if (!saved || !saved.credentialId) {
+      return {
+        success: false,
+        error: trAuth(
+          'Could not verify Fingerprint credential.',
+          'फिंगरप्रिंट क्रेडेंशियल सत्यापित नहीं हो सका।',
+          'ફિંગરપ્રિન્ટ ક્રેડેન્શિયલ ચકાસી શકાયું નહીં.'
+        )
+      };
+    }
+
+    const res = await fetch('/api/auth/verify-reauth', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({
+        mode: 'biometric',
+        uid: activeUser.uid,
+        email: activeUser.email || '',
+        phone: activeUser.phone || '',
+        credentialId: saved.credentialId
+      })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      return {
+        success: false,
+        error: localizeServerAuthError(
+          data.error,
+          'Biometric credential not verified in database.',
+          'डेटाबेस में फिंगरप्रिंट सत्यापित नहीं हुआ।',
+          'ડેટાબેઝમાં ફિંગરપ્રિન્ટ ચકાસાયું નથી.'
+        )
+      };
+    }
+    return { success: true };
+  } catch (err: any) {
+    if (err?.name === 'NotAllowedError') {
+      return {
+        success: false,
+        error: trAuth(
+          'Fingerprint / Face Lock verification was cancelled.',
+          'फिंगरप्रिंट / फेस लॉक सत्यापन रद्द किया गया।',
+          'ફિંગરપ્રિન્ટ / ફેસ લોક ચકાસણી રદ કરવામાં આવી.'
+        )
+      };
+    }
+    return {
+      success: false,
+      error: trAuth(
+        'Biometric verification failed. Please use Password instead.',
+        'फिंगरप्रिंट सत्यापन विफल रहा। कृपया पासवर्ड का उपयोग करें।',
+        'ફિંગરપ્રિન્ટ ચકાસણી નિષ્ફળ રહી. કૃપા કરીને પાસવર્ડનો ઉપયોગ કરો.'
+      )
+    };
+  }
+}
+
+/**
  * Clean logout: Clears server & local session while preserving manual user location
  */
 export async function logoutUser() {
@@ -1578,6 +1921,8 @@ export async function saveUserProfile(userData: Record<string, any>): Promise<vo
     full_name: userData.displayName || userData.full_name || 'Community Member',
     email: userData.email || '',
     phone: userData.phone || '',
+    is_phone_public: Boolean(userData.isPhonePublic ?? userData.is_phone_public ?? false),
+    isPhonePublic: Boolean(userData.isPhonePublic ?? userData.is_phone_public ?? false),
     avatar_url: userData.photoURL || userData.avatar_url || 'https://lh3.googleusercontent.com/a/default-user',
     skills: userData.skills || '',
     address: userData.address || '',

@@ -1426,29 +1426,70 @@ function maskPhoneForGuest(phone?: string): string {
   return `+91 ••••••${digits.slice(-4)}`;
 }
 
-function redactBulkItemForPrivacy(item: Record<string, any>, isAuthenticatedCaller: boolean, isAdminCaller = false): Record<string, any> {
+function redactBulkItemForPrivacy(
+  item: Record<string, any>,
+  isAuthenticatedCaller: boolean,
+  isAdminCaller = false,
+  callerUser?: { uid?: string; email?: string } | null
+): Record<string, any> {
   if (!item || typeof item !== "object") return item;
   const clone: Record<string, any> = { ...item };
 
-  // Never expose raw watermarked ID documents in public/bulk endpoints
-  if (!isAdminCaller) {
+  const itemPhonePublic = Boolean(
+    clone.isPhonePublic === true ||
+    clone.is_phone_public === true ||
+    clone.raw_json?.isPhonePublic === true
+  );
+  clone.isPhonePublic = itemPhonePublic;
+
+  const callerUid = String(callerUser?.uid || "").trim().toLowerCase();
+  const callerEmail = String(callerUser?.email || "").trim().toLowerCase();
+  const itemUidCandidates = [
+    clone.uid,
+    clone.id,
+    clone.userId,
+    clone.user_id,
+    clone.owner_id
+  ]
+    .filter(Boolean)
+    .map((v) => String(v).trim().toLowerCase());
+  const itemEmailCandidates = [
+    clone.email,
+    clone.ownerEmail,
+    clone.userEmail,
+    clone.authorEmail
+  ]
+    .filter(Boolean)
+    .map((v) => String(v).trim().toLowerCase());
+
+  const isOwner = Boolean(
+    (callerUid && itemUidCandidates.includes(callerUid)) ||
+    (callerEmail && itemEmailCandidates.includes(callerEmail))
+  );
+
+  // Never expose raw watermarked Live Selfies / ID documents or password hashes to non-admin callers
+  if (!isAdminCaller && !isOwner) {
     delete clone.idDocumentWatermarked;
     delete clone.id_document_watermarked;
     delete clone.idDocUrl;
     delete clone.id_doc_url;
-    delete clone.passwordHash;
-    delete clone.password_hash;
   }
+  delete clone.passwordHash;
+  delete clone.password_hash;
 
-  // If the request is from an unauthenticated guest in bulk listings, hide private email and mask phone
-  if (!isAuthenticatedCaller && !isAdminCaller) {
+  // Enforce strict phone privacy: if user has NOT explicitly unlocked their phone as public (isPhonePublic === true),
+  // strip phone/whatsapp from API responses for all non-owner, non-admin callers so DevTools cannot scrape it.
+  if (!itemPhonePublic && !isAdminCaller && !isOwner) {
+    delete clone.phone;
+    delete clone.whatsapp;
+    delete clone.userPhone;
+  } else if (!isAuthenticatedCaller && !isAdminCaller && !isOwner) {
     delete clone.email;
     delete clone.ownerEmail;
     delete clone.userEmail;
     delete clone.authorEmail;
-    if (clone.phone) clone.phone = maskPhoneForGuest(clone.phone);
-    if (clone.whatsapp) clone.whatsapp = maskPhoneForGuest(clone.whatsapp);
   }
+
   return clone;
 }
 
@@ -2292,6 +2333,20 @@ async function initPostgresTables(pool: pg.Pool): Promise<string[]> {
     "create otp_codes"
   );
   await execSafeDDL(pool, `CREATE INDEX IF NOT EXISTS idx_otp_codes_identifier ON otp_codes(identifier)`, "idx_otp_codes_identifier");
+
+  await execSafeDDL(
+    pool,
+    `CREATE TABLE IF NOT EXISTS mobile_otp_daily_limits (
+      phone TEXT NOT NULL,
+      day_key TEXT NOT NULL,
+      otp_count INTEGER DEFAULT 0,
+      ip_address TEXT,
+      last_sent_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+      PRIMARY KEY (phone, day_key)
+    )`,
+    "create mobile_otp_daily_limits"
+  );
+  await execSafeDDL(pool, `CREATE INDEX IF NOT EXISTS idx_mobile_otp_daily_ip ON mobile_otp_daily_limits(ip_address, day_key)`, "idx_mobile_otp_daily_ip");
 
   await execSafeDDL(
     pool,
@@ -3723,8 +3778,13 @@ async function startServer() {
       const isOwner = isSameUserOrAdmin(req, uid, uid);
 
       const formatResponse = (prof: Record<string, any>) => {
-        const safe = redactBulkItemForPrivacy(prof, isAuth || isOwner, isAdmin);
-        if (!isOwner && !isAdmin) {
+        const isPub = Boolean(
+          prof.isPhonePublic === true ||
+          prof.is_phone_public === true ||
+          prof.raw_json?.isPhonePublic === true
+        );
+        const safe = redactBulkItemForPrivacy({ ...prof, isPhonePublic: isPub }, isAuth || isOwner, isAdmin, caller);
+        if (!isOwner && !isAdmin && !isPub) {
           delete safe.phone;
           delete safe.whatsapp;
           delete safe.userPhone;
@@ -3742,6 +3802,7 @@ async function startServer() {
           if (result.rows.length > 0) {
             const row = result.rows[0];
             const cleanAvatar = row.avatar_url && row.avatar_url !== "https://lh3.googleusercontent.com/a/default-user" ? row.avatar_url : "";
+            const rawJsonObj = typeof row.raw_json === 'object' && row.raw_json ? row.raw_json : {};
             return formatResponse({
               uid: row.uid,
               id: row.uid,
@@ -3749,6 +3810,7 @@ async function startServer() {
               displayName: row.full_name,
               email: row.email,
               phone: row.phone,
+              isPhonePublic: Boolean(rawJsonObj.isPhonePublic === true),
               avatar_url: cleanAvatar,
               photoURL: cleanAvatar,
               skills: row.skills,
@@ -3863,8 +3925,15 @@ async function startServer() {
         profile.email || callerUser?.email || existingLocalOrDb?.email || (uid.includes('@') ? uid : ""),
         150
       ).toLowerCase();
-      const phone = sanitizeServerText(profile.phone || existingLocalOrDb?.phone || "", 30);
+      const phone = sanitizeServerText(profile.phone || callerUser?.phone || existingLocalOrDb?.phone || "", 30);
       const whatsapp = sanitizeServerText(profile.whatsapp || phone || existingLocalOrDb?.whatsapp || "", 30);
+      const isPhonePublic = Boolean(
+        profile.isPhonePublic !== undefined
+          ? profile.isPhonePublic
+          : profile.is_phone_public !== undefined
+          ? profile.is_phone_public
+          : existingLocalOrDb?.isPhonePublic ?? existingLocalOrDb?.raw_json?.isPhonePublic ?? false
+      );
       const prevCleanAvatar =
         existingLocalOrDb?.avatar_url && existingLocalOrDb.avatar_url !== "https://lh3.googleusercontent.com/a/default-user"
           ? existingLocalOrDb.avatar_url
@@ -4050,6 +4119,8 @@ async function startServer() {
         email,
         phone,
         whatsapp,
+        isPhonePublic,
+        is_phone_public: isPhonePublic,
         city,
         sector,
         avatar_url: avatarUrl,
@@ -4871,6 +4942,235 @@ async function startServer() {
   app.post("/api/auth/login-password", authLimiter, handleEmailPasswordLogin);
   app.post("/api/auth/login", authLimiter, handleEmailPasswordLogin);
 
+  // ==========================================
+  // STRICT 3 MOBILE OTPs PER DAY (24H / IST DAY) ANTI-BOT & BILLING PROTECTION
+  // Enforced in PostgreSQL + Server Memory before Firebase Phone Auth is triggered
+  // ==========================================
+  const MAX_DAILY_MOBILE_OTP = 3;
+  const MAX_DAILY_MOBILE_OTP_PER_IP = 6;
+  const memoryMobileOtpDailyCounts = new Map<string, { count: number; lastSentMs: number; ip: string }>();
+  const memoryIpOtpDailyCounts = new Map<string, number>();
+
+  const getCurrentIstDayKey = (): string => {
+    try {
+      // IST (UTC+5:30) calendar day key YYYY-MM-DD
+      const istTime = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+      return istTime.toISOString().slice(0, 10);
+    } catch {
+      return new Date().toISOString().slice(0, 10);
+    }
+  };
+
+  const getMobileOtpDailyUsage = async (tenDigits: string, clientIp: string) => {
+    const dayKey = getCurrentIstDayKey();
+    const memKey = `${tenDigits}:${dayKey}`;
+    const ipKey = `${clientIp}:${dayKey}`;
+    const memEntry = memoryMobileOtpDailyCounts.get(memKey);
+
+    let usedToday = memEntry?.count || 0;
+    let lastSentMs = memEntry?.lastSentMs || 0;
+    let ipUsedToday = memoryIpOtpDailyCounts.get(ipKey) || 0;
+
+    if (dbPool && isDbConnected) {
+      try {
+        const phoneRes = await dbPool.query(
+          `SELECT otp_count, last_sent_at FROM mobile_otp_daily_limits WHERE phone = $1 AND day_key = $2 LIMIT 1`,
+          [tenDigits, dayKey]
+        );
+        if (phoneRes.rows.length > 0) {
+          const dbCount = Number(phoneRes.rows[0].otp_count || 0);
+          const dbLastMs = phoneRes.rows[0].last_sent_at
+            ? new Date(phoneRes.rows[0].last_sent_at).getTime()
+            : 0;
+          if (dbCount > usedToday) usedToday = dbCount;
+          if (dbLastMs > lastSentMs) lastSentMs = dbLastMs;
+        }
+
+        if (clientIp && clientIp !== "unknown_ip") {
+          const ipRes = await dbPool.query(
+            `SELECT COALESCE(SUM(otp_count), 0) AS ip_total FROM mobile_otp_daily_limits WHERE ip_address = $1 AND day_key = $2`,
+            [clientIp, dayKey]
+          );
+          if (ipRes.rows.length > 0) {
+            const dbIpTotal = Number(ipRes.rows[0].ip_total || 0);
+            if (dbIpTotal > ipUsedToday) ipUsedToday = dbIpTotal;
+          }
+        }
+      } catch (err: any) {
+        console.warn("[Mobile OTP Daily Limit] DB read notice:", err?.message);
+      }
+    }
+
+    const elapsedMs = lastSentMs ? Date.now() - lastSentMs : 999999;
+    const cooldownRemaining =
+      lastSentMs && elapsedMs < OTP_COOLDOWN_MS
+        ? Math.ceil((OTP_COOLDOWN_MS - elapsedMs) / 1000)
+        : 0;
+    const remainingToday = Math.max(0, MAX_DAILY_MOBILE_OTP - usedToday);
+    const dailyLimitReached = usedToday >= MAX_DAILY_MOBILE_OTP || ipUsedToday >= MAX_DAILY_MOBILE_OTP_PER_IP;
+
+    return {
+      dayKey,
+      usedToday,
+      remainingToday,
+      maxPerDay: MAX_DAILY_MOBILE_OTP,
+      ipUsedToday,
+      cooldownRemaining,
+      dailyLimitReached,
+      allowed: !dailyLimitReached && cooldownRemaining === 0
+    };
+  };
+
+  app.get("/api/auth/mobile-otp-quota", async (req, res) => {
+    try {
+      const rawPhone = String(req.query.phone || "").trim();
+      const parsed = parseIdentifierForAuth(rawPhone);
+      if (!parsed.isPhone) {
+        return res.json({
+          success: true,
+          usedToday: 0,
+          remainingToday: MAX_DAILY_MOBILE_OTP,
+          maxPerDay: MAX_DAILY_MOBILE_OTP,
+          cooldownRemaining: 0,
+          dailyLimitReached: false,
+          allowed: true
+        });
+      }
+      const clientIp = getClientIp(req);
+      const usage = await getMobileOtpDailyUsage(parsed.tenDigits, clientIp);
+      return res.json({
+        success: true,
+        ...usage
+      });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message || "Failed to check OTP quota" });
+    }
+  });
+
+  app.post("/api/auth/mobile-otp-guard", async (req, res) => {
+    try {
+      if (isBotSubmission(req)) {
+        return res.status(429).json({
+          success: false,
+          dailyLimitReached: true,
+          error: "Automated bot request blocked."
+        });
+      }
+
+      const { phone, action = "consume" } = req.body || {};
+      const parsed = parseIdentifierForAuth(String(phone || ""));
+      if (!parsed.isPhone) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid 10-digit Indian mobile number"
+        });
+      }
+
+      const tenDigits = parsed.tenDigits;
+      const clientIp = getClientIp(req);
+      const dayKey = getCurrentIstDayKey();
+      const memKey = `${tenDigits}:${dayKey}`;
+      const ipKey = `${clientIp}:${dayKey}`;
+
+      // Rollback slot if Firebase failed due to configuration/network error before sending SMS
+      if (action === "rollback") {
+        const memEntry = memoryMobileOtpDailyCounts.get(memKey);
+        if (memEntry && memEntry.count > 0) {
+          memEntry.count = Math.max(0, memEntry.count - 1);
+          memEntry.lastSentMs = 0;
+          memoryMobileOtpDailyCounts.set(memKey, memEntry);
+        }
+        const curIp = memoryIpOtpDailyCounts.get(ipKey) || 0;
+        if (curIp > 0) {
+          memoryIpOtpDailyCounts.set(ipKey, curIp - 1);
+        }
+        if (dbPool && isDbConnected) {
+          await dbPool
+            .query(
+              `UPDATE mobile_otp_daily_limits
+               SET otp_count = GREATEST(0, otp_count - 1)
+               WHERE phone = $1 AND day_key = $2`,
+              [tenDigits, dayKey]
+            )
+            .catch(() => {});
+        }
+        const updated = await getMobileOtpDailyUsage(tenDigits, clientIp);
+        return res.json({ success: true, ...updated });
+      }
+
+      const usage = await getMobileOtpDailyUsage(tenDigits, clientIp);
+
+      if (action === "check") {
+        return res.json({ success: usage.allowed, ...usage });
+      }
+
+      // Enforce 60-second anti-spam cooldown between consecutive OTP sends
+      if (usage.cooldownRemaining > 0) {
+        return res.status(429).json({
+          success: false,
+          cooldownRemaining: usage.cooldownRemaining,
+          usedToday: usage.usedToday,
+          remainingToday: usage.remainingToday,
+          maxPerDay: MAX_DAILY_MOBILE_OTP,
+          error: `Please wait ${usage.cooldownRemaining} seconds before requesting a new OTP.`
+        });
+      }
+
+      // Enforce strict 3 OTPs per day limit per mobile number (and anti-bot IP cap)
+      if (usage.dailyLimitReached) {
+        return res.status(429).json({
+          success: false,
+          dailyLimitReached: true,
+          usedToday: Math.min(MAX_DAILY_MOBILE_OTP, Math.max(usage.usedToday, MAX_DAILY_MOBILE_OTP)),
+          remainingToday: 0,
+          maxPerDay: MAX_DAILY_MOBILE_OTP,
+          error: "Daily Mobile OTP limit (3/3) reached for today."
+        });
+      }
+
+      // Atomically increment daily OTP counter
+      const newCount = usage.usedToday + 1;
+      const nowMs = Date.now();
+      memoryMobileOtpDailyCounts.set(memKey, {
+        count: newCount,
+        lastSentMs: nowMs,
+        ip: clientIp
+      });
+      memoryIpOtpDailyCounts.set(ipKey, usage.ipUsedToday + 1);
+
+      if (dbPool && isDbConnected) {
+        try {
+          await dbPool.query(
+            `INSERT INTO mobile_otp_daily_limits (phone, day_key, otp_count, ip_address, last_sent_at)
+             VALUES ($1, $2, 1, $3, NOW())
+             ON CONFLICT (phone, day_key) DO UPDATE SET
+               otp_count = mobile_otp_daily_limits.otp_count + 1,
+               ip_address = EXCLUDED.ip_address,
+               last_sent_at = NOW()`,
+            [tenDigits, dayKey, clientIp]
+          );
+        } catch (err: any) {
+          console.warn("[Mobile OTP Daily Limit] DB increment warning:", err?.message);
+        }
+      }
+
+      return res.json({
+        success: true,
+        allowed: true,
+        usedToday: newCount,
+        remainingToday: Math.max(0, MAX_DAILY_MOBILE_OTP - newCount),
+        maxPerDay: MAX_DAILY_MOBILE_OTP,
+        cooldownRemaining: 60,
+        dailyLimitReached: newCount >= MAX_DAILY_MOBILE_OTP
+      });
+    } catch (e: any) {
+      return res.status(500).json({
+        success: false,
+        error: e.message || "Failed to verify OTP daily limit"
+      });
+    }
+  });
+
   // Firebase Phone Auth (Mobile SMS OTP) Verification + Optional Password Setup
   app.post("/api/auth/verify-firebase-phone", authLimiter, async (req, res) => {
     try {
@@ -5125,23 +5425,9 @@ async function startServer() {
         } catch {}
       }
 
-      // If credential was registered locally on this device and user exists in DB, allow seamless lookup
-      if (!matchedCred && (fallbackEmail || fallbackUid)) {
-        const existing = await findExistingAccount(fallbackEmail || fallbackUid);
-        if (existing) {
-          matchedCred = {
-            credentialId: cleanCredId,
-            uid: existing.uid,
-            email: existing.email || fallbackEmail || '',
-            phone: existing.phone || '',
-            name: existing.name || 'Community Member'
-          };
-        }
-      }
-
       if (!matchedCred || !matchedCred.uid) {
         return res.status(404).json({
-          error: "इस डिवाइस का फिंगरप्रिंट डेटा नहीं मिला। कृपया एक बार OTP या पासवर्ड से लॉगिन करके फिंगरप्रिंट सेट करें। (Biometric passkey not found. Please log in with OTP or Password once.)"
+          error: "Biometric passkey not found in database. Please log in once using Mobile OTP or Password to register Fingerprint Lock."
         });
       }
 
@@ -5170,6 +5456,92 @@ async function startServer() {
       return res.json({ success: true, token, user });
     } catch (e: any) {
       return res.status(500).json({ error: e.message || "Biometric login failed" });
+    }
+  });
+
+  // Verify user's database password (bcrypt) or registered biometric passkey (user_biometric_credentials)
+  // before unlocking sensitive settings like making their phone number public
+  app.post("/api/auth/verify-reauth", requireAuth, async (req, res) => {
+    try {
+      const caller = extractRequestUser(req);
+      const { mode, password, credentialId, setNewPassword, email, phone, uid } = req.body || {};
+      const targetUid = String(caller?.uid || uid || "").trim();
+      const targetEmail = String(caller?.email || email || "").trim().toLowerCase();
+      const targetPhone = normalizePhoneDigitsServer(phone || caller?.phone || "");
+
+      const lookupKey = targetEmail || (targetPhone ? `+91${targetPhone}` : "") || targetUid;
+      const existingAcc = await findExistingAccount(lookupKey);
+
+      if (mode === "password") {
+        const cleanPass = String(password || "").trim();
+        if (cleanPass.length < 6) {
+          return res.status(400).json({ error: "Password must be at least 6 characters." });
+        }
+
+        if (!existingAcc || !existingAcc.passwordHash) {
+          if (setNewPassword) {
+            const resolvedEmail =
+              targetEmail ||
+              existingAcc?.email ||
+              (targetPhone ? `${targetPhone}@phone.locohelp.com` : `${targetUid}@phone.locohelp.com`);
+            await saveAccountWithPassword(
+              resolvedEmail,
+              cleanPass,
+              existingAcc?.name || caller?.name || "Community Member",
+              targetUid || existingAcc?.uid || `user_${Date.now()}`,
+              targetPhone ? `+91 ${targetPhone}` : existingAcc?.phone
+            );
+            return res.json({ success: true, passwordCreated: true });
+          }
+          return res.status(400).json({
+            success: false,
+            noPasswordSet: true,
+            error: "Password not set yet for this account. Enter a new 6+ character password above to save and verify."
+          });
+        }
+
+        if (!verifyPassword(cleanPass, existingAcc.passwordHash)) {
+          return res.status(401).json({
+            success: false,
+            error: "Incorrect password! Please enter your registered LocoHelp password."
+          });
+        }
+
+        return res.json({ success: true });
+      }
+
+      if (mode === "biometric") {
+        const cleanCredId = String(credentialId || "").trim();
+        if (!cleanCredId) {
+          return res.status(400).json({ error: "Biometric credentialId is required." });
+        }
+
+        let matched = memoryBiometricCredentials.get(cleanCredId) || null;
+        if (dbPool && isDbConnected) {
+          try {
+            const cRes = await dbPool.query(
+              `SELECT * FROM user_biometric_credentials WHERE credential_id = $1 LIMIT 1`,
+              [cleanCredId]
+            );
+            if (cRes.rows.length > 0) {
+              matched = cRes.rows[0];
+            }
+          } catch {}
+        }
+
+        if (!matched) {
+          return res.status(404).json({
+            success: false,
+            error: "Biometric passkey not found in database."
+          });
+        }
+
+        return res.json({ success: true });
+      }
+
+      return res.status(400).json({ error: "Invalid verification mode." });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message || "Verification failed." });
     }
   });
 
@@ -8069,10 +8441,10 @@ async function startServer() {
         allList = allList.filter(s => s.isVerified === true || s.status === 'approved');
       }
 
-      // Data Privacy: Redact private emails/phones for unauthenticated bulk requests (Admin gets full details)
+      // Data Privacy: Redact private emails/phones for non-public numbers (Admin gets full details)
       const verifs = isAdmin ? readJsonFile<any[]>(VERIFICATIONS_FILE, []) : [];
       const sanitizedList = allList.map(s => {
-        const item = redactBulkItemForPrivacy(s, isAuthenticated, isAdmin);
+        const item = redactBulkItemForPrivacy(s, isAuthenticated, isAdmin, caller);
         if (isAdmin) {
           const matchedVerif = verifs.find(v => v.entityId === s.id);
           if (matchedVerif && matchedVerif.idDocumentWatermarked) {
@@ -8145,11 +8517,19 @@ async function startServer() {
 
       const isAdminCaller = isRequestAdmin(req);
       const userFromReq = (req as any).user;
-      const ownerEmail = sanitizeServerText(shop.ownerEmail ?? shop.email ?? (!isAdminCaller ? userFromReq?.email : '') ?? '', 150).toLowerCase();
-      if (!ownerEmail && !isAdminCaller) {
-        return res.status(400).json({ error: "Email ID is mandatory for business registration and verification." });
-      }
+      const resolvedPhone = sanitizeStringServer(shop.phone || userFromReq?.phone || '', 30);
+      const phoneDigits = normalizePhoneDigitsServer(resolvedPhone);
+      const ownerEmail = sanitizeServerText(
+        shop.ownerEmail ??
+          shop.email ??
+          (!isAdminCaller ? userFromReq?.email : '') ??
+          (phoneDigits ? `${phoneDigits}@phone.locohelp.com` : ''),
+        150
+      ).toLowerCase();
       const ownerId = shop.userId || shop.owner_id || (!isAdminCaller ? userFromReq?.uid : '') || shop.ownerName || 'Owner';
+      if (!ownerEmail && !ownerId && !isAdminCaller) {
+        return res.status(400).json({ error: "Please sign in with Mobile OTP or Email before registering a business." });
+      }
 
       // Verify ownership and clean up old Firebase Storage photos if updating an existing shop
       const existingShops = readJsonFile<any[]>(SHOPS_FILE, []);
@@ -8185,6 +8565,11 @@ async function startServer() {
       }
 
       const autoApprove = Boolean(isAdminCaller && shop.adminDirectCreate === true);
+      const isPhonePublic = Boolean(
+        shop.isPhonePublic !== undefined
+          ? shop.isPhonePublic
+          : existingShop?.isPhonePublic ?? false
+      );
       const newShop = {
         id: shop.id || 'shop_' + Date.now().toString(36),
         name: sanitizeStringServer(bName.trim(), 200),
@@ -8197,7 +8582,8 @@ async function startServer() {
         owner_id: ownerId,
         userId: ownerId,
         ownerEmail: sanitizeStringServer(ownerEmail, 150),
-        phone: sanitizeStringServer(shop.phone || '', 30),
+        phone: resolvedPhone,
+        isPhonePublic,
         timings: sanitizeStringServer(shop.timings || '', 120),
         area: sanitizeStringServer(shop.area || shop.address || 'Local Area', 200),
         address: sanitizeStringServer(shop.address || shop.area || 'Market Area', 300),
@@ -8548,11 +8934,11 @@ async function startServer() {
         allHelpers = allHelpers.filter(h => h.isVerified === true || h.status === 'approved');
       }
 
-      // Data Privacy: Redact private emails/phones and ID docs for unauthenticated bulk requests (Admin gets full details)
+      // Data Privacy: Redact private emails/phones and ID docs for non-public numbers (Admin gets full details)
       const sanitizedHelpers = allHelpers.map(h => {
-        const redacted = redactBulkItemForPrivacy(h, isAuthenticated, isAdmin);
+        const redacted = redactBulkItemForPrivacy(h, isAuthenticated, isAdmin, caller);
         if (!isAdmin) {
-          // Never expose raw govt ID documents in public helper listings
+          // Never expose raw live verification selfies / ID documents in public helper listings
           delete redacted.idDocUrl;
           delete redacted.id_doc_url;
         }
@@ -8594,9 +8980,11 @@ async function startServer() {
 
       if (helper.idDocUrl || helper.id_doc_url) {
         const rawDoc = helper.idDocUrl || helper.id_doc_url;
-        const docCheck = validateServerUploadedDataUrl(rawDoc, { allowPdf: true });
-        if (!docCheck.valid) {
-          return res.status(400).json({ error: docCheck.error });
+        if (String(rawDoc).startsWith('data:')) {
+          const docCheck = validateServerUploadedDataUrl(rawDoc, { allowPdf: true });
+          if (!docCheck.valid) {
+            return res.status(400).json({ error: docCheck.error });
+          }
         }
         const uploadedDoc = await uploadDataToFirebaseServer(rawDoc, "verifications");
         helper.idDocUrl = uploadedDoc;
@@ -8605,11 +8993,18 @@ async function startServer() {
 
       const isAdminCaller = isRequestAdmin(req);
       const userFromReq = (req as any).user;
-      const userEmail = sanitizeServerText(helper.email ?? (!isAdminCaller ? userFromReq?.email : '') ?? '', 150).toLowerCase();
-      if (!userEmail && !isAdminCaller) {
-        return res.status(400).json({ error: "Email ID is mandatory for service helper registration and verification." });
-      }
+      const resolvedPhone = sanitizeStringServer(helper.phone || userFromReq?.phone || '', 30);
+      const phoneDigits = normalizePhoneDigitsServer(resolvedPhone);
+      const userEmail = sanitizeServerText(
+        helper.email ??
+          (!isAdminCaller ? userFromReq?.email : '') ??
+          (phoneDigits ? `${phoneDigits}@phone.locohelp.com` : ''),
+        150
+      ).toLowerCase();
       const userId = helper.userId || (!isAdminCaller ? userFromReq?.uid : '') || helper.id || '';
+      if (!userEmail && !userId && !isAdminCaller) {
+        return res.status(400).json({ error: "Please sign in with Mobile OTP or Email before registering as a Service Expert." });
+      }
 
       // Ownership check & Firebase Storage cleanup if updating an existing helper profile
       const helpers = readJsonFile<any[]>(HELPERS_FILE, []);
@@ -8629,7 +9024,7 @@ async function startServer() {
         }
       }
       if (existingHelper) {
-        // Preserve previous helper photo & Govt ID in Firebase Storage so profile_edit_history & Security Vault retain tamper-proof evidence
+        // Preserve previous helper photo & Live Selfie in Firebase Storage so profile_edit_history & Security Vault retain tamper-proof evidence
         if (dbPool && isDbConnected) {
           const histId = "hist_hlp_" + Date.now();
           await dbPool.query(
@@ -8641,6 +9036,11 @@ async function startServer() {
       }
 
       const autoApprove = Boolean(isAdminCaller && helper.adminDirectCreate === true);
+      const isPhonePublic = Boolean(
+        helper.isPhonePublic !== undefined
+          ? helper.isPhonePublic
+          : existingHelper?.isPhonePublic ?? false
+      );
       const newHelper = {
         id: helper.id || 'helper_' + Date.now().toString(36),
         userId,
@@ -8648,7 +9048,8 @@ async function startServer() {
         name: sanitizeStringServer(helper.name.trim(), 150),
         categoryId: sanitizeStringServer(helper.categoryId || helper.category_id || 'general', 60),
         customCategoryName: sanitizeStringServer(helper.customCategoryName || '', 100),
-        phone: sanitizeStringServer(helper.phone || '', 30),
+        phone: resolvedPhone,
+        isPhonePublic,
         skills: Array.isArray(helper.skills) ? helper.skills.map((s: any) => sanitizeStringServer(String(s), 80)) : [helper.categoryId || 'General'],
         area: sanitizeStringServer(helper.area || 'Local Area', 200),
         city: sanitizeStringServer(helper.city || '', 100),
@@ -8660,7 +9061,7 @@ async function startServer() {
         isVerified: autoApprove,
         status: autoApprove ? 'approved' : 'pending',
         govtIdUploaded: !!helper.govtIdUploaded,
-        idDocUrl: helper.idDocUrl || helper.id_doc_url || null,
+        idDocUrl: helper.idDocUrl || helper.id_doc_url || existingHelper?.idDocUrl || existingHelper?.id_doc_url || null,
         createdAt: helper.createdAt || new Date().toISOString()
       };
 
@@ -9700,11 +10101,11 @@ async function startServer() {
 
       filtered.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-      // Data Privacy: Redact private emails/phones for unauthenticated bulk requests
+      // Data Privacy: Redact private emails/phones for non-public numbers
       const caller = extractUserFromRequest(req);
       const isAdmin = isRequestAdmin(req);
       const isAuthenticated = Boolean(caller && caller.uid && !String(caller.uid).startsWith('guest'));
-      const sanitized = filtered.map(item => redactBulkItemForPrivacy(item, isAuthenticated, isAdmin));
+      const sanitized = filtered.map(item => redactBulkItemForPrivacy(item, isAuthenticated, isAdmin, caller));
 
       res.json(sanitized);
     } catch (e) {
@@ -9737,6 +10138,16 @@ async function startServer() {
         payload.photoOrLogoUrl = await uploadDataToFirebaseServer(payload.photoOrLogoUrl, "jobs");
       }
 
+      if (payload.idDocumentWatermarked) {
+        if (String(payload.idDocumentWatermarked).startsWith('data:')) {
+          const docCheck = validateServerUploadedDataUrl(payload.idDocumentWatermarked, { allowPdf: true });
+          if (!docCheck.valid) {
+            return res.status(400).json({ error: docCheck.error });
+          }
+        }
+        payload.idDocumentWatermarked = await uploadDataToFirebaseServer(payload.idDocumentWatermarked, "verifications");
+      }
+
       if (payload.resumeUrl) {
         if (String(payload.resumeUrl).startsWith('data:')) {
           const resumeCheck = validateServerUploadedDataUrl(payload.resumeUrl, { allowPdf: true });
@@ -9757,9 +10168,17 @@ async function startServer() {
 
       const isAdminCaller = isRequestAdmin(req);
       const caller = extractRequestUser(req);
-      const jobEmail = sanitizeStringServer(payload.email?.trim() || caller?.email || '', 150).toLowerCase();
-      if (!jobEmail && !isAdminCaller) {
-        return res.status(400).json({ error: "Email ID is mandatory for Job Portal registration and verification." });
+      const resolvedPhone = sanitizeStringServer(payload.phone?.trim() || caller?.phone || '', 30);
+      const phoneDigits = normalizePhoneDigitsServer(resolvedPhone);
+      const jobEmail = sanitizeStringServer(
+        payload.email?.trim() ||
+          caller?.email ||
+          (phoneDigits ? `${phoneDigits}@phone.locohelp.com` : ''),
+        150
+      ).toLowerCase();
+      const userId = sanitizeStringServer(payload.userId || caller?.uid || '', 150);
+      if (!jobEmail && !userId && !isAdminCaller) {
+        return res.status(400).json({ error: "Please sign in with Mobile OTP or Email before submitting to Job Portal." });
       }
       const autoApprove = isAdminCaller;
 
@@ -9782,8 +10201,10 @@ async function startServer() {
       const items = readJsonFile<any[]>(JOB_PORTAL_FILE, []);
       const isSeeker = payload.type === 'job_seeker';
       const idPrefix = isSeeker ? 'job_seeker_' : 'job_emp_';
+      const isPhonePublic = Boolean(payload.isPhonePublic === true);
       const newRecord = {
         id: payload.id || idPrefix + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+        userId,
         type: payload.type,
         status: autoApprove ? "approved" : "pending",
         fullName: sanitizeStringServer(payload.fullName?.trim() || '', 150),
@@ -9801,13 +10222,15 @@ async function startServer() {
         openingsCount: Number(payload.openingsCount) || 1,
         urgency: sanitizeStringServer(payload.urgency || 'Immediate', 60),
         category: sanitizeStringServer(payload.category || 'Retail & Services', 100),
-        phone: sanitizeStringServer(payload.phone?.trim() || '', 30),
-        whatsapp: sanitizeStringServer(payload.whatsapp?.trim() || payload.phone?.trim() || '', 30),
+        phone: resolvedPhone,
+        whatsapp: sanitizeStringServer(payload.whatsapp?.trim() || resolvedPhone, 30),
+        isPhonePublic,
         email: jobEmail,
         area: sanitizeStringServer(payload.area?.trim() || 'Local Area', 150),
         address: sanitizeStringServer(payload.address?.trim() || '', 300),
         description: sanitizeStringServer(payload.description?.trim() || (isSeeker ? 'Looking for local employment opportunities.' : 'Staff required for our business.'), 2000),
         photoOrLogoUrl: payload.photoOrLogoUrl || '',
+        idDocumentWatermarked: payload.idDocumentWatermarked || '',
         resumeUrl: payload.resumeUrl || '',
         resumeFileName: sanitizeStringServer(payload.resumeFileName || '', 150),
         createdAt: new Date().toISOString(),

@@ -389,6 +389,88 @@ export function recordOtpSentTimestamp(identifier?: string): void {
 }
 
 // ==========================================
+// STRICT 3 MOBILE OTPs PER DAY (24H / IST DAY) CLIENT GUARD
+// Synchronized with PostgreSQL mobile_otp_daily_limits table
+// ==========================================
+export const MAX_DAILY_MOBILE_OTP = 3;
+
+function getIstDayKeyClient(): string {
+  try {
+    const istTime = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+    return istTime.toISOString().slice(0, 10);
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
+export function getDailyMobileOtpStatus(phone?: string): {
+  usedToday: number;
+  remainingToday: number;
+  maxPerDay: number;
+  dailyLimitReached: boolean;
+} {
+  try {
+    const dayKey = getIstDayKeyClient();
+    const digits = String(phone || '').replace(/\D/g, '').slice(-10);
+    const phoneKey = digits.length === 10
+      ? `locohelp_mobile_otp_daily_${digits}_${dayKey}`
+      : `locohelp_mobile_otp_daily_device_${dayKey}`;
+    const deviceKey = `locohelp_mobile_otp_daily_device_${dayKey}`;
+
+    const phoneUsed = Number(localStorage.getItem(phoneKey) || '0');
+    const deviceUsed = Number(localStorage.getItem(deviceKey) || '0');
+    const usedToday = Math.min(MAX_DAILY_MOBILE_OTP, Math.max(phoneUsed, digits.length === 10 ? phoneUsed : deviceUsed));
+    const remainingToday = Math.max(0, MAX_DAILY_MOBILE_OTP - usedToday);
+
+    return {
+      usedToday,
+      remainingToday,
+      maxPerDay: MAX_DAILY_MOBILE_OTP,
+      dailyLimitReached: usedToday >= MAX_DAILY_MOBILE_OTP
+    };
+  } catch {
+    return {
+      usedToday: 0,
+      remainingToday: MAX_DAILY_MOBILE_OTP,
+      maxPerDay: MAX_DAILY_MOBILE_OTP,
+      dailyLimitReached: false
+    };
+  }
+}
+
+export function syncDailyMobileOtpCount(phone: string, usedCount: number): {
+  usedToday: number;
+  remainingToday: number;
+  maxPerDay: number;
+  dailyLimitReached: boolean;
+} {
+  try {
+    const dayKey = getIstDayKeyClient();
+    const digits = String(phone || '').replace(/\D/g, '').slice(-10);
+    const clamped = Math.max(0, Math.min(MAX_DAILY_MOBILE_OTP, Number(usedCount) || 0));
+    if (digits.length === 10) {
+      localStorage.setItem(`locohelp_mobile_otp_daily_${digits}_${dayKey}`, String(clamped));
+    }
+    localStorage.setItem(`locohelp_mobile_otp_daily_device_${dayKey}`, String(clamped));
+  } catch {}
+  return getDailyMobileOtpStatus(phone);
+}
+
+export function recordDailyMobileOtpSent(phone: string, serverUsedCount?: number): {
+  usedToday: number;
+  remainingToday: number;
+  maxPerDay: number;
+  dailyLimitReached: boolean;
+} {
+  const current = getDailyMobileOtpStatus(phone);
+  const nextUsed =
+    typeof serverUsedCount === 'number'
+      ? Math.max(current.usedToday + 1, serverUsedCount)
+      : current.usedToday + 1;
+  return syncDailyMobileOtpCount(phone, nextUsed);
+}
+
+// ==========================================
 // SILENT BACKGROUND COMMUNITY GUIDELINES & ABUSE FILTER (SYSTEM SECURITY BLOCK)
 // Enforces strict anti-abuse across Hindi, Gujarati, Hinglish, and English without exposing words on UI
 // ==========================================

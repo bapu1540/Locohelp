@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Store, Building, Building2, ShoppingBag, X, Check, Camera, MapPin, Phone, Tag, ShieldCheck, Plus, Search, MessageSquare, Star, ExternalLink, Sparkles, Lock, FileCheck2, Upload, AlertCircle, CheckCircle2, RefreshCw, Edit3 } from 'lucide-react';
+import { Store, X, Camera, MapPin, ShieldCheck, Plus, Search, MessageSquare, Star, Lock, AlertCircle, CheckCircle2, Edit3 } from 'lucide-react';
 import { useLanguage } from '../i18n';
 import { getShops, saveShop, getCurrentUser } from '../auth';
 import { applyIdWatermark } from '../lib/watermark';
@@ -8,6 +8,9 @@ import { validateUploadedFile, checkSystemSecurityBlock } from '../lib/security'
 import { submitVerification } from '../api';
 import { isEntityOwner } from '../lib/ownership';
 import { compressImageToWebP } from '../lib/imageCompression';
+import { SmartLocationPicker } from './SmartLocationPicker';
+import { PhonePrivacyToggle } from './PhonePrivacyToggle';
+import { ProtectedSelfieCanvas } from './ProtectedSelfieCanvas';
 
 export interface RegisteredShop {
   id: string;
@@ -19,12 +22,14 @@ export interface RegisteredShop {
   ownerName: string;
   phone: string;
   whatsapp?: string;
+  isPhonePublic?: boolean;
   timings?: string;
   area: string;
   address: string;
   description: string;
   photoUrl?: string;
   photos?: string[];
+  idDocumentWatermarked?: string;
   rating: number;
   reviewCount: number;
   isVerified: boolean;
@@ -52,7 +57,7 @@ interface RegisterShopModalProps {
 }
 
 export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialTab = 'new' }: RegisterShopModalProps) {
-  const { language, t, tr } = useLanguage();
+  const { language, tr } = useLanguage();
 
   const [activeTab, setActiveTab] = useState<'registered' | 'new'>(initialTab);
   const [searchQuery, setSearchQuery] = useState('');
@@ -61,12 +66,16 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
   const [shopName, setShopName] = useState('');
   const [shopType, setShopType] = useState('shop');
   const [customType, setCustomType] = useState('');
-  const [ownerName, setOwnerName] = useState('');
+  const [ownerName, setOwnerName] = useState(() => getCurrentUser()?.displayName || '');
   const [ownerEmail, setOwnerEmail] = useState(() => {
     const u = getCurrentUser();
     return u?.email || localStorage.getItem('locohelp_last_logged_in_email') || '';
   });
-  const [phone, setPhone] = useState('');
+  const [phone, setPhone] = useState(() => {
+    const u = getCurrentUser();
+    return (u?.phone || localStorage.getItem('locohelp_last_logged_in_phone') || '').replace(/\D/g, '').slice(-10);
+  });
+  const [isPhonePublic, setIsPhonePublic] = useState(false);
   const [timings, setTimings] = useState('9:00 AM - 9:00 PM');
   const [area, setArea] = useState('');
   const [address, setAddress] = useState('');
@@ -78,35 +87,41 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
   const [editingShopId, setEditingShopId] = useState<string | null>(null);
   const [hpWebsiteUrl, setHpWebsiteUrl] = useState('');
 
+  // Live Selfie Verification State
+  const [idDocumentWatermarked, setIdDocumentWatermarked] = useState<string | null>(null);
+  const [idDocumentType] = useState('Owner Live Camera Selfie');
+  const [idUploadNotice, setIdUploadNotice] = useState<string | null>(null);
+
+  const [registeredShopsList, setRegisteredShopsList] = useState<RegisteredShop[]>([]);
+
   const handleStartEditShop = (shop: RegisteredShop) => {
     setEditingShopId(shop.id);
     setShopName(shop.name);
     setShopType(shop.type || 'shop');
     setOwnerName(shop.ownerName || '');
     setPhone(shop.whatsapp || shop.phone || '');
+    setIsPhonePublic(Boolean(shop.isPhonePublic === true));
     setTimings(shop.timings || '9:00 AM - 9:00 PM');
     setArea(shop.area || '');
     setAddress(shop.address || '');
     setDescription(shop.description || '');
     setPhotoUrl(shop.photoUrl || null);
     setShopPhotos(Array.isArray(shop.photos) && shop.photos.length > 0 ? shop.photos : (shop.photoUrl ? [shop.photoUrl] : []));
+    if (shop.idDocumentWatermarked || shop.photoUrl) {
+      setIdDocumentWatermarked(shop.idDocumentWatermarked || shop.photoUrl || null);
+    }
     setActiveTab('new');
   };
 
-  // Identity Verification & Document Upload States
-  const [idDocumentWatermarked, setIdDocumentWatermarked] = useState<string | null>(null);
-  const [idDocumentType, setIdDocumentType] = useState('Trade License / MSME / Owner ID');
-  const [isWatermarkingId, setIsWatermarkingId] = useState(false);
-  const [idUploadNotice, setIdUploadNotice] = useState<string | null>(null);
-
-  const [registeredShopsList, setRegisteredShopsList] = useState<RegisteredShop[]>([]);
-
-  // Load approved registered shops from backend (and sync localStorage)
   useEffect(() => {
     if (!isOpen) return;
     setActiveTab(initialTab);
+    const activeUser = getCurrentUser();
+    if (activeUser?.displayName && !ownerName) setOwnerName(activeUser.displayName);
+    if (activeUser?.email) setOwnerEmail(activeUser.email);
+    const cleanPhone = (activeUser?.phone || localStorage.getItem('locohelp_last_logged_in_phone') || '').replace(/\D/g, '').slice(-10);
+    if (cleanPhone) setPhone(cleanPhone);
 
-    // Backend fetch (returns only admin-approved businesses by default)
     getShops(false).then((cloudShops) => {
       if (Array.isArray(cloudShops)) {
         const approvedOnly = cloudShops.filter(s => s && s.id && !String(s.id).startsWith('sample_shop_') && (s.isVerified === true || s.status === 'approved'));
@@ -145,7 +160,7 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
       try {
         const dataUrl = await compressImageToWebP(file, { maxWidth: 1200, quality: 0.75 });
         newDataUrls.push(dataUrl);
-      } catch (err) {
+      } catch {
         const fallbackUrl = await new Promise<string>((resolve) => {
           const reader = new FileReader();
           reader.onloadend = () => resolve(reader.result as string);
@@ -169,6 +184,7 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
 
   const handleWhatsAppContact = (shop: RegisteredShop) => {
     const cleanPhone = (shop.whatsapp || shop.phone || '').replace(/\D/g, '');
+    if (!cleanPhone) return;
     const formattedPhone = cleanPhone.length === 10 ? '91' + cleanPhone : cleanPhone;
     const msg = encodeURIComponent(
       `Namaste ${shop.ownerName || shop.name}! 🙏 LocoHelp App par aapki dukan/business list dekh kar contact kar raha hoon.`
@@ -178,11 +194,22 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!shopName.trim() || !phone.trim()) return;
+    if (!shopName.trim()) return;
 
     const secBlock = checkSystemSecurityBlock(shopName, customType, ownerName, area, address, description);
     if (secBlock.blocked) {
       setIdUploadNotice(secBlock.getMessage(language));
+      return;
+    }
+
+    if (!idDocumentWatermarked) {
+      setIdUploadNotice(
+        tr(
+          '📸 Owner Live Camera Selfie is mandatory for Shop / Business verification.',
+          '📸 दुकान / बिज़नेस सत्यापन के लिए मालिक की लाइव कैमरा सेल्फी अनिवार्य है।',
+          '📸 દુકાન / બિઝનેસ ચકાસણી માટે માલિકની લાઈવ કેમેરા સેલ્ફી ફરજિયાત છે.'
+        )
+      );
       return;
     }
 
@@ -197,13 +224,13 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
 
     const shopId = editingShopId || ('shop_' + Date.now().toString(36));
     const primaryPhoto = shopPhotos[0] || photoUrl || undefined;
-
-    const finalOwnerEmail = (ownerEmail.trim() || activeUser?.email || localStorage.getItem('locohelp_last_logged_in_email') || '').toLowerCase();
-    if (!finalOwnerEmail || !finalOwnerEmail.includes('@')) {
-      setIdUploadNotice(tr('Valid Email ID is mandatory for business registration.', 'दुकान रजिस्ट्रेशन के लिए मान्य ईमेल आईडी अनिवार्य है।', 'બિઝનેસ રજિસ્ટ્રેશન માટે માન્ય ઈમેલ આઈડી ફરજિયાત છે.'));
-      setIsSubmitting(false);
-      return;
-    }
+    const linkedPhone = (phone.trim() || activeUser?.phone || localStorage.getItem('locohelp_last_logged_in_phone') || '').replace(/\D/g, '').slice(-10);
+    const finalOwnerEmail = (
+      ownerEmail.trim() ||
+      activeUser?.email ||
+      localStorage.getItem('locohelp_last_logged_in_email') ||
+      (linkedPhone ? `${linkedPhone}@phone.locohelp.com` : '')
+    ).toLowerCase();
 
     const newShop: RegisteredShop = {
       id: shopId,
@@ -213,22 +240,23 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
       type: shopType as any,
       categoryLabel: label,
       ownerName: ownerName.trim() || activeUser?.displayName || 'Owner',
-      phone: phone.trim(),
-      whatsapp: phone.trim(),
+      phone: linkedPhone,
+      whatsapp: linkedPhone,
+      isPhonePublic,
       timings: timings.trim() || '9:00 AM - 9:00 PM',
       area: area.trim() || 'Local Area',
-      address: address.trim() || 'Market Area',
+      address: address.trim() || area.trim() || 'Market Area',
       description: description.trim() || 'Welcome to our business!',
       photoUrl: primaryPhoto,
       photos: shopPhotos.length > 0 ? shopPhotos : (primaryPhoto ? [primaryPhoto] : []),
+      idDocumentWatermarked: idDocumentWatermarked || undefined,
       rating: 5.0,
       reviewCount: 1,
-      isVerified: false, // Strict requirement: Must be approved by Admin first
+      isVerified: false,
       status: 'pending',
       createdAt: new Date().toISOString()
     };
 
-    // Save locally (with pending status, will only appear in public list once approved)
     try {
       const existingStr = localStorage.getItem('locohelp_registered_shops');
       const existingShops: RegisteredShop[] = existingStr ? JSON.parse(existingStr) : [];
@@ -237,10 +265,10 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
       localStorage.setItem('locohelp_my_business_profile', JSON.stringify(newShop));
     } catch (e) {}
 
-    // Save to backend businesses table (also creates pending Admin verification queue item)
     try {
       await saveShop({
         ...newShop,
+        isPhonePublic,
         website_url_hp: hpWebsiteUrl,
         idDocumentWatermarked: idDocumentWatermarked || primaryPhoto || ''
       });
@@ -248,7 +276,6 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
       console.warn("Shop backend save notice:", err);
     }
 
-    // Submit Verification Request to Admin Queue
     try {
       await submitVerification({
         entityType: 'business',
@@ -256,7 +283,7 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
         userId: activeUser?.uid || ownerName.trim() || shopName.trim(),
         userName: shopName.trim(),
         userEmail: newShop.ownerEmail,
-        userPhone: phone.trim(),
+        userPhone: linkedPhone,
         title: `${shopName.trim()} (${label}) - ${idDocumentType}`,
         idDocumentWatermarked: idDocumentWatermarked || primaryPhoto || ''
       });
@@ -267,12 +294,8 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
     setIsSubmitting(false);
     setEditingShopId(null);
 
-    // Reset Form
     setShopName('');
-    setOwnerName('');
-    setPhone('');
     setTimings('9:00 AM - 9:00 PM');
-    setArea('');
     setAddress('');
     setDescription('');
     setPhotoUrl(null);
@@ -309,7 +332,6 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
         className="fixed inset-x-0 bottom-0 top-[52px] z-50 bg-white dark:bg-slate-900 flex flex-col overflow-hidden"
         style={{ position: 'fixed', top: '52px', left: 0, right: 0, bottom: 0, zIndex: 5000 }}
       >
-        {/* Full Page Workspace */}
         <motion.div 
           initial={{ opacity: 0, y: 12 }} 
           animate={{ opacity: 1, y: 0 }} 
@@ -346,7 +368,7 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
             </button>
           </div>
 
-          {/* Two Action Tabs: Registered Directory vs Register New Shop */}
+          {/* Two Action Tabs */}
           <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-2xl mb-3 shrink-0 gap-1">
             <button
               type="button"
@@ -381,9 +403,7 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
           )}
 
           {activeTab === 'registered' ? (
-            /* REGISTERED BUSINESSES DIRECTORY */
             <div className="flex-1 min-h-0 flex flex-col space-y-3 overflow-hidden">
-              {/* Search filter bar */}
               <div className="relative shrink-0">
                 <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input 
@@ -395,7 +415,6 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
                 />
               </div>
 
-              {/* Shops Cards Scroll Area */}
               <div className="flex-1 overflow-y-auto space-y-3 pr-1">
                 {filteredShops.length === 0 ? (
                   <div className="text-center py-8 space-y-3">
@@ -413,6 +432,7 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
                 ) : (
                   filteredShops.map((shop) => {
                     const gallery = Array.isArray(shop.photos) && shop.photos.length > 0 ? shop.photos : (shop.photoUrl ? [shop.photoUrl] : []);
+                    const canDirectContact = Boolean(shop.isPhonePublic === true && (shop.whatsapp || shop.phone));
                     return (
                       <div 
                         key={shop.id}
@@ -435,7 +455,7 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
                             </h4>
                             <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium flex items-center gap-1 mt-0.5">
                               <MapPin className="w-3 h-3 text-amber-600 shrink-0" />
-                              <span>{shop.area} • {shop.address}</span>
+                              <span>{shop.area} {shop.address && shop.address !== shop.area ? `• ${shop.address}` : ''}</span>
                             </p>
                             {shop.timings && (
                               <p className="text-[10px] text-amber-700 dark:text-amber-400 font-bold mt-0.5">
@@ -502,21 +522,24 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
                               type="button"
                               onClick={() => handleStartEditShop(shop)}
                               className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
-                              title={tr('Edit shop details', 'दुकान की जानकारी एडिट करें', 'દુકાનની માહિતી એડિટ કરો')}
                             >
                               <Edit3 className="w-3.5 h-3.5" />
                               <span>{tr('Edit Details', 'जानकारी एडिट करें', 'માહિતી એડિટ કરો')}</span>
                             </button>
-                          ) : (
+                          ) : canDirectContact ? (
                             <button
                               type="button"
                               onClick={() => handleWhatsAppContact(shop)}
                               className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
-                              title="Contact owner on WhatsApp"
                             >
                               <MessageSquare className="w-3.5 h-3.5" />
                               <span>{tr('WhatsApp Contact', 'व्हाट्सएप संपर्क', 'વોટ્સએપ સંપર્ક')}</span>
                             </button>
+                          ) : (
+                            <span className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-bold text-[11px] rounded-xl border border-indigo-200 flex items-center gap-1">
+                              <Lock className="w-3 h-3" />
+                              <span>{tr('Number Private (Visit Shop)', 'नंबर प्राइवेट है', 'નંબર પ્રાઇવેટ છે')}</span>
+                            </span>
                           )}
                         </div>
                       </div>
@@ -528,7 +551,6 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
           ) : (
             /* NEW BUSINESS / SHOP REGISTRATION FORM */
             <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto space-y-3.5 pr-1">
-              {/* Hidden Trap Field for Bot Submissions */}
               <input
                 type="text"
                 name="website_url_hp"
@@ -540,13 +562,13 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
               />
 
               {idUploadNotice && (
-                <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-700 text-xs font-bold text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
+                <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-700 text-xs font-bold text-rose-800 dark:text-rose-200 flex items-center gap-1.5">
                   <AlertCircle className="w-4 h-4 shrink-0" />
                   <span>{idUploadNotice}</span>
                 </div>
               )}
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                     {tr('Shop / Business Name *', 'दुकान / बिज़नेस का नाम *', 'દુકાન / બિઝનેસનું નામ *')}
@@ -576,6 +598,19 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
                     ))}
                   </select>
                 </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    {tr('Owner Name *', 'मालिक (Owner) का नाम *', 'માલિક (Owner) નું નામ *')}
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={ownerName}
+                    onChange={(e) => setOwnerName(e.target.value)}
+                    placeholder={tr('e.g. Rajesh Sharma', 'उदा. राजेश शर्मा', 'દા.ત. રાજેશ શર્મા')}
+                    className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 font-medium text-slate-900 dark:text-white"
+                  />
+                </div>
               </div>
 
               {shopType === 'other' && (
@@ -594,44 +629,75 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
                 </div>
               )}
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {tr('Owner Name *', 'मालिक (Owner) का नाम *', 'માલિક (Owner) નું નામ *')}
+              {/* Smart Location Selector (State -> District -> Area) */}
+              <SmartLocationPicker
+                language={language}
+                value={area}
+                onChange={(formatted) => setArea(formatted)}
+              />
+
+              {/* Phone Privacy Toggle (Default Private + DB Re-Auth to make Public) */}
+              <PhonePrivacyToggle
+                language={language}
+                isPhonePublic={isPhonePublic}
+                onChange={setIsPhonePublic}
+                phoneDisplay={phone ? `+91 ${phone}` : undefined}
+              />
+
+              {/* Mandatory Owner Live Camera Selfie */}
+              <div className="p-3.5 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/30 border-2 border-emerald-300 dark:border-emerald-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-black text-emerald-950 dark:text-emerald-200 flex items-center gap-1.5">
+                    <Camera className="w-4 h-4 text-emerald-600" />
+                    <span>{tr('📸 Owner Live Camera Selfie (Mandatory) *', '📸 दुकान मालिक की लाइव सेल्फी (अनिवार्य) *', '📸 દુકાન માલિકની લાઈવ સેલ્ફી (ફરજિયાત) *')}</span>
                   </label>
-                  <input
-                    type="text"
-                    required
-                    value={ownerName}
-                    onChange={(e) => setOwnerName(e.target.value)}
-                    placeholder={tr('e.g. Rajesh Sharma', 'उदा. राजेश शर्मा', 'દા.ત. રાજેશ શર્મા')}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 font-medium text-slate-900 dark:text-white"
-                  />
+                  <span className="text-[10px] bg-emerald-600 text-white px-2 py-0.5 rounded-full font-extrabold">
+                    {tr('Anti-Copy Shield', 'चोरी-रोधी सुरक्षा', 'કોપી-પ્રોટેક્ટેડ')}
+                  </span>
                 </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {tr('Email ID *', 'ईमेल आईडी *', 'ઈમેલ આઈડી *')}
-                  </label>
+                <p className="text-[11px] text-slate-600 dark:text-slate-300 font-medium">
+                  {tr(
+                    'To prevent fake listings without asking for Government IDs, a live camera selfie of the shop owner is mandatory. Protected against download & screenshots.',
+                    'फर्जी लिस्टिंग रोकने के लिए मालिक की लाइव सेल्फी अनिवार्य है। इसे कोई डाउनलोड या स्क्रीनशॉट नहीं कर सकता।',
+                    'બોગસ લિસ્ટિંગ રોકવા માટે માલિકની લાઈવ સેલ્ફી ફરજિયાત છે. તેને કોઈ ડાઉનલોડ કે સ્ક્રીનશોટ કરી શકશે નહીં.'
+                  )}
+                </p>
+                <div className="flex items-center gap-3">
+                  {idDocumentWatermarked && (
+                    <ProtectedSelfieCanvas
+                      src={idDocumentWatermarked}
+                      className="w-20 h-24 rounded-xl shrink-0"
+                      badgeText={tr('Verified', 'सत्यापित', 'વેરિફાઈડ')}
+                    />
+                  )}
                   <input
-                    type="email"
-                    required
-                    value={ownerEmail}
-                    onChange={(e) => setOwnerEmail(e.target.value)}
-                    placeholder="owner@email.com"
-                    className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 font-medium text-slate-900 dark:text-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {tr('WhatsApp / Mobile Number *', 'व्हाट्सएप / मोबाइल नंबर *', 'વોટ્સએપ / મોબાઈલ નંબર *')}
-                  </label>
-                  <input
-                    type="tel"
-                    required
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="98XXXXXXXX"
-                    className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 font-medium text-slate-900 dark:text-white"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+                    capture="user"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      setIdUploadNotice(null);
+                      if (file) {
+                        const check = await validateUploadedFile(file, { allowPdf: false });
+                        if (!check.valid) {
+                          setIdUploadNotice(tr(check.error || 'Invalid image', check.errorHi || check.error || 'अमान्य फ़ोटो', 'અમાન્ય ફોટો'));
+                          e.target.value = '';
+                          return;
+                        }
+                        try {
+                          const watermarked = await applyIdWatermark(file, {
+                            userName: ownerName.trim() || shopName.trim() || 'Shop Owner',
+                            customText: 'LOCOHELP VERIFIED SHOP OWNER SELFIE • DO NOT COPY'
+                          });
+                          setIdDocumentWatermarked(watermarked);
+                        } catch {
+                          const reader = new FileReader();
+                          reader.onloadend = () => setIdDocumentWatermarked(reader.result as string);
+                          reader.readAsDataURL(file);
+                        }
+                      }
+                    }}
+                    className="w-full text-xs text-slate-600 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-extrabold file:bg-emerald-600 file:text-white hover:file:bg-emerald-700 cursor-pointer bg-white dark:bg-slate-900 border border-emerald-200 rounded-xl px-2 py-1.5"
                   />
                 </div>
               </div>
@@ -639,27 +705,25 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {tr('City / Area / Mohalla *', 'शहर / इलाका / मोहल्ला *', 'શહેર / વિસ્તાર / સોસાયટી *')}
+                    {tr('Shop Landmark / Address (Optional)', 'दुकान का पता / लैंडमार्क (वैकल्पिक)', 'દુકાનનું સરનામું / લેન્ડમાર્ક (વૈકલ્પિક)')}
                   </label>
                   <input
                     type="text"
-                    required
-                    value={area}
-                    onChange={(e) => setArea(e.target.value)}
-                    placeholder={tr('e.g. Main Market, Civil Lines', 'उदा. मेन मार्केट, सिविल लाइन्स', 'દા.ત. મેઈન માર્કેટ, સિવિલ લાઈન્સ')}
+                    value={address}
+                    onChange={(e) => setAddress(e.target.value)}
+                    placeholder={tr('Shop No. 12, Near Main Road', 'दुकान नं 12, मेन रोड के पास', 'દુકાન નં. 12, મેઈન રોડ પાસે')}
                     className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 font-medium text-slate-900 dark:text-white"
                   />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {tr('Shop Timings *', 'दुकान खुलने का समय (Timings) *', 'દુકાન ખુલવાનો સમય (Timings) *')}
+                    {tr('Shop Timings (Optional)', 'दुकान खुलने का समय (वैकल्पिक)', 'દુકાન ખુલવાનો સમય (વૈકલ્પિક)')}
                   </label>
                   <input
                     type="text"
-                    required
                     value={timings}
                     onChange={(e) => setTimings(e.target.value)}
-                    placeholder={tr('e.g. 9:00 AM - 9:00 PM (Mon-Sun)', 'उदा. सुबह 9 से रात 9 बजे तक', 'દા.ત. સવારે 9 થી રાત્રે 9 વાગ્યા સુધી')}
+                    placeholder={tr('9:00 AM - 9:00 PM', 'सुबह 9 से रात 9 बजे तक', 'સવારે 9 થી રાત્રે 9 વાગ્યા સુધી')}
                     className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 font-medium text-slate-900 dark:text-white"
                   />
                 </div>
@@ -667,21 +731,7 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  {tr('Full Shop Address / Landmark *', 'दुकान का पूरा पता / लैंडमार्क *', 'દુકાનનું પૂરું સરનામું / લેન્ડમાર્ક *')}
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={address}
-                  onChange={(e) => setAddress(e.target.value)}
-                  placeholder={tr('Shop No. 12, Near Railway Station Road', 'दुकान नं 12, रेलवे स्टेशन रोड के पास', 'દુકાન નં. 12, રેલવે સ્ટેશન રોડ પાસે')}
-                  className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 font-medium text-slate-900 dark:text-white"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  {tr('About Shop / Products & Services', 'दुकान की जानकारी व उपलब्ध सामान/सेवाएं', 'દુકાનની માહિતી અને ઉપલબ્ધ સામાન/સેવાઓ')}
+                  {tr('About Shop / Products & Services (Optional)', 'दुकान की जानकारी व सामान (वैकल्पिक)', 'દુકાનની માહિતી અને સામાન (વૈકલ્પિક)')}
                 </label>
                 <textarea
                   rows={2}
@@ -692,12 +742,12 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
                 />
               </div>
 
-              {/* Multiple Shop Photos Upload (2-3 images max 2MB each) */}
+              {/* Multiple Shop Photos Upload */}
               <div className="p-3 bg-amber-50/60 dark:bg-slate-800/80 rounded-2xl border border-amber-200 dark:border-slate-700 space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-extrabold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                     <Camera className="w-4 h-4 text-amber-600" />
-                    <span>{tr('Upload Shop Photos (Up to 3 Photos, Max 2MB each)', 'दुकान की फोटो अपलोड करें (2-3 फोटो, अधिकतम 2MB)', 'દુકાનના ફોટા અપલોડ કરો (2-3 ફોટા, મહત્તમ 2MB)')}</span>
+                    <span>{tr('Upload Shop Photos (Optional, up to 3)', 'दुकान की फोटो अपलोड करें (वैकल्पिक, 3 तक)', 'દુકાનના ફોટા અપલોડ કરો (વૈકલ્પિક, 3 સુધી)')}</span>
                   </label>
                   <span className="text-[10px] font-black text-amber-700 dark:text-amber-300">
                     {shopPhotos.length}/3
@@ -757,7 +807,6 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
               </div>
             </form>
           )}
-
         </motion.div>
       </div>
     </AnimatePresence>

@@ -394,7 +394,7 @@ export default function JobPortalBrowseModal({
                     </div>
 
                     <div className="flex items-center gap-1.5 shrink-0">
-                      {item.phone && (
+                      {(item as any).isPhonePublic === true && item.phone && (
                         <a
                           href={`tel:${item.phone}`}
                           className="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold flex items-center gap-1 active:scale-95 transition-all"
@@ -422,7 +422,7 @@ export default function JobPortalBrowseModal({
                           <Edit3 className="w-3.5 h-3.5" />
                           <span>{tr('Edit Listing', 'एडिट करें', 'એડિટ કરો')}</span>
                         </button>
-                      ) : (
+                      ) : (item as any).isPhonePublic === true && (item.whatsapp || item.phone) ? (
                         <button
                           type="button"
                           onClick={() => handleWhatsAppContact(item)}
@@ -436,6 +436,10 @@ export default function JobPortalBrowseModal({
                               : tr('Apply on WhatsApp', 'व्हाट्सएप आवेदन', 'વોટ્સએપ અરજી')}
                           </span>
                         </button>
+                      ) : (
+                        <span className="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[11px] font-bold flex items-center gap-1 border border-slate-200 dark:border-slate-700">
+                          🔒 {tr('Number Private', 'नंबर प्राइवेट है', 'નંબર પ્રાઈવેટ છે')}
+                        </span>
                       )}
                     </div>
                   </div>

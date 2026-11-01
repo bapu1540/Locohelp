@@ -30,9 +30,14 @@ import {
   getSavedBiometricInfo,
   registerBiometricPasskey,
   signInWithBiometricPasskey,
-  SavedBiometricPasskey
+  SavedBiometricPasskey,
+  fetchMobileOtpDailyQuota
 } from '../auth';
-import { getOtpCooldownRemainingSeconds } from '../lib/security';
+import {
+  getOtpCooldownRemainingSeconds,
+  getDailyMobileOtpStatus,
+  MAX_DAILY_MOBILE_OTP
+} from '../lib/security';
 import PrivacyPolicyModal from './PrivacyPolicyModal';
 
 interface LoginPromptModalProps {
@@ -78,6 +83,8 @@ export default function LoginPromptModal({
   const [otpOptionalPassword, setOtpOptionalPassword] = useState('');
   const [otpStep, setOtpStep] = useState<'input' | 'verify'>('input');
   const [otpCooldownSeconds, setOtpCooldownSeconds] = useState(0);
+  const [mobileOtpRemainingToday, setMobileOtpRemainingToday] = useState<number>(MAX_DAILY_MOBILE_OTP);
+  const [mobileOtpUsedToday, setMobileOtpUsedToday] = useState<number>(0);
 
   const [isLoadingOtp, setIsLoadingOtp] = useState(false);
   const [isLoadingPassword, setIsLoadingPassword] = useState(false);
@@ -131,11 +138,40 @@ export default function LoginPromptModal({
     const tick = () => {
       const rem = activeCooldownKey ? getOtpCooldownRemainingSeconds(activeCooldownKey) : 0;
       setOtpCooldownSeconds(rem);
+      const activePhone =
+        authMode === 'otp' && otpChannel === 'mobile'
+          ? normalizeIndianPhone(phoneInput)
+          : isPhoneIdentifier(identifierInput)
+            ? normalizeIndianPhone(identifierInput)
+            : '';
+      const status = getDailyMobileOtpStatus(activePhone);
+      setMobileOtpUsedToday(status.usedToday);
+      setMobileOtpRemainingToday(status.remainingToday);
     };
     tick();
     const timer = setInterval(tick, 1000);
     return () => clearInterval(timer);
   }, [isOpen, authMode, otpChannel, phoneInput, emailInput, identifierInput]);
+
+  // Sync live daily OTP quota from PostgreSQL server whenever a 10-digit mobile number is entered
+  useEffect(() => {
+    if (!isOpen) return;
+    const candidatePhone =
+      authMode === 'otp' && otpChannel === 'mobile'
+        ? normalizeIndianPhone(phoneInput)
+        : isPhoneIdentifier(identifierInput)
+          ? normalizeIndianPhone(identifierInput)
+          : '';
+    if (candidatePhone.length === 10) {
+      fetchMobileOtpDailyQuota(candidatePhone).then((q) => {
+        setMobileOtpUsedToday(q.usedToday);
+        setMobileOtpRemainingToday(q.remainingToday);
+        if (q.cooldownRemaining > 0) {
+          setOtpCooldownSeconds(q.cooldownRemaining);
+        }
+      });
+    }
+  }, [isOpen, authMode, otpChannel, phoneInput, identifierInput]);
 
   useEffect(() => {
     setErrorMessage(null);
@@ -273,14 +309,18 @@ export default function LoginPromptModal({
       const res = await sendMobileOtp(cleanDigits, 'recaptcha-container');
       setIsLoadingOtp(false);
 
+      if (typeof res.usedToday === 'number') setMobileOtpUsedToday(res.usedToday);
+      if (typeof res.remainingToday === 'number') setMobileOtpRemainingToday(res.remainingToday);
+
       if (res.success) {
         setOtpStep('verify');
         setOtpCooldownSeconds(res.cooldownRemaining || 60);
+        const remAfter = typeof res.remainingToday === 'number' ? res.remainingToday : Math.max(0, mobileOtpRemainingToday - 1);
         setInfoMessage(
           tr(
-            `📱 6-digit SMS OTP sent to +91 ${cleanDigits}! Enter it below & set a password so you never need OTP again.`,
-            `📱 +91 ${cleanDigits} पर 6-अंकों का SMS OTP भेज दिया गया है! नीचे OTP डालें और अपना पासवर्ड भी बना लें ताकि अगली बार OTP न लगे।`,
-            `📱 +91 ${cleanDigits} પર 6-અંકનો SMS OTP મોકલાયો છે! નીચે OTP નાખો અને પાસવર્ડ સેટ કરો જેથી ફરી OTP ન লাগে.`
+            `📱 6-digit SMS OTP sent to +91 ${cleanDigits}! (Remaining today: ${remAfter}/${MAX_DAILY_MOBILE_OTP}). Set a password below so you never need OTP again.`,
+            `📱 +91 ${cleanDigits} पर 6-अंकों का SMS OTP भेज दिया गया है! (आज बचे हुए OTP: ${remAfter}/${MAX_DAILY_MOBILE_OTP})। नीचे पासवर्ड बना लें ताकि बार-बार OTP न लगे।`,
+            `📱 +91 ${cleanDigits} પર 6-અંકનો SMS OTP મોકલાયો છે! (આજે બાકી OTP: ${remAfter}/${MAX_DAILY_MOBILE_OTP}). નીચે પાસવર્ડ સેટ કરો જેથી ફરી OTP ન લાગે.`
           )
         );
       } else {
@@ -440,14 +480,17 @@ export default function LoginPromptModal({
       const cleanDigits = normalizeIndianPhone(raw);
       const res = await sendMobileOtp(cleanDigits, 'recaptcha-container');
       setIsLoadingOtp(false);
+      if (typeof res.usedToday === 'number') setMobileOtpUsedToday(res.usedToday);
+      if (typeof res.remainingToday === 'number') setMobileOtpRemainingToday(res.remainingToday);
       if (res.success) {
         setPasswordOtpSent(true);
         setOtpCooldownSeconds(res.cooldownRemaining || 60);
+        const remAfter = typeof res.remainingToday === 'number' ? res.remainingToday : Math.max(0, mobileOtpRemainingToday - 1);
         setInfoMessage(
           tr(
-            `📱 6-digit SMS OTP sent to +91 ${cleanDigits}. Enter it below!`,
-            `📱 +91 ${cleanDigits} पर 6-अंकों का SMS OTP भेज दिया गया है। नीचे दर्ज करें!`,
-            `📱 +91 ${cleanDigits} પર 6-અંકનો SMS OTP મોકલાયો છે. નીચે દાખલ કરો!`
+            `📱 6-digit SMS OTP sent to +91 ${cleanDigits} (Remaining today: ${remAfter}/${MAX_DAILY_MOBILE_OTP}). Enter it below!`,
+            `📱 +91 ${cleanDigits} पर 6-अंकों का SMS OTP भेज दिया गया है (आज बचे OTP: ${remAfter}/${MAX_DAILY_MOBILE_OTP})। नीचे दर्ज करें!`,
+            `📱 +91 ${cleanDigits} પર 6-અંકનો SMS OTP મોકલાયો છે (આજે બાકી OTP: ${remAfter}/${MAX_DAILY_MOBILE_OTP}). નીચે દાખલ કરો!`
           )
         );
       } else {
@@ -859,6 +902,29 @@ export default function LoginPromptModal({
                             'જો તમે પહેલેથી પાસવર્ડ બનાવ્યો હોય, તો ઉપર "પાસવર્ડ" ટેબથી સીધા લોગિન કરો.'
                           )}
                         </p>
+                        <div
+                          className={`flex items-center justify-between px-2.5 py-1.5 rounded-xl border text-[10px] font-extrabold ${
+                            mobileOtpRemainingToday === 0
+                              ? 'bg-rose-50 dark:bg-rose-950/50 border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300'
+                              : 'bg-indigo-50/70 dark:bg-indigo-950/40 border-indigo-200/80 dark:border-indigo-800/70 text-indigo-700 dark:text-indigo-300'
+                          }`}
+                        >
+                          <span>
+                            🛡️{' '}
+                            {tr(
+                              `Daily SMS Limit: Max ${MAX_DAILY_MOBILE_OTP} OTPs/day`,
+                              `दैनिक सुरक्षा सीमा: 1 दिन में अधिकतम ${MAX_DAILY_MOBILE_OTP} OTP`,
+                              `દૈનિક સુરક્ષા મર્યાદા: દિવસમાં મહત્તમ ${MAX_DAILY_MOBILE_OTP} OTP`
+                            )}
+                          </span>
+                          <span className="px-1.5 py-0.5 rounded-md bg-white/80 dark:bg-slate-800 font-black">
+                            {tr(
+                              `Left today: ${mobileOtpRemainingToday}/${MAX_DAILY_MOBILE_OTP}`,
+                              `आज बचे: ${mobileOtpRemainingToday}/${MAX_DAILY_MOBILE_OTP}`,
+                              `આજે બાકી: ${mobileOtpRemainingToday}/${MAX_DAILY_MOBILE_OTP}`
+                            )}
+                          </span>
+                        </div>
                       </div>
                     ) : (
                       <div className="flex items-center w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl overflow-hidden focus-within:border-indigo-500 transition-all px-3.5">
@@ -897,7 +963,9 @@ export default function LoginPromptModal({
                       type="submit"
                       disabled={
                         isLoadingOtp ||
-                        (otpChannel === 'mobile' ? phoneInput.trim().length < 10 : !emailInput.trim()) ||
+                        (otpChannel === 'mobile'
+                          ? phoneInput.trim().length < 10 || mobileOtpRemainingToday <= 0
+                          : !emailInput.trim()) ||
                         !termsAccepted ||
                         otpCooldownSeconds > 0
                       }
@@ -911,15 +979,25 @@ export default function LoginPromptModal({
                       <span>
                         {isLoadingOtp
                           ? tr('Sending OTP Code...', 'OTP कोड भेजा जा रहा है...', 'OTP કોડ મોકલાઈ રહ્યો છે...')
-                          : otpCooldownSeconds > 0
+                          : otpChannel === 'mobile' && mobileOtpRemainingToday <= 0
                             ? tr(
-                                `Resend OTP in ${otpCooldownSeconds}s`,
-                                `${otpCooldownSeconds} सेकंड में पुनः भेजें`,
-                                `${otpCooldownSeconds} સેકન્ડમાં ફરી મોકલો`
+                                'Daily 3 OTP Limit Reached (Use Password / Email)',
+                                'आज के 3 OTP पूरे हो गए (पासवर्ड / ईमेल चुनें)',
+                                'આજના 3 OTP પૂર્ણ (પાસવર્ડ / ઈમેલ વાપરો)'
                               )
-                            : otpChannel === 'mobile'
-                              ? tr('Send 6-Digit Mobile SMS OTP', 'मोबाइल पर 6-अंकों का OTP भेजें', 'મોબાઇલ પર 6-અંકનો OTP મોકલો')
-                              : tr('Send 6-Digit Email OTP Code', 'ईमेल पर 6-अंकों का OTP भेजें', 'ઈમેલ પર 6-અંકનો OTP મોકલો')}
+                            : otpCooldownSeconds > 0
+                              ? tr(
+                                  `Resend OTP in ${otpCooldownSeconds}s`,
+                                  `${otpCooldownSeconds} सेकंड में पुनः भेजें`,
+                                  `${otpCooldownSeconds} સેકન્ડમાં ફરી મોકલો`
+                                )
+                              : otpChannel === 'mobile'
+                                ? tr(
+                                    `Send 6-Digit Mobile SMS OTP (${mobileOtpRemainingToday}/${MAX_DAILY_MOBILE_OTP} left)`,
+                                    `मोबाइल पर 6-अंकों का OTP भेजें (${mobileOtpRemainingToday}/${MAX_DAILY_MOBILE_OTP} बचे)`,
+                                    `મોબાઇલ પર 6-અંકનો OTP મોકલો (${mobileOtpRemainingToday}/${MAX_DAILY_MOBILE_OTP} બાકી)`
+                                  )
+                                : tr('Send 6-Digit Email OTP Code', 'ईमेल पर 6-अंकों का OTP भेजें', 'ઈમેલ પર 6-અંકનો OTP મોકલો')}
                       </span>
                     </button>
                   </form>
@@ -934,17 +1012,23 @@ export default function LoginPromptModal({
                       <div className="flex items-center gap-2 shrink-0 ml-1">
                         <button
                           type="button"
-                          disabled={otpCooldownSeconds > 0 || isLoadingOtp}
+                          disabled={
+                            otpCooldownSeconds > 0 ||
+                            isLoadingOtp ||
+                            (otpChannel === 'mobile' && mobileOtpRemainingToday <= 0)
+                          }
                           onClick={() => handleSendOtp()}
                           className="text-emerald-600 dark:text-emerald-400 disabled:text-slate-400 hover:underline cursor-pointer"
                         >
-                          {otpCooldownSeconds > 0
-                            ? tr(
-                                `Resend (${otpCooldownSeconds}s)`,
-                                `पुनः भेजें (${otpCooldownSeconds}s)`,
-                                `ફરી મોકલો (${otpCooldownSeconds}s)`
-                              )
-                            : tr('Resend OTP', 'OTP पुनः भेजें', 'OTP ફરી મોકલો')}
+                          {otpChannel === 'mobile' && mobileOtpRemainingToday <= 0
+                            ? tr('0/3 Left Today', 'आज 0/3 बचे', 'આજે 0/3 બાકી')
+                            : otpCooldownSeconds > 0
+                              ? tr(
+                                  `Resend (${otpCooldownSeconds}s)`,
+                                  `पुनः भेजें (${otpCooldownSeconds}s)`,
+                                  `ફરી મોકલો (${otpCooldownSeconds}s)`
+                                )
+                              : tr('Resend OTP', 'OTP पुनः भेजें', 'OTP ફરી મોકલો')}
                         </button>
                         <button
                           type="button"
