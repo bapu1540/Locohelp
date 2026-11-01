@@ -2011,6 +2011,9 @@ export function subscribeToRealtimeStream(handlers: {
   onNewResponse?: (payload: {
     postId: string;
     postOwnerId?: string;
+    receiverId?: string;
+    helperId?: string;
+    conversationId?: string;
     response?: any;
     responseCount?: number;
     response_count?: number;

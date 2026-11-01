@@ -14,6 +14,10 @@ export type MasterCategoryId =
   | 'education_classes'
   | 'sports_fitness'
   | 'social_care'
+  | 'food_grocery'
+  | 'delivery_courier'
+  | 'vehicle_help'
+  | 'daily_help'
   | 'other_custom'
   // Legacy master category IDs preserved for backward compatibility
   | 'utility_emergency'
@@ -116,26 +120,26 @@ export const MASTER_CATEGORIES: MasterCategory[] = [
   {
     id: 'vehicle_transport',
     emoji: '🚕',
-    nameEn: 'Cab & Auto',
-    nameHi: 'कैब व ऑटो',
-    nameGu: 'કેબ અને રિક્ષા',
+    nameEn: 'Cab & Travel',
+    nameHi: 'कैब व ट्रैवल',
+    nameGu: 'કેબ અને ટ્રાવેલ',
     iconName: 'Car',
     color: 'orange',
-    subtitleEn: 'Cab, Auto & Private Driver, Bike/Car Mechanic & Puncture Repair',
-    subtitleHi: 'कैब, ऑटो और प्राइवेट ड्राइवर, बाइक/कार मैकेनिक व पंचर रिपेयर',
-    subtitleGu: 'કેબ, રિક્ષા અને પ્રાઇવેટ ડ્રાઇવર, બાઇક/કાર મિકેનિક અને પંચર રિપેર',
+    subtitleEn: 'Cab, Auto, Driver, Taxi, Car Rental',
+    subtitleHi: 'कैब, ऑटो, ड्राइवर, टैक्सी, कार रेंटल',
+    subtitleGu: 'કેબ, રિક્ષા, ડ્રાઇવર, ટેક્સી, કાર રેન્ટલ',
   },
   {
     id: 'tempo_transport',
     emoji: '🚚',
-    nameEn: 'Tempo & Transport',
-    nameHi: 'टेम्पो व ट्रांसपोर्ट',
-    nameGu: 'ટેમ્પો અને ટ્રાન્સપોર્ટ',
+    nameEn: 'Transport & Moving',
+    nameHi: 'ट्रांसपोर्ट व मूविंग',
+    nameGu: 'ટ્રાન્સપોર્ટ અને શિફ્ટિંગ',
     iconName: 'Truck',
     color: 'amber',
-    subtitleEn: 'Chota Hathi Tempo, Packers & Movers, House Shifting, Local Delivery & Errands',
-    subtitleHi: 'छोटा हाथी टेम्पो, पैकर्स-मूवर्स, घर शिफ्टिंग, लोकल डिलीवरी',
-    subtitleGu: 'છોટા હાથી ટેમ્પો, પેકર્સ-મૂવર્સ, ઘર શિફ્ટિંગ, લોકલ ડિલિવરી',
+    subtitleEn: 'Tempo, Truck, Packers & Movers, Shifting',
+    subtitleHi: 'टेम्पो, ट्रक, पैकर्स एंड मूवर्स, घर व ऑफिस शिफ्टिंग',
+    subtitleGu: 'ટેમ્પો, ટ્રક, પેકર્સ એન્ડ મૂવર્સ, ઘર અને ઓફિસ શિફ્ટિંગ',
   },
   {
     id: 'education_classes',
@@ -174,6 +178,54 @@ export const MASTER_CATEGORIES: MasterCategory[] = [
     subtitleGu: 'ચા-કોફી મુલાકાત, સાંજની વોક, ચેસ અને બોર્ડ ગેમ્સ, વડીલોની સેવા, પેટ વોક',
   },
   {
+    id: 'food_grocery',
+    emoji: '🍱',
+    nameEn: 'Food & Grocery',
+    nameHi: 'फूड व ग्रोसरी',
+    nameGu: 'ફૂડ અને ગ્રોસરી',
+    iconName: 'Utensils',
+    color: 'emerald',
+    subtitleEn: 'Food, Tiffin, Grocery, Fruits, Milk, Vegetables',
+    subtitleHi: 'खाना (फूड), टिफिन, ग्रोसरी/किराना, फल, दूध, सब्जियां',
+    subtitleGu: 'ફૂડ, ટિફિન, ગ્રોસરી/કરિયાણું, ફળો, દૂધ, શાકભાજી',
+  },
+  {
+    id: 'delivery_courier',
+    emoji: '📦',
+    nameEn: 'Delivery & Courier',
+    nameHi: 'डिलीवरी व कूरियर',
+    nameGu: 'ડિલિવરી અને કુરિયર',
+    iconName: 'Package',
+    color: 'blue',
+    subtitleEn: 'Parcel, Courier, Pickup & Drop, Local Delivery',
+    subtitleHi: 'पार्सल, कूरियर, पिकअप एंड ड्रॉप, लोकल डिलीवरी',
+    subtitleGu: 'પાર્સલ, કુરિયર, પિકઅપ અને ડ્રોપ, લોકલ ડિલિવરી',
+  },
+  {
+    id: 'vehicle_help',
+    emoji: '🔧',
+    nameEn: 'Vehicle Help',
+    nameHi: 'व्हीकल हेल्प',
+    nameGu: 'વાહન મદદ',
+    iconName: 'Wrench',
+    color: 'orange',
+    subtitleEn: 'Mechanic, Puncture, Battery, Towing',
+    subtitleHi: 'मैकेनिक, पंक्चर रिपेयर, बैटरी मदद, टोइंग सर्विस',
+    subtitleGu: 'મિકેનિક, પંક્ચર રિપેર, બેટરી મદદ, ટોઇંગ સર્વિસ',
+  },
+  {
+    id: 'daily_help',
+    emoji: '🛍️',
+    nameEn: 'Daily Help',
+    nameHi: 'डेली हेल्प',
+    nameGu: 'રોજિંદી મદદ',
+    iconName: 'ShoppingBag',
+    color: 'violet',
+    subtitleEn: 'Shopping, Medicine Pickup, Personal Helper, Errands',
+    subtitleHi: 'शॉपिंग मदद, दवाई पिकअप, पर्सनल हेल्पर, छोटे-मोटे काम (Errands)',
+    subtitleGu: 'શોપિંગ મદદ, દવા પિકઅપ, પર્સનલ હેલ્પર, રોજિંદા નાના કામ (Errands)',
+  },
+  {
     id: 'other_custom',
     emoji: '✨',
     nameEn: 'Other Services',
@@ -192,6 +244,7 @@ export const MAIN_CATEGORIES = MASTER_CATEGORIES;
 export interface CategoryItem {
   id: string;
   masterCategory: MasterCategoryId;
+  mainCategoryId?: MasterCategoryId;
   nameEn: string;
   nameHi: string;
   nameGu: string;
@@ -575,54 +628,109 @@ export const CATEGORIES: CategoryItem[] = [
   },
 
   // ==========================================
-  // 7. 🚕 Cab, Auto & Mechanic (vehicle_transport)
+  // 7. 🚕 Cab & Travel (vehicle_transport)
   // ==========================================
   {
     id: 'cab_auto_driver',
     masterCategory: 'vehicle_transport',
-    nameEn: 'Cab, Auto & Private Driver',
-    nameHi: 'कैब, ऑटो और प्राइवेट ड्राइवर',
-    nameGu: 'કેબ, રિક્ષા અને પ્રાઇવેટ ડ્રાઇવર',
+    nameEn: 'Cab',
+    nameHi: 'कैब (Cab)',
+    nameGu: 'કેબ (Cab)',
     iconName: 'Car',
-    tag: '#CabAuto',
-    description: 'Local auto, outstation cab, daily pickup-drop & private car driver',
+    tag: '#Cab',
+    description: 'Local & outstation cab booking, airport pickup & drop',
     helperCount: 0,
   },
   {
-    id: 'mechanic',
+    id: 'auto_rickshaw',
     masterCategory: 'vehicle_transport',
-    nameEn: 'Mechanic & Puncture Repair',
-    nameHi: 'मैकेनिक और पंचर रिपेयर',
-    nameGu: 'મિકેનિક અને પંચર રિપેર',
-    iconName: 'Wrench',
-    tag: '#Mechanic',
-    description: 'Bike/car breakdown, puncture, battery jumpstart & garage service',
+    nameEn: 'Auto',
+    nameHi: 'ऑटो / रिक्शा (Auto)',
+    nameGu: 'ઓટો / રિક્ષા (Auto)',
+    iconName: 'Navigation',
+    tag: '#AutoRickshaw',
+    description: 'Local auto rickshaw for daily commute, school drop & market rides',
+    helperCount: 0,
+  },
+  {
+    id: 'private_driver',
+    masterCategory: 'vehicle_transport',
+    nameEn: 'Driver',
+    nameHi: 'प्राइवेट ड्राइवर (Driver)',
+    nameGu: 'પ્રાઇવેટ ડ્રાઇવર (Driver)',
+    iconName: 'Users',
+    tag: '#Driver',
+    description: 'Hourly, daily or permanent private car driver on demand',
+    helperCount: 0,
+  },
+  {
+    id: 'taxi_service',
+    masterCategory: 'vehicle_transport',
+    nameEn: 'Taxi',
+    nameHi: 'टैक्सी (Taxi)',
+    nameGu: 'ટેક્સી (Taxi)',
+    iconName: 'Car',
+    tag: '#Taxi',
+    description: 'Local & outstation taxi service, family tour & travel booking',
+    helperCount: 0,
+  },
+  {
+    id: 'car_rental',
+    masterCategory: 'vehicle_transport',
+    nameEn: 'Car Rental',
+    nameHi: 'किराये पर कार (Car Rental)',
+    nameGu: 'ભાડે કાર (Car Rental)',
+    iconName: 'Car',
+    tag: '#CarRental',
+    description: 'Rent a car for weddings, tours, outstation trips & corporate travel',
     helperCount: 0,
   },
 
   // ==========================================
-  // 8. 🚚 Tempo, Packers & Delivery (tempo_transport)
+  // 8. 🚚 Transport & Moving (tempo_transport)
   // ==========================================
   {
     id: 'tempo_packers',
     masterCategory: 'tempo_transport',
-    nameEn: 'Tempo & Packers/Movers',
-    nameHi: 'छोटा हाथी टेम्पो और घर शिफ्टिंग',
-    nameGu: 'છોટા હાથી ટેમ્પો અને ઘર શિફ્ટિંગ',
+    nameEn: 'Tempo',
+    nameHi: 'टेम्पो / छोटा हाथी (Tempo)',
+    nameGu: 'ટેમ્પો / છોટા હાથી (Tempo)',
     iconName: 'Truck',
-    tag: '#TempoPackers',
-    description: 'Chota Hathi tempo, house shifting, luggage loading & transport',
+    tag: '#Tempo',
+    description: 'Chota Hathi tempo, 3-wheeler & mini loading tempo for goods',
     helperCount: 0,
   },
   {
-    id: 'delivery',
+    id: 'truck_transport',
     masterCategory: 'tempo_transport',
-    nameEn: 'Delivery & Errands',
-    nameHi: 'लोकल डिलीवरी और बाज़ार से सामान लाना',
-    nameGu: 'લોકલ ડિલિવરી અને બજારમાંથી સામાન લાવવો',
+    nameEn: 'Truck',
+    nameHi: 'ट्रक / लोडिंग गाड़ी (Truck)',
+    nameGu: 'ટ્રક / લોડિંગ ગાડી (Truck)',
+    iconName: 'Truck',
+    tag: '#Truck',
+    description: 'Commercial truck, Eicher & heavy goods transport service',
+    helperCount: 0,
+  },
+  {
+    id: 'packers_movers',
+    masterCategory: 'tempo_transport',
+    nameEn: 'Packers & Movers',
+    nameHi: 'पैकर्स एंड मूवर्स (Packers & Movers)',
+    nameGu: 'પેકર્સ એન્ડ મૂવર્સ (Packers & Movers)',
     iconName: 'Package',
-    tag: '#Delivery',
-    description: 'Parcel drop, grocery/medicine pickup & local market errands',
+    tag: '#PackersMovers',
+    description: 'Complete household packing, loading, unloading & safe relocation',
+    helperCount: 0,
+  },
+  {
+    id: 'home_office_shifting',
+    masterCategory: 'tempo_transport',
+    nameEn: 'Shifting',
+    nameHi: 'घर / ऑफिस शिफ्टिंग (Shifting)',
+    nameGu: 'ઘર / ઓફિસ શિફ્ટિંગ (Shifting)',
+    iconName: 'Home',
+    tag: '#Shifting',
+    description: 'Local room, flat, house & office furniture shifting helpers',
     helperCount: 0,
   },
 
@@ -782,7 +890,221 @@ export const CATEGORIES: CategoryItem[] = [
   },
 
   // ==========================================
-  // 10. ✨ Other / Custom Category (other_custom)
+  // 12. 🍱 Food & Grocery (food_grocery)
+  // ==========================================
+  {
+    id: 'food_service',
+    masterCategory: 'food_grocery',
+    nameEn: 'Food',
+    nameHi: 'फूड / खाना (Food)',
+    nameGu: 'ફૂડ / જમવાનું (Food)',
+    iconName: 'Utensils',
+    tag: '#Food',
+    description: 'Home-cooked meals, local food delivery, snacks & fresh meals',
+    helperCount: 0,
+  },
+  {
+    id: 'tiffin_service',
+    masterCategory: 'food_grocery',
+    nameEn: 'Tiffin',
+    nameHi: 'टिफिन सर्विस (Tiffin)',
+    nameGu: 'ટિફિન સર્વિસ (Tiffin)',
+    iconName: 'Utensils',
+    tag: '#Tiffin',
+    description: 'Daily home-style lunch & dinner tiffin service for students & families',
+    helperCount: 0,
+  },
+  {
+    id: 'grocery_delivery',
+    masterCategory: 'food_grocery',
+    nameEn: 'Grocery',
+    nameHi: 'ग्रोसरी / किराना (Grocery)',
+    nameGu: 'ગ્રોસરી / કરિયાણું (Grocery)',
+    iconName: 'ShoppingBag',
+    tag: '#Grocery',
+    description: 'Kirana store items, daily household provisions & ration delivery',
+    helperCount: 0,
+  },
+  {
+    id: 'fruits_seller',
+    masterCategory: 'food_grocery',
+    nameEn: 'Fruits',
+    nameHi: 'ताज़े फल (Fruits)',
+    nameGu: 'તાજા ફળો (Fruits)',
+    iconName: 'Heart',
+    tag: '#Fruits',
+    description: 'Fresh seasonal fruits vendor & home fruit basket delivery',
+    helperCount: 0,
+  },
+  {
+    id: 'milk_dairy',
+    masterCategory: 'food_grocery',
+    nameEn: 'Milk',
+    nameHi: 'दूध व डेयरी (Milk)',
+    nameGu: 'દૂધ અને ડેરી (Milk)',
+    iconName: 'Coffee',
+    tag: '#MilkDairy',
+    description: 'Morning fresh milk, paneer, curd, buttermilk & dairy delivery',
+    helperCount: 0,
+  },
+  {
+    id: 'vegetables_seller',
+    masterCategory: 'food_grocery',
+    nameEn: 'Vegetables',
+    nameHi: 'हरी सब्जियां (Vegetables)',
+    nameGu: 'લીલા શાકભાજી (Vegetables)',
+    iconName: 'Sparkles',
+    tag: '#Vegetables',
+    description: 'Fresh daily farm vegetables & local sabzi vendor delivery',
+    helperCount: 0,
+  },
+
+  // ==========================================
+  // 13. 📦 Delivery & Courier (delivery_courier)
+  // ==========================================
+  {
+    id: 'parcel_delivery',
+    masterCategory: 'delivery_courier',
+    nameEn: 'Parcel',
+    nameHi: 'पार्सल (Parcel)',
+    nameGu: 'પાર્સલ (Parcel)',
+    iconName: 'Package',
+    tag: '#Parcel',
+    description: 'Fast local parcel sending, box delivery & same-day dispatch',
+    helperCount: 0,
+  },
+  {
+    id: 'courier_service',
+    masterCategory: 'delivery_courier',
+    nameEn: 'Courier',
+    nameHi: 'कूरियर सर्विस (Courier)',
+    nameGu: 'કુરિયર સર્વિસ (Courier)',
+    iconName: 'Package',
+    tag: '#Courier',
+    description: 'Domestic & intercity courier booking, document & speed post help',
+    helperCount: 0,
+  },
+  {
+    id: 'pickup_drop',
+    masterCategory: 'delivery_courier',
+    nameEn: 'Pickup & Drop',
+    nameHi: 'पिकअप एंड ड्रॉप (Pickup & Drop)',
+    nameGu: 'પિકઅપ અને ડ્રોપ (Pickup & Drop)',
+    iconName: 'Navigation',
+    tag: '#PickupDrop',
+    description: 'Pick up keys, documents, tiffin, clothes or chargers across town',
+    helperCount: 0,
+  },
+  {
+    id: 'delivery',
+    masterCategory: 'delivery_courier',
+    nameEn: 'Local Delivery',
+    nameHi: 'लोकल डिलीवरी (Local Delivery)',
+    nameGu: 'લોકલ ડિલિવરી (Local Delivery)',
+    iconName: 'Truck',
+    tag: '#LocalDelivery',
+    description: 'Hyperlocal shop-to-home delivery & instant neighborhood rider',
+    helperCount: 0,
+  },
+
+  // ==========================================
+  // 14. 🔧 Vehicle Help (vehicle_help)
+  // ==========================================
+  {
+    id: 'mechanic',
+    masterCategory: 'vehicle_help',
+    nameEn: 'Mechanic',
+    nameHi: 'मैकेनिक (Mechanic)',
+    nameGu: 'મિકેનિક (Mechanic)',
+    iconName: 'Wrench',
+    tag: '#Mechanic',
+    description: 'Two-wheeler & four-wheeler mechanic, on-spot breakdown & garage repair',
+    helperCount: 0,
+  },
+  {
+    id: 'puncture_repair',
+    masterCategory: 'vehicle_help',
+    nameEn: 'Puncture',
+    nameHi: 'पंक्चर रिपेयर (Puncture)',
+    nameGu: 'પંક્ચર રિપેર (Puncture)',
+    iconName: 'Wrench',
+    tag: '#Puncture',
+    description: 'Tubeless tyre puncture repair, air filling & stepney change on road',
+    helperCount: 0,
+  },
+  {
+    id: 'battery_jumpstart',
+    masterCategory: 'vehicle_help',
+    nameEn: 'Battery',
+    nameHi: 'बैटरी / जंपस्टार्ट (Battery)',
+    nameGu: 'બેટરી મદદ (Battery)',
+    iconName: 'Zap',
+    tag: '#VehicleBattery',
+    description: 'Car/bike battery jumpstart, battery replacement & charging support',
+    helperCount: 0,
+  },
+  {
+    id: 'towing_service',
+    masterCategory: 'vehicle_help',
+    nameEn: 'Towing',
+    nameHi: 'टोइंग सर्विस (Towing)',
+    nameGu: 'ટોઇંગ સર્વિસ (Towing)',
+    iconName: 'Truck',
+    tag: '#Towing',
+    description: '24x7 emergency car & bike towing crane and roadside recovery',
+    helperCount: 0,
+  },
+
+  // ==========================================
+  // 15. 🛍️ Daily Help (daily_help)
+  // ==========================================
+  {
+    id: 'shopping_help',
+    masterCategory: 'daily_help',
+    nameEn: 'Shopping',
+    nameHi: 'शॉपिंग हेल्प (Shopping)',
+    nameGu: 'શોપિંગ મદદ (Shopping)',
+    iconName: 'ShoppingBag',
+    tag: '#ShoppingHelp',
+    description: 'Market shopping assistant, buying festival items & household goods',
+    helperCount: 0,
+  },
+  {
+    id: 'medicine_pickup',
+    masterCategory: 'daily_help',
+    nameEn: 'Medicine Pickup',
+    nameHi: 'दवाई मंगवाना (Medicine Pickup)',
+    nameGu: 'દવા પિકઅપ (Medicine Pickup)',
+    iconName: 'Heart',
+    tag: '#MedicinePickup',
+    description: 'Urgent pharmacy medicine pickup & doorstep delivery for families',
+    helperCount: 0,
+  },
+  {
+    id: 'personal_helper',
+    masterCategory: 'daily_help',
+    nameEn: 'Personal Helper',
+    nameHi: 'पर्सनल हेल्पर (Personal Helper)',
+    nameGu: 'પર્સનલ હેલ્પર (Personal Helper)',
+    iconName: 'Users',
+    tag: '#PersonalHelper',
+    description: 'Hourly personal assistant for bank, post office, hospital or household tasks',
+    helperCount: 0,
+  },
+  {
+    id: 'daily_errands_sub',
+    masterCategory: 'daily_help',
+    nameEn: 'Errands',
+    nameHi: 'छोटे-मोटे काम (Errands)',
+    nameGu: 'રોજિંદા નાના કામ (Errands)',
+    iconName: 'CheckCircle2',
+    tag: '#Errands',
+    description: 'Bill payment, queue standing, laundry drop, Xerox & daily chores',
+    helperCount: 0,
+  },
+
+  // ==========================================
+  // 16. ✨ Other / Custom Category (other_custom)
   // ==========================================
   {
     id: 'other',
@@ -868,11 +1190,32 @@ const LEGACY_CATEGORY_ID_MAP: Record<string, string> = {
   mechanic_towing: 'mechanic',
   driver_cab: 'cab_auto_driver',
   cab_driver: 'cab_auto_driver',
+  cab: 'cab_auto_driver',
+  auto: 'auto_rickshaw',
+  driver: 'private_driver',
+  taxi: 'taxi_service',
+  tempo: 'tempo_packers',
+  truck: 'truck_transport',
+  shifting: 'home_office_shifting',
+  food: 'food_service',
+  tiffin: 'tiffin_service',
+  grocery: 'grocery_delivery',
+  fruits: 'fruits_seller',
+  milk: 'milk_dairy',
+  vegetables: 'vegetables_seller',
+  vegitables: 'vegetables_seller',
+  parcel: 'parcel_delivery',
+  courier: 'courier_service',
+  local_delivery: 'delivery',
+  puncture: 'puncture_repair',
+  battery: 'battery_jumpstart',
+  towing: 'towing_service',
+  shopping: 'shopping_help',
+  errands: 'daily_errands_sub',
   beauty_parlour: 'beautician',
   tiffin_catering: 'catering_event',
   computer_mobile: 'computer_laptop',
   cctv_security: 'cctv_wifi',
-  packers_movers: 'tempo_packers',
   civil_mason: 'mason',
   event_photo: 'photographer',
   astrology_pandit: 'pandit_pooja',
@@ -1062,17 +1405,86 @@ export function normalizeCategorySlug(
       return { categoryId: 'legal_docs', customCategoryName: '' };
     }
 
-    // Group 6: Vehicle, Transport & Delivery
-    if (clean.includes('mechanic') || clean.includes('puncture') || clean.includes('towing') || clean.includes('garage') || clean.includes('मैकेनिक') || clean.includes('पंक्चर') || clean.includes('મિકેનિક')) {
+    // Group 6: Cab & Travel, Transport & Moving, Vehicle Help, Food & Grocery, Delivery & Courier, Daily Help
+    if (clean.includes('puncture') || clean.includes('पंक्चर') || clean.includes('પંક્ચર')) {
+      return { categoryId: 'puncture_repair', customCategoryName: '' };
+    }
+    if (clean.includes('battery') || clean.includes('jumpstart') || clean.includes('बैटरी') || clean.includes('બેટરી')) {
+      return { categoryId: 'battery_jumpstart', customCategoryName: '' };
+    }
+    if (clean.includes('towing') || clean.includes('टोइंग') || clean.includes('ટોઇંગ')) {
+      return { categoryId: 'towing_service', customCategoryName: '' };
+    }
+    if (clean.includes('mechanic') || clean.includes('garage') || clean.includes('मैकेनिक') || clean.includes('મિકેનિક')) {
       return { categoryId: 'mechanic', customCategoryName: '' };
     }
-    if (clean.includes('tempo') || clean.includes('packers') || clean.includes('movers') || clean.includes('chota hathi') || clean.includes('टेम्पो') || clean.includes('पैकर्स') || clean.includes('ટેમ્પો')) {
+    if (clean.includes('packers') || clean.includes('movers') || clean.includes('पैकर्स') || clean.includes('પેકર્સ')) {
+      return { categoryId: 'packers_movers', customCategoryName: '' };
+    }
+    if (clean.includes('shifting') || clean.includes('शिफ्टिंग') || clean.includes('શિફ્ટિંગ')) {
+      return { categoryId: 'home_office_shifting', customCategoryName: '' };
+    }
+    if (clean.includes('truck') || clean.includes('ट्रक') || clean.includes('ટ્રક')) {
+      return { categoryId: 'truck_transport', customCategoryName: '' };
+    }
+    if (clean.includes('tempo') || clean.includes('chota hathi') || clean.includes('टेम्पो') || clean.includes('ટેમ્પો')) {
       return { categoryId: 'tempo_packers', customCategoryName: '' };
     }
-    if (clean.includes('cab') || clean.includes('auto') || clean.includes('driver') || clean.includes('taxi') || clean.includes('कैब') || clean.includes('ऑटो') || clean.includes('ड्राइवर') || clean.includes('ડ્રાઇવર')) {
+    if (clean.includes('car rental') || clean.includes('किराये पर कार') || clean.includes('ભાડે કાર')) {
+      return { categoryId: 'car_rental', customCategoryName: '' };
+    }
+    if (clean.includes('taxi') || clean.includes('टैक्सी') || clean.includes('ટેક્સી')) {
+      return { categoryId: 'taxi_service', customCategoryName: '' };
+    }
+    if (clean.includes('auto') || clean.includes('rickshaw') || clean.includes('ऑटो') || clean.includes('रिक्शा') || clean.includes('રિક્ષા')) {
+      return { categoryId: 'auto_rickshaw', customCategoryName: '' };
+    }
+    if (clean.includes('private driver') || clean === 'driver' || clean.includes('प्राइवेट ड्राइवर') || clean.includes('પ્રાઇવેટ ડ્રાઇવર')) {
+      return { categoryId: 'private_driver', customCategoryName: '' };
+    }
+    if (clean.includes('cab') || clean.includes('driver') || clean.includes('कैब') || clean.includes('ड्राइवर') || clean.includes('ડ્રાઇવર')) {
       return { categoryId: 'cab_auto_driver', customCategoryName: '' };
     }
-    if (clean.includes('deliver') || clean.includes('errand') || clean.includes('parcel') || clean.includes('डिलीवरी') || clean.includes('ડિલિવરી')) {
+    if (clean.includes('tiffin') || clean.includes('टिफिन') || clean.includes('ટિફિન')) {
+      return { categoryId: 'tiffin_service', customCategoryName: '' };
+    }
+    if (clean.includes('grocery') || clean.includes('kirana') || clean.includes('ग्रोसरी') || clean.includes('किराना') || clean.includes('કરિયાણું')) {
+      return { categoryId: 'grocery_delivery', customCategoryName: '' };
+    }
+    if (clean.includes('fruit') || clean.includes('फल') || clean.includes('ફળો')) {
+      return { categoryId: 'fruits_seller', customCategoryName: '' };
+    }
+    if (clean.includes('milk') || clean.includes('dairy') || clean.includes('दूध') || clean.includes('डेयरी') || clean.includes('દૂધ')) {
+      return { categoryId: 'milk_dairy', customCategoryName: '' };
+    }
+    if (clean.includes('vegetable') || clean.includes('vegitable') || clean.includes('sabzi') || clean.includes('सब्जी') || clean.includes('सब्जियां') || clean.includes('શાકભાજી')) {
+      return { categoryId: 'vegetables_seller', customCategoryName: '' };
+    }
+    if (clean.includes('food') || clean.includes('फूड') || clean.includes('खाना') || clean.includes('ફૂડ')) {
+      return { categoryId: 'food_service', customCategoryName: '' };
+    }
+    if (clean.includes('parcel') || clean.includes('पार्सल') || clean.includes('પાર્સલ')) {
+      return { categoryId: 'parcel_delivery', customCategoryName: '' };
+    }
+    if (clean.includes('courier') || clean.includes('कूरियर') || clean.includes('કુરિયર')) {
+      return { categoryId: 'courier_service', customCategoryName: '' };
+    }
+    if (clean.includes('pickup & drop') || clean.includes('pickup and drop') || clean.includes('पिकअप') || clean.includes('પિકઅપ')) {
+      return { categoryId: 'pickup_drop', customCategoryName: '' };
+    }
+    if (clean.includes('medicine pickup') || clean.includes('दवाई मंगवाना') || clean.includes('દવા પિકઅપ')) {
+      return { categoryId: 'medicine_pickup', customCategoryName: '' };
+    }
+    if (clean.includes('shopping') || clean.includes('शॉपिंग') || clean.includes('શોપિંગ')) {
+      return { categoryId: 'shopping_help', customCategoryName: '' };
+    }
+    if (clean.includes('personal helper') || clean.includes('पर्सनल हेल्पर') || clean.includes('પર્સનલ હેલ્પર')) {
+      return { categoryId: 'personal_helper', customCategoryName: '' };
+    }
+    if (clean.includes('errand') || clean.includes('छोटे-मोटे काम') || clean.includes('રોજિંદા નાના કામ')) {
+      return { categoryId: 'daily_errands_sub', customCategoryName: '' };
+    }
+    if (clean.includes('deliver') || clean.includes('डिलीवरी') || clean.includes('ડિલિવરી')) {
       return { categoryId: 'delivery', customCategoryName: '' };
     }
 

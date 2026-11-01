@@ -38,6 +38,7 @@ export interface AdBannerItem {
   destinationUrl?: string;
   initialMessage?: string;
   createdAt?: string;
+  isActive?: boolean;
   isPermanentOfficialBanner?: boolean;
 }
 

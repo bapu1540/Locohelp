@@ -378,6 +378,62 @@ function getMainCategoryPalette(id: string): CategoryColorPalette {
         subIconBg: '#FFE4E6',
         subIconColor: '#E11D48',
       };
+    case 'food_grocery':
+      return {
+        mainBg: 'linear-gradient(135deg, #F0FDF4 0%, #DCFCE7 100%)',
+        mainBorder: '#86EFAC',
+        iconBg: '#16A34A',
+        textColor: '#14532D',
+        badgeBg: '#FFFFFF',
+        badgeText: '#15803D',
+        badgeBorder: '#86EFAC',
+        subBg: '#F0FDF4',
+        subBorder: '#BBF7D0',
+        subIconBg: '#DCFCE7',
+        subIconColor: '#16A34A',
+      };
+    case 'delivery_courier':
+      return {
+        mainBg: 'linear-gradient(135deg, #F0F9FF 0%, #E0F2FE 100%)',
+        mainBorder: '#7DD3FC',
+        iconBg: '#0284C7',
+        textColor: '#0C4A6E',
+        badgeBg: '#FFFFFF',
+        badgeText: '#0369A1',
+        badgeBorder: '#7DD3FC',
+        subBg: '#F0F9FF',
+        subBorder: '#BAE6FD',
+        subIconBg: '#E0F2FE',
+        subIconColor: '#0284C7',
+      };
+    case 'vehicle_help':
+      return {
+        mainBg: 'linear-gradient(135deg, #FFF7ED 0%, #FED7AA 100%)',
+        mainBorder: '#FB923C',
+        iconBg: '#C2410C',
+        textColor: '#7C2D12',
+        badgeBg: '#FFFFFF',
+        badgeText: '#C2410C',
+        badgeBorder: '#FB923C',
+        subBg: '#FFF7ED',
+        subBorder: '#FED7AA',
+        subIconBg: '#FFEDD5',
+        subIconColor: '#C2410C',
+      };
+    case 'daily_help':
+      return {
+        mainBg: 'linear-gradient(135deg, #FAF5FF 0%, #F3E8FF 100%)',
+        mainBorder: '#D8B4FE',
+        iconBg: '#9333EA',
+        textColor: '#581C87',
+        badgeBg: '#FFFFFF',
+        badgeText: '#7E22CE',
+        badgeBorder: '#D8B4FE',
+        subBg: '#FAF5FF',
+        subBorder: '#E9D5FF',
+        subIconBg: '#F3E8FF',
+        subIconColor: '#9333EA',
+      };
     case 'other_custom':
     default:
       return {

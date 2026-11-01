@@ -873,41 +873,65 @@ const translations: Record<Language, Record<string, string>> = {
 
 export interface MultilingualReportReason {
   id: string;
+  key: string;
   en: string;
   hi: string;
   gu: string;
+  EN: string;
+  HI: string;
+  GU: string;
 }
 
 export const COMPLIANCE_REPORT_REASONS: MultilingualReportReason[] = [
   {
     id: 'FRAUD_OR_SCAM',
+    key: 'FRAUD_OR_SCAM',
     en: 'Fraud or Scam',
     hi: 'धोखाधड़ी या स्कैम',
-    gu: 'છેતરપિંડી અથવા સ્કેમ'
+    gu: 'છેતરપિંડી અથવા સ્કેમ',
+    EN: 'Fraud or Scam',
+    HI: 'धोखाधड़ी या स्कैम',
+    GU: 'છેતરપિંડી અથવા સ્કેમ'
   },
   {
     id: 'ASKING_ADVANCE_MONEY',
+    key: 'ASKING_ADVANCE_MONEY',
     en: 'Asking for Advance Money',
     hi: 'एडवांस पैसे मांग रहा है',
-    gu: 'એડવાન્સ પૈસા માંગી રહ્યા છે'
+    gu: 'એડવાન્સ પૈસા માંગી રહ્યા છે',
+    EN: 'Asking for Advance Money',
+    HI: 'एडवांस पैसे मांग रहा है',
+    GU: 'એડવાન્સ પૈસા માંગી રહ્યા છે'
   },
   {
     id: 'FAKE_PROFILE_OR_INFO',
+    key: 'FAKE_PROFILE_OR_INFO',
     en: 'Fake Profile or Wrong Info',
     hi: 'नकली प्रोफाइल या गलत जानकारी',
-    gu: 'નકલી પ્રોફાઇલ અથવા ખોટી માહિતી'
+    gu: 'નકલી પ્રોફાઇલ અથવા ખોટી માહિતી',
+    EN: 'Fake Profile or Wrong Info',
+    HI: 'नकली प्रोफाइल या गलत जानकारी',
+    GU: 'નકલી પ્રોફાઇલ અથવા ખોટી માહિતી'
   },
   {
     id: 'ABUSIVE_BEHAVIOR',
+    key: 'ABUSIVE_BEHAVIOR',
     en: 'Abusive Behavior',
     hi: 'गलत व्यवहार या गाली-गलौज',
-    gu: 'અભદ્ર વર્તન'
+    gu: 'અભદ્ર વર્તન',
+    EN: 'Abusive Behavior',
+    HI: 'गलत व्यवहार या गाली-गलौज',
+    GU: 'અભદ્ર વર્તન'
   },
   {
     id: 'ILLEGAL_SERVICE',
+    key: 'ILLEGAL_SERVICE',
     en: 'Illegal Service',
     hi: 'गैर-कानूनी काम',
-    gu: 'ગેરકાયદેસર સેવા'
+    gu: 'ગેરકાયદેસર સેવા',
+    EN: 'Illegal Service',
+    HI: 'गैर-कानूनी काम',
+    GU: 'ગેરકાયદેસર સેવા'
   }
 ];
 

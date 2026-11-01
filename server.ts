@@ -425,7 +425,7 @@ async function uploadDataToFirebaseServer(
     const storagePath = `locohelp/${cleanSub}/${safeName}`;
 
     const fileRef = fbStorageRef(storageInstance, storagePath);
-    await fbUploadBytes(fileRef, new Uint8Array(buffer), { contentType: mime });
+    await fbUploadBytes(fileRef, new Uint8Array(buffer) as unknown as Uint8Array<ArrayBuffer>, { contentType: mime });
     const downloadUrl = await fbGetDownloadURL(fileRef);
     return downloadUrl || trimmed;
   } catch (err: any) {
@@ -544,14 +544,21 @@ function setPublicCache(key: string, data: any): void {
   publicApiCache.set(key, { data, timestamp: Date.now() });
 }
 
-function invalidatePublicCache(keys?: string[]): void {
-  if (!keys || keys.length === 0) {
+function invalidatePublicCache(keys?: string | string[]): void {
+  if (!keys || (Array.isArray(keys) && keys.length === 0)) {
     publicApiCache.clear();
   } else {
-    for (const key of keys) {
+    const keyList = Array.isArray(keys) ? keys : [keys];
+    for (const key of keyList) {
       publicApiCache.delete(key);
     }
   }
+}
+
+function normalizePhoneDigitsServer(input: unknown): string {
+  const digits = String(input || "").replace(/\D/g, "");
+  if (digits.length >= 10) return digits.slice(-10);
+  return digits;
 }
 
 // ==========================================
@@ -1238,7 +1245,7 @@ interface OtpRecord {
 }
 const otpStore = new Map<string, OtpRecord>();
 
-function extractRequestUser(req: express.Request): { uid: string; email: string; name?: string; isAdmin?: boolean } | null {
+function extractRequestUser(req: express.Request): { uid: string; email: string; phone?: string; name?: string; isAdmin?: boolean } | null {
   try {
     let token = "";
     const authHeader = req.headers.authorization;
@@ -1260,6 +1267,7 @@ function extractRequestUser(req: express.Request): { uid: string; email: string;
         return {
           uid: String(decoded.uid || emailLower),
           email: emailLower,
+          phone: decoded.phone ? String(decoded.phone).trim() : undefined,
           name: decoded.name,
           isAdmin: Boolean(decoded.role === "admin" && AUTHORIZED_ADMIN_EMAILS.has(emailLower))
         };
@@ -1269,11 +1277,13 @@ function extractRequestUser(req: express.Request): { uid: string; email: string;
     // Fallback to verified client session headers when user is logged in locally
     const headerUid = String(req.headers["x-user-id"] || "").trim();
     const headerEmail = String(req.headers["x-user-email"] || "").trim().toLowerCase();
+    const headerPhone = String(req.headers["x-user-phone"] || "").trim();
     const adminEmailHeader = String(req.headers["x-admin-email"] || "").trim().toLowerCase();
     if (adminEmailHeader && AUTHORIZED_ADMIN_EMAILS.has(adminEmailHeader)) {
       return {
         uid: headerUid || "master_admin",
         email: adminEmailHeader,
+        phone: headerPhone || undefined,
         name: "Admin",
         isAdmin: true
       };
@@ -1282,6 +1292,7 @@ function extractRequestUser(req: express.Request): { uid: string; email: string;
       return {
         uid: headerUid,
         email: headerEmail,
+        phone: headerPhone || (headerUid.startsWith("phone_") ? headerUid.replace("phone_", "") : undefined),
         isAdmin: Boolean(headerEmail && AUTHORIZED_ADMIN_EMAILS.has(headerEmail))
       };
     }
@@ -1289,6 +1300,7 @@ function extractRequestUser(req: express.Request): { uid: string; email: string;
       return {
         uid: headerUid || headerEmail,
         email: headerEmail,
+        phone: headerPhone || undefined,
         isAdmin: Boolean(AUTHORIZED_ADMIN_EMAILS.has(headerEmail))
       };
     }
@@ -1303,6 +1315,7 @@ function extractRequestUser(req: express.Request): { uid: string; email: string;
         return {
           uid: bodyUid,
           email: bodyEmail,
+          phone: bodyPhone || undefined,
           isAdmin: false
         };
       }
@@ -1310,6 +1323,7 @@ function extractRequestUser(req: express.Request): { uid: string; email: string;
         return {
           uid: bodyEmail,
           email: bodyEmail,
+          phone: bodyPhone || undefined,
           isAdmin: false
         };
       }
@@ -1317,6 +1331,7 @@ function extractRequestUser(req: express.Request): { uid: string; email: string;
         return {
           uid: `phone_${bodyPhone.replace(/\D/g, "") || Date.now()}`,
           email: "",
+          phone: bodyPhone,
           isAdmin: false
         };
       }

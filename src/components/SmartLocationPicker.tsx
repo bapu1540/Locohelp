@@ -6,25 +6,29 @@ import {
   getSavedUserLocation,
   saveUserLocationPermanently,
 } from '../data/panIndiaLocations';
-import { Language } from '../translations';
+import { Language } from '../types';
+import { useLanguage } from '../i18n';
 
 interface SmartLocationPickerProps {
-  language: Language;
+  language?: Language;
   value: string;
   onChange: (formattedLocation: string, details: { state: string; district: string; area: string }) => void;
   required?: boolean;
   label?: string;
   compact?: boolean;
+  accentColor?: string;
 }
 
 export const SmartLocationPicker: React.FC<SmartLocationPickerProps> = ({
-  language,
+  language: propLanguage,
   value,
   onChange,
   required = true,
   label,
   compact = false,
 }) => {
+  const { language: ctxLanguage } = useLanguage();
+  const language: Language = propLanguage || ctxLanguage || 'GU';
   const savedLoc = getSavedUserLocation();
   const [selectedState, setSelectedState] = useState<string>(savedLoc.state || 'Gujarat');
   const [selectedDistrict, setSelectedDistrict] = useState<string>(savedLoc.district || 'Surat');

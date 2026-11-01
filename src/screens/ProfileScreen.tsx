@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   ArrowLeft, User, Camera, MapPin, Briefcase, Award, CheckCircle2, Star, Wrench, 
-  ChevronRight, Trash2, Store, Mail, CloudCheck, Sparkles, ShieldCheck, Lock, 
+  ChevronRight, Trash2, Store, Mail, Sparkles, ShieldCheck, Lock, 
   FileCheck2, ShieldAlert, Check, Building2, Phone, Tag, Upload, AlertCircle, Plus, Search, ExternalLink, Clock, Edit3, LogOut, MessageSquare, RefreshCw
 } from 'lucide-react';
 import { useLanguage } from '../i18n';

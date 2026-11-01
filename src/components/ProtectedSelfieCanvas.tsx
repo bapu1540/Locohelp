@@ -4,6 +4,8 @@ import { ShieldCheck, Lock } from 'lucide-react';
 interface ProtectedSelfieCanvasProps {
   src: string;
   alt?: string;
+  width?: number;
+  height?: number;
   className?: string;
   badgeText?: string;
 }
@@ -16,6 +18,8 @@ interface ProtectedSelfieCanvasProps {
  */
 export const ProtectedSelfieCanvas: React.FC<ProtectedSelfieCanvasProps> = ({
   src,
+  width,
+  height,
   className = 'w-24 h-28 rounded-xl',
   badgeText,
 }) => {

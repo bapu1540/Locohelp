@@ -243,7 +243,7 @@ export default function PrivateLockGate({ children }: PrivateLockGateProps) {
                 spellCheck="false"
                 data-lpignore="true"
                 data-1p-ignore="true"
-                style={{ WebkitTextSecurity: digits[idx] ? 'disc' : 'none' }}
+                style={{ WebkitTextSecurity: digits[idx] ? 'disc' : 'none' } as React.CSSProperties}
                 className={`w-12 h-14 sm:w-14 sm:h-16 text-center text-2xl font-mono font-bold rounded-2xl border transition-all duration-200 outline-none ${
                   digits[idx]
                     ? 'bg-blue-600/20 border-blue-500 text-blue-400 shadow-md shadow-blue-500/10 scale-105'

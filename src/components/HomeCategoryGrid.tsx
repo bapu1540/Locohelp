@@ -232,7 +232,7 @@ const MAIN_CATS: MainCatConfig[] = [
       { id: 'legal_docs', label: ['Legal & Documentation Help', 'किराया करार, नोटरी, पैन/आधार और सरकारी दस्तावेज़', 'ભાડા કરાર, નોટરી, પાન/આધાર અને સરકારી દસ્તાવેજ'] },
     ],
   },
-  // 7. Cab & Auto
+  // 7. Cab & Travel
   {
     key: 'vehicle',
     masterId: 'vehicle_transport',
@@ -241,14 +241,14 @@ const MAIN_CATS: MainCatConfig[] = [
     bd: '#fdba74',
     tx: '#7c2d12',
     name: [
-      'Cab & Auto',
-      'कैब व ऑटो',
-      'કેબ અને રિક્ષા',
+      'Cab & Travel',
+      'कैब व ट्रैवल',
+      'કેબ અને ટ્રાવેલ',
     ],
     cardLines: [
-      ['Cab &', 'Auto'],
-      ['कैब व', 'ऑटो'],
-      ['કેબ અને', 'રિક્ષા'],
+      ['Cab &', 'Travel'],
+      ['कैब व', 'ट्रैवल'],
+      ['કેબ અને', 'ટ્રાવેલ'],
     ],
     iconPaths: (
       <>
@@ -259,11 +259,14 @@ const MAIN_CATS: MainCatConfig[] = [
       </>
     ),
     subs: [
-      { id: 'cab_auto_driver', label: ['Cab, Auto & Private Driver', 'कैब, ऑटो और प्राइवेट ड्राइवर', 'કેબ, રિક્ષા અને પ્રાઇવેટ ડ્રાઇવર'] },
-      { id: 'mechanic', label: ['Mechanic & Puncture Repair', 'मैकेनिक और पंचर रिपेयर', 'મિકેનિક અને પંચર રિપેર'] },
+      { id: 'cab_auto_driver', label: ['Cab', 'कैब (Cab)', 'કેબ (Cab)'] },
+      { id: 'auto_rickshaw', label: ['Auto', 'ऑटो / रिक्शा (Auto)', 'ઓટો / રિક્ષા (Auto)'] },
+      { id: 'private_driver', label: ['Driver', 'प्राइवेट ड्राइवर (Driver)', 'પ્રાઇવેટ ડ્રાઇવર (Driver)'] },
+      { id: 'taxi_service', label: ['Taxi', 'टैक्सी (Taxi)', 'ટેક્સી (Taxi)'] },
+      { id: 'car_rental', label: ['Car Rental', 'किराये पर कार (Car Rental)', 'ભાડે કાર (Car Rental)'] },
     ],
   },
-  // 8. Tempo & Transport
+  // 8. Transport & Moving
   {
     key: 'transport',
     masterId: 'tempo_transport',
@@ -272,14 +275,14 @@ const MAIN_CATS: MainCatConfig[] = [
     bd: '#fde047',
     tx: '#713f12',
     name: [
-      'Tempo & Transport',
-      'टेम्पो व ट्रांसपोर्ट',
-      'ટેમ્પો અને ટ્રાન્સપોર્ટ',
+      'Transport & Moving',
+      'ट्रांसपोर्ट व मूविंग',
+      'ટ્રાન્સપોર્ટ અને શિફ્ટિંગ',
     ],
     cardLines: [
-      ['Tempo &', 'Transport'],
-      ['टेम्पो व', 'ट्रांसपोर्ट'],
-      ['ટેમ્પો અને', 'ટ્રાન્સપોર્ટ'],
+      ['Transport &', 'Moving'],
+      ['ट्रांसपोर्ट व', 'मूविंग'],
+      ['ટ્રાન્સપોર્ટ', 'અને શિફ્ટિંગ'],
     ],
     iconPaths: (
       <>
@@ -291,8 +294,10 @@ const MAIN_CATS: MainCatConfig[] = [
       </>
     ),
     subs: [
-      { id: 'tempo_packers', label: ['Tempo & Packers/Movers', 'छोटा हाथी टेम्पो और घर शिफ्टिंग', 'છોટા હાથી ટેમ્પો અને ઘર શિફ્ટિંગ'] },
-      { id: 'delivery', label: ['Delivery & Errands', 'लोकल डिलीवरी और बाज़ार से सामान लाना', 'લોકલ ડિલિવરી અને બજારમાંથી સામાન લાવવો'] },
+      { id: 'tempo_packers', label: ['Tempo', 'टेम्पो / छोटा हाथी (Tempo)', 'ટેમ્પો / છોટા હાથી (Tempo)'] },
+      { id: 'truck_transport', label: ['Truck', 'ट्रक / लोडिंग गाड़ी (Truck)', 'ટ્રક / લોડિંગ ગાડી (Truck)'] },
+      { id: 'packers_movers', label: ['Packers & Movers', 'पैकर्स एंड मूवर्स (Packers & Movers)', 'પેકર્સ એન્ડ મૂવર્સ (Packers & Movers)'] },
+      { id: 'home_office_shifting', label: ['Shifting', 'घर / ऑफिस शिफ्टिंग (Shifting)', 'ઘર / ઓફિસ શિફ્ટિંગ (Shifting)'] },
     ],
   },
   // 9. Tutors & Classes
@@ -396,7 +401,136 @@ const MAIN_CATS: MainCatConfig[] = [
       { id: 'pet_walking', label: ['Pet Walk & Care', 'पेट वॉकिंग और डॉग केयर', 'પેટ વૉકિંગ અને ડૉગ કેર'] },
     ],
   },
-  // 12. Other Services (Always last at #12)
+  // 12. Food & Grocery
+  {
+    key: 'food_grocery',
+    masterId: 'food_grocery',
+    ic: '#16a34a',
+    bg: 'linear-gradient(135deg, #f0fdf4, #dcfce7)',
+    bd: '#86efac',
+    tx: '#14532d',
+    name: [
+      'Food & Grocery',
+      'फूड व ग्रोसरी',
+      'ફૂડ અને ગ્રોસરી',
+    ],
+    cardLines: [
+      ['Food &', 'Grocery'],
+      ['फूड व', 'ग्रोसरी'],
+      ['ફૂડ અને', 'ગ્રોસરી'],
+    ],
+    iconPaths: (
+      <>
+        <path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2" />
+        <path d="M7 2v20" />
+        <path d="M21 15V2v0a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7" />
+      </>
+    ),
+    subs: [
+      { id: 'food_service', label: ['Food', 'फूड / खाना (Food)', 'ફૂડ / જમવાનું (Food)'] },
+      { id: 'tiffin_service', label: ['Tiffin', 'टिफिन सर्विस (Tiffin)', 'ટિફિન સર્વિસ (Tiffin)'] },
+      { id: 'grocery_delivery', label: ['Grocery', 'ग्रोसरी / किराना (Grocery)', 'ગ્રોસરી / કરિયાણું (Grocery)'] },
+      { id: 'fruits_seller', label: ['Fruits', 'ताज़े फल (Fruits)', 'તાજા ફળો (Fruits)'] },
+      { id: 'milk_dairy', label: ['Milk', 'दूध व डेयरी (Milk)', 'દૂધ અને ડેરી (Milk)'] },
+      { id: 'vegetables_seller', label: ['Vegetables', 'हरी सब्जियां (Vegetables)', 'લીલા શાકભાજી (Vegetables)'] },
+    ],
+  },
+  // 13. Delivery & Courier
+  {
+    key: 'delivery_courier',
+    masterId: 'delivery_courier',
+    ic: '#0284c7',
+    bg: 'linear-gradient(135deg, #f0f9ff, #e0f2fe)',
+    bd: '#7dd3fc',
+    tx: '#0c4a6e',
+    name: [
+      'Delivery & Courier',
+      'डिलीवरी व कूरियर',
+      'ડિલિવરી અને કુરિયર',
+    ],
+    cardLines: [
+      ['Delivery &', 'Courier'],
+      ['डिलीवरी व', 'कूरियर'],
+      ['ડિલિવરી અને', 'કુરિયર'],
+    ],
+    iconPaths: (
+      <>
+        <path d="m7.5 4.27 9 5.15" />
+        <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" />
+        <path d="m3.3 7 8.7 5 8.7-5" />
+        <path d="M12 22V12" />
+      </>
+    ),
+    subs: [
+      { id: 'parcel_delivery', label: ['Parcel', 'पार्सल (Parcel)', 'પાર્સલ (Parcel)'] },
+      { id: 'courier_service', label: ['Courier', 'कूरियर सर्विस (Courier)', 'કુરિયર સર્વિસ (Courier)'] },
+      { id: 'pickup_drop', label: ['Pickup & Drop', 'पिकअप एंड ड्रॉप (Pickup & Drop)', 'પિકઅપ અને ડ્રોપ (Pickup & Drop)'] },
+      { id: 'delivery', label: ['Local Delivery', 'लोकल डिलीवरी (Local Delivery)', 'લોકલ ડિલિવરી (Local Delivery)'] },
+    ],
+  },
+  // 14. Vehicle Help
+  {
+    key: 'vehicle_help',
+    masterId: 'vehicle_help',
+    ic: '#c2410c',
+    bg: 'linear-gradient(135deg, #fff7ed, #fed7aa)',
+    bd: '#fb923c',
+    tx: '#7c2d12',
+    name: [
+      'Vehicle Help',
+      'व्हीकल हेल्प',
+      'વાહન મદદ',
+    ],
+    cardLines: [
+      ['Vehicle', 'Help'],
+      ['व्हीकल', 'हेल्प'],
+      ['વાહન', 'મદદ'],
+    ],
+    iconPaths: (
+      <>
+        <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+      </>
+    ),
+    subs: [
+      { id: 'mechanic', label: ['Mechanic', 'मैकेनिक (Mechanic)', 'મિકેનિક (Mechanic)'] },
+      { id: 'puncture_repair', label: ['Puncture', 'पंक्चर रिपेयर (Puncture)', 'પંક્ચર રિપેર (Puncture)'] },
+      { id: 'battery_jumpstart', label: ['Battery', 'बैटरी / जंपस्टार्ट (Battery)', 'બેટરી મદદ (Battery)'] },
+      { id: 'towing_service', label: ['Towing', 'टोइंग सर्विस (Towing)', 'ટોઇંગ સર્વિસ (Towing)'] },
+    ],
+  },
+  // 15. Daily Help
+  {
+    key: 'daily_help',
+    masterId: 'daily_help',
+    ic: '#9333ea',
+    bg: 'linear-gradient(135deg, #faf5ff, #f3e8ff)',
+    bd: '#d8b4fe',
+    tx: '#581c87',
+    name: [
+      'Daily Help',
+      'डेली हेल्प',
+      'રોજિંદી મદદ',
+    ],
+    cardLines: [
+      ['Daily', 'Help'],
+      ['डेली', 'हेल्प'],
+      ['રોજિંદી', 'મદદ'],
+    ],
+    iconPaths: (
+      <>
+        <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" />
+        <path d="M3 6h18" />
+        <path d="M16 10a4 4 0 0 1-8 0" />
+      </>
+    ),
+    subs: [
+      { id: 'shopping_help', label: ['Shopping', 'शॉपिंग हेल्प (Shopping)', 'શોપિંગ મદદ (Shopping)'] },
+      { id: 'medicine_pickup', label: ['Medicine Pickup', 'दवाई मंगवाना (Medicine Pickup)', 'દવા પિકઅપ (Medicine Pickup)'] },
+      { id: 'personal_helper', label: ['Personal Helper', 'पर्सनल हेल्पर (Personal Helper)', 'પર્સનલ હેલ્પર (Personal Helper)'] },
+      { id: 'daily_errands_sub', label: ['Errands', 'छोटे-मोटे काम (Errands)', 'રોજિંદા નાના કામ (Errands)'] },
+    ],
+  },
+  // 16. Other Services (Always last at #16)
   {
     key: 'other',
     masterId: 'other_custom',

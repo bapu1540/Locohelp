@@ -1,21 +1,24 @@
 import React, { useState } from 'react';
 import { Lock, Globe, KeyRound, Fingerprint, ShieldCheck, X, Eye, EyeOff } from 'lucide-react';
-import { Language } from '../translations';
+import { Language } from '../types';
+import { useLanguage } from '../i18n';
 import { verifyDatabaseReauth } from '../auth';
 
 interface PhonePrivacyToggleProps {
-  language: Language;
+  language?: Language;
   isPhonePublic: boolean;
   onChange: (newValue: boolean) => void;
   phoneDisplay?: string;
 }
 
 export const PhonePrivacyToggle: React.FC<PhonePrivacyToggleProps> = ({
-  language,
+  language: propLanguage,
   isPhonePublic,
   onChange,
   phoneDisplay,
 }) => {
+  const { language: ctxLanguage } = useLanguage();
+  const language: Language = propLanguage || ctxLanguage || 'GU';
   const [showReauthModal, setShowReauthModal] = useState(false);
   const [authTab, setAuthTab] = useState<'password' | 'biometric'>('password');
   const [password, setPassword] = useState('');

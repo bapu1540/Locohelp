@@ -124,6 +124,10 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
       setInternalToast(prev => (prev === msg ? null : prev));
     }, 3200);
   };
+
+  const processCategoryImageFileTo16x9 = async (file: File): Promise<string> => {
+    return compressImageToWebP(file, { maxWidth: 1280, quality: 0.82, folder: 'banners' });
+  };
   // Authentication State (Strictly 2-Step: Password -> OTP to baalvarta@gmail.com)
   const OFFICIAL_ADMIN_EMAIL = 'baalvarta@gmail.com';
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() => {
@@ -868,7 +872,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
     const norm = normalizeCategorySlug(rawCat, item?.skills, item?.customCategoryName);
     const subCatObj = CATEGORIES.find(c => c.id === norm.categoryId) || CATEGORIES.find(c => c.id === 'other')!;
     const mainCatObj =
-      MASTER_CATEGORIES.find(m => m.id === subCatObj.mainCategoryId) ||
+      MASTER_CATEGORIES.find(m => m.id === (subCatObj.mainCategoryId || subCatObj.masterCategory)) ||
       MASTER_CATEGORIES[MASTER_CATEGORIES.length - 1];
     const displaySubName =
       norm.categoryId === 'other' && (item?.customCategoryName || norm.customCategoryName)
@@ -2869,7 +2873,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
               const visibleSubCats =
                 selectedMainCatFilter === 'all'
                   ? CATEGORIES
-                  : CATEGORIES.filter(c => c.mainCategoryId === selectedMainCatFilter);
+                  : CATEGORIES.filter(c => (c.mainCategoryId || c.masterCategory) === selectedMainCatFilter);
 
               return (
                 <div className="rounded-3xl bg-[#111827] border border-slate-800 p-4 sm:p-5 space-y-4">
