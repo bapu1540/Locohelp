@@ -561,6 +561,14 @@ export default function CategoriesScreen({
             ...prev,
             [found.masterCategory]: true,
           }));
+          try {
+            if (!sessionStorage.getItem('locohelp_return_popup_cat')) {
+              sessionStorage.setItem(
+                'locohelp_return_popup_cat',
+                found.masterCategory
+              );
+            }
+          } catch {}
         }
       }
     }
@@ -570,6 +578,24 @@ export default function CategoriesScreen({
     setActiveCategory(id);
     if (onSelectCategory) {
       onSelectCategory(id);
+    }
+  };
+
+  const handleBackNavigation = () => {
+    if (activeCategory && activeCategory !== 'all') {
+      const found = CATEGORIES.find((c) => c.id === activeCategory);
+      const parentKey = found?.masterCategory || activeCategory;
+      try {
+        if (!sessionStorage.getItem('locohelp_return_popup_cat')) {
+          sessionStorage.setItem('locohelp_return_popup_cat', parentKey);
+        }
+      } catch {}
+    }
+    if (onSelectCategory) {
+      onSelectCategory('all');
+    }
+    if (onBack) {
+      onBack();
     }
   };
 
@@ -673,13 +699,13 @@ export default function CategoriesScreen({
 
   return (
     <div className="flex flex-col h-full min-h-0 bg-[#F8FAFC] dark:bg-slate-900 overflow-y-auto pb-28">
-      {/* Top Sticky Header: Simple "Browse All Categories" */}
+      {/* Top Sticky Header */}
       <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 sticky top-0 z-10 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2.5 min-w-0">
           {onBack && (
             <button
               type="button"
-              onClick={onBack}
+              onClick={handleBackNavigation}
               className="p-2 -ml-1 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 cursor-pointer shrink-0"
               title={t('common.back') || 'Back'}
             >
@@ -687,7 +713,9 @@ export default function CategoriesScreen({
             </button>
           )}
           <h1 className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white truncate">
-            {tr('Browse All Categories', 'सभी श्रेणियां', 'તમામ કેટેગરી')}
+            {activeCategory !== 'all' && selectedCategoryObj
+              ? getCategoryName(selectedCategoryObj, language)
+              : tr('Browse All Categories', 'सभी श्रेणियां', 'તમામ કેટેગરી')}
           </h1>
         </div>
 
@@ -748,9 +776,9 @@ export default function CategoriesScreen({
             <div className="flex items-center gap-3">
               <button
                 type="button"
-                onClick={() => handleSelectCategory('all')}
+                onClick={handleBackNavigation}
                 className="w-9 h-9 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 hover:bg-slate-100 cursor-pointer shrink-0"
-                title="Back to All Categories"
+                title={tr('Back', 'वापस जाएं', 'પાછા જાઓ')}
               >
                 <ArrowLeft className="w-4 h-4" />
               </button>
@@ -767,10 +795,10 @@ export default function CategoriesScreen({
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => handleSelectCategory('all')}
+                onClick={handleBackNavigation}
                 className="px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold hover:bg-slate-50 cursor-pointer"
               >
-                {tr('← All Categories', '← सभी श्रेणियां', '← તમામ કેટેગરી')}
+                {tr('← Back', '← वापस जाएं', '← પાછા જાઓ')}
               </button>
               <button
                 type="button"
@@ -832,9 +860,6 @@ export default function CategoriesScreen({
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {matchingSubCategoriesForSearch.map((subCat) => {
-                      const subCount = helpers.filter((h) =>
-                        isHelperMatchingCategory(h, subCat)
-                      ).length;
                       const palette = getMainCategoryPalette(
                         subCat.masterCategory
                       );
@@ -877,16 +902,6 @@ export default function CategoriesScreen({
                             </span>
                           </div>
                           <div className="flex items-center gap-1.5 shrink-0">
-                            <span
-                              style={{
-                                backgroundColor: palette.badgeBg,
-                                color: palette.badgeText,
-                                borderColor: palette.badgeBorder,
-                              }}
-                              className="min-w-[26px] text-center px-2 py-0.5 rounded-full text-[11px] font-extrabold border"
-                            >
-                              {subCount}
-                            </span>
                             <ChevronRight
                               style={{ color: palette.textColor }}
                               className="w-4 h-4"
@@ -899,7 +914,7 @@ export default function CategoriesScreen({
                 )}
               </div>
             ) : (
-              /* 10 Main Category Colorful & Simple Horizontal Accordion Banners */
+              /* Main Category Colorful & Simple Horizontal Accordion Banners */
               <div className="space-y-2.5">
                 {MASTER_CATEGORIES.map((mainCat) => {
                   const subCategories = getSubCategoriesByMainId(mainCat.id);
@@ -907,17 +922,9 @@ export default function CategoriesScreen({
                   const isExpanded = Boolean(expandedGroups[mainCat.id]);
                   const palette = getMainCategoryPalette(mainCat.id);
 
-                  // Total combined count of approved experts in this Main Category group
-                  const groupExpertCount = subCategories.reduce((acc, sub) => {
-                    const cnt = helpers.filter((h) =>
-                      isHelperMatchingCategory(h, sub)
-                    ).length;
-                    return acc + cnt;
-                  }, 0);
-
                   return (
                     <div key={mainCat.id} className="space-y-1.5">
-                      {/* Main Category Horizontal Banner: Single Icon + Only Category Name + Experts Count */}
+                      {/* Main Category Horizontal Banner: Single Icon + Only Category Name */}
                       <button
                         type="button"
                         onClick={() => toggleMainGroup(mainCat)}
@@ -927,7 +934,7 @@ export default function CategoriesScreen({
                         }}
                         className="w-full p-3.5 rounded-xl border-2 transition-all shadow-xs hover:brightness-98 flex items-center justify-between gap-3 text-left cursor-pointer"
                       >
-                        {/* Left: Single Clean Icon + Only Category Name (No duplicate emoji, no numbers, no long subtitle) */}
+                        {/* Left: Single Clean Icon + Only Category Name */}
                         <div className="flex items-center gap-3 min-w-0">
                           <div
                             style={{
@@ -946,18 +953,8 @@ export default function CategoriesScreen({
                           </span>
                         </div>
 
-                        {/* Right: Total combined numeric count badge + Expand/Collapse arrow */}
+                        {/* Right: Expand/Collapse arrow */}
                         <div className="flex items-center gap-1.5 shrink-0">
-                          <span
-                            style={{
-                              backgroundColor: palette.badgeBg,
-                              color: palette.badgeText,
-                              borderColor: palette.badgeBorder,
-                            }}
-                            className="min-w-[28px] text-center px-2 py-0.5 rounded-full text-xs font-extrabold border shadow-2xs"
-                          >
-                            {groupExpertCount}
-                          </span>
                           <div
                             style={{
                               backgroundColor: palette.badgeBg,
@@ -988,9 +985,6 @@ export default function CategoriesScreen({
                           >
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 pt-1 pb-1.5">
                               {subCategories.map((subCat) => {
-                                const subCount = helpers.filter((h) =>
-                                  isHelperMatchingCategory(h, subCat)
-                                ).length;
                                 const customThumb = categoryImages[subCat.id];
 
                                 return (
@@ -1037,16 +1031,6 @@ export default function CategoriesScreen({
                                     </div>
 
                                     <div className="flex items-center gap-1.5 shrink-0">
-                                      <span
-                                        style={{
-                                          backgroundColor: palette.badgeBg,
-                                          color: palette.badgeText,
-                                          borderColor: palette.badgeBorder,
-                                        }}
-                                        className="min-w-[24px] text-center px-2 py-0.5 rounded-full text-[11px] font-extrabold border"
-                                      >
-                                        {subCount}
-                                      </span>
                                       <ChevronRight
                                         style={{ color: palette.textColor }}
                                         className="w-4 h-4"

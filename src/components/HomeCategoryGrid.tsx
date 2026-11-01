@@ -563,19 +563,48 @@ const MAIN_CATS: MainCatConfig[] = [
   },
 ];
 
+const resolvePopupCatKey = (rawKey: string | null): string | null => {
+  if (!rawKey) return null;
+  const found = MAIN_CATS.find(
+    (c) =>
+      c.key === rawKey ||
+      c.masterId === rawKey ||
+      c.subs.some((s) => s.id === rawKey)
+  );
+  return found ? found.key : null;
+};
+
 export default function HomeCategoryGrid({
   onNavigate,
   onSelectCategory,
 }: HomeCategoryGridProps) {
   const { language } = useLanguage();
-  const [openCatKey, setOpenCatKey] = useState<string | null>(null);
-  const [helpers, setHelpers] = useState<FreeHelperProfile[]>(() =>
+  const [openCatKey, setOpenCatKey] = useState<string | null>(() => {
+    try {
+      const saved = sessionStorage.getItem('locohelp_return_popup_cat');
+      return resolvePopupCatKey(saved);
+    } catch {
+      return null;
+    }
+  });
+  const [, setHelpers] = useState<FreeHelperProfile[]>(() =>
     getFreeHelperProfiles(false)
   );
 
   // Language index: 0 = English, 1 = Hindi, 2 = Gujarati (strictly single-language display)
   const langIdx: 0 | 1 | 2 =
     language === 'GU' ? 2 : language === 'HI' ? 1 : 0;
+
+  // Clear stored return popup key once restored on Home screen
+  useEffect(() => {
+    if (!openCatKey) return;
+    const timer = window.setTimeout(() => {
+      try {
+        sessionStorage.removeItem('locohelp_return_popup_cat');
+      } catch {}
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [openCatKey]);
 
   useEffect(() => {
     const syncHelpers = async () => {
@@ -631,17 +660,27 @@ export default function HomeCategoryGrid({
     return () => window.removeEventListener('storage', syncHelpers);
   }, []);
 
+  const closePopupExplicitly = () => {
+    try {
+      sessionStorage.removeItem('locohelp_return_popup_cat');
+    } catch {}
+    setOpenCatKey(null);
+  };
+
   // Close modal on Escape or mobile Back button, and lock background scroll while open
   useEffect(() => {
     if (!openCatKey) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        setOpenCatKey(null);
+        closePopupExplicitly();
       }
     };
     const handleBackClose = (e: Event) => {
       e.preventDefault();
+      closePopupExplicitly();
+    };
+    const handleCloseAll = () => {
       setOpenCatKey(null);
     };
 
@@ -656,54 +695,35 @@ export default function HomeCategoryGrid({
 
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('locohelp_close_active_modal', handleBackClose);
-    window.addEventListener('locohelp_close_all_modals', handleBackClose);
+    window.addEventListener('locohelp_close_all_modals', handleCloseAll);
     return () => {
       scrollContainers.forEach((el, idx) => {
         el.style.overflowY = prevOverflows[idx] || '';
       });
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('locohelp_close_active_modal', handleBackClose);
-      window.removeEventListener('locohelp_close_all_modals', handleBackClose);
+      window.removeEventListener('locohelp_close_all_modals', handleCloseAll);
     };
   }, [openCatKey]);
 
-  const isHelperMatchingSubId = (
-    h: FreeHelperProfile,
-    subId: string
-  ): boolean => {
-    const cat = CATEGORIES.find((c) => c.id === subId);
-    const norm = normalizeCategorySlug(
-      h.categoryId || (h as any).category,
-      h.skills,
-      h.customCategoryName
-    );
-    if (norm.categoryId === subId) return true;
-    if (!cat) return false;
-    const catNameEn = cat.nameEn.toLowerCase();
-    const catTag = cat.tag.replace('#', '').toLowerCase();
-    if (
-      Array.isArray(h.skills) &&
-      h.skills.some((s) => {
-        const sl = String(s || '').toLowerCase();
-        return (
-          sl.includes(subId.toLowerCase()) ||
-          sl.includes(catTag) ||
-          sl === catNameEn
-        );
-      })
-    ) {
-      return true;
-    }
-    return false;
-  };
-
-  const getSubCount = (subId: string): number => {
-    return helpers.filter((h) => isHelperMatchingSubId(h, subId)).length;
-  };
-
   const activeModalCat = MAIN_CATS.find((c) => c.key === openCatKey) || null;
 
+  const handleOpenCategoryPopup = (catKey: string) => {
+    try {
+      window.history.pushState(
+        { locohelpScreen: 'home', locohelpPopupCat: catKey },
+        ''
+      );
+    } catch {}
+    setOpenCatKey(catKey);
+  };
+
   const handleSubCategoryClick = (subId: string) => {
+    if (openCatKey) {
+      try {
+        sessionStorage.setItem('locohelp_return_popup_cat', openCatKey);
+      } catch {}
+    }
     setOpenCatKey(null);
     if (onSelectCategory) {
       onSelectCategory(subId);
@@ -713,7 +733,7 @@ export default function HomeCategoryGrid({
 
   return (
     <>
-      {/* 12 Main Categories Grid (4 columns × 3 rows, strictly uniform compact box size matching bottom row) */}
+      {/* 16 Main Categories Grid (4 columns, strictly uniform compact box size) */}
       <section className="py-0.5" aria-label="Service categories">
         <div className="grid grid-cols-4 auto-rows-[72px] sm:auto-rows-[80px] gap-1.5 sm:gap-2">
           {MAIN_CATS.map((cat) => {
@@ -722,7 +742,7 @@ export default function HomeCategoryGrid({
               <button
                 key={cat.key}
                 type="button"
-                onClick={() => setOpenCatKey(cat.key)}
+                onClick={() => handleOpenCategoryPopup(cat.key)}
                 style={{
                   background: cat.bg,
                   borderColor: cat.bd,
@@ -750,7 +770,7 @@ export default function HomeCategoryGrid({
                   </svg>
                 </span>
 
-                {/* Strictly 2-line Single-Language Category Name so all 12 boxes stay identical in size */}
+                {/* Strictly 2-line Single-Language Category Name so all boxes stay identical in size */}
                 <span className="flex flex-col items-center justify-center text-[9.5px] sm:text-[11px] font-bold leading-[1.15] tracking-tight text-center w-full">
                   <span className="block w-full truncate">{line1}</span>
                   <span className="block w-full truncate">{line2}</span>
@@ -767,7 +787,7 @@ export default function HomeCategoryGrid({
         createPortal(
           <div
             onClick={(e) => {
-              if (e.target === e.currentTarget) setOpenCatKey(null);
+              if (e.target === e.currentTarget) closePopupExplicitly();
             }}
             className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-[2px] overscroll-none"
             role="dialog"
@@ -812,7 +832,7 @@ export default function HomeCategoryGrid({
 
                 <button
                   type="button"
-                  onClick={() => setOpenCatKey(null)}
+                  onClick={closePopupExplicitly}
                   style={{
                     borderColor: activeModalCat.bd,
                     color: activeModalCat.tx,
@@ -841,7 +861,6 @@ export default function HomeCategoryGrid({
                 className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 px-4 py-3.5 overflow-y-auto overscroll-contain touch-pan-y bg-white"
               >
                 {activeModalCat.subs.map((sub) => {
-                  const subCount = getSubCount(sub.id);
                   return (
                     <button
                       key={sub.id}
@@ -874,20 +893,9 @@ export default function HomeCategoryGrid({
                         </svg>
                       </span>
 
-                      {/* Sub-category name (single language, full text) */}
+                      {/* Sub-category name (single language, full text, no 0 count badge) */}
                       <span className="flex-1 leading-snug break-words">
                         {sub.label[langIdx]}
-                      </span>
-
-                      {/* Sub-category live count badge */}
-                      <span
-                        style={{
-                          borderColor: activeModalCat.bd,
-                          color: activeModalCat.tx,
-                        }}
-                        className="min-w-[22px] px-1.5 py-[1px] rounded-full bg-white border text-[11px] font-extrabold text-center shrink-0"
-                      >
-                        {subCount}
                       </span>
 
                       {/* Right chevron arrow */}

@@ -335,11 +335,10 @@ function AppContent() {
             : currentScreen === 'guidelines' && prevScreen === 'settings'
             ? 'settings'
             : 'home';
-        if (targetBackScreen === 'home') {
-          setPrevScreen('home');
-        } else {
-          setPrevScreen('home');
+        if (currentScreen === 'categories') {
+          setSelectedCategory('all');
         }
+        setPrevScreen('home');
         setCurrentScreen(targetBackScreen);
         try {
           window.history.pushState({ locohelpScreen: targetBackScreen }, '');
@@ -492,6 +491,9 @@ function AppContent() {
             setIsGlobalMenuOpen(false);
             setIsGlobalLocationOpen(false);
             setIsGlobalLoginOpen(false);
+            try {
+              sessionStorage.removeItem('locohelp_return_popup_cat');
+            } catch {}
             window.dispatchEvent(new CustomEvent('locohelp_close_all_modals'));
             handleSelectCategory('all');
             if (currentScreen === 'admin') {
