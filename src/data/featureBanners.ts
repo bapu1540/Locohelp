@@ -24,9 +24,9 @@ export const FEATURE_BANNERS: FeatureBannerDetail[] = [
     titleEn: '1. Post / Broadcast Urgent Need (1-Hour Live)',
     titleHi: '1. पोस्ट / ब्रॉडकास्ट — तुरंत जरूरत पोस्ट करें',
     titleGu: '1. પોસ્ટ / બ્રોડકાસ્ટ — તાત્કાલિક જરૂરિયાત પોસ્ટ કરો',
-    shortDescEn: 'Post urgent local needs: Plumber, Electrician, Mechanic, Emergency, Sports...',
-    shortDescHi: 'इमरजेंसी जरूरतें पोस्ट करें: प्लंबर, इलेक्ट्रीशियन, मैकेनिक, ब्लड डोनर, क्रिकेट...',
-    shortDescGu: 'તાત્કાલિક જરૂરિયાતો પોસ્ટ કરો: પ્લમ્બર, ઈલેક્ટ્રિશિયન, મિકેનિક, બ્લડ ડોનર, ક્રિકેટ...',
+    shortDescEn: 'Post urgent local needs: Plumber, Electrician, Mechanic, Carpenter, Sports...',
+    shortDescHi: 'इमरजेंसी जरूरतें पोस्ट करें: प्लंबर, इलेक्ट्रीशियन, मैकेनिक, कारपेंटर, क्रिकेट...',
+    shortDescGu: 'તાત્કાલિક જરૂરિયાતો પોસ્ટ કરો: પ્લમ્બર, ઈલેક્ટ્રિશિયન, મિકેનિક, સુથાર, ક્રિકેટ...',
     whatYouCanPostEn: [
       '🔧 "Bathroom pipe burst - Plumber needed immediately"',
       '⚡ "Light circuit tripping - Electrician needed urgently"',

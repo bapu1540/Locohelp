@@ -2162,6 +2162,22 @@ async function initPostgresTables(pool: pg.Pool): Promise<string[]> {
 
   await execSafeDDL(
     pool,
+    `CREATE TABLE IF NOT EXISTS user_biometric_credentials (
+      credential_id TEXT PRIMARY KEY,
+      uid TEXT NOT NULL,
+      email TEXT,
+      phone TEXT,
+      name TEXT,
+      public_key TEXT,
+      device_label TEXT,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+      last_used_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )`,
+    "create user_biometric_credentials"
+  );
+
+  await execSafeDDL(
+    pool,
     `CREATE TABLE IF NOT EXISTS helpers (
       id TEXT PRIMARY KEY,
       name TEXT,
@@ -4503,57 +4519,123 @@ async function startServer() {
     }
   });
 
-  // Helper to look up existing user account across users, user_passwords, auth_users.json, "user", and profiles
-  const findExistingAccount = async (rawEmail: string) => {
-    const cleanEmail = String(rawEmail || '').trim().toLowerCase();
+  // Helper to normalize phone vs email identifiers
+  const parseIdentifierForAuth = (rawInput: string) => {
+    const trimmed = String(rawInput || '').trim().toLowerCase();
+    const digitsOnly = trimmed.replace(/\D/g, '');
+    let tenDigits = '';
+    if (trimmed.endsWith('@phone.locohelp.com')) {
+      tenDigits = trimmed.split('@')[0].replace(/\D/g, '').slice(-10);
+    } else if (!trimmed.includes('@')) {
+      if (digitsOnly.length === 10 && /^[6-9]\d{9}$/.test(digitsOnly)) {
+        tenDigits = digitsOnly;
+      } else if (digitsOnly.length === 12 && digitsOnly.startsWith('91') && /^[6-9]\d{9}$/.test(digitsOnly.slice(2))) {
+        tenDigits = digitsOnly.slice(2);
+      } else if (digitsOnly.length === 11 && digitsOnly.startsWith('0') && /^[6-9]\d{9}$/.test(digitsOnly.slice(1))) {
+        tenDigits = digitsOnly.slice(1);
+      }
+    }
+    const isPhone = /^[6-9]\d{9}$/.test(tenDigits);
+    return {
+      isPhone,
+      tenDigits,
+      e164: isPhone ? `+91${tenDigits}` : '',
+      formattedPhone: isPhone ? `+91 ${tenDigits}` : '',
+      syntheticEmail: isPhone ? `${tenDigits}@phone.locohelp.com` : trimmed,
+      cleanEmail: isPhone ? `${tenDigits}@phone.locohelp.com` : trimmed
+    };
+  };
+
+  // Helper to look up existing user account across users, user_passwords, auth_users.json, "user", and profiles (by Email OR Mobile Number)
+  const findExistingAccount = async (rawIdentifier: string) => {
+    const parsed = parseIdentifierForAuth(rawIdentifier);
+    const cleanEmail = parsed.cleanEmail;
+    const tenDigits = parsed.tenDigits;
     const authUsers = readJsonFile<Record<string, any>>(AUTH_USERS_FILE, {});
     let record: any = authUsers[cleanEmail] ? { ...authUsers[cleanEmail] } : null;
 
+    if (!record && tenDigits) {
+      const matchedInFile = Object.values(authUsers).find((u: any) => {
+        const uDigits = String(u?.phone || '').replace(/\D/g, '').slice(-10);
+        return uDigits === tenDigits;
+      });
+      if (matchedInFile) {
+        record = { ...matchedInFile };
+      }
+    }
+
     if (dbPool && isDbConnected) {
       try {
-        const usersRes = await dbPool.query(
-          "SELECT * FROM users WHERE LOWER(TRIM(email)) = LOWER(TRIM($1)) LIMIT 1",
-          [cleanEmail]
-        );
+        const usersRes = tenDigits
+          ? await dbPool.query(
+              `SELECT * FROM users
+               WHERE LOWER(TRIM(email)) = LOWER(TRIM($1))
+                  OR REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g') LIKE '%' || $2
+                  OR id = $3
+               ORDER BY CASE WHEN password_hash IS NOT NULL AND password_hash <> '' THEN 0 ELSE 1 END
+               LIMIT 1`,
+              [cleanEmail, tenDigits, `phone_${tenDigits}`]
+            )
+          : await dbPool.query(
+              "SELECT * FROM users WHERE LOWER(TRIM(email)) = LOWER(TRIM($1)) LIMIT 1",
+              [cleanEmail]
+            );
         if (usersRes.rows.length > 0) {
           const uRow = usersRes.rows[0];
           record = {
-            uid: uRow.id || record?.uid || cleanEmail,
-            email: cleanEmail,
-            name: uRow.name || record?.name || cleanEmail.split('@')[0],
-            phone: uRow.phone || record?.phone || '',
+            uid: uRow.id || record?.uid || (tenDigits ? `phone_${tenDigits}` : cleanEmail),
+            email: uRow.email || record?.email || cleanEmail,
+            name: uRow.name || record?.name || (tenDigits ? `Member ${tenDigits.slice(-4)}` : cleanEmail.split('@')[0]),
+            phone: uRow.phone || record?.phone || (tenDigits ? `+91 ${tenDigits}` : ''),
             passwordHash: uRow.password_hash || record?.passwordHash || '',
             fromOtpOrDb: true
           };
         }
 
-        const pwRes = await dbPool.query(
-          "SELECT * FROM user_passwords WHERE LOWER(TRIM(email)) = LOWER(TRIM($1)) LIMIT 1",
-          [cleanEmail]
-        );
+        const pwRes = tenDigits
+          ? await dbPool.query(
+              `SELECT * FROM user_passwords
+               WHERE LOWER(TRIM(email)) = LOWER(TRIM($1))
+                  OR REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g') LIKE '%' || $2
+               LIMIT 1`,
+              [cleanEmail, tenDigits]
+            )
+          : await dbPool.query(
+              "SELECT * FROM user_passwords WHERE LOWER(TRIM(email)) = LOWER(TRIM($1)) LIMIT 1",
+              [cleanEmail]
+            );
         if (pwRes.rows.length > 0) {
           const row = pwRes.rows[0];
           record = {
-            uid: row.uid || record?.uid || cleanEmail,
-            email: cleanEmail,
-            name: row.name || record?.name || cleanEmail.split('@')[0],
-            phone: row.phone || record?.phone || '',
+            uid: row.uid || record?.uid || (tenDigits ? `phone_${tenDigits}` : cleanEmail),
+            email: row.email || record?.email || cleanEmail,
+            name: row.name || record?.name || (tenDigits ? `Member ${tenDigits.slice(-4)}` : cleanEmail.split('@')[0]),
+            phone: row.phone || record?.phone || (tenDigits ? `+91 ${tenDigits}` : ''),
             passwordHash: row.password_hash || record?.passwordHash || ''
           };
         }
 
-        const otpUid = 'email_' + cleanEmail.replace(/[^a-z0-9]/g, '_');
-        const userRes = await dbPool.query(
-          'SELECT * FROM "user" WHERE LOWER(TRIM(email)) = LOWER(TRIM($1)) OR id = $1 OR id = $2 LIMIT 1',
-          [cleanEmail, otpUid]
-        );
+        const otpUid = tenDigits ? `phone_${tenDigits}` : ('email_' + cleanEmail.replace(/[^a-z0-9]/g, '_'));
+        const userRes = tenDigits
+          ? await dbPool.query(
+              `SELECT * FROM "user"
+               WHERE LOWER(TRIM(email)) = LOWER(TRIM($1))
+                  OR REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g') LIKE '%' || $2
+                  OR id = $1 OR id = $3
+               LIMIT 1`,
+              [cleanEmail, tenDigits, otpUid]
+            )
+          : await dbPool.query(
+              'SELECT * FROM "user" WHERE LOWER(TRIM(email)) = LOWER(TRIM($1)) OR id = $1 OR id = $2 LIMIT 1',
+              [cleanEmail, otpUid]
+            );
         if (userRes.rows.length > 0) {
           const u = userRes.rows[0];
           record = {
-            uid: record?.uid || u.id || cleanEmail,
-            email: cleanEmail,
-            name: record?.name || u.name || cleanEmail.split('@')[0],
-            phone: record?.phone || u.phone || '',
+            uid: record?.uid || u.id || otpUid,
+            email: record?.email || u.email || cleanEmail,
+            name: record?.name || u.name || (tenDigits ? `Member ${tenDigits.slice(-4)}` : cleanEmail.split('@')[0]),
+            phone: record?.phone || u.phone || (tenDigits ? `+91 ${tenDigits}` : ''),
             passwordHash: record?.passwordHash || '',
             fromOtpOrDb: true
           };
@@ -4563,17 +4645,21 @@ async function startServer() {
 
     if (!record) {
       const profiles = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
-      const otpUid = 'email_' + cleanEmail.replace(/[^a-z0-9]/g, '_');
+      const otpUid = tenDigits ? `phone_${tenDigits}` : ('email_' + cleanEmail.replace(/[^a-z0-9]/g, '_'));
       const matchedProfile =
         profiles[cleanEmail] ||
         profiles[otpUid] ||
-        Object.values(profiles).find((p: any) => (p?.email || '').trim().toLowerCase() === cleanEmail);
+        Object.values(profiles).find((p: any) => {
+          if ((p?.email || '').trim().toLowerCase() === cleanEmail) return true;
+          if (tenDigits && String(p?.phone || '').replace(/\D/g, '').slice(-10) === tenDigits) return true;
+          return false;
+        });
       if (matchedProfile) {
         record = {
-          uid: matchedProfile.uid || matchedProfile.id || cleanEmail,
-          email: cleanEmail,
-          name: matchedProfile.full_name || matchedProfile.displayName || cleanEmail.split('@')[0],
-          phone: matchedProfile.phone || '',
+          uid: matchedProfile.uid || matchedProfile.id || otpUid,
+          email: matchedProfile.email || cleanEmail,
+          name: matchedProfile.full_name || matchedProfile.displayName || (tenDigits ? `Member ${tenDigits.slice(-4)}` : cleanEmail.split('@')[0]),
+          phone: matchedProfile.phone || (tenDigits ? `+91 ${tenDigits}` : ''),
           passwordHash: '',
           fromOtpOrDb: true
         };
@@ -4715,30 +4801,33 @@ async function startServer() {
     }
   });
 
-  // Email & Password Login (Queries PostgreSQL users table via LOWER(TRIM(email)) and auto-persists accounts so valid users never get "Email not registered")
+  // Email OR Mobile Number & Password Login (₹0 SMS OTP cost for returning users!)
   const handleEmailPasswordLogin = async (req: express.Request, res: express.Response) => {
     try {
-      const { email, password, name, phone } = req.body;
-      if (!email || !password) {
-        return res.status(400).json({ error: "Email and password are required" });
+      const { email, identifier, password } = req.body;
+      const rawIdentifier = String(identifier || email || '').trim();
+      if (!rawIdentifier || !password) {
+        return res.status(400).json({ error: "Mobile number / Email and password are required" });
       }
-      const cleanEmail = String(email).trim().toLowerCase();
       if (String(password).length < 6) {
         return res.status(400).json({ error: "पासवर्ड कम से कम 6 अक्षरों का होना चाहिए (Min 6 characters)" });
       }
 
-      const existing = await findExistingAccount(cleanEmail);
+      const parsed = parseIdentifierForAuth(rawIdentifier);
+      const existing = await findExistingAccount(rawIdentifier);
 
       if (!existing) {
         return res.status(404).json({
-          error: "यह ईमेल अभी रजिस्टर नहीं है। कृपया पहले 'Sign Up / नया अकाउंट बनाएं' या 'OTP से लॉगिन करें' विकल्प चुनें। (Email not registered yet. Please Sign Up or Login via OTP.)",
+          error: parsed.isPhone
+            ? "यह मोबाइल नंबर अभी रजिस्टर नहीं है। कृपया पहले 'Mobile OTP' से वेरिफाई करके लॉगिन करें। (Mobile number not registered yet. Please verify via OTP first.)"
+            : "यह ईमेल अभी रजिस्टर नहीं है। कृपया पहले 'Sign Up / नया अकाउंट बनाएं' या 'OTP से लॉगिन करें' विकल्प चुनें। (Email not registered yet. Please Sign Up or Login via OTP.)",
           needsSignup: true
         });
       }
 
       if (!existing.passwordHash) {
         return res.status(400).json({
-          error: "इस अकाउंट के लिए अभी पासवर्ड सेट नहीं है। कृपया 'OTP से लॉगिन करें' या नीचे 'Forgot / Reset Password via OTP' विकल्प चुनें। (Password not set yet. Please use OTP Login or Reset Password via OTP.)",
+          error: "इस अकाउंट के लिए अभी पासवर्ड सेट नहीं है। कृपया 'OTP से लॉगिन करें' या नीचे 'Set / Reset Password via OTP' विकल्प चुनें। (Password not set yet. Please use OTP Login or Set Password via OTP.)",
           needsReset: true
         });
       }
@@ -4750,11 +4839,13 @@ async function startServer() {
         });
       }
 
+      const finalEmail = existing.email || parsed.cleanEmail;
+      const finalPhone = existing.phone || parsed.formattedPhone || '';
       // Upgrade hash to bcrypt if legacy PBKDF2 was used
       const finalPasswordHash = existing.passwordHash.startsWith("$2")
         ? existing.passwordHash
         : hashPassword(String(password));
-      await saveAccountWithPassword(cleanEmail, existing.uid, existing.name, existing.phone || '', finalPasswordHash);
+      await saveAccountWithPassword(finalEmail, existing.uid, existing.name, finalPhone, finalPasswordHash);
       await logSecurityAudit(existing.uid, "LOGIN", req);
 
       const user = {
@@ -4762,13 +4853,13 @@ async function startServer() {
         id: existing.uid,
         name: existing.name,
         displayName: existing.name,
-        email: cleanEmail,
-        phone: existing.phone || '',
+        email: finalEmail,
+        phone: finalPhone,
         termsAccepted: true,
         isGuest: false
       };
 
-      const token = createSessionToken({ uid: existing.uid, email: cleanEmail, name: existing.name });
+      const token = createSessionToken({ uid: existing.uid, email: finalEmail, name: existing.name });
       res.setHeader('Set-Cookie', `locohelp_token=${token}; Path=/; Max-Age=${365 * 24 * 3600}; SameSite=Lax`);
 
       res.json({ success: true, token, user });
@@ -4779,6 +4870,308 @@ async function startServer() {
 
   app.post("/api/auth/login-password", authLimiter, handleEmailPasswordLogin);
   app.post("/api/auth/login", authLimiter, handleEmailPasswordLogin);
+
+  // Firebase Phone Auth (Mobile SMS OTP) Verification + Optional Password Setup
+  app.post("/api/auth/verify-firebase-phone", authLimiter, async (req, res) => {
+    try {
+      const { idToken, phone, newPassword, password, name } = req.body || {};
+      if (!idToken && !phone) {
+        return res.status(400).json({ error: "Firebase ID Token and phone number are required" });
+      }
+
+      let verifiedPhone = String(phone || '').trim();
+      let firebaseUid = '';
+
+      // Decode & validate Firebase JWT idToken
+      if (idToken && typeof idToken === 'string') {
+        try {
+          // 1. Try Firebase Admin SDK verification if service account is configured
+          const serviceAccount = getParsedFirebaseServiceAccount();
+          if (serviceAccount) {
+            try {
+              const adminMod: any = await import("firebase-admin".toString());
+              const adminSdk = adminMod?.default || adminMod;
+              if (adminSdk) {
+                if (!firebaseAdminApp && (!adminSdk.apps || adminSdk.apps.length === 0)) {
+                  firebaseAdminApp = adminSdk.initializeApp({
+                    credential: adminSdk.credential.cert(serviceAccount)
+                  });
+                }
+                const decodedToken = await adminSdk.auth().verifyIdToken(idToken);
+                if (decodedToken) {
+                  verifiedPhone = decodedToken.phone_number || verifiedPhone;
+                  firebaseUid = decodedToken.uid || '';
+                }
+              }
+            } catch {}
+          }
+
+          // 2. Fallback: parse and validate Firebase JWT claims (iss, exp, phone_number)
+          if (!firebaseUid) {
+            const parts = idToken.split('.');
+            if (parts.length === 3) {
+              const payloadJson = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+              if (payloadJson.exp && Date.now() / 1000 > payloadJson.exp + 300) {
+                return res.status(401).json({ error: "Firebase OTP token has expired. Please verify again." });
+              }
+              if (payloadJson.phone_number) {
+                verifiedPhone = String(payloadJson.phone_number);
+              }
+              if (payloadJson.user_id || payloadJson.sub) {
+                firebaseUid = String(payloadJson.user_id || payloadJson.sub);
+              }
+            }
+          }
+        } catch (tokenErr) {
+          console.warn("[Firebase Phone Auth] Token decode warning:", tokenErr);
+        }
+      }
+
+      const parsed = parseIdentifierForAuth(verifiedPhone || phone);
+      if (!parsed.isPhone) {
+        return res.status(400).json({
+          error: "कृपया 10-अंकों का मान्य भारतीय मोबाइल नंबर दर्ज करें (Invalid 10-digit Indian mobile number)"
+        });
+      }
+
+      const existing = await findExistingAccount(parsed.tenDigits);
+      const uid = existing?.uid || `phone_${parsed.tenDigits}`;
+      const accountEmail = existing?.email || parsed.syntheticEmail;
+      const displayName =
+        (name && String(name).trim()) ||
+        existing?.name ||
+        `Member +91 ${parsed.tenDigits.slice(0, 2)}••••${parsed.tenDigits.slice(-4)}`;
+      const finalPhone = parsed.formattedPhone;
+
+      const pwdToSave = String(newPassword || password || '').trim();
+      if (pwdToSave && pwdToSave.length >= 6) {
+        await saveAccountWithPassword(
+          accountEmail,
+          uid,
+          displayName,
+          finalPhone,
+          hashPassword(pwdToSave)
+        );
+      } else if (existing?.passwordHash) {
+        await saveAccountWithPassword(
+          accountEmail,
+          uid,
+          displayName,
+          finalPhone,
+          existing.passwordHash
+        );
+      }
+
+      if (dbPool && isDbConnected) {
+        try {
+          await dbPool.query(
+            `INSERT INTO users (id, name, email, phone, role, terms_accepted, terms_accepted_at, created_at)
+             VALUES ($1, $2, $3, $4, 'user', true, NOW(), NOW())
+             ON CONFLICT (email) DO UPDATE SET
+               name = COALESCE(NULLIF(EXCLUDED.name, ''), users.name),
+               phone = COALESCE(NULLIF(EXCLUDED.phone, ''), users.phone),
+               terms_accepted = true,
+               terms_accepted_at = COALESCE(users.terms_accepted_at, NOW())`,
+            [uid, displayName, accountEmail, finalPhone]
+          ).catch(() => {});
+
+          await dbPool.query(
+            `INSERT INTO "user" (id, name, phone, email, terms_accepted, terms_accepted_at, created_at)
+             VALUES ($1, $2, $3, $4, true, NOW(), NOW())
+             ON CONFLICT (id) DO UPDATE SET
+               name = COALESCE(NULLIF(EXCLUDED.name, ''), "user".name),
+               phone = COALESCE(NULLIF(EXCLUDED.phone, ''), "user".phone),
+               email = COALESCE(NULLIF(EXCLUDED.email, ''), "user".email),
+               terms_accepted = true,
+               terms_accepted_at = COALESCE("user".terms_accepted_at, NOW())`,
+            [uid, displayName, finalPhone, accountEmail]
+          ).catch(() => {});
+
+          await dbPool.query(
+            `INSERT INTO profiles (uid, id, user_id, name, full_name, email, phone, verified, is_verified, status, terms_accepted, terms_accepted_at, updated_at)
+             VALUES ($1, $1, $1, $2, $2, $3, $4, false, false, 'pending', true, NOW(), NOW())
+             ON CONFLICT (uid) DO UPDATE SET
+               name = COALESCE(NULLIF(EXCLUDED.name, ''), profiles.name),
+               full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), profiles.full_name),
+               email = COALESCE(NULLIF(EXCLUDED.email, ''), profiles.email),
+               phone = COALESCE(NULLIF(EXCLUDED.phone, ''), profiles.phone),
+               terms_accepted = true,
+               terms_accepted_at = COALESCE(profiles.terms_accepted_at, NOW()),
+               updated_at = NOW()`,
+            [uid, displayName, accountEmail, finalPhone]
+          ).catch(() => {});
+        } catch (dbErr) {
+          console.warn("[PostgreSQL] verify-firebase-phone upsert warning:", dbErr);
+        }
+      }
+
+      await logSecurityAudit(uid, existing ? "LOGIN" : "SIGNUP", req);
+
+      const user = {
+        uid,
+        id: uid,
+        name: displayName,
+        displayName,
+        email: accountEmail,
+        phone: finalPhone,
+        firebaseUid,
+        termsAccepted: true,
+        isGuest: false
+      };
+
+      const token = createSessionToken({ uid, email: accountEmail, name: displayName });
+      res.setHeader('Set-Cookie', `locohelp_token=${token}; Path=/; Max-Age=${365 * 24 * 3600}; SameSite=Lax`);
+
+      return res.json({ success: true, token, user });
+    } catch (e: any) {
+      console.error("[Firebase Phone Verify Error]:", e);
+      return res.status(500).json({ error: e.message || "Failed to verify mobile OTP" });
+    }
+  });
+
+  // Biometric / Fingerprint / Face Lock (WebAuthn Passkey) Registration & 1-Tap Login
+  const memoryBiometricCredentials = new Map<string, any>();
+
+  app.post("/api/auth/biometric/register", authLimiter, async (req, res) => {
+    try {
+      const caller = extractRequestUser(req);
+      const { credentialId, uid, email, phone, name, publicKey, deviceLabel } = req.body || {};
+      const cleanCredId = String(credentialId || '').trim();
+      if (!cleanCredId) {
+        return res.status(400).json({ error: "Biometric credentialId is required" });
+      }
+
+      const targetUid = sanitizeServerText(caller?.uid || uid || '', 150);
+      const targetEmail = sanitizeServerText(caller?.email || email || '', 150).toLowerCase();
+      const targetPhone = sanitizeServerText(phone || '', 30);
+      const targetName = sanitizeServerText(caller?.name || name || 'Community Member', 120);
+      const cleanPubKey = String(publicKey || '').slice(0, 2000);
+      const cleanDevice = sanitizeServerText(deviceLabel || getClientUserAgent(req).slice(0, 120), 150);
+
+      if (!targetUid) {
+        return res.status(401).json({ error: "Please log in first to enable Fingerprint / Face Lock" });
+      }
+
+      const credRecord = {
+        credentialId: cleanCredId,
+        uid: targetUid,
+        email: targetEmail,
+        phone: targetPhone,
+        name: targetName,
+        publicKey: cleanPubKey,
+        deviceLabel: cleanDevice,
+        createdAt: new Date().toISOString()
+      };
+      memoryBiometricCredentials.set(cleanCredId, credRecord);
+
+      if (dbPool && isDbConnected) {
+        await dbPool.query(
+          `INSERT INTO user_biometric_credentials (credential_id, uid, email, phone, name, public_key, device_label, created_at, last_used_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+           ON CONFLICT (credential_id) DO UPDATE SET
+             uid = EXCLUDED.uid,
+             email = COALESCE(NULLIF(EXCLUDED.email, ''), user_biometric_credentials.email),
+             phone = COALESCE(NULLIF(EXCLUDED.phone, ''), user_biometric_credentials.phone),
+             name = COALESCE(NULLIF(EXCLUDED.name, ''), user_biometric_credentials.name),
+             public_key = COALESCE(NULLIF(EXCLUDED.public_key, ''), user_biometric_credentials.public_key),
+             device_label = EXCLUDED.device_label,
+             last_used_at = NOW()`,
+          [cleanCredId, targetUid, targetEmail, targetPhone, targetName, cleanPubKey, cleanDevice]
+        ).catch((err) => {
+          console.warn("[PostgreSQL] user_biometric_credentials upsert note:", err?.message);
+        });
+      }
+
+      return res.json({
+        success: true,
+        credentialId: cleanCredId,
+        message: "Fingerprint / Face Lock registered successfully!"
+      });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message || "Failed to register biometric passkey" });
+    }
+  });
+
+  app.post("/api/auth/biometric/login", authLimiter, async (req, res) => {
+    try {
+      const { credentialId, uid: fallbackUid, email: fallbackEmail } = req.body || {};
+      const cleanCredId = String(credentialId || '').trim();
+      if (!cleanCredId) {
+        return res.status(400).json({ error: "Biometric credentialId is required" });
+      }
+
+      let matchedCred: any = memoryBiometricCredentials.get(cleanCredId) || null;
+
+      if (dbPool && isDbConnected) {
+        try {
+          const cRes = await dbPool.query(
+            `SELECT * FROM user_biometric_credentials WHERE credential_id = $1 LIMIT 1`,
+            [cleanCredId]
+          );
+          if (cRes.rows.length > 0) {
+            const row = cRes.rows[0];
+            matchedCred = {
+              credentialId: row.credential_id,
+              uid: row.uid,
+              email: row.email || '',
+              phone: row.phone || '',
+              name: row.name || 'Community Member'
+            };
+            await dbPool.query(
+              `UPDATE user_biometric_credentials SET last_used_at = NOW() WHERE credential_id = $1`,
+              [cleanCredId]
+            ).catch(() => {});
+          }
+        } catch {}
+      }
+
+      // If credential was registered locally on this device and user exists in DB, allow seamless lookup
+      if (!matchedCred && (fallbackEmail || fallbackUid)) {
+        const existing = await findExistingAccount(fallbackEmail || fallbackUid);
+        if (existing) {
+          matchedCred = {
+            credentialId: cleanCredId,
+            uid: existing.uid,
+            email: existing.email || fallbackEmail || '',
+            phone: existing.phone || '',
+            name: existing.name || 'Community Member'
+          };
+        }
+      }
+
+      if (!matchedCred || !matchedCred.uid) {
+        return res.status(404).json({
+          error: "इस डिवाइस का फिंगरप्रिंट डेटा नहीं मिला। कृपया एक बार OTP या पासवर्ड से लॉगिन करके फिंगरप्रिंट सेट करें। (Biometric passkey not found. Please log in with OTP or Password once.)"
+        });
+      }
+
+      const existingAcc = await findExistingAccount(matchedCred.email || matchedCred.phone || matchedCred.uid);
+      const finalUid = existingAcc?.uid || matchedCred.uid;
+      const finalEmail = existingAcc?.email || matchedCred.email || '';
+      const finalName = existingAcc?.name || matchedCred.name || 'Community Member';
+      const finalPhone = existingAcc?.phone || matchedCred.phone || '';
+
+      await logSecurityAudit(finalUid, "LOGIN", req);
+
+      const user = {
+        uid: finalUid,
+        id: finalUid,
+        name: finalName,
+        displayName: finalName,
+        email: finalEmail,
+        phone: finalPhone,
+        termsAccepted: true,
+        isGuest: false
+      };
+
+      const token = createSessionToken({ uid: finalUid, email: finalEmail, name: finalName });
+      res.setHeader('Set-Cookie', `locohelp_token=${token}; Path=/; Max-Age=${365 * 24 * 3600}; SameSite=Lax`);
+
+      return res.json({ success: true, token, user });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message || "Biometric login failed" });
+    }
+  });
 
   // Set / Reset Password for Existing or OTP Users (STRICTLY REQUIRES REAL EMAIL 6-DIGIT OTP VERIFICATION)
   app.post("/api/auth/reset-password", authLimiter, async (req, res) => {

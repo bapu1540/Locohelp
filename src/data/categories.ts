@@ -98,8 +98,8 @@ export const MASTER_CATEGORIES: MasterCategory[] = [
     iconName: 'Heart',
     color: 'red',
     subtitleEn: 'Home Nurse, Medicine & Pharmacy Help, Physiotherapy, Lab Test, Ambulance Help',
-    subtitleHi: 'होम नर्स, दवाई व मेडिकल मदद, फिजियोथेरेपी, ब्लड टेस्ट, एम्बुलेंस मदद',
-    subtitleGu: 'હોમ નર્સ, દવા અને મેડિકલ મદદ, ફિઝિયોથેરાપી, બ્લડ ટેસ્ટ, એમ્બ્યુલન્સ મદદ',
+    subtitleHi: 'होम नर्स, दवाई व मेडिकल मदद, फिजियोथेरेपी, लैब टेस्ट, एम्बुलेंस मदद',
+    subtitleGu: 'હોમ નર્સ, દવા અને મેડિકલ મદદ, ફિઝિયોથેરાપી, લેબ ટેસ્ટ, એમ્બ્યુલન્સ મદદ',
   },
   {
     id: 'brokers_agents',
@@ -495,12 +495,12 @@ export const CATEGORIES: CategoryItem[] = [
   {
     id: 'lab_test',
     masterCategory: 'hospital_medical',
-    nameEn: 'Blood Test & Sample Collection',
-    nameHi: 'ब्लड टेस्ट और लैब सैंपल कलेक्शन',
-    nameGu: 'બ્લડ ટેસ્ટ અને લેબ સેમ્પલ કલેક્શન',
+    nameEn: 'Lab Test & Sample Collection',
+    nameHi: 'लैब टेस्ट और सैंपल कलेक्शन',
+    nameGu: 'લેબ ટેસ્ટ અને સેમ્પલ કલેક્શન',
     iconName: 'ShieldCheck',
     tag: '#LabTest',
-    description: 'Home blood sample collection, pathology lab & full body checkup',
+    description: 'Home lab sample collection, pathology lab & full body checkup',
     helperCount: 0,
   },
   {
@@ -1018,7 +1018,7 @@ export function normalizeCategorySlug(
     if (clean.includes('physio') || clean.includes('फिजियोथेरेपी') || clean.includes('ફિઝિયોથેરાપી')) {
       return { categoryId: 'physiotherapy', customCategoryName: '' };
     }
-    if (clean.includes('blood test') || clean.includes('lab test') || clean.includes('pathology') || clean.includes('ब्लड टेस्ट') || clean.includes('બ્લડ ટેસ્ટ')) {
+    if (clean.includes('lab test') || clean.includes('sample collection') || clean.includes('pathology') || clean.includes('लैब टेस्ट') || clean.includes('લેબ ટેસ્ટ')) {
       return { categoryId: 'lab_test', customCategoryName: '' };
     }
     if (clean.includes('ambulance') || clean.includes('एम्बुलेंस') || clean.includes('એમ્બ્યુલન્સ')) {

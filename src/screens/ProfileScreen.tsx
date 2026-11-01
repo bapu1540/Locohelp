@@ -841,7 +841,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
         userName: newHelper.name,
         userEmail: cleanEmail || undefined,
         userPhone: newHelper.phone,
-        title: `Service Expert Profile (${finalCatName}) - ${finalDoc ? 'Government ID Card' : 'Profile Verification'} (Re-approval Request)`,
+        title: `Service Expert Profile (${finalCatName}) - ${finalDoc ? 'Live Selfie & Work Proof' : 'Profile Verification'} (Re-approval Request)`,
         idDocumentWatermarked: finalDoc || ''
       });
       setVerificationStatus('pending');
@@ -1182,7 +1182,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   <div>
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <h3 className="text-xs font-black text-slate-900 dark:text-white">
-                        {tr('Identity Verification & Profile Status', 'आईडी वेरिफिकेशन और प्रोफाइल स्टेटस', 'આઈડી વેરિફિકેશન અને પ્રોફાઈલ સ્ટેટસ')}
+                        {tr('Live Selfie & Profile Verification Status', 'लाइव सेल्फी और प्रोफाइल स्टेटस', 'લાઈવ સેલ્ફી અને પ્રોફાઈલ સ્ટેટસ')}
                       </h3>
                       {(verificationStatus === 'approved' || isHelperApproved) && (
                         <span className="text-[10px] bg-emerald-600 text-white font-extrabold px-2 py-0.5 rounded-full flex items-center gap-1">
@@ -1200,7 +1200,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                         ? tr('Your profile is approved and active on LocoHelp', 'आपकी प्रोफाइल अप्रूव और एक्टिव है', 'તમારી પ્રોફાઈલ મંજૂર અને એક્ટિવ છે')
                         : (verificationStatus === 'pending' || myHelperProfile)
                         ? tr('Your profile is Under Admin Review • Will go live once approved', 'आपकी प्रोफाइल एडमिन समीक्षा में है • अप्रूव होते ही लाइव होगी', 'તમારી પ્રોફાઈલ એડમિન સમીક્ષા હેઠળ છે • મંજૂર થતાં જ લાઈવ થશે')
-                        : tr('Upload ID for green Verified badge (Admin-only private view)', 'वेरिफाइड बैज के लिए आईडी अपलोड करें (सिर्फ एडमिन को दिखेगा)', 'વેરિફાઈડ બેજ માટે આઈડી અપલોડ કરો (ફક્ત એડમિન જોઈ શકશે)')}
+                        : tr('Upload Live Selfie or Work/Shop photo for Verified badge', 'वेरिफाइड बैज के लिए लाइव सेल्फी या काम की फोटो अपलोड करें', 'વેરિફાઈડ બેજ માટે લાઈવ સેલ્ફી કે કામનો ફોટો અપલોડ કરો')}
                     </p>
                   </div>
                 </div>
@@ -1703,31 +1703,32 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   )}
                 </div>
 
-                {/* 7. Verify Government ID Card (JPG, PNG or PDF Supported) Dual Upload */}
+                {/* 7. Live Selfie & Visiting Card / Work Photo Verification (Play Store Safe) */}
                 <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
                   <label className="block text-xs font-extrabold text-slate-800 dark:text-slate-200">
-                    {tr('Government ID Card (JPG, PNG or PDF Supported)', 'सरकारी आईडी कार्ड (JPG, PNG या PDF)', 'સરકારી આઈડી કાર્ડ (JPG, PNG અથવા PDF)')}
+                    {tr('📸 Live Selfie & Visiting Card / Work Proof (For Verified Badge)', '📸 लाइव सेल्फी और विजिटिंग कार्ड / काम का फोटो (वेरिफाइड बैज हेतु)', '📸 લાઈવ સેલ્ફી અને વિઝિટિંગ કાર્ડ / કામનો ફોટો (વેરિફાઈડ બેજ માટે)')}
                   </label>
                   <p className="text-[10px] text-slate-500 font-medium -mt-1">
-                    {tr('Upload Front & Back Side of your Government ID Card, or a PDF file.', 'अपने सरकारी आईडी कार्ड के आगे और पीछे का भाग या PDF अपलोड करें।', 'તમારા સરકારી આઈડી કાર્ડની આગળ અને પાછળની બાજુ અથવા PDF ફાઈલ અપલોડ કરો.')}
+                    {tr('Take your clear Live Selfie and upload your Visiting Card or Shop/Work photo to prevent fake profiles.', 'फर्जी प्रोफाइल रोकने के लिए अपनी साफ लाइव सेल्फी लें और अपना विजिटिंग कार्ड या काम/दुकान का फोटो अपलोड करें।', 'બોગસ પ્રોફાઈલ રોકવા માટે તમારી લાઈવ સેલ્ફી લો અને વિઝિટિંગ કાર્ડ કે કામનો ફોટો અપલોડ કરો.')}
                   </p>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    {/* Front Side Upload */}
+                    {/* Live Selfie Upload */}
                     <div className="bg-slate-50 dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700">
                       <span className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                        {tr('Front Side ID', 'आईडी का सामने का भाग', 'આઈડીની આગળની બાજુ')}
+                        {tr('📸 1. Live Selfie Photo', '📸 1. अपनी लाइव सेल्फी फोटो', '📸 1. તમારી લાઈવ સેલ્ફી ફોટો')}
                       </span>
                       <input 
                         type="file" 
-                        accept="image/jpeg,image/png,image/webp,application/pdf,.jpg,.jpeg,.png,.webp,.pdf"
+                        accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+                        capture="user"
                         onChange={async (e) => {
                           const file = e.target.files?.[0];
                           if (file) {
                             setUploadErrorMsg(null);
-                            const check = await validateUploadedFile(file, { allowPdf: true });
+                            const check = await validateUploadedFile(file, { allowPdf: false });
                             if (!check.valid) {
-                              setUploadErrorMsg(check.error || 'Invalid file uploaded.');
+                              setUploadErrorMsg(check.error || 'Invalid image uploaded.');
                               e.target.value = '';
                               return;
                             }
@@ -1735,7 +1736,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                             try {
                               const watermarked = await applyIdWatermark(file, {
                                 userName: helperName.trim() || userName || 'Service Expert',
-                                customText: 'FOR LOCOHELP VERIFICATION ONLY • SERVICE EXPERT ID FRONT'
+                                customText: 'FOR LOCOHELP VERIFICATION ONLY • LIVE SELFIE'
                               });
                               setHelperIdFrontDoc(watermarked);
                             } catch {
@@ -1751,26 +1752,26 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                       />
                       {helperIdFrontName && (
                         <p className="text-[10px] text-emerald-600 font-bold mt-1 flex items-center gap-1 truncate">
-                          <CheckCircle2 className="w-3 h-3 shrink-0" /> Front (Watermarked): {helperIdFrontName}
+                          <CheckCircle2 className="w-3 h-3 shrink-0" /> Live Selfie Attached: {helperIdFrontName}
                         </p>
                       )}
                     </div>
 
-                    {/* Back Side Upload */}
+                    {/* Visiting Card / Work Photo Upload */}
                     <div className="bg-slate-50 dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700">
                       <span className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                        {tr('Back Side ID', 'आईडी का पीछे का भाग', 'આઈડીની પાછળની બાજુ')}
+                        {tr('🪪 2. Visiting Card / Work Photo', '🪪 2. विजिटिंग कार्ड / काम की फोटो', '🪪 2. વિઝિટિંગ કાર્ડ / કામનો ફોટો')}
                       </span>
                       <input 
                         type="file" 
-                        accept="image/jpeg,image/png,image/webp,application/pdf,.jpg,.jpeg,.png,.webp,.pdf"
+                        accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
                         onChange={async (e) => {
                           const file = e.target.files?.[0];
                           if (file) {
                             setUploadErrorMsg(null);
-                            const check = await validateUploadedFile(file, { allowPdf: true });
+                            const check = await validateUploadedFile(file, { allowPdf: false });
                             if (!check.valid) {
-                              setUploadErrorMsg(check.error || 'Invalid file uploaded.');
+                              setUploadErrorMsg(check.error || 'Invalid image uploaded.');
                               e.target.value = '';
                               return;
                             }
@@ -1778,7 +1779,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                             try {
                               const watermarked = await applyIdWatermark(file, {
                                 userName: helperName.trim() || userName || 'Service Expert',
-                                customText: 'FOR LOCOHELP VERIFICATION ONLY • SERVICE EXPERT ID BACK'
+                                customText: 'FOR LOCOHELP VERIFICATION ONLY • WORK PROOF'
                               });
                               setHelperIdBackDoc(watermarked);
                             } catch {
@@ -1794,7 +1795,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                       />
                       {helperIdBackName && (
                         <p className="text-[10px] text-emerald-600 font-bold mt-1 flex items-center gap-1 truncate">
-                          <CheckCircle2 className="w-3 h-3 shrink-0" /> Back (Watermarked): {helperIdBackName}
+                          <CheckCircle2 className="w-3 h-3 shrink-0" /> Work Proof Attached: {helperIdBackName}
                         </p>
                       )}
                     </div>
@@ -2137,20 +2138,21 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   )}
                 </div>
 
-                {/* 9. Government ID / License Upload */}
+                {/* 9. Owner Live Selfie / Visiting Card Upload */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {tr('Government ID / Trade License (JPG, PNG, WebP ≤ 2MB or PDF ≤ 5MB)', 'सरकारी आईडी / ट्रेड लाइसेंस (JPG, PNG, WebP या PDF)', 'સરકારી આઈડી / ટ્રેડ લાયસન્સ (JPG, PNG, WebP અથવા PDF)')}
+                    {tr('📸 Owner Live Selfie or Shop Visiting Card / Bill Book (JPG, PNG, WebP ≤ 2MB)', '📸 मालिक की लाइव सेल्फी या दुकान का विजिटिंग कार्ड / बिल बुक', '📸 માલિકની લાઈવ સેલ્ફી અથવા દુકાનનું વિઝિટિંગ કાર્ડ / બિલ બુક')}
                   </label>
                   <input 
                     type="file" 
-                    accept="image/jpeg,image/png,image/webp,application/pdf,.jpg,.jpeg,.png,.webp,.pdf"
+                    accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+                    capture="user"
                     onChange={handleIdDocUploadShop}
                     className="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-amber-50 file:text-amber-700 dark:file:bg-amber-950 dark:file:text-amber-300 cursor-pointer bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-2 py-1.5"
                   />
                   {shopIdDocName && (
                     <p className="text-[10px] text-amber-600 dark:text-amber-400 font-bold mt-1 flex items-center gap-1">
-                      <CheckCircle2 className="w-3.5 h-3.5" /> ID Document Watermarked: {shopIdDocName}
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Verification Photo Attached: {shopIdDocName}
                     </p>
                   )}
                   {uploadErrorMsg && (

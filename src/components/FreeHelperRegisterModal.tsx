@@ -596,22 +596,30 @@ export default function FreeHelperRegisterModal({
                 </div>
               </div>
 
-              {/* Verify Identity Document (Optional) */}
+              {/* Live Selfie / Visiting Card / Work Proof (Play Store Safe Verification) */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1 flex items-center justify-between">
-                  <span>{tr('Government ID (JPG/PNG/WebP max 2MB or PDF max 5MB - Optional)', 'सरकारी आईडी (अधिकतम 2MB इमेज या 5MB PDF - वैकल्पिक)', 'સરકારી આઈડી (મહત્તમ 2MB ફોટો અથવા 5MB PDF - વૈકલ્પિક)')}</span>
-                  <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">{tr('Priority Badge ⭐', 'प्रायोरिटी बैज ⭐', 'પ્રાયોરિટી બેજ ⭐')}</span>
+                  <span>{tr('📸 Live Selfie or Visiting Card / Work Proof (Optional)', '📸 लाइव सेल्फी या विजिटिंग कार्ड / काम का फोटो (वैकल्पिक)', '📸 લાઈવ સેલ્ફી અથવા વિઝિટિંગ કાર્ડ / કામનો ફોટો (વૈકલ્પિક)')}</span>
+                  <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">{tr('Verified Badge ⭐', 'वेरिफाइड बैज ⭐', 'વેરિફાઈડ બેજ ⭐')}</span>
                 </label>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 mb-1.5">
+                  {tr(
+                    'Take a clear Live Selfie from camera or upload your Visiting Card / Shop / Work photo for Admin verification.',
+                    'फर्जी प्रोफाइल रोकने और वेरिफाइड बैज पाने के लिए अपनी लाइव सेल्फी लें या विजिटिंग कार्ड/काम की फोटो अपलोड करें।',
+                    'બોગસ પ્રોફાઈલ રોકવા અને વેરિફાઈડ બેજ માટે તમારી લાઈવ સેલ્ફી લો અથવા વિઝિટિંગ કાર્ડ/કામનો ફોટો અપલોડ કરો.'
+                  )}
+                </p>
                 <input 
                   type="file" 
-                  accept="image/jpeg,image/png,image/webp,application/pdf,.jpg,.jpeg,.png,.webp,.pdf"
+                  accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+                  capture="user"
                   onChange={async (e) => {
                     const file = e.target.files?.[0];
                     setFileError(null);
                     if (file) {
-                      const check = await validateUploadedFile(file, { allowPdf: true });
+                      const check = await validateUploadedFile(file, { allowPdf: false });
                       if (!check.valid) {
-                        setFileError(tr(check.error || 'Invalid file', check.errorHi || check.error || 'अमान्य फ़ाइल', 'અમાન્ય ફાઈલ'));
+                        setFileError(tr(check.error || 'Invalid image', check.errorHi || check.error || 'अमान्य फ़ोटो', 'અમાન્ય ફોટો'));
                         setFormIdDoc(null);
                         e.target.value = '';
                         return;
@@ -619,7 +627,7 @@ export default function FreeHelperRegisterModal({
                       try {
                         const watermarkedDataUrl = await applyIdWatermark(file, {
                           userName: formName.trim() || 'Helper',
-                          customText: 'FOR LOCOHELP VERIFICATION ONLY • DO NOT REUSE'
+                          customText: 'FOR LOCOHELP VERIFICATION ONLY • LIVE SELFIE / WORK PROOF'
                         });
                         setFormIdDoc(watermarkedDataUrl);
                       } catch {
@@ -640,7 +648,7 @@ export default function FreeHelperRegisterModal({
                 )}
                 {formIdDoc && !fileError && (
                   <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold mt-1 flex items-center gap-1">
-                    <CheckCircle2 className="w-3 h-3" /> {tr('Security Watermark Applied ("FOR LOCOHELP VERIFICATION ONLY") & Encrypted!', 'सुरक्षा वॉटरमार्क लगाया गया और एन्क्रिप्ट किया गया!', 'સુરક્ષા વોટરમાર્ક લગાવવામાં આવ્યું અને એન્ક્રિપ્ટ થયું!')}
+                    <CheckCircle2 className="w-3 h-3" /> {tr('Live Selfie / Work Proof Attached & Protected for Admin Review!', 'लाइव सेल्फी / काम का प्रूफ एडमिन जांच के लिए सुरक्षित रूप से जुड़ गया!', 'લાઈવ સેલ્ફી / કામનો ફોટો એડમિન ચકાસણી માટે જોડાઈ ગયો!')}
                   </p>
                 )}
               </div>

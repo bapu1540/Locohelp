@@ -1,5 +1,14 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, UserCredential } from 'firebase/auth';
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
+  UserCredential,
+  RecaptchaVerifier,
+  signInWithPhoneNumber,
+  ConfirmationResult,
+  Auth
+} from 'firebase/auth';
 import {
   getStorage,
   ref,
@@ -498,6 +507,299 @@ export async function subscribeToForegroundPushMessages(
     return null;
   }
 }
+
+// ==========================================
+// FIREBASE PHONE AUTHENTICATION (MOBILE SMS OTP)
+// Supports Indian 10-digit mobile numbers (+91) with invisible reCAPTCHA
+// ==========================================
+let cachedRuntimeAuthInstance: Auth | null = null;
+let activeRecaptchaVerifier: RecaptchaVerifier | null = null;
+let activeConfirmationResult: ConfirmationResult | null = null;
+
+export async function getFirebaseAuthInstance(): Promise<Auth> {
+  if (
+    firebaseConfig.apiKey &&
+    firebaseConfig.apiKey !== 'AIzaSyDummyKeyForLocoHelpAuthInit2026'
+  ) {
+    return auth;
+  }
+  if (cachedRuntimeAuthInstance) {
+    return cachedRuntimeAuthInstance;
+  }
+  try {
+    const runtimeCfg = await getRuntimeFirebasePublicConfig();
+    if (
+      runtimeCfg.firebaseConfig.apiKey &&
+      runtimeCfg.firebaseConfig.apiKey !== 'AIzaSyDummyKeyForLocoHelpAuthInit2026'
+    ) {
+      const existingRuntimeApp = getApps().find((a) => a.name === 'locohelp-runtime-auth');
+      const runtimeApp =
+        existingRuntimeApp || initializeApp(runtimeCfg.firebaseConfig, 'locohelp-runtime-auth');
+      cachedRuntimeAuthInstance = getAuth(runtimeApp);
+      return cachedRuntimeAuthInstance;
+    }
+  } catch (err) {
+    console.warn('[Firebase Phone Auth] Runtime config fallback warning:', err);
+  }
+  return auth;
+}
+
+function clearRecaptchaVerifier(containerId: string) {
+  try {
+    if (activeRecaptchaVerifier) {
+      activeRecaptchaVerifier.clear();
+      activeRecaptchaVerifier = null;
+    }
+  } catch {}
+  try {
+    const existingEl = document.getElementById(containerId);
+    if (existingEl) {
+      existingEl.innerHTML = '';
+    }
+  } catch {}
+}
+
+function ensureRecaptchaContainerElement(containerId: string): HTMLElement {
+  let el = document.getElementById(containerId);
+  if (el && el.parentNode) {
+    const freshEl = document.createElement('div');
+    freshEl.id = containerId;
+    el.parentNode.replaceChild(freshEl, el);
+    return freshEl;
+  }
+  const newEl = document.createElement('div');
+  newEl.id = containerId;
+  newEl.style.position = 'fixed';
+  newEl.style.bottom = '0px';
+  newEl.style.right = '0px';
+  newEl.style.zIndex = '9999';
+  document.body.appendChild(newEl);
+  return newEl;
+}
+
+export function normalizeIndianPhoneE164(rawPhone: string): {
+  valid: boolean;
+  tenDigits: string;
+  e164: string;
+} {
+  const digits = String(rawPhone || '').replace(/\D/g, '');
+  let tenDigits = digits;
+  if (digits.length === 12 && digits.startsWith('91')) {
+    tenDigits = digits.slice(2);
+  } else if (digits.length === 11 && digits.startsWith('0')) {
+    tenDigits = digits.slice(1);
+  }
+  const valid = /^[6-9]\d{9}$/.test(tenDigits);
+  return {
+    valid,
+    tenDigits,
+    e164: valid ? `+91${tenDigits}` : ''
+  };
+}
+
+function trFirebase(en: string, hi: string, gu: string): string {
+  try {
+    const lang = (localStorage.getItem('locohelp_language') || 'GU').toUpperCase();
+    if (lang === 'GU') return gu;
+    if (lang === 'HI') return hi;
+    return en;
+  } catch {
+    return gu;
+  }
+}
+
+export async function sendFirebasePhoneOtp(
+  rawPhone: string,
+  containerId = 'recaptcha-container'
+): Promise<{
+  success: boolean;
+  phoneE164?: string;
+  tenDigits?: string;
+  error?: string;
+}> {
+  const norm = normalizeIndianPhoneE164(rawPhone);
+  if (!norm.valid) {
+    return {
+      success: false,
+      error: trFirebase(
+        'Please enter a valid 10-digit Indian mobile number.',
+        'कृपया 10-अंकों का सही मोबाइल नंबर दर्ज करें।',
+        'કૃપા કરીને 10-અંકનો સાચો મોબાઇલ નંબર દાખલ કરો.'
+      )
+    };
+  }
+
+  try {
+    const authInstance = await getFirebaseAuthInstance();
+    const currentLang = (localStorage.getItem('locohelp_language') || 'GU').toLowerCase();
+    authInstance.languageCode = currentLang === 'gu' ? 'gu' : currentLang === 'hi' ? 'hi' : 'en';
+
+    clearRecaptchaVerifier(containerId);
+    const containerEl = ensureRecaptchaContainerElement(containerId);
+
+    activeRecaptchaVerifier = new RecaptchaVerifier(authInstance, containerEl, {
+      size: 'invisible',
+      callback: () => {},
+      'expired-callback': () => {
+        clearRecaptchaVerifier(containerId);
+      }
+    });
+
+    const confirmationResult = await signInWithPhoneNumber(
+      authInstance,
+      norm.e164,
+      activeRecaptchaVerifier
+    );
+
+    activeConfirmationResult = confirmationResult;
+    (window as any).__locohelpConfirmationResult = confirmationResult;
+
+    return {
+      success: true,
+      phoneE164: norm.e164,
+      tenDigits: norm.tenDigits
+    };
+  } catch (err: any) {
+    console.error('[Firebase Phone Auth] send OTP error:', err);
+    clearRecaptchaVerifier(containerId);
+
+    const code = String(err?.code || '');
+    const msg = String(err?.message || '');
+    const currentHost = typeof window !== 'undefined' ? window.location.hostname : '';
+
+    if (code === 'auth/invalid-phone-number') {
+      return {
+        success: false,
+        error: trFirebase(
+          'Invalid mobile number. Please enter a valid 10-digit number.',
+          'अमान्य मोबाइल नंबर! कृपया 10-अंकों का सही नंबर दर्ज करें।',
+          'અમાન્ય મોબાઇલ નંબર! કૃપા કરીને 10-અંકનો સાચો નંબર દાખલ કરો.'
+        )
+      };
+    }
+    if (code === 'auth/too-many-requests' || code === 'auth/quota-exceeded') {
+      return {
+        success: false,
+        error: trFirebase(
+          'Too many OTP requests for this number. Please try again later or sign in with Password/Email.',
+          'इस नंबर पर बहुत अधिक बार OTP मांगा गया है। कृपया कुछ देर बाद प्रयास करें या पासवर्ड/ईमेल से लॉगिन करें।',
+          'આ નંબર પર વધુ પડતી વાર OTP માંગવામાં આવ્યો છે. કૃપા કરીને થોડી વાર પછી પ્રયાસ કરો અથવા પાસવર્ડ/ઈમેલથી લોગિન કરો.'
+        )
+      };
+    }
+    if (
+      code === 'auth/unauthorized-domain' ||
+      code === 'auth/captcha-check-failed' ||
+      msg.includes('captcha-check-failed') ||
+      msg.includes('Hostname match not found')
+    ) {
+      return {
+        success: false,
+        error: trFirebase(
+          `Domain "${currentHost}" is not added in Firebase Authorized Domains yet. Add "${currentHost}" in Firebase Console -> Authentication -> Settings -> Authorized domains, or test on www.locohelp.com.`,
+          `यह डोमेन (${currentHost}) अभी Firebase के Authorized Domains में जोड़ा नहीं गया है। कृपया Firebase Console -> Authentication -> Settings -> Authorized domains में "${currentHost}" जोड़ें या www.locohelp.com पर चेक करें।`,
+          `આ ડોમેન (${currentHost}) હજુ Firebase ના Authorized Domains માં ઉમેરાયું નથી. કૃપા કરીને Firebase Console -> Authentication -> Settings -> Authorized domains માં "${currentHost}" ઉમેરો અથવા www.locohelp.com પર ચકાસો.`
+        )
+      };
+    }
+    if (code === 'auth/operation-not-allowed') {
+      return {
+        success: false,
+        error: trFirebase(
+          'Phone Sign-In is not enabled in Firebase Console -> Authentication -> Sign-in method.',
+          'Firebase में Phone Sign-In अभी चालू नहीं है।',
+          'Firebase માં Phone Sign-In હજુ ચાલુ નથી.'
+        )
+      };
+    }
+    return {
+      success: false,
+      error: trFirebase(
+        'Could not send SMS OTP right now. Please try again or use Email OTP / Password.',
+        'मोबाइल पर OTP भेजने में समस्या आई। कृपया पुनः प्रयास करें या ईमेल OTP / पासवर्ड का उपयोग करें।',
+        'મોબાઇલ પર OTP મોકલવામાં સમસ્યા આવી. કૃપા કરીને ફરી પ્રયાસ કરો અથવા ઈમેલ OTP / પાસવર્ડનો ઉપયોગ કરો.'
+      )
+    };
+  }
+}
+
+export async function verifyFirebasePhoneOtpCode(otpCode: string): Promise<{
+  success: boolean;
+  idToken?: string;
+  phoneNumber?: string;
+  firebaseUid?: string;
+  error?: string;
+}> {
+  const cleanCode = String(otpCode || '').trim();
+  if (!cleanCode || cleanCode.length < 6) {
+    return {
+      success: false,
+      error: trFirebase(
+        'Please enter the 6-digit OTP code.',
+        'कृपया 6-अंकों का OTP कोड दर्ज करें।',
+        'કૃપા કરીને 6-અંકનો OTP કોડ દાખલ કરો.'
+      )
+    };
+  }
+
+  const confirmation: ConfirmationResult | null =
+    activeConfirmationResult || (window as any).__locohelpConfirmationResult || null;
+
+  if (!confirmation) {
+    return {
+      success: false,
+      error: trFirebase(
+        'OTP session expired. Please tap "Send OTP" again.',
+        'OTP सेशन समाप्त हो गया है। कृपया दुबारा "OTP भेजें" दबाएं।',
+        'OTP સેશન સમાપ્ત થઈ ગયું છે. કૃપા કરીને ફરીથી "OTP મોકલો" દબાવો.'
+      )
+    };
+  }
+
+  try {
+    const credential = await confirmation.confirm(cleanCode);
+    const user = credential.user;
+    const idToken = await user.getIdToken();
+    return {
+      success: true,
+      idToken,
+      phoneNumber: user.phoneNumber || '',
+      firebaseUid: user.uid
+    };
+  } catch (err: any) {
+    console.error('[Firebase Phone Auth] verify OTP error:', err);
+    const code = String(err?.code || '');
+    if (code === 'auth/invalid-verification-code') {
+      return {
+        success: false,
+        error: trFirebase(
+          'Incorrect OTP code! Please enter the exact 6-digit code sent to your mobile.',
+          'गलत OTP कोड! कृपया अपने SMS में आया सही 6-अंकों का कोड डालें।',
+          'ખોટો OTP કોડ! કૃપા કરીને તમારા SMS માં આવેલો સાચો 6-અંકનો કોડ નાખો.'
+        )
+      };
+    }
+    if (code === 'auth/code-expired') {
+      return {
+        success: false,
+        error: trFirebase(
+          'This OTP code has expired. Please request a new OTP.',
+          'यह OTP कोड समाप्त हो गया है। कृपया नया OTP मंगाएं।',
+          'આ OTP કોડનો સમય પૂરો થઈ ગયો છે. કૃપા કરીને નવો OTP મંગાવો.'
+        )
+      };
+    }
+    return {
+      success: false,
+      error: trFirebase(
+        'Failed to verify OTP code. Please check the code and try again.',
+        'OTP सत्यापित करने में विफल। कृपया कोड जांचकर पुनः प्रयास करें।',
+        'OTP ચકાસવામાં નિષ્ફળ. કૃપા કરીને કોડ તપાસીને ફરી પ્રયાસ કરો.'
+      )
+    };
+  }
+}
+
 
 
 

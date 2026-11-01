@@ -1,16 +1,18 @@
-import React from 'react';
-import { ArrowLeft, ShieldCheck, AlertOctagon, UserCheck, ShieldAlert, CheckCircle2, Scale, Lock, FileCheck2, MessageSquareWarning } from 'lucide-react';
+import React, { useState } from 'react';
+import { ArrowLeft, ShieldCheck, AlertOctagon, UserCheck, ShieldAlert, CheckCircle2, Scale, Lock, FileCheck2, MessageSquareWarning, HeartPulse, Banknote } from 'lucide-react';
 import { useLanguage } from '../i18n';
+import PrivacyPolicyModal from '../components/PrivacyPolicyModal';
 
 export default function GuidelinesScreen({ onBack, onReport }: { onBack: () => void; onReport?: () => void }) {
   const { t, language } = useLanguage();
+  const [isPrivacyOpen, setIsPrivacyOpen] = useState(false);
 
   const headerTitle =
     language === 'GU'
-      ? 'સેવાની શરતો અને સુરક્ષા નિયમો (Terms & Rules)'
+      ? 'નિયમો અને શરતો (Terms & Conditions)'
       : language === 'HI'
-      ? 'सेवा की शर्तें व सुरक्षा नियम (Terms of Service)'
-      : 'Terms of Service & Safety Rules';
+      ? 'नियम एवं शर्तें (Terms & Conditions)'
+      : 'Terms & Conditions & Safety Rules';
 
   return (
     <div className="flex flex-col h-full bg-[#F4F1EA] dark:bg-slate-900 transition-colors">
@@ -49,16 +51,16 @@ export default function GuidelinesScreen({ onBack, onReport }: { onBack: () => v
           />
         </div>
 
-        {/* Detailed Terms of Service Section */}
+        {/* Detailed Terms of Service & Platform Rules Section */}
         <div className="pt-2 space-y-3.5">
           <div className="flex items-center gap-2 px-1">
             <Scale className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
             <h4 className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300">
               {language === 'GU'
-                ? 'સેવાની કાનૂની શરતો (Terms of Service)'
+                ? 'અમે કેવી રીતે કામ કરીએ છીએ અને નિયમો (How We Work & Terms)'
                 : language === 'HI'
-                ? 'सेवा की मुख्य कानूनी शर्तें (Terms of Service)'
-                : 'Official Terms of Service'}
+                ? 'हम कैसे काम करते हैं और प्लेटफ़ॉर्म के नियम (How We Work & Terms)'
+                : 'How LocoHelp Works & Platform Terms'}
             </h4>
           </div>
 
@@ -66,17 +68,71 @@ export default function GuidelinesScreen({ onBack, onReport }: { onBack: () => v
             icon={<Scale className="w-5 h-5 text-amber-600" />}
             title={
               language === 'GU'
-                ? '૧. પ્લેટફોર્મની ભૂમિકા અને સ્વ-ચકાસણી (Platform Role & Verification)'
+                ? '૧. પ્લેટફોર્મની ભૂમિકા — અમે કેવી રીતે કામ કરીએ છીએ (Connecting Platform Role)'
                 : language === 'HI'
-                ? '1. प्लेटफॉर्म की भूमिका और स्वयं सत्यापन (Platform Role & Disclaimer)'
-                : '1. Platform Role & Independent Verification'
+                ? '1. प्लेटफॉर्म की भूमिका — हम कैसे काम करते हैं (Connecting Platform Role)'
+                : '1. Platform Role — How We Work (Connecting Mediator Only)'
             }
             desc={
               language === 'GU'
-                ? 'લોકોહેલ્પ (LocoHelp) માત્ર સ્થાનિક નાગરિકો, કારીગરો, દુકાનદારો અને નોકરી શોધનારાઓને જોડતું એક 100% નિઃશુલ્ક ટેકનોલોજી માધ્યમ છે. અમે કોઈ વચેટિયા નથી કે કોઈ કમિશન લેતા નથી. કોઈપણ નાણાકીય વ્યવહાર, એડવાન્સ પેમેન્ટ કે કામ સોંપતા પહેલાં સામેની વ્યક્તિ અને કામની ચકાસણી કરવાની સંપૂર્ણ જવાબદારી યુઝરની પોતાની રહેશે.'
+                ? 'લોકોહેલ્પ (LocoHelp) માત્ર સ્થાનિક નાગરિકો, કારીગરો (Service Experts), દુકાનદારો અને નોકરી શોધનારાઓને આપસમાં જોડતું એક 100% નિઃશુલ્ક હાયપર-લોકલ માધ્યમ છે. લોકોહેલ્પ કોઈપણ કારીગર, દુકાનદાર કે યુઝરનું માલિક (Employer), કોન્ટ્રાક્ટર, એજન્ટ કે બ્રોકર નથી.'
                 : language === 'HI'
-                ? 'लोकोहेल्प (LocoHelp) केवल स्थानीय नागरिकों, कारीगरों, दुकानदारों और रोज़गार खोजने वालों को आपस में जोड़ने वाला एक 100% निःशुल्क तकनीकी माध्यम है। हम कोई ब्रोकर नहीं हैं और किसी भी काम का कमीशन नहीं लेते। किसी भी आर्थिक लेन-देन, एडवांस पेमेंट या काम सौंपने से पहले सामने वाले व्यक्ति और कार्य की सत्यता जाँचना पूरी तरह उपयोगकर्ता की स्वयं की जिम्मेदारी होगी।'
-                : 'LocoHelp is solely a 100% free hyper-local technology connector linking citizens, skilled workers, shops, and job seekers. We do not act as a broker or charge any commission. Users are solely responsible for independently verifying identities, work quality, and terms before making any payment or entering into agreements.'
+                ? 'लोकोहेल्प (LocoHelp) केवल स्थानीय नागरिकों, सर्विस एक्सपर्ट्स (कारीगरों), दुकानदारों और रोज़गार खोजने वालों को आपस में जोड़ने वाला एक 100% निःशुल्क माध्यम है। लोकोहेल्प किसी भी कारीगर, दुकानदार या उपयोगकर्ता का नियोक्ता (Employer), ठेकेदार, एजेंट या ब्रोकर नहीं है।'
+                : 'LocoHelp is a 100% free hyper-local community platform that simply connects local citizens, service experts, shops, and job seekers with each other. LocoHelp is not an employer, contractor, agent, or broker of any listed user or service provider.'
+            }
+          />
+
+          <Rule
+            icon={<Banknote className="w-5 h-5 text-emerald-600" />}
+            title={
+              language === 'GU'
+                ? '૨. ૧૦૦% નિઃશુલ્ક સેવા (૦% કમિશન) અને નાણાકીય કે કામની જવાબદારી નહીં (Zero Financial & Work Liability)'
+                : language === 'HI'
+                ? '2. 100% निःशुल्क सेवा (0% कमीशन) एवं लेन-देन/काम की जिम्मेदारी नहीं (Zero Financial & Work Liability)'
+                : '2. 100% Free (0% Commission) & Zero Liability for Payments or Work Quality'
+            }
+            desc={
+              language === 'GU'
+                ? 'લોકોહેલ્પ સેવા લેનાર કે સેવા આપનાર (કારીગર/દુકાનદાર) કોઈપણ પાસેથી ₹1 પણ ફી કે કમિશન લેતું નથી. કોઈપણ નાણાકીય લેવડદેવડ (રોકડ, UPI કે એડવાન્સ પેમેન્ટ), ભાવતાલ, કામની ગુણવત્તા, વિલંબ, નુકસાન કે આપસી વિવાદ સંપૂર્ણપણે ગ્રાહક અને સર્વિસ પ્રોવાઈડર વચ્ચે રહેશે. આવા કોઈપણ ઓફલાઇન વ્યવહાર કે નુકસાન માટે લોકોહેલ્પની કોઈ જવાબદારી રહેશે નહીં.'
+                : language === 'HI'
+                ? 'लोकोहेल्प सेवा लेने वाले (ग्राहक) या सेवा देने वाले (कारीगर/दुकानदार) किसी से भी कोई शुल्क या कमीशन (0% Commission) नहीं लेता है। किसी भी प्रकार का आर्थिक लेन-देन (नकद, UPI या एडवांस पेमेंट), रेट तय करना, काम की गुणवत्ता, देरी, नुकसान या आपसी विवाद पूरी तरह से उपयोगकर्ता और सर्विस प्रोवाइडर के बीच होगा। ऐसे किसी भी ऑफलाइन लेन-देन या विवाद के लिए लोकोहेल्प की कोई जिम्मेदारी नहीं होगी।'
+                : 'LocoHelp charges ₹0 fee and 0% commission from both service seekers and service providers. Any financial transaction (cash, UPI, or advance payment), price negotiation, service quality, delay, damage, or offline dispute is strictly between the user and the service provider. LocoHelp bears zero liability for any offline transaction or service outcome.'
+            }
+          />
+
+          <Rule
+            icon={<UserCheck className="w-5 h-5 text-indigo-600" />}
+            title={
+              language === 'GU'
+                ? '૩. વેરિફાઈડ બેજ અને વ્યક્તિગત સુરક્ષા ડિસ્ક્લેમર (Verified Badge & Personal Safety)'
+                : language === 'HI'
+                ? '3. वेरिफाइड बैज और व्यक्तिगत सुरक्षा अस्वीकरण (Verified Badge & Personal Safety)'
+                : '3. Verified Badge Disclaimer & Independent Verification'
+            }
+            desc={
+              language === 'GU'
+                ? 'એપમાં દેખાતો "Verified" બેજ માત્ર એ દર્શાવે છે કે યુઝરે રજિસ્ટ્રેશન સમયે પોતાનું ઈમેઈલ/સંપર્ક વિગત OTP અને પ્રોફાઇલ ફોટો દ્વારા ચકાસેલ છે. તે કોઈના ચારિત્ર્ય કે કામની કુશળતાની ગેરંટી નથી. કોઈપણ અજાણી વ્યક્તિને ઘરે બોલાવતા પહેલાં, કામ સોંપતા પહેલાં કે પેમેન્ટ કરતા પહેલાં પોતાની રીતે સંપૂર્ણ ચકાસણી કરવી યુઝરની પોતાની જવાબદારી છે.'
+                : language === 'HI'
+                ? 'ऐप पर दिखने वाला "Verified" बैज केवल यह दर्शाता है कि उपयोगकर्ता ने पंजीकरण के समय अपना ईमेल/संपर्क विवरण OTP और प्रोफ़ाइल फ़ोटो से सत्यापित किया है। यह किसी व्यक्ति के चरित्र या काम की कुशलता की गारंटी नहीं है। किसी भी अनजान व्यक्ति को घर बुलाने, काम सौंपने या पेमेंट करने से पहले स्वयं पूरी जांच-पड़ताल करना उपयोगकर्ता की अपनी जिम्मेदारी है।'
+                : 'A "Verified" badge on a profile only indicates that the user verified their basic registration contact details and profile photo. It does not guarantee skill or character. Users must independently verify details and exercise standard personal safety precautions before hiring, meeting, or paying anyone.'
+            }
+          />
+
+          <Rule
+            icon={<HeartPulse className="w-5 h-5 text-rose-600" />}
+            title={
+              language === 'GU'
+                ? '૪. હોસ્પિટલ અને મેડિકલ કેટેગરી ડિસ્ક્લેમર (Medical Directory Disclaimer)'
+                : language === 'HI'
+                ? '4. हॉस्पिटल एवं मेडिकल कैटेगरी अस्वीकरण (Medical Directory Disclaimer)'
+                : '4. Hospital & Medical Category Disclaimer'
+            }
+            desc={
+              language === 'GU'
+                ? '"હોસ્પિટલ અને મેડિકલ" કેટેગરી માત્ર સ્થાનિક ક્લિનિક, મેડિકલ સ્ટોર, લેબોરેટરી કે એમ્બ્યુલન્સની સંપર્ક માહિતી (Directory Information) આપવા માટે છે. લોકોહેલ્પ કોઈ મેડિકલ સલાહ, નિદાન (Diagnosis), સારવાર કે ઈમરજન્સી મેડિકલ સેવાની ગેરંટી આપતું નથી. મેડિકલ ઈમરજન્સીમાં તરત જ અધિકૃત ડોક્ટર કે હેલ્પલાઇન (108/112) નો સંપર્ક કરો.'
+                : language === 'HI'
+                ? '"हॉस्पिटल और मेडिकल" कैटेगरी केवल स्थानीय क्लिनिक, मेडिकल स्टोर, लैब या एम्बुलेंस की संपर्क जानकारी (Directory Information) उपलब्ध कराने के लिए है। लोकोहेल्प कोई चिकित्सा सलाह, निदान (Diagnosis), इलाज या आपातकालीन चिकित्सा सेवा की गारंटी नहीं देता है। किसी भी मेडिकल इमरजेंसी में तुरंत अधिकृत डॉक्टर या हेल्पलाइन (108/112) से संपर्क करें।'
+                : 'The "Hospital & Medical" category is strictly a local informational directory for clinics, pharmacies, labs, and ambulance contacts. LocoHelp does not provide medical advice, diagnosis, treatment, or emergency medical guarantees. In a medical emergency, always contact qualified healthcare professionals or emergency services (108/112) immediately.'
             }
           />
 
@@ -84,17 +140,17 @@ export default function GuidelinesScreen({ onBack, onReport }: { onBack: () => v
             icon={<FileCheck2 className="w-5 h-5 text-blue-600" />}
             title={
               language === 'GU'
-                ? '૨. સાચી ઓળખ અને પ્રમાણિત લિસ્ટિંગ (Authentic Identity & Listings)'
+                ? '૫. યુઝર કન્ટેન્ટ (UGC) નિયમો, બ્લોક/રિપોર્ટ અને ઝીરો-ટોલરન્સ પોલિસી (UGC & Zero-Tolerance Policy)'
                 : language === 'HI'
-                ? '2. वास्तविक पहचान और प्रामाणिक लिस्टिंग (Authentic Identity & Listings)'
-                : '2. Authentic Identity & Verified Listings'
+                ? '5. यूज़र कंटेंट (UGC) नियम, ब्लॉक/रिपोर्ट और ज़ीरो-टॉलरेंस नीति (UGC & Zero-Tolerance Policy)'
+                : '5. User-Generated Content (UGC), Block/Report & Zero-Tolerance Policy'
             }
             desc={
               language === 'GU'
-                ? 'એકાઉન્ટ બનાવતી વખતે, 1-કલાકની લાઈવ પોસ્ટ મૂકતી વખતે, કારીગર/દુકાન રજિસ્ટર કરતી વખતે કે નોકરી/જાહેરાત મૂકતી વખતે સાચું નામ અને સાચી માહિતી આપવી ફરજિયાત છે. ખોટી ઓળખ, ભ્રામક જાહેરાત કે ગેરકાયદેસર પોસ્ટ મૂકવા પર સખત પ્રતિબંધ છે.'
+                ? 'એકાઉન્ટ બનાવતી વખતે કે પોસ્ટ/લિસ્ટિંગ મૂકતી વખતે સાચું નામ અને સાચી માહિતી આપવી ફરજિયાત છે. ખોટી ઓળખ, ભ્રામક જાહેરાત, એડવાન્સ પૈસાની છેતરપિંડી, ગેરકાયદેસર વસ્તુઓ કે અભદ્ર ભાષા પર સખત પ્રતિબંધ છે. દરેક પોસ્ટ અને ચેટમાં તરત જ "Block" અને "Report" કરવાની સુવિધા છે; નિયમ ભંગ કરનારનું કન્ટેન્ટ હટાવીને એકાઉન્ટ કાયમી ધોરણે બંધ (Permanent Ban) કરવામાં આવશે.'
                 : language === 'HI'
-                ? 'अकाउंट बनाते समय, 1-घंटे का लाइव ब्रॉडकास्ट करते समय, कारीगर/दुकान पंजीकृत करते समय या नौकरी/विज्ञापन डालते समय अपना वास्तविक नाम और सही जानकारी देना अनिवार्य है। फर्जी पहचान, भ्रामक विज्ञापन या गैर-कानूनी सामग्री पोस्ट करना सख्त वर्जित है।'
-                : 'Providing your real name and accurate details is mandatory when registering an account, posting 1-hour live broadcasts, listing a shop/service, or publishing jobs and ads. Impersonation, misleading promotions, or unlawful listings are strictly prohibited.'
+                ? 'अकाउंट बनाते समय या कोई भी पोस्ट/લિસ્ટિંગ डालते समय वास्तविक नाम और सही जानकारी देना अनिवार्य है। फर्जी प्रोफ़ाइल, भ्रामक विज्ञापन, एडवांस पैसे मांगकर ठगी, गैर-कानूनी सामग्री या अभद्र भाषा सख्त वर्जित है। ऐप में हर पोस्ट और चैट पर तुरंत "Block" और "Report" करने की सुविधा है; नियम तोड़ने वाले का कंटेंट हटाकर उसका अकाउंट स्थायी रूप से बैन (Permanent Ban) कर दिया जाएगा।'
+                : 'Users must provide their real name and accurate details when posting broadcasts, shops, services, or jobs. Fake profiles, misleading ads, advance-fee scams, illegal items, harassment, or abusive content are strictly prohibited. Users can immediately Block or Report any offending user or post directly on the post or inside chat; violating content is removed and offending accounts are permanently banned.'
             }
           />
 
@@ -102,43 +158,26 @@ export default function GuidelinesScreen({ onBack, onReport }: { onBack: () => v
             icon={<Lock className="w-5 h-5 text-purple-600" />}
             title={
               language === 'GU'
-                ? '૩. સુરક્ષિત ચેટ, નંબર ગોપનીયતા અને બ્લોક/રિપોર્ટ (Chat Safety & Privacy)'
+                ? '૬. ચેટ ગોપનીયતા અને સમુદાય સુરક્ષા (Chat Privacy & Community Safety)'
                 : language === 'HI'
-                ? '3. सुरक्षित चैट, नंबर गोपनीयता और ब्लॉक/रिपोर्ट (Chat Safety & Privacy)'
-                : '3. Safe In-App Chat, Number Privacy & Block/Report'
+                ? '6. चैट गोपनीयता और सामुदायिक सुरक्षा (Chat Privacy & Community Safety)'
+                : '6. Chat Privacy & Community Safety'
             }
             desc={
               language === 'GU'
-                ? 'તમારી સુરક્ષા માટે મોબાઈલ નંબર જાહેરમાં દેખાતો નથી; જરૂર પડ્યે યુઝર સ્વેચ્છાએ ચેટમાં શેર કરી શકે છે. ચેટમાં અયોગ્ય ભાષા, સ્પામ કે ખોટી માંગણી કરનાર યુઝરને તમે તરત જ Block અથવા Report કરી શકો છો.'
+                ? 'સામાન્ય યુઝર્સનો મોબાઈલ નંબર ડિફોલ્ટ રૂપે ગોપનીય (Private) રહે છે અને યુઝરની મરજીથી જ ચેટમાં શેર થાય છે. તમામ લોકોની સુરક્ષા જાળવવા માટે, જો કોઈ યુઝર છેતરપિંડી, સ્પામ કે નિયમ ભંગ કરે તો એડમિન ટીમ દ્વારા તેનું એકાઉન્ટ તરત જ બ્લોક કરી દેવામાં આવે છે.'
                 : language === 'HI'
-                ? 'आपकी गोपनीयता के लिए किसी भी उपयोगकर्ता का मोबाइल नंबर सार्वजनिक रूप से नहीं दिखाया जाता; आवश्यकता पड़ने पर उपयोगकर्ता स्वेच्छा से चैट में साझा कर सकता है। चैट में अमर्यादित भाषा, स्पैम या अनुचित व्यवहार करने वाले को आप तुरंत Block (ब्लॉक) या Report (रिपोर्ट) कर सकते हैं।'
-                : 'For your privacy, phone numbers are hidden by default and only shared voluntarily inside chat. Users must maintain respectful conduct; you can immediately Block or Report any user engaging in spam, harassment, or suspicious behavior.'
-            }
-          />
-
-          <Rule
-            icon={<ShieldAlert className="w-5 h-5 text-rose-600" />}
-            title={
-              language === 'GU'
-                ? '૪. નિયમ ભંગ અને કાનૂની પાલન (Violation & Legal Compliance)'
-                : language === 'HI'
-                ? '4. नियम उल्लंघन और कानूनी अनुपालन (Violation & Legal Compliance)'
-                : '4. Zero-Tolerance & Legal Compliance'
-            }
-            desc={
-              language === 'GU'
-                ? 'પ્લેટફોર્મના નિયમોનો ભંગ કરનાર અથવા છેતરપિંડીનો પ્રયાસ કરનારનું એકાઉન્ટ કાયમી ધોરણે બંધ કરવામાં આવશે. ગંભીર નિયમ ભંગ કે કાયદેસરની તપાસની સ્થિતિમાં, લાગુ કાયદાઓ હેઠળ સંબંધિત એકાઉન્ટ અને ચેટ રેકોર્ડ્સ સક્ષમ કાયદાકીય અને નિયમનકારી સત્તાવાળાઓ (Competent Legal & Regulatory Authorities) સાથે શેર કરવાનો અધિકાર સુરક્ષિત રહેશે.'
-                : language === 'HI'
-                ? 'प्लेटफ़ॉर्म के नियमों का उल्लंघन करने या धोखाधड़ी का प्रयास करने वाले उपयोगकर्ताओं का अकाउंट स्थायी रूप से बंद कर दिया जाएगा। गंभीर नियम उल्लंघन या वैध कानूनी जांच की स्थिति में, लागू कानूनों के तहत संबंधित अकाउंट व चैट रिकॉर्ड सक्षम कानूनी एवं नियामक प्राधिकरणों (Competent Legal & Regulatory Authorities) के साथ साझा करने का अधिकार सुरक्षित रहेगा।'
-                : 'Accounts violating platform rules or attempting fraud will be permanently terminated. In the event of severe violations or lawful investigations, LocoHelp reserves the right to share relevant account and chat audit records with competent legal, regulatory, and law enforcement authorities in accordance with applicable laws.'
+                ? 'सामान्य उपयोगकर्ताओं का मोबाइल नंबर डिफ़ॉल्ट रूप से गोपनीय (Private) रहता है और केवल आपकी इच्छा से ही चैट में साझा होता है। सभी की सुरक्षा बनाए रखने के लिए, यदि कोई उपयोगकर्ता धोखाधड़ी, स्पैम या नियम उल्लंघन करता है, तो एडमिन टीम द्वारा उसका अकाउंट तुरंत ब्लॉक कर दिया जाता है।'
+                : 'General users’ phone numbers remain hidden by default and are only shared voluntarily in chat. To keep our local community safe, any account involved in spam, fraud, or rule violations is immediately reviewed and blocked by our Admin team.'
             }
           />
         </div>
 
-        {/* Action Buttons: Privacy Policy & Report */}
+        {/* Action Button: Privacy Policy */}
         <div className="pt-2 space-y-2.5">
           <button
             onClick={() => {
+              setIsPrivacyOpen(true);
               window.dispatchEvent(new CustomEvent('locohelp_open_privacy_policy'));
             }}
             className="w-full py-3.5 px-4 bg-[#FCFAF5] hover:bg-[#EAE6DC] dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold text-xs rounded-2xl border border-[#DFDBCF] dark:border-slate-700 transition-colors flex items-center justify-between cursor-pointer shadow-xs"
@@ -155,27 +194,10 @@ export default function GuidelinesScreen({ onBack, onReport }: { onBack: () => v
             </div>
             <span className="font-black">→</span>
           </button>
-
-          {onReport && (
-            <button
-              onClick={onReport}
-              className="w-full py-3.5 px-4 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/30 dark:hover:bg-rose-950/50 text-rose-700 dark:text-rose-300 font-bold text-xs rounded-2xl border border-rose-200 dark:border-rose-800/60 transition-colors flex items-center justify-between cursor-pointer"
-            >
-              <div className="flex items-center gap-2.5">
-                <MessageSquareWarning className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
-                <span>
-                  {language === 'EN'
-                    ? 'Report Suspicious Activity or Rule Violation'
-                    : language === 'GU'
-                    ? 'શંકાસ્પદ પ્રવૃત્તિ કે નિયમ ભંગની ફરિયાદ (Report) કરો'
-                    : 'संदिग्ध गतिविधि या नियम उल्लंघन की रिपोर्ट करें'}
-                </span>
-              </div>
-              <span className="font-black">→</span>
-            </button>
-          )}
         </div>
       </div>
+
+      <PrivacyPolicyModal isOpen={isPrivacyOpen} onClose={() => setIsPrivacyOpen(false)} />
     </div>
   );
 }

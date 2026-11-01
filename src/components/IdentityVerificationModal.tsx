@@ -31,12 +31,10 @@ interface IdentityVerificationModalProps {
 }
 
 const DOCUMENT_TYPES = [
-  { id: 'aadhaar', labelEn: 'Aadhaar Card (Front/Both)', labelHi: 'आधार कार्ड (सामने / दोनों तरफ)', labelGu: 'આધાર કાર્ડ (આગળ / બંને બાજુ)' },
-  { id: 'pan', labelEn: 'PAN Card', labelHi: 'पैन कार्ड (PAN Card)', labelGu: 'પાન કાર્ડ (PAN Card)' },
-  { id: 'voter_id', labelEn: 'Voter ID Card', labelHi: 'मतदाता पहचान पत्र (Voter ID)', labelGu: 'ચૂંટણી કાર્ડ (Voter ID)' },
-  { id: 'driving_license', labelEn: 'Driving License', labelHi: 'ड्राइविंग लाइसेंस (DL)', labelGu: 'ડ્રાઇવિંગ લાઇસન્સ (DL)' },
-  { id: 'business_license', labelEn: 'Trade / GST / MSME License', labelHi: 'ट्रेड / जीएसटी / एमएसएमई लाइसेंस', labelGu: 'ટ્રેડ / GST / MSME લાઇસન્સ' },
-  { id: 'other_govt_id', labelEn: 'Other Government Issued ID', labelHi: 'अन्य सरकारी पहचान पत्र', labelGu: 'અન્ય સરકારી ઓળખપત્ર' },
+  { id: 'live_selfie', labelEn: '📸 Live Selfie Photo (Real Face Photo)', labelHi: '📸 लाइव सेल्फी फोटो (असली चेहरा दिखती फोटो)', labelGu: '📸 લાઈવ સેલ્ફી ફોટો (સાચો ચહેરો દેખાતો ફોટો)' },
+  { id: 'visiting_card', labelEn: '🪪 Visiting Card / Business Card', labelHi: '🪪 विजिटिंग कार्ड / बिज़नेस कार्ड', labelGu: '🪪 વિઝિટિંગ કાર્ડ / બિઝનેસ કાર્ડ' },
+  { id: 'shop_work_photo', labelEn: '🏪 Shop Board / Live Work Photo', labelHi: '🏪 दुकान के बोर्ड या काम करते हुए फोटो', labelGu: '🏪 દુકાનના બોર્ડ અથવા કામનો ફોટો' },
+  { id: 'skill_certificate', labelEn: '📜 Skill Certificate / Bill Book Photo', labelHi: '📜 काम का सर्टिफिकेट / बिल बुक फोटो', labelGu: '📜 કામનું સર્ટિફિકેટ / બિલ બુક ફોટો' },
 ];
 
 export default function IdentityVerificationModal({
@@ -50,7 +48,7 @@ export default function IdentityVerificationModal({
   const { language, tr } = useLanguage();
   const activeUser = getCurrentUser();
 
-  const [docType, setDocType] = useState('aadhaar');
+  const [docType, setDocType] = useState('live_selfie');
   const [originalFile, setOriginalFile] = useState<File | null>(null);
   const [watermarkedPreview, setWatermarkedPreview] = useState<string | null>(null);
   const [isWatermarking, setIsWatermarking] = useState(false);
@@ -59,6 +57,7 @@ export default function IdentityVerificationModal({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const selfieInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
 
@@ -69,10 +68,11 @@ export default function IdentityVerificationModal({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const validation = await validateUploadedFile(file, { allowPdf: true });
+    const validation = await validateUploadedFile(file, { allowPdf: false });
     if (!validation.valid) {
-      setErrorMessage(tr(validation.error || 'Invalid file', validation.errorHi || validation.error || 'अमान्य फ़ाइल', validation.error || 'અમાન્ય ફાઇલ'));
+      setErrorMessage(tr(validation.error || 'Invalid image', validation.errorHi || validation.error || 'अमान्य फ़ोटो', validation.error || 'અમાન્ય ફોટો'));
       if (fileInputRef.current) fileInputRef.current.value = '';
+      if (selfieInputRef.current) selfieInputRef.current.value = '';
       return;
     }
 
@@ -86,13 +86,13 @@ export default function IdentityVerificationModal({
         entityType,
         userName: targetName,
         referenceId: targetId.slice(0, 10),
-        customText: `FOR LOCOHELP VERIFICATION ONLY • DO NOT REUSE • ${entityType === 'business' ? 'BUSINESS ID' : 'USER ID'}`
+        customText: `FOR LOCOHELP VERIFICATION ONLY • ${docType === 'live_selfie' ? 'LIVE SELFIE' : 'WORK PROOF'}`
       });
 
       setWatermarkedPreview(watermarked);
     } catch (err: any) {
       console.error("Watermarking error:", err);
-      setErrorMessage(err?.message || tr('Failed to process document file.', 'दस्तावेज़ प्रोसेस करने में विफल।', 'દસ્તાવેજ પ્રોસેસ કરવામાં નિષ્ફળ.'));
+      setErrorMessage(err?.message || tr('Failed to process photo.', 'फोटो प्रोसेस करने में विफल।', 'ફોટો પ્રોસેસ કરવામાં નિષ્ફળ.'));
     } finally {
       setIsWatermarking(false);
     }
@@ -100,7 +100,7 @@ export default function IdentityVerificationModal({
 
   const handleSubmit = async () => {
     if (!watermarkedPreview) {
-      setErrorMessage(tr('Please select an ID document to upload.', 'कृपया अपलोड करने के लिए पहचान पत्र चुनें।', 'કૃપા કરીને અપલોડ કરવા માટે ઓળખપત્ર પસંદ કરો.'));
+      setErrorMessage(tr('Please take a Live Selfie or select a work photo.', 'कृपया अपनी लाइव सेल्फी लें या काम की फोटो चुनें।', 'કૃપા કરીને તમારી લાઈવ સેલ્ફી લો અથવા કામનો ફોટો પસંદ કરો.'));
       return;
     }
 
@@ -109,7 +109,7 @@ export default function IdentityVerificationModal({
 
     try {
       const selectedDocObj = DOCUMENT_TYPES.find(d => d.id === docType);
-      const docTitle = selectedDocObj ? tr(selectedDocObj.labelEn, selectedDocObj.labelHi, selectedDocObj.labelGu) : 'Identity Document';
+      const docTitle = selectedDocObj ? tr(selectedDocObj.labelEn, selectedDocObj.labelHi, selectedDocObj.labelGu) : 'Live Selfie / Work Verification';
 
       const res = await submitVerification({
         entityType,
@@ -143,6 +143,7 @@ export default function IdentityVerificationModal({
     setSubmitSuccess(false);
     setErrorMessage(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
+    if (selfieInputRef.current) selfieInputRef.current.value = '';
   };
 
   return (
@@ -166,11 +167,11 @@ export default function IdentityVerificationModal({
               <div>
                 <h3 className="font-extrabold text-base text-slate-900 dark:text-white leading-tight">
                   {entityType === 'business'
-                    ? tr('Business Identity Verification', 'बिज़नेस पहचान सत्यापन', 'બિઝનેસ ઓળખ વેરિફિકેશન')
-                    : tr('User Profile Verification', 'यूज़र प्रोफाइल सत्यापन', 'યુઝર પ્રોફાઇલ વેરિફિકેશન')}
+                    ? tr('Business Profile Verification', 'बिज़नेस प्रोफाइल सत्यापन', 'બિઝનેસ પ્રોફાઇલ વેરિફિકેશન')
+                    : tr('Live Selfie & Profile Verification', 'लाइव सेल्फी और प्रोफाइल सत्यापन', 'લાઈવ સેલ્ફી અને પ્રોફાઇલ વેરિફિકેશન')}
                 </h3>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
-                  {tr('Upload ID for Official Verified Badge', 'वेरिफाइड बैज पाने के लिए पहचान पत्र अपलोड करें', 'વેરિફાઈડ બેજ મેળવવા માટે ઓળખપત્ર અપલોડ કરો')}
+                  {tr('Take Live Selfie or Upload Work Photo for Verified Badge', 'वेरिफाइड बैज पाने के लिए अपनी लाइव सेल्फी या काम की फोटो दें', 'વેરિફાઈડ બેજ માટે તમારી લાઈવ સેલ્ફી અથવા કામનો ફોટો આપો')}
                 </p>
               </div>
             </div>
@@ -191,7 +192,7 @@ export default function IdentityVerificationModal({
                   <CheckCircle2 className="w-10 h-10" />
                 </div>
                 <h4 className="text-lg font-black text-slate-900 dark:text-white">
-                  {tr('ID Document Submitted Successfully!', 'पहचान पत्र सफलतापूर्वक सबमिट हुआ!', 'ઓળખપત્ર સફળતાપૂર્વક સબમિટ થયું!')}
+                  {tr('Verification Photo Submitted Successfully!', 'वेरिफिकेशन फोटो सफलतापूर्वक सबमिट हुई!', 'વેરિફિકેશન ફોટો સફળતાપૂર્વક સબમિટ થયો!')}
                 </h4>
                 <div className="bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-900 rounded-2xl p-4 text-xs text-amber-900 dark:text-amber-200 text-left space-y-1.5">
                   <div className="flex items-center gap-1.5 font-bold">
@@ -200,9 +201,9 @@ export default function IdentityVerificationModal({
                   </div>
                   <p className="leading-relaxed">
                     {tr(
-                      'Your document has been auto-watermarked and securely submitted. Once the Admin reviews and approves it, your profile/business will display the official Verified badge!',
-                      'आपके दस्तावेज़ पर सुरक्षा वाटरमार्क लगा दिया गया है। एडमिन द्वारा सत्यापित करते ही आपकी प्रोफ़ाइल पर ग्रीन वेरिफाइड बैज दिखना शुरू हो जाएगा!',
-                      'તમારા દસ્તાવેજ પર સુરક્ષા વોટરમાર્ક લગાવીને સુરક્ષિત રીતે સબમિટ કરવામાં આવ્યું છે. એડમિન દ્વારા ચકાસણી અને મંજૂરી મળતાં જ તમારી પ્રોફાઇલ પર વેરિફાઈડ બેજ દેખાશે!'
+                      'Your photo has been securely submitted to Admin. Once the Admin reviews and approves it, your profile/business will display the official Verified badge!',
+                      'आपकी फोटो एडमिन जांच के लिए सुरक्षित रूप से भेज दी गई है। एडमिन द्वारा सत्यापित करते ही आपकी प्रोफ़ाइल पर ग्रीन वेरिफाइड बैज दिखना शुरू हो जाएगा!',
+                      'તમારો ફોટો એડમિન ચકાસણી માટે સુરક્ષિત રીતે સબમિટ કરવામાં આવ્યો છે. એડમિન દ્વારા ચકાસણી અને મંજૂરી મળતાં જ તમારી પ્રોફાઇલ પર વેરિફાઈડ બેજ દેખાશે!'
                     )}
                   </p>
                 </div>
@@ -223,22 +224,22 @@ export default function IdentityVerificationModal({
                   <Lock className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5" />
                   <div className="text-xs space-y-1">
                     <p className="font-extrabold text-indigo-950 dark:text-indigo-200">
-                      {tr('Strict Privacy & Admin-Only Visibility', 'सख्त प्राइवेसी एवं केवल एडमिन दृश्यता', 'કડક પ્રાઈવસી અને માત્ર એડમિન માટે જ દૃશ્યમાન')}
+                      {tr('No Government ID Required • Safe Live Selfie Verification', 'सरकारी आईडी की ज़रूरत नहीं • सुरक्षित लाइव सेल्फी वेरिफिकेशन', 'સરકારી આઈડીની જરૂર નથી • સુરક્ષિત લાઈવ સેલ્ફી વેરિફિકેશન')}
                     </p>
                     <p className="text-slate-600 dark:text-slate-400 leading-relaxed text-[11px]">
                       {tr(
-                        'Your uploaded ID document is NEVER shown to the public or other users. It is strictly accessible only to LocoHelp Administrators for verification.',
-                        'अपलोड किया गया पहचान पत्र जनता या अन्य यूज़र्स को कभी नहीं दिखेगा। यह सिर्फ और सिर्फ एडमिन सत्यापन के लिए सुरक्षित है।',
-                        'અપલોડ કરેલું ઓળખપત્ર ક્યારેય જાહેરમાં કે અન્ય યુઝર્સને બતાવવામાં આવતું નથી. તે માત્ર એડમિન ચકાસણી માટે જ સુરક્ષિત છે.'
+                        'To prevent fake accounts without asking for sensitive Government IDs, simply take a Live Selfie or upload your Visiting Card / Shop Photo for Admin review.',
+                        'फर्जी अकाउंट रोकने के लिए हम कोई सरकारी आईडी नहीं मांगते। बस अपनी एक साफ लाइव सेल्फी लें या अपना विजिटिंग कार्ड / दुकान की फोटो एडमिन जांच के लिए अपलोड करें।',
+                        'બોગસ એકાઉન્ટ રોકવા માટે અમે કોઈ સરકારી આઈડી માંગતા નથી. માત્ર તમારી એક લાઈવ સેલ્ફી લો અથવા તમારું વિઝિટિંગ કાર્ડ / દુકાનનો ફોટો અપલોડ કરો.'
                       )}
                     </p>
                   </div>
                 </div>
 
-                {/* Form: Document Type Selector */}
+                {/* Form: Verification Type Selector */}
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                    {tr('Select ID Document Type:', 'पहचान पत्र का प्रकार चुनें:', 'ઓળખપત્રનો પ્રકાર પસંદ કરો:')}
+                    {tr('Select Verification Photo Type:', 'वेरिफिकेशन फोटो का प्रकार चुनें:', 'વેરિફિકેશન ફોટોનો પ્રકાર પસંદ કરો:')}
                   </label>
                   <select
                     value={docType}
@@ -253,49 +254,83 @@ export default function IdentityVerificationModal({
                   </select>
                 </div>
 
-                {/* Upload & Watermark Area */}
+                {/* Upload & Live Selfie Area */}
                 <div className="space-y-2">
                   <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between">
-                    <span>{tr('Upload ID Card Photo:', 'पहचान पत्र की फ़ोटो चुनें:', 'ઓળખપત્રનો ફોટો પસંદ કરો:')}</span>
+                    <span>{tr('Take Live Selfie or Upload Photo:', 'लाइव सेल्फी लें या फोटो चुनें:', 'લાઈવ સેલ્ફી લો અથવા ફોટો પસંદ કરો:')}</span>
                     <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-900">
-                      🛡️ {tr('Auto-Watermarked', 'ऑटो-वाटरमार्क', 'ઓટો-વોટરમાર્ક')}
+                      🛡️ {tr('Admin Review Only', 'केवल एडमिन जांच', 'ફક્ત એડમિન તપાસ')}
                     </span>
                   </label>
 
+                  {/* Camera Selfie Input */}
+                  <input
+                    type="file"
+                    ref={selfieInputRef}
+                    accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+                    capture="user"
+                    onChange={handleFileChange}
+                    className="hidden"
+                    id="live-selfie-file-input"
+                  />
+
+                  {/* Gallery Photo Input */}
                   <input
                     type="file"
                     ref={fileInputRef}
-                    accept="image/jpeg,image/png,image/webp,application/pdf,.jpg,.jpeg,.png,.webp,.pdf"
+                    accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
                     onChange={handleFileChange}
                     className="hidden"
                     id="id-document-file-input"
                   />
 
                   {!watermarkedPreview ? (
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={isWatermarking}
-                      className="w-full border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-emerald-500 dark:hover:border-emerald-500 rounded-2xl p-6 flex flex-col items-center justify-center text-center space-y-2.5 bg-slate-50/50 dark:bg-slate-800/30 hover:bg-emerald-50/30 transition-all cursor-pointer group"
-                    >
-                      <div className="w-12 h-12 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm flex items-center justify-center text-slate-500 group-hover:text-emerald-600 group-hover:scale-105 transition-all">
-                        {isWatermarking ? (
-                          <RefreshCw className="w-6 h-6 animate-spin text-emerald-600" />
-                        ) : (
-                          <Upload className="w-6 h-6" />
-                        )}
-                      </div>
-                      <div>
-                        <p className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                          {isWatermarking
-                            ? tr('Validating & Watermarking...', 'सत्यापित और वाटरमार्क किया जा रहा है...', 'ચકાસણી અને વોટરમાર્ક થઈ રહ્યું છે...')
-                            : tr('Click to Upload Document (Image or PDF)', 'दस्तावेज़ अपलोड करने के लिए क्लिक करें (इमेज या PDF)', 'દસ્તાવેજ અપલોડ કરવા માટે ક્લિક કરો (ફોટો અથવા PDF)')}
-                        </p>
-                        <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
-                          JPG, PNG, WEBP (Max 2MB) • PDF (Max 5MB)
-                        </p>
-                      </div>
-                    </button>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDocType('live_selfie');
+                          selfieInputRef.current?.click();
+                        }}
+                        disabled={isWatermarking}
+                        className="border-2 border-dashed border-emerald-400 dark:border-emerald-700 hover:border-emerald-600 rounded-2xl p-4 flex flex-col items-center justify-center text-center space-y-2 bg-emerald-50/40 dark:bg-emerald-950/20 hover:bg-emerald-50 transition-all cursor-pointer group"
+                      >
+                        <div className="w-11 h-11 rounded-2xl bg-emerald-600 text-white shadow-sm flex items-center justify-center text-lg group-hover:scale-105 transition-all">
+                          📸
+                        </div>
+                        <div>
+                          <p className="text-xs font-extrabold text-emerald-900 dark:text-emerald-200">
+                            {tr('Take Live Selfie (Camera)', 'कैमरे से लाइव सेल्फी लें', 'કેમેરાથી લાઈવ સેલ્ફી લો')}
+                          </p>
+                          <p className="text-[10px] text-emerald-700 dark:text-emerald-400 mt-0.5">
+                            {tr('Opens Front Camera Instantly', 'सीधे फ्रंट कैमरा खुलेगा', 'સીધો ફ્રન્ટ કેમેરા ખુલશે')}
+                          </p>
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isWatermarking}
+                        className="border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-indigo-500 rounded-2xl p-4 flex flex-col items-center justify-center text-center space-y-2 bg-slate-50/50 dark:bg-slate-800/30 hover:bg-indigo-50/30 transition-all cursor-pointer group"
+                      >
+                        <div className="w-11 h-11 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm flex items-center justify-center text-slate-600 group-hover:text-indigo-600 group-hover:scale-105 transition-all">
+                          {isWatermarking ? (
+                            <RefreshCw className="w-5 h-5 animate-spin text-emerald-600" />
+                          ) : (
+                            <Upload className="w-5 h-5" />
+                          )}
+                        </div>
+                        <div>
+                          <p className="text-xs font-extrabold text-slate-800 dark:text-slate-200">
+                            {tr('Upload Visiting Card / Work Photo', 'विजिटिंग कार्ड / काम की फोटो चुनें', 'વિઝિટિંગ કાર્ડ / કામનો ફોટો પસંદ કરો')}
+                          </p>
+                          <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                            JPG, PNG, WEBP (Max 2MB)
+                          </p>
+                        </div>
+                      </button>
+                    </div>
                   ) : (
                     <div className="space-y-2">
                       {/* Watermarked Document Preview */}

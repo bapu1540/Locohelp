@@ -684,10 +684,10 @@ export default function SettingsMenu({ onNavigate, onBack }: { onNavigate: (s: S
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 leading-relaxed">
                 {language === 'GU'
-                  ? 'આ વિનંતી સબમિટ કરવાથી તમારું એકાઉન્ટ, પ્રોફાઇલ અને પોસ્ટ્સ ચકાસણી બાદ કાયમી ધોરણે હટાવી દેવામાં આવશે (સિવાય કે કોઈ સક્રિય કાનૂની કે સુરક્ષા તપાસ હેઠળ સક્ષમ કાયદાકીય અને નિયમનકારી સત્તાવાળાઓ માટે રેકોર્ડ રાખવો અનિવાર્ય હોય).'
+                  ? 'આ વિનંતી સબમિટ કરવાથી તમારું એકાઉન્ટ, પ્રોફાઇલ અને પોસ્ટ્સ ચકાસણી બાદ કાયમી ધોરણે હટાવી દેવામાં આવશે.'
                   : language === 'HI'
-                  ? 'यह अनुरोध सबमिट करने पर सत्यापन के पश्चात आपका अकाउंट, प्रोफ़ाइल और पोस्ट स्थायी रूप से हटा दिए जाएंगे (सिवाय उन मामलों के जहाँ किसी सक्रिय सुरक्षा शिकायत या कानूनी जांच के तहत सक्षम कानूनी एवं नियामक प्राधिकरणों के अनुपालन हेतु रिकॉर्ड रखना अनिवार्य हो)।'
-                  : 'Submitting this request permanently deletes your profile, listings, and personal data after verification, except where specific records must be retained for active safety investigations or compliance with competent legal and regulatory authorities.'}
+                  ? 'यह अनुरोध सबमिट करने पर सत्यापन के पश्चात आपका अकाउंट, प्रोफ़ाइल और पोस्ट स्थायी रूप से हटा दिए जाएंगे।'
+                  : 'Submitting this request permanently deletes your profile, listings, and personal data after verification.'}
               </p>
             </div>
 

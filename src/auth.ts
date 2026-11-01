@@ -9,6 +9,11 @@ import {
   getOtpCooldownRemainingSeconds,
   recordOtpSentTimestamp
 } from './lib/security';
+import {
+  sendFirebasePhoneOtp,
+  verifyFirebasePhoneOtpCode,
+  normalizeIndianPhoneE164
+} from './lib/firebase';
 export { signInWithGoogle } from './lib/firebase';
 
 
@@ -350,44 +355,270 @@ export function isValidEmail(email: string): boolean {
 }
 
 /**
- * Email & Password Login with JWT session persistence (Strictly requires pre-registered verified account)
+ * Indian 10-digit mobile number validator & normalizer
  */
-export async function signInWithPassword(email: string, password: string): Promise<{
+export function isValidPhone(phone: string): boolean {
+  return normalizeIndianPhoneE164(phone).valid;
+}
+
+export function normalizeIndianPhone(phone: string): string {
+  const norm = normalizeIndianPhoneE164(phone);
+  return norm.valid ? norm.tenDigits : String(phone || '').replace(/\D/g, '').slice(-10);
+}
+
+export function isPhoneIdentifier(input: string): boolean {
+  if (!input || typeof input !== 'string') return false;
+  const trimmed = input.trim();
+  if (trimmed.includes('@') && !trimmed.toLowerCase().endsWith('@phone.locohelp.com')) {
+    return false;
+  }
+  return normalizeIndianPhoneE164(trimmed).valid;
+}
+
+export function isValidEmailOrPhone(input: string): boolean {
+  return isValidEmail(input) || isValidPhone(input);
+}
+
+export function trAuth(en: string, hi: string, gu: string): string {
+  try {
+    const lang = (localStorage.getItem('locohelp_language') || 'GU').toUpperCase();
+    if (lang === 'GU') return gu;
+    if (lang === 'HI') return hi;
+    return en;
+  } catch {
+    return gu;
+  }
+}
+
+export function localizeServerAuthError(
+  rawError?: string,
+  fallbackEn = 'Authentication failed. Please try again.',
+  fallbackHi = 'प्रमाणीकरण विफल रहा। कृपया पुनः प्रयास करें।',
+  fallbackGu = 'પ્રમાણીકરણ નિષ્ફળ રહ્યું. કૃપા કરીને ફરી પ્રયાસ કરો.'
+): string {
+  if (!rawError || typeof rawError !== 'string') {
+    return trAuth(fallbackEn, fallbackHi, fallbackGu);
+  }
+  const err = rawError.trim();
+  const lower = err.toLowerCase();
+
+  if (lower.includes('mobile number not registered') || err.includes('यह मोबाइल नंबर अभी रजिस्टर नहीं है')) {
+    return trAuth(
+      'This mobile number is not registered yet. Please verify using Mobile OTP first.',
+      'यह मोबाइल नंबर अभी रजिस्टर नहीं है। कृपया पहले मोबाइल OTP से वेरिफाई करके लॉगिन करें।',
+      'આ મોબાઇલ નંબર હજુ રજિસ્ટર થયેલ નથી. કૃપા કરીને પહેલા મોબાઇલ OTP દ્વારા વેરિફાઈ કરીને લોગિન કરો.'
+    );
+  }
+  if (lower.includes('email not registered') || err.includes('यह ईमेल अभी रजिस्टर नहीं है')) {
+    return trAuth(
+      'This email is not registered yet. Please use OTP Login or Create New Account first.',
+      'यह ईमेल अभी रजिस्टर नहीं है। कृपया पहले OTP लॉगिन या नया अकाउंट बनाएं विकल्प चुनें।',
+      'આ ઈમેલ હજુ રજિસ્ટર થયેલ નથી. કૃપા કરીને પહેલા OTP લોગિન અથવા નવું એકાઉન્ટ બનાવો વિકલ્પ પસંદ કરો.'
+    );
+  }
+  if (lower.includes('password not set yet') || err.includes('अभी पासवर्ड सेट नहीं है')) {
+    return trAuth(
+      'Password is not set for this account yet. Please sign in via OTP or click "Forgot / Set Password via OTP" below.',
+      'इस अकाउंट के लिए अभी पासवर्ड सेट नहीं है। कृपया OTP से लॉगिन करें या नीचे पासवर्ड सेट करें विकल्प चुनें।',
+      'આ એકાઉન્ટ માટે હજુ પાસવર્ડ સેટ નથી. કૃપા કરીને OTP થી લોગિન કરો અથવા નીચે પાસવર્ડ સેટ કરો વિકલ્પ પસંદ કરો.'
+    );
+  }
+  if (lower.includes('incorrect password') || err.includes('गलत पासवर्ड')) {
+    return trAuth(
+      'Incorrect password! If you forgot your password, click "Forgot / Set Password via OTP" below.',
+      'गलत पासवर्ड! यदि आप पासवर्ड भूल गए हैं तो नीचे OTP से पासवर्ड रीसेट करें विकल्प चुनें।',
+      'ખોટો પાસવર્ડ! જો તમે પાસવર્ડ ભૂલી ગયા હોવ તો નીચે OTP દ્વારા પાસવર્ડ રીસેટ કરો વિકલ્પ પસંદ કરો.'
+    );
+  }
+  if (lower.includes('no active otp found') || err.includes('कोई सक्रिय OTP नहीं मिला')) {
+    return trAuth(
+      'No active OTP found or it has expired. Please request a new OTP.',
+      'कोई सक्रिय OTP नहीं मिला या वह समाप्त हो गया है। कृपया नया OTP मंगाएं।',
+      'કોઈ સક્રિય OTP મળ્યો નથી અથવા તેનો સમય પૂરો થઈ ગયો છે. કૃપા કરીને નવો OTP મંગાવો.'
+    );
+  }
+  if (lower.includes('otp expired') || err.includes('समय-सीमा (5 मिनट) समाप्त')) {
+    return trAuth(
+      'OTP has expired (5 minutes limit). Please request a new OTP.',
+      'OTP की समय-सीमा (5 मिनट) समाप्त हो गई है। कृपया नया OTP मंगाएं।',
+      'OTP નો સમય (5 મિનિટ) પૂરો થઈ ગયો છે. કૃપા કરીને નવો OTP મંગાવો.'
+    );
+  }
+  if (lower.includes('too many failed attempts') || err.includes('5 बार गलत OTP')) {
+    return trAuth(
+      'Too many incorrect OTP attempts. Please request a new OTP.',
+      '5 बार गलत OTP डाला गया! सुरक्षा के लिए कृपया नया OTP मंगाएं।',
+      '5 વાર ખોટો OTP નાખવામાં આવ્યો! સુરક્ષા માટે કૃપા કરીને નવો OTP મંગાવો.'
+    );
+  }
+  if (lower.includes('invalid otp code') || err.includes('गलत OTP कोड')) {
+    return trAuth(
+      'Incorrect OTP code! Please enter the valid 6-digit code.',
+      'गलत OTP कोड! कृपया सही 6-अंकों का कोड दर्ज करें।',
+      'ખોટો OTP કોડ! કૃપા કરીને સાચો 6-અંકનો કોડ દાખલ કરો.'
+    );
+  }
+  if (lower.includes('biometric passkey not found') || err.includes('फिंगरप्रिंट डेटा नहीं मिला')) {
+    return trAuth(
+      'Fingerprint login is not linked on this device yet. Please log in once using Mobile OTP or Password.',
+      'इस फोन पर अभी फिंगरप्रिंट लॉगिन जुड़ा नहीं है। कृपया एक बार मोबाइल OTP या पासवर्ड से लॉगिन करें।',
+      'આ ફોન પર હજુ ફિંગરપ્રિન્ટ લોગિન જોડાયેલ નથી. કૃપા કરીને એકવાર મોબાઇલ OTP અથવા પાસવર્ડથી લોગિન કરો.'
+    );
+  }
+  if (lower.includes('at least 6 characters') || err.includes('कम से कम 6 अक्षरों')) {
+    return trAuth(
+      'Password must be at least 6 characters.',
+      'पासवर्ड कम से कम 6 अक्षरों का होना चाहिए।',
+      'પાસવર્ડ ઓછામાં ઓછો 6 અક્ષરોનો હોવો જોઈએ.'
+    );
+  }
+  if (lower.includes('invalid email') || err.includes('सही ईमेल आईडी')) {
+    return trAuth(
+      'Please enter a valid email address.',
+      'कृपया सही ईमेल आईडी दर्ज करें।',
+      'કૃપા કરીને સાચો ઈમેલ આઈડી દાખલ કરો.'
+    );
+  }
+  if (lower.includes('invalid 10-digit') || err.includes('मान्य भारतीय मोबाइल नंबर')) {
+    return trAuth(
+      'Please enter a valid 10-digit Indian mobile number.',
+      'कृपया 10-अंकों का सही मोबाइल नंबर दर्ज करें।',
+      'કૃપા કરીને 10-અંકનો સાચો મોબાઇલ નંબર દાખલ કરો.'
+    );
+  }
+
+  return err;
+}
+
+/**
+ * Sends 6-Digit SMS OTP via Firebase Phone Authentication (with 60-second anti-spam cooldown)
+ */
+export async function sendMobileOtp(
+  phone: string,
+  recaptchaContainerId = 'recaptcha-container'
+): Promise<{
   success: boolean;
   error?: string;
-  needsOtp?: boolean;
-  needsReset?: boolean;
-  user?: AppUser;
+  phoneE164?: string;
+  cooldownRemaining?: number;
 }> {
-  const cleanEmail = email.trim().toLowerCase();
-  if (!isValidEmail(cleanEmail)) {
-    return { success: false, error: 'कृपया सही ईमेल दर्ज करें (Invalid email format)' };
+  const norm = normalizeIndianPhoneE164(phone);
+  if (!norm.valid) {
+    return {
+      success: false,
+      error: trAuth(
+        'Please enter a valid 10-digit Indian mobile number.',
+        'कृपया 10-अंकों का सही भारतीय मोबाइल नंबर दर्ज करें।',
+        'કૃપા કરીને 10-અંકનો સાચો મોબાઇલ નંબર દાખલ કરો.'
+      )
+    };
   }
-  if (!password || password.length < 6) {
-    return { success: false, error: 'पासवर्ड कम से कम 6 अक्षरों का होना चाहिए' };
+
+  const cooldownKey = `phone_${norm.tenDigits}`;
+  const rem = getOtpCooldownRemainingSeconds(cooldownKey);
+  if (rem > 0) {
+    return {
+      success: false,
+      cooldownRemaining: rem,
+      error: trAuth(
+        `Please wait ${rem} seconds before requesting a new OTP.`,
+        `कृपया नया OTP भेजने से पहले ${rem} सेकंड प्रतीक्षा करें।`,
+        `કૃપા કરીને નવો OTP મોકલતા પહેલા ${rem} સેકન્ડ રાહ જુઓ.`
+      )
+    };
+  }
+
+  const res = await sendFirebasePhoneOtp(norm.tenDigits, recaptchaContainerId);
+  if (!res.success) {
+    return {
+      success: false,
+      error:
+        res.error ||
+        trAuth(
+          'Failed to send SMS OTP. Please try again.',
+          'मोबाइल पर OTP भेजने में विफल। कृपया पुनः प्रयास करें।',
+          'મોબાઇલ પર OTP મોકલવામાં નિષ્ફળ. કૃપા કરીને ફરી પ્રયાસ કરો.'
+        )
+    };
+  }
+
+  recordOtpSentTimestamp(cooldownKey);
+  return {
+    success: true,
+    phoneE164: res.phoneE164,
+    cooldownRemaining: 60
+  };
+}
+
+/**
+ * Verifies 6-Digit Firebase Phone OTP & Creates/Restores Server JWT Session (with optional Password saving)
+ */
+export async function verifyMobileOtp(
+  phone: string,
+  code: string,
+  newPassword?: string,
+  name?: string
+): Promise<{ success: boolean; error?: string; user?: AppUser }> {
+  const norm = normalizeIndianPhoneE164(phone);
+  if (!norm.valid) {
+    return {
+      success: false,
+      error: trAuth(
+        'Please enter a valid 10-digit mobile number.',
+        'कृपया 10-अंकों का सही मोबाइल नंबर दर्ज करें।',
+        'કૃપા કરીને 10-અંકનો સાચો મોબાઇલ નંબર દાખલ કરો.'
+      )
+    };
+  }
+
+  const fbVerify = await verifyFirebasePhoneOtpCode(code);
+  if (!fbVerify.success) {
+    return {
+      success: false,
+      error:
+        fbVerify.error ||
+        trAuth(
+          'Invalid OTP code! Please try again.',
+          'गलत OTP कोड! कृपया पुनः प्रयास करें।',
+          'ખોટો OTP કોડ! કૃપા કરીને ફરી પ્રયાસ કરો.'
+        )
+    };
   }
 
   try {
-    const res = await fetch('/api/auth/login-password', {
+    const res = await fetch('/api/auth/verify-firebase-phone', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: cleanEmail, password })
+      body: JSON.stringify({
+        idToken: fbVerify.idToken,
+        phone: norm.tenDigits,
+        newPassword: newPassword && newPassword.trim().length >= 6 ? newPassword.trim() : undefined,
+        name: name ? sanitizeText(name) : undefined
+      })
     });
+
     const data = await res.json();
     if (!res.ok || !data.success) {
       return {
         success: false,
-        needsOtp: Boolean(data.needsOtp),
-        needsReset: Boolean(data.needsReset),
-        error: data.error || 'Login failed'
+        error: localizeServerAuthError(
+          data.error,
+          'Mobile verification failed. Please try again.',
+          'मोबाइल वेरिफिकेशन विफल रहा। कृपया पुनः प्रयास करें।',
+          'મોબાઇલ વેરિફિકેશન નિષ્ફળ રહ્યું. કૃપા કરીને ફરી પ્રયાસ કરો.'
+        )
       };
     }
 
+    const resolvedEmail = data.user?.email || `${norm.tenDigits}@phone.locohelp.com`;
+    const resolvedPhone = data.user?.phone || `+91 ${norm.tenDigits}`;
     const userData: AppUser = {
-      uid: ensureValidUUID(data.user?.uid || cleanEmail),
-      displayName: sanitizeText(data.user?.displayName || cleanEmail.split('@')[0]),
-      email: cleanEmail,
-      phone: sanitizeText(data.user?.phone || ''),
+      uid: ensureValidUUID(data.user?.uid || `phone_${norm.tenDigits}`),
+      displayName: sanitizeText(
+        data.user?.displayName || name || `Member +91 ${norm.tenDigits.slice(-4)}`
+      ),
+      email: resolvedEmail,
+      phone: resolvedPhone,
       photoURL: 'https://lh3.googleusercontent.com/a/default-user',
       isGuest: false
     };
@@ -397,7 +628,114 @@ export async function signInWithPassword(email: string, password: string): Promi
     }
     localStorage.setItem('locohelp_user', JSON.stringify(userData));
     localStorage.setItem('locohelp_logged_in', 'true');
-    localStorage.setItem('locohelp_last_logged_in_email', cleanEmail);
+    localStorage.setItem('locohelp_last_logged_in_email', resolvedEmail);
+    localStorage.setItem('locohelp_last_logged_in_phone', norm.tenDigits);
+    localStorage.setItem('locohelp_last_logged_in_name', userData.displayName);
+
+    try {
+      await saveUserProfile(userData);
+    } catch {}
+
+    window.dispatchEvent(new Event('storage'));
+    window.postMessage({ type: 'LOCOHELP_AUTH_SUCCESS' }, '*');
+    notifyAuthState('SIGNED_IN', userData);
+
+    return { success: true, user: userData };
+  } catch {
+    return {
+      success: false,
+      error: trAuth(
+        'Verification failed. Please check your connection and try again.',
+        'वेरिफिकेशन विफल रहा। कृपया इंटरनेट जांचकर पुनः प्रयास करें।',
+        'વેરિફિકેશન નિષ્ફળ રહ્યું. કૃપા કરીને ફરી પ્રયાસ કરો.'
+      )
+    };
+  }
+}
+
+/**
+ * Email OR Mobile Number & Password Login with JWT session persistence (₹0 SMS OTP cost!)
+ */
+export async function signInWithPassword(identifier: string, password: string): Promise<{
+  success: boolean;
+  error?: string;
+  needsOtp?: boolean;
+  needsReset?: boolean;
+  user?: AppUser;
+}> {
+  const cleanInput = identifier.trim().toLowerCase();
+  const isPhone = isPhoneIdentifier(cleanInput);
+  if (!isPhone && !isValidEmail(cleanInput)) {
+    return {
+      success: false,
+      error: trAuth(
+        'Please enter a valid 10-digit Mobile Number or Email ID.',
+        'कृपया सही 10-अंकों का मोबाइल नंबर या ईमेल आईडी दर्ज करें।',
+        'કૃપા કરીને 10-અંકનો સાચો મોબાઇલ નંબર અથવા ઈમેલ આઈડી દાખલ કરો.'
+      )
+    };
+  }
+  if (!password || password.length < 6) {
+    return {
+      success: false,
+      error: trAuth(
+        'Password must be at least 6 characters.',
+        'पासवर्ड कम से कम 6 अक्षरों का होना चाहिए।',
+        'પાસવર્ડ ઓછામાં ઓછો 6 અક્ષરોનો હોવો જોઈએ.'
+      )
+    };
+  }
+
+  const normalizedIdentifier = isPhone ? normalizeIndianPhone(cleanInput) : cleanInput;
+
+  try {
+    const res = await fetch('/api/auth/login-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: normalizedIdentifier,
+        identifier: normalizedIdentifier,
+        password
+      })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      return {
+        success: false,
+        needsOtp: Boolean(data.needsOtp),
+        needsReset: Boolean(data.needsReset),
+        error: localizeServerAuthError(
+          data.error,
+          'Login failed. Please check your details.',
+          'लॉगिन विफल रहा। कृपया जानकारी जांचें।',
+          'લોગિન નિષ્ફળ રહ્યું. કૃપા કરીને વિગતો તપાસો.'
+        )
+      };
+    }
+
+    const resolvedEmail =
+      data.user?.email || (isPhone ? `${normalizedIdentifier}@phone.locohelp.com` : cleanInput);
+    const userData: AppUser = {
+      uid: ensureValidUUID(data.user?.uid || resolvedEmail),
+      displayName: sanitizeText(
+        data.user?.displayName ||
+          (isPhone ? `Member +91 ${normalizedIdentifier.slice(-4)}` : resolvedEmail.split('@')[0])
+      ),
+      email: resolvedEmail,
+      phone: sanitizeText(data.user?.phone || (isPhone ? `+91 ${normalizedIdentifier}` : '')),
+      photoURL: 'https://lh3.googleusercontent.com/a/default-user',
+      isGuest: false
+    };
+
+    if (data.token) {
+      localStorage.setItem('locohelp_token', data.token);
+    }
+    localStorage.setItem('locohelp_user', JSON.stringify(userData));
+    localStorage.setItem('locohelp_logged_in', 'true');
+    localStorage.setItem('locohelp_last_logged_in_email', resolvedEmail);
+    if (isPhone) {
+      localStorage.setItem('locohelp_last_logged_in_phone', normalizedIdentifier);
+    }
     localStorage.setItem('locohelp_last_logged_in_name', userData.displayName);
 
     window.dispatchEvent(new Event('storage'));
@@ -405,36 +743,69 @@ export async function signInWithPassword(email: string, password: string): Promi
     notifyAuthState('SIGNED_IN', userData);
 
     return { success: true, user: userData };
-  } catch (err: any) {
-    return { success: false, error: err?.message || 'Login request failed' };
+  } catch {
+    return {
+      success: false,
+      error: trAuth(
+        'Login request failed. Please try again.',
+        'लॉगिन अनुरोध विफल रहा। कृपया पुनः प्रयास करें।',
+        'લોગિન વિનંતી નિષ્ફળ રહી. કૃપા કરીને ફરી પ્રયાસ કરો.'
+      )
+    };
   }
 }
 
 /**
- * Email & Password Sign Up with mandatory 6-digit Email OTP verification
+ * Email OR Mobile Number & Password Sign Up with mandatory 6-digit OTP verification
  */
 export async function signUpWithPassword(
-  email: string,
+  identifier: string,
   password: string,
   name?: string,
   phone?: string,
   otpCode?: string
 ): Promise<{ success: boolean; error?: string; needsOtp?: boolean; user?: AppUser }> {
-  const cleanEmail = email.trim().toLowerCase();
-  if (!isValidEmail(cleanEmail)) {
-    return { success: false, error: 'कृपया सही ईमेल दर्ज करें (Invalid email format)' };
+  const cleanInput = identifier.trim().toLowerCase();
+  const isPhone = isPhoneIdentifier(cleanInput);
+
+  if (!isPhone && !isValidEmail(cleanInput)) {
+    return {
+      success: false,
+      error: trAuth(
+        'Please enter a valid 10-digit Mobile Number or Email ID.',
+        'कृपया सही 10-अंकों का मोबाइल नंबर या ईमेल आईडी दर्ज करें।',
+        'કૃપા કરીને 10-અંકનો સાચો મોબાઇલ નંબર અથવા ઈમેલ આઈડી દાખલ કરો.'
+      )
+    };
   }
   if (!password || password.length < 6) {
-    return { success: false, error: 'पासवर्ड कम से कम 6 अक्षरों का होना चाहिए' };
+    return {
+      success: false,
+      error: trAuth(
+        'Password must be at least 6 characters.',
+        'पासवर्ड कम से कम 6 अक्षरों का होना चाहिए।',
+        'પાસવર્ડ ઓછામાં ઓછો 6 અક્ષરોનો હોવો જોઈએ.'
+      )
+    };
   }
   if (!otpCode || otpCode.trim().length < 6) {
     return {
       success: false,
       needsOtp: true,
-      error: 'असली ईमेल वेरिफाई करने के लिए ईमेल पर आया 6-अंकों का OTP कोड डालना अनिवार्य है।'
+      error: trAuth(
+        '6-digit OTP code is mandatory to verify your account.',
+        'अकाउंट वेरिफाई करने के लिए 6-अंकों का OTP कोड डालना अनिवार्य है।',
+        'એકાઉન્ટ વેરિફાઈ કરવા માટે 6-અંકનો OTP કોડ નાખવો ફરજિયાત છે.'
+      )
     };
   }
 
+  // If signing up with Mobile Number, verify Firebase Phone OTP and save password on server
+  if (isPhone) {
+    return await verifyMobileOtp(cleanInput, otpCode.trim(), password, name);
+  }
+
+  const cleanEmail = cleanInput;
   const cleanName = name ? sanitizeText(name) : undefined;
   const cleanPhone = phone ? sanitizeText(phone) : undefined;
 
@@ -455,7 +826,12 @@ export async function signUpWithPassword(
       return {
         success: false,
         needsOtp: Boolean(data.needsOtp),
-        error: data.error || 'Registration failed'
+        error: localizeServerAuthError(
+          data.error,
+          'Registration failed. Please try again.',
+          'रजिस्ट्रेशन विफल रहा। कृपया पुनः प्रयास करें।',
+          'રજિસ્ટ્રેશન નિષ્ફળ રહ્યું. કૃપા કરીને ફરી પ્રયાસ કરો.'
+        )
       };
     }
 
@@ -481,8 +857,15 @@ export async function signUpWithPassword(
     notifyAuthState('SIGNED_IN', userData);
 
     return { success: true, user: userData };
-  } catch (err: any) {
-    return { success: false, error: err?.message || 'Sign up request failed' };
+  } catch {
+    return {
+      success: false,
+      error: trAuth(
+        'Sign up request failed. Please try again.',
+        'रजिस्ट्रेशन अनुरोध विफल रहा। कृपया पुनः प्रयास करें।',
+        'રજિસ્ટ્રેશન વિનંતી નિષ્ફળ રહી. કૃપા કરીને ફરી પ્રયાસ કરો.'
+      )
+    };
   }
 }
 
@@ -498,7 +881,14 @@ export async function sendEmailOtp(email: string): Promise<{
 }> {
   const cleanEmail = email.trim().toLowerCase();
   if (!isValidEmail(cleanEmail)) {
-    return { success: false, error: 'कृपया मान्य ईमेल आईडी दर्ज करें (Please enter a valid email address)' };
+    return {
+      success: false,
+      error: trAuth(
+        'Please enter a valid email address.',
+        'कृपया मान्य ईमेल आईडी दर्ज करें।',
+        'કૃપા કરીને સાચો ઈમેલ આઈડી દાખલ કરો.'
+      )
+    };
   }
 
   const rem = getOtpCooldownRemainingSeconds(cleanEmail);
@@ -506,7 +896,11 @@ export async function sendEmailOtp(email: string): Promise<{
     return {
       success: false,
       cooldownRemaining: rem,
-      error: `कृपया नया OTP भेजने से पहले ${rem} सेकंड प्रतीक्षा करें (Please wait ${rem}s before resending OTP)`
+      error: trAuth(
+        `Please wait ${rem} seconds before resending OTP.`,
+        `कृपया नया OTP भेजने से पहले ${rem} सेकंड प्रतीक्षा करें।`,
+        `કૃપા કરીને નવો OTP મોકલતા પહેલા ${rem} સેકન્ડ રાહ જુઓ.`
+      )
     };
   }
 
@@ -521,42 +915,79 @@ export async function sendEmailOtp(email: string): Promise<{
       return {
         success: false,
         cooldownRemaining: data.cooldownRemaining,
-        error: data.error || 'Failed to send OTP'
+        error: localizeServerAuthError(
+          data.error,
+          'Failed to send Email OTP.',
+          'ईमेल OTP भेजने में विफल।',
+          'ઈમેલ OTP મોકલવામાં નિષ્ફળ.'
+        )
       };
     }
     recordOtpSentTimestamp(cleanEmail);
     return { success: true, devCode: data.devOtp, provider: data.provider, cooldownRemaining: 60 };
-  } catch (err: any) {
-    return { success: false, error: err?.message || 'Network error while sending OTP' };
+  } catch {
+    return {
+      success: false,
+      error: trAuth(
+        'Network error while sending OTP. Please try again.',
+        'OTP भेजते समय नेटवर्क समस्या आई। कृपया पुनः प्रयास करें।',
+        'OTP મોકલતી વખતે નેટવર્ક સમસ્યા આવી. કૃપા કરીને ફરી પ્રયાસ કરો.'
+      )
+    };
   }
 }
 
 export const sendEmailOtpViaSupabase = sendEmailOtp;
 
 /**
- * Sets or Resets Password for an existing / OTP user with mandatory 6-digit Email OTP verification
+ * Sets or Resets Password for an existing / OTP user with mandatory 6-digit Mobile or Email OTP verification
  */
 export async function resetUserPassword(
-  email: string,
+  identifier: string,
   newPassword: string,
   name?: string,
   otpCode?: string
 ): Promise<{ success: boolean; error?: string; needsOtp?: boolean; user?: AppUser }> {
-  const cleanEmail = email.trim().toLowerCase();
-  if (!isValidEmail(cleanEmail)) {
-    return { success: false, error: 'कृपया सही ईमेल दर्ज करें (Invalid email format)' };
+  const cleanInput = identifier.trim().toLowerCase();
+  const isPhone = isPhoneIdentifier(cleanInput);
+
+  if (!isPhone && !isValidEmail(cleanInput)) {
+    return {
+      success: false,
+      error: trAuth(
+        'Please enter a valid 10-digit Mobile Number or Email ID.',
+        'कृपया सही 10-अंकों का मोबाइल नंबर या ईमेल दर्ज करें।',
+        'કૃપા કરીને 10-અંકનો સાચો મોબાઇલ નંબર અથવા ઈમેલ દાખલ કરો.'
+      )
+    };
   }
   if (!newPassword || newPassword.length < 6) {
-    return { success: false, error: 'पासवर्ड कम से कम 6 अक्षरों का होना चाहिए' };
+    return {
+      success: false,
+      error: trAuth(
+        'Password must be at least 6 characters.',
+        'पासवर्ड कम से कम 6 अक्षरों का होना चाहिए।',
+        'પાસવર્ડ ઓછામાં ઓછો 6 અક્ષરોનો હોવો જોઈએ.'
+      )
+    };
   }
   if (!otpCode || otpCode.trim().length < 6) {
     return {
       success: false,
       needsOtp: true,
-      error: 'पासवर्ड सेट या रीसेट करने के लिए ईमेल पर आया 6-अंकों का OTP कोड डालना अनिवार्य है।'
+      error: trAuth(
+        '6-digit OTP code is mandatory to set or reset your password.',
+        'पासवर्ड सेट या रीसेट करने के लिए 6-अंकों का OTP कोड डालना अनिवार्य है।',
+        'પાસવર્ડ સેટ અથવા રીસેટ કરવા માટે 6-અંકનો OTP કોડ નાખવો ફરજિયાત છે.'
+      )
     };
   }
 
+  if (isPhone) {
+    return await verifyMobileOtp(cleanInput, otpCode.trim(), newPassword, name);
+  }
+
+  const cleanEmail = cleanInput;
   const cleanName = name ? sanitizeText(name) : undefined;
 
   try {
@@ -575,7 +1006,12 @@ export async function resetUserPassword(
       return {
         success: false,
         needsOtp: Boolean(data.needsOtp),
-        error: data.error || 'Password update failed'
+        error: localizeServerAuthError(
+          data.error,
+          'Password update failed. Please try again.',
+          'पासवर्ड अपडेट करने में विफल। कृपया पुनः प्रयास करें।',
+          'પાસવર્ડ અપડેટ કરવામાં નિષ્ફળ. કૃપા કરીને ફરી પ્રયાસ કરો.'
+        )
       };
     }
 
@@ -601,8 +1037,15 @@ export async function resetUserPassword(
     notifyAuthState('SIGNED_IN', userData);
 
     return { success: true, user: userData };
-  } catch (err: any) {
-    return { success: false, error: err?.message || 'Password reset request failed' };
+  } catch {
+    return {
+      success: false,
+      error: trAuth(
+        'Password reset request failed. Please try again.',
+        'पासवर्ड रीसेट अनुरोध विफल रहा। कृपया पुनः प्रयास करें।',
+        'પાસવર્ડ રીસેટ વિનંતી નિષ્ફળ રહી. કૃપા કરીને ફરી પ્રયાસ કરો.'
+      )
+    };
   }
 }
 
@@ -614,10 +1057,24 @@ export async function verifyEmailOtp(email: string, code: string, newPassword?: 
   const cleanCode = code.trim();
 
   if (!isValidEmail(cleanEmail)) {
-    return { success: false, error: 'कृपया मान्य ईमेल दर्ज करें (Please enter a valid email address)' };
+    return {
+      success: false,
+      error: trAuth(
+        'Please enter a valid email address.',
+        'कृपया मान्य ईमेल दर्ज करें।',
+        'કૃપા કરીને સાચો ઈમેલ દાખલ કરો.'
+      )
+    };
   }
   if (!cleanCode) {
-    return { success: false, error: 'Please enter the 6-digit OTP code' };
+    return {
+      success: false,
+      error: trAuth(
+        'Please enter the 6-digit OTP code.',
+        'कृपया 6-अंकों का OTP कोड दर्ज करें।',
+        'કૃપા કરીને 6-અંકનો OTP કોડ દાખલ કરો.'
+      )
+    };
   }
 
   try {
@@ -629,7 +1086,15 @@ export async function verifyEmailOtp(email: string, code: string, newPassword?: 
 
     const data = await res.json();
     if (!res.ok || !data.success) {
-      return { success: false, error: data.error || 'Invalid OTP code' };
+      return {
+        success: false,
+        error: localizeServerAuthError(
+          data.error,
+          'Invalid OTP code.',
+          'गलत OTP कोड।',
+          'ખોટો OTP કોડ.'
+        )
+      };
     }
 
     const userData: AppUser = {
@@ -657,12 +1122,360 @@ export async function verifyEmailOtp(email: string, code: string, newPassword?: 
     notifyAuthState('SIGNED_IN', userData);
 
     return { success: true, user: userData };
-  } catch (err: any) {
-    return { success: false, error: err?.message || 'Verification failed. Please try again.' };
+  } catch {
+    return {
+      success: false,
+      error: trAuth(
+        'Verification failed. Please try again.',
+        'वेरिफिकेशन विफल रहा। कृपया पुनः प्रयास करें।',
+        'વેરિફિકેશન નિષ્ફળ રહ્યું. કૃપા કરીને ફરી પ્રયાસ કરો.'
+      )
+    };
   }
 }
 
 export const verifyEmailOtpViaSupabase = verifyEmailOtp;
+
+// ==========================================
+// BIOMETRIC / FINGERPRINT / FACE LOCK (WebAuthn Passkey)
+// Allows returning users to log in with 1 tap and ₹0 SMS OTP cost
+// ==========================================
+const BIOMETRIC_STORAGE_KEY = 'locohelp_biometric_passkey_v1';
+
+export interface SavedBiometricPasskey {
+  credentialId: string;
+  rawIdBase64: string;
+  uid: string;
+  email: string;
+  phone: string;
+  name: string;
+  createdAt: string;
+}
+
+function bufferToBase64Url(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function base64UrlToUint8Array(base64Url: string): Uint8Array {
+  const padding = '='.repeat((4 - (base64Url.length % 4)) % 4);
+  const base64 = (base64Url + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
+export async function isBiometricSupported(): Promise<boolean> {
+  try {
+    if (
+      typeof window === 'undefined' ||
+      !window.PublicKeyCredential ||
+      !navigator.credentials ||
+      typeof navigator.credentials.create !== 'function'
+    ) {
+      return false;
+    }
+    if (
+      typeof PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable === 'function'
+    ) {
+      return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function getSavedBiometricInfo(): SavedBiometricPasskey | null {
+  try {
+    const raw = localStorage.getItem(BIOMETRIC_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && parsed.credentialId && parsed.uid) {
+      return parsed as SavedBiometricPasskey;
+    }
+  } catch {}
+  return null;
+}
+
+export function clearSavedBiometricPasskey(): void {
+  try {
+    localStorage.removeItem(BIOMETRIC_STORAGE_KEY);
+  } catch {}
+}
+
+export async function registerBiometricPasskey(customUser?: AppUser): Promise<{
+  success: boolean;
+  error?: string;
+}> {
+  try {
+    const supported = await isBiometricSupported();
+    if (!supported) {
+      return {
+        success: false,
+        error: trAuth(
+          'Fingerprint / Face Lock is not supported on this device or browser.',
+          'आपके मोबाइल या ब्राउज़र में फिंगरप्रिंट / फेस लॉक उपलब्ध नहीं है।',
+          'તમારા મોબાઇલ કે બ્રાઉઝરમાં ફિંગરપ્રિન્ટ / ફેસ લોક ઉપલબ્ધ નથી.'
+        )
+      };
+    }
+
+    const activeUser = customUser || getCurrentUser();
+    if (!activeUser || activeUser.isGuest || activeUser.uid === 'guest_user') {
+      return {
+        success: false,
+        error: trAuth(
+          'Please sign in once via OTP or Password before enabling Fingerprint Lock.',
+          'फिंगरप्रिंट सेट करने के लिए पहले OTP या पासवर्ड से लॉगिन करें।',
+          'ફિંગરપ્રિન્ટ સેટ કરવા માટે પહેલા OTP અથવા પાસવર્ડથી લોગિન કરો.'
+        )
+      };
+    }
+
+    const challenge = new Uint8Array(32);
+    crypto.getRandomValues(challenge);
+
+    const userIdBytes = new TextEncoder().encode(activeUser.uid.slice(0, 64));
+    const displayIdentifier =
+      activeUser.phone ||
+      (activeUser.email && !activeUser.email.endsWith('@phone.locohelp.com')
+        ? activeUser.email
+        : activeUser.displayName);
+
+    const credential = (await navigator.credentials.create({
+      publicKey: {
+        challenge,
+        rp: {
+          name: 'LocoHelp Community',
+          id: window.location.hostname
+        },
+        user: {
+          id: userIdBytes,
+          name: displayIdentifier || activeUser.uid,
+          displayName: activeUser.displayName || 'LocoHelp Member'
+        },
+        pubKeyCredParams: [
+          { alg: -7, type: 'public-key' },  // ES256
+          { alg: -257, type: 'public-key' } // RS256
+        ],
+        authenticatorSelection: {
+          authenticatorAttachment: 'platform',
+          userVerification: 'required',
+          residentKey: 'preferred'
+        },
+        timeout: 60000,
+        attestation: 'none'
+      }
+    })) as PublicKeyCredential | null;
+
+    if (!credential) {
+      return {
+        success: false,
+        error: trAuth(
+          'Fingerprint setup was cancelled.',
+          'फिंगरप्रिंट रजिस्ट्रेशन रद्द कर दिया गया।',
+          'ફિંગરપ્રિન્ટ સેટઅપ રદ કરવામાં આવ્યું.'
+        )
+      };
+    }
+
+    const rawIdBase64 = bufferToBase64Url(credential.rawId);
+    const credentialId = credential.id || rawIdBase64;
+
+    const savedObj: SavedBiometricPasskey = {
+      credentialId,
+      rawIdBase64,
+      uid: activeUser.uid,
+      email: activeUser.email || '',
+      phone: activeUser.phone || '',
+      name: activeUser.displayName || 'LocoHelp Member',
+      createdAt: new Date().toISOString()
+    };
+
+    localStorage.setItem(BIOMETRIC_STORAGE_KEY, JSON.stringify(savedObj));
+
+    // Sync with backend PostgreSQL table user_biometric_credentials
+    await fetch('/api/auth/biometric/register', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({
+        credentialId,
+        uid: activeUser.uid,
+        email: activeUser.email || '',
+        phone: activeUser.phone || '',
+        name: activeUser.displayName || 'LocoHelp Member',
+        deviceLabel: navigator.userAgent
+      })
+    }).catch(() => {});
+
+    return { success: true };
+  } catch (err: any) {
+    console.warn('[Biometric Register Warning]:', err);
+    if (err?.name === 'NotAllowedError') {
+      return {
+        success: false,
+        error: trAuth(
+          'Fingerprint / Face Lock permission was cancelled.',
+          'आपने फिंगरप्रिंट / फेस लॉक की अनुमति रद्द कर दी।',
+          'તમે ફિંગરપ્રિન્ટ / ફેસ લોકની પરવાનગી રદ કરી.'
+        )
+      };
+    }
+    return {
+      success: false,
+      error: trAuth(
+        'Could not enable Fingerprint / Face Lock on this device.',
+        'फिंगरप्रिंट लॉक चालू करने में समस्या आई।',
+        'આ ફોન પર ફિંગરપ્રિન્ટ લોક ચાલુ કરવામાં સમસ્યા આવી.'
+      )
+    };
+  }
+}
+
+export async function signInWithBiometricPasskey(): Promise<{
+  success: boolean;
+  user?: AppUser;
+  error?: string;
+}> {
+  try {
+    const supported = await isBiometricSupported();
+    if (!supported) {
+      return {
+        success: false,
+        error: trAuth(
+          'Fingerprint / Face Lock is not supported on this device.',
+          'इस डिवाइस पर फिंगरप्रिंट / फेस लॉक उपलब्ध नहीं है।',
+          'આ ડિવાઇસ પર ફિંગરપ્રિન્ટ / ફેસ લોક ઉપલબ્ધ નથી.'
+        )
+      };
+    }
+
+    const saved = getSavedBiometricInfo();
+    if (!saved) {
+      return {
+        success: false,
+        error: trAuth(
+          'Fingerprint Lock is not set up on this phone yet. Please log in once using Mobile OTP or Password first to enable 1-Tap Fingerprint login.',
+          'इस फोन पर अभी फिंगरप्रिंट लॉक सेट नहीं है। कृपया पहले एक बार मोबाइल OTP या पासवर्ड से लॉगिन करें, उसके बाद 1-टैप फिंगरप्रिंट लॉगिन चालू हो जाएगा।',
+          'આ ફોન પર હજુ ફિંગરપ્રિન્ટ લોક સેટ નથી. કૃપા કરીને પહેલા એકવાર મોબાઇલ OTP અથવા પાસવર્ડથી લોગિન કરો, ત્યારબાદ 1-ટેપ ફિંગરપ્રિન્ટ લોગિન ચાલુ થઈ જશે.'
+        )
+      };
+    }
+
+    const challenge = new Uint8Array(32);
+    crypto.getRandomValues(challenge);
+
+    const publicKeyOptions: PublicKeyCredentialRequestOptions = {
+      challenge,
+      rpId: window.location.hostname,
+      userVerification: 'required',
+      timeout: 60000
+    };
+
+    if (saved && saved.rawIdBase64) {
+      publicKeyOptions.allowCredentials = [
+        {
+          id: base64UrlToUint8Array(saved.rawIdBase64),
+          type: 'public-key',
+          transports: ['internal']
+        }
+      ];
+    }
+
+    const assertion = (await navigator.credentials.get({
+      publicKey: publicKeyOptions
+    })) as PublicKeyCredential | null;
+
+    if (!assertion) {
+      return {
+        success: false,
+        error: trAuth(
+          'Fingerprint / Face Lock verification was cancelled.',
+          'फिंगरप्रिंट / फेस लॉक सत्यापन रद्द किया गया।',
+          'ફિંગરપ્રિન્ટ / ફેસ લોક ચકાસણી રદ કરવામાં આવી.'
+        )
+      };
+    }
+
+    const credentialId = assertion.id || bufferToBase64Url(assertion.rawId);
+
+    const res = await fetch('/api/auth/biometric/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        credentialId,
+        uid: saved?.uid || '',
+        email: saved?.email || saved?.phone || ''
+      })
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      return {
+        success: false,
+        error: localizeServerAuthError(
+          data.error,
+          'Fingerprint login failed. Please sign in once using OTP or Password.',
+          'फिंगरप्रिंट लॉगिन विफल रहा। कृपया एक बार OTP या पासवर्ड से लॉगिन करें।',
+          'ફિંગરપ્રિન્ટ લોગિન નિષ્ફળ રહ્યું. કૃપા કરીને એકવાર OTP અથવા પાસવર્ડથી લોગિન કરો.'
+        )
+      };
+    }
+
+    const userData: AppUser = {
+      uid: ensureValidUUID(data.user?.uid || saved?.uid || 'member'),
+      displayName: sanitizeText(data.user?.displayName || saved?.name || 'Community Member'),
+      email: data.user?.email || saved?.email || '',
+      phone: sanitizeText(data.user?.phone || saved?.phone || ''),
+      photoURL: 'https://lh3.googleusercontent.com/a/default-user',
+      isGuest: false
+    };
+
+    if (data.token) {
+      localStorage.setItem('locohelp_token', data.token);
+    }
+    localStorage.setItem('locohelp_user', JSON.stringify(userData));
+    localStorage.setItem('locohelp_logged_in', 'true');
+    if (userData.email) {
+      localStorage.setItem('locohelp_last_logged_in_email', userData.email);
+    }
+    localStorage.setItem('locohelp_last_logged_in_name', userData.displayName);
+
+    window.dispatchEvent(new Event('storage'));
+    window.postMessage({ type: 'LOCOHELP_AUTH_SUCCESS' }, '*');
+    notifyAuthState('SIGNED_IN', userData);
+
+    return { success: true, user: userData };
+  } catch (err: any) {
+    console.warn('[Biometric Login Warning]:', err);
+    if (err?.name === 'NotAllowedError') {
+      return {
+        success: false,
+        error: trAuth(
+          'Fingerprint / Face Lock verification was cancelled.',
+          'फिंगरप्रिंट / फेस लॉक सत्यापन रद्द किया गया।',
+          'ફિંગરપ્રિન્ટ / ફેસ લોક ચકાસણી રદ કરવામાં આવી.'
+        )
+      };
+    }
+    return {
+      success: false,
+      error: trAuth(
+        'Could not sign in with Fingerprint. Please use Password or OTP.',
+        'फिंगरप्रिंट से लॉगिन नहीं हो सका। कृपया पासवर्ड या OTP का उपयोग करें।',
+        'ફિંગરપ્રિન્ટથી લોગિન થઈ શક્યું નહીં. કૃપા કરીને પાસવર્ડ અથવા OTP નો ઉપયોગ કરો.'
+      )
+    };
+  }
+}
 
 /**
  * Clean logout: Clears server & local session while preserving manual user location

@@ -139,7 +139,7 @@ export default function ReportModal({
               <p className="text-[11px] text-rose-600 dark:text-rose-400 font-bold uppercase tracking-wider mt-0.5">
                 {reportedUserName
                   ? `${tr('Target:', 'यूज़र:', 'યુઝર:')} ${reportedUserName}`
-                  : tr('Direct Admin Review • IT Rules 2021', 'सीधा एडमिन रिव्यू • सुरक्षा नियम', 'સીધી એડમિન સમીક્ષા • સુરક્ષા નિયમો')}
+                  : tr('Direct Admin Review • Safety Shield', 'सीधा एडमिन रिव्यू • सुरक्षा नियम', 'સીધી એડમિન સમીક્ષા • સુરક્ષા નિયમો')}
               </p>
             </div>
           </div>

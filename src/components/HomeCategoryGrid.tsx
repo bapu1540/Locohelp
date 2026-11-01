@@ -191,7 +191,7 @@ const MAIN_CATS: MainCatConfig[] = [
       { id: 'medical_nurse', label: ['Home Nurse & Patient Care', 'होम नर्स और मरीज़ की देखभाल', 'હોમ નર્સ અને દર્દીની સંભાળ'] },
       { id: 'medical_pharmacy', label: ['Medicine & Pharmacy Help', 'दवाई और मेडिकल स्टोर मदद', 'દવા અને મેડિકલ સ્ટોર મદદ'] },
       { id: 'physiotherapy', label: ['Physiotherapy at Home', 'घर पर फिजियोथेरेपी', 'ઘરે ફિઝિયોથેરાપી'] },
-      { id: 'lab_test', label: ['Blood Test & Sample Collection', 'ब्लड टेस्ट और लैब सैंपल कलेक्शन', 'બ્લડ ટેસ્ટ અને લેબ સેમ્પલ કલેક્શન'] },
+      { id: 'lab_test', label: ['Lab Test & Sample Collection', 'लैब टेस्ट और सैंपल कलेक्शन', 'લેબ ટેસ્ટ અને સેમ્પલ કલેક્શન'] },
       { id: 'ambulance_help', label: ['Ambulance & Hospital Help', 'एम्बुलेंस और हॉस्पिटल मदद', 'એમ્બ્યુલન્સ અને હોસ્પિટલ મદદ'] },
     ],
   },

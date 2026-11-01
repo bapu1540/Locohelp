@@ -150,22 +150,22 @@ export default function SupportScreen({ onBack }: { onBack: () => void }) {
         ? "11. How do I report a wrong post, fake listing, or suspicious user to the Admin?"
         : "11. किसी गलत पोस्ट, फर्जी लिस्टिंग या संदिग्ध यूजर की शिकायत (Report) एडमिन से कैसे करें?",
       a: language === 'GU'
-        ? "Settings (સેટિંગ્સ) માં જઈને 'સેવાની શરતો અને સુરક્ષા નિયમો' અથવા સીધા ચેટની અંદર 'Report' બટન પર ક્લિક કરો. ફરિયાદનું કારણ પસંદ કરીને વિગત લખો. તમારી રિપોર્ટ સીધી એડમિન પાસે જશે અને ખોટી પોસ્ટ કે યુઝરને તરત જ હટાવવામાં આવશે."
+        ? "હોમ સ્ક્રીન પર કોઈપણ લાઈવ પોસ્ટ કાર્ડ પર અથવા સીધા ચેટની અંદર ઉપર આપેલા 'Report / Block' બટન પર ક્લિક કરો. ફરિયાદનું કારણ પસંદ કરીને સબમિટ કરો. તમારી રિપોર્ટ સીધી એડમિન પાસે જશે અને ખોટી પોસ્ટ કે યુઝરને તરત જ બ્લોક કરવામાં આવશે."
         : language === 'EN'
-        ? "Open Settings and tap 'Terms of Service & Safety Rules' (or use the Report button directly inside any chat), then tap 'Report Suspicious Activity'. Select the reason and submit details. Your report goes directly to the Admin team for immediate verification and action."
-        : "Settings (सेटिंग्स) में जाकर 'सेवा की शर्तें व सुरक्षा नियम' खोलें (या सीधे किसी भी चैट के अंदर ऊपर दिए गए Report बटन को दबाएं) और शिकायत का कारण चुनकर सबमिट करें। आपकी रिपोर्ट सीधे एडमिन टीम के पास जाती है और गलत पोस्ट या यूजर पर तुरंत कार्रवाई की जाती है।"
+        ? "Tap the 'Report / Block' button directly on any live Broadcast post card or at the top of any Chat window. Select the reason and submit. Your report goes directly to the Admin team for immediate verification and action."
+        : "होम स्क्रीन पर किसी भी लाइव पोस्ट कार्ड पर या सीधे चैट विंडो के अंदर ऊपर दिए गए 'Report / Block' बटन को दबाएं और शिकायत का कारण चुनकर सबमिट करें। आपकी रिपोर्ट सीधे एडमिन टीम के पास जाती है और गलत पोस्ट या यूज़र पर तुरंत कार्रवाई की जाती है।"
     },
     {
       q: language === 'GU'
-        ? "12. તમારા મોબાઈલ ફોનમાં LocoHelp એપ (App) કેવી રીતે ઈન્સ્ટોલ કરવી?"
+        ? "12. શું LocoHelp એપ દરેક મોબાઈલ ફોન અને ભાષામાં કામ કરે છે?"
         : language === 'EN'
-        ? "12. How can I install the LocoHelp App on my mobile phone?"
-        : "12. अपने मोबाइल फोन में LocoHelp ऐप (App) कैसे इंस्टॉल करें?",
+        ? "12. Does LocoHelp work in multiple Indian languages across all mobile phones?"
+        : "12. क्या LocoHelp ऐप सभी मोबाइल फोन और भारतीय भाषाओं में काम करता है?",
       a: language === 'GU'
-        ? "તમારા ફોનના Google Chrome બ્રાઉઝરમાં www.locohelp.com ખોલો અને ઉપર આપેલા 'Install App' બટન પર ક્લિક કરો. જો તમે વોટ્સએપ કે ઈન્સ્ટાગ્રામમાં લિંક ખોલી હોય, તો પહેલા તેને 'Open in Chrome' કરો, જેથી એપ સીધી તમારા ફોનની હોમ સ્ક્રીન પર ઈન્સ્ટોલ થઈ જશે."
+        ? "હા! LocoHelp એપ ગુજરાતી (GU), હિન્દી (HI) અને અંગ્રેજી (EN) ત્રણેય ભાષામાં ઉપલબ્ધ છે. તમે ઉપર આપેલા ભાષા બટનથી કોઈપણ સમયે તમારી મનપસંદ ભાષા બદલી શકો છો."
         : language === 'EN'
-        ? "Open www.locohelp.com in Google Chrome on your phone and tap the 'Install App' button in the top bar (or inside Settings). If you opened the link inside WhatsApp or Instagram, tap 'Open in Chrome' first so the official mobile app installs smoothly on your home screen."
-        : "अपने फोन के Google Chrome ब्राउज़र में www.locohelp.com खोलें और ऊपर दिए गए 'Install App' बटन (या सेटिंग्स के अंदर इंस्टॉल विकल्प) पर क्लिक करें। यदि आपने व्हाट्सएप या इंस्टाग्राम के अंदर लिंक खोला है, तो पहले उसे 'Open in Chrome' करें, जिससे ऐप सीधे आपके फोन की होम स्क्रीन पर इंस्टॉल हो जाएगा।"
+        ? "Yes! LocoHelp works smoothly in English, Hindi, and Gujarati across all Android smartphones and mobile devices. You can switch your preferred language anytime from the top bar or Settings."
+        : "हाँ! LocoHelp ऐप हिंदी (HI), गुजराती (GU) और अंग्रेजी (EN) तीनों भाषाओं में उपलब्ध है। आप ऊपर दिए गए भाषा बटन या सेटिंग्स से किसी भी समय अपनी पसंदीदा भाषा बदल सकते हैं।"
     },
     {
       q: language === 'GU'

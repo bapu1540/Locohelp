@@ -171,8 +171,17 @@ function AppContent() {
       });
       setIsReportModalOpen(true);
     };
+    const handleOpenTerms = () => {
+      setIsGlobalLoginOpen(false);
+      window.dispatchEvent(new CustomEvent('locohelp_close_all_modals'));
+      setCurrentScreen('guidelines');
+    };
     window.addEventListener('locohelp_open_report_modal', handleOpenReport);
-    return () => window.removeEventListener('locohelp_open_report_modal', handleOpenReport);
+    window.addEventListener('locohelp_open_terms', handleOpenTerms);
+    return () => {
+      window.removeEventListener('locohelp_open_report_modal', handleOpenReport);
+      window.removeEventListener('locohelp_open_terms', handleOpenTerms);
+    };
   }, []);
 
   // Track SPA virtual page views in Google Analytics 4 (privacy-safe, deduplicated)
@@ -186,11 +195,16 @@ function AppContent() {
     syncBrowserDataToPostgres();
   }, []);
 
-  // Listen to URL changes for '/bapu-admin' and invalid routes
+  // Listen to URL changes for '/bapu-admin', legal hashes (#terms, #privacy, #delete-account), and invalid routes
   useEffect(() => {
     const handleRouteChange = () => {
       const targetScreen = getScreenFromRoute();
-      if (targetScreen === 'admin' || targetScreen === 'not_found') {
+      const hash = window.location.hash.toLowerCase().replace(/^#\/?/, '');
+      if (
+        targetScreen === 'admin' ||
+        targetScreen === 'not_found' ||
+        ['terms', 'privacy', 'delete-account', 'about', 'features', 'contact', 'guidelines', 'settings'].includes(hash)
+      ) {
         setCurrentScreen(targetScreen);
       }
     };

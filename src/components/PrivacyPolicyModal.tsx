@@ -36,7 +36,7 @@ export default function PrivacyPolicyModal({ isOpen, onClose }: PrivacyPolicyMod
                   <span>{language === 'GU' ? 'ગોપનીયતા નીતિ (Privacy Policy)' : language === 'HI' ? 'गोपनीयता नीति (Privacy Policy)' : 'Privacy Policy'}</span>
                 </h3>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
-                  {language === 'GU' ? 'લોકોહેલ્પ પ્લેટફોર્મની કાનૂની શરતો અને ડેટા સુરક્ષા' : language === 'HI' ? 'लोकोहेल्प प्लेटफॉर्म की कानूनी शर्तें और डेटा सुरक्षा' : 'LocoHelp Platform Legal Terms & Security'}
+                  {language === 'GU' ? 'લોકોહેલ્પ પ્લેટફોર્મની ગોપનીયતા અને ડેટા સુરક્ષા' : language === 'HI' ? 'लोकोहेल्प प्लेटफॉर्म की गोपनीयता और डेटा सुरक्षा' : 'LocoHelp Privacy & Data Protection'}
                 </p>
               </div>
             </div>
@@ -50,129 +50,150 @@ export default function PrivacyPolicyModal({ isOpen, onClose }: PrivacyPolicyMod
 
           {/* Compact Content */}
           <div className="p-4 sm:p-5 overflow-y-auto flex-1 space-y-3.5 text-xs">
-            {/* Section 1 */}
-            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 space-y-1.5">
+            {/* Section 1: 100% Free & No Payment Data */}
+            <div className="p-3.5 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/80 space-y-1.5">
               <div className="flex items-center gap-2">
-                <span className="w-5 h-5 rounded-full bg-indigo-600 text-white font-black text-[10px] flex items-center justify-center shrink-0">1</span>
+                <span className="w-5 h-5 rounded-full bg-emerald-600 text-white font-black text-[10px] flex items-center justify-center shrink-0">1</span>
                 <h4 className="font-extrabold text-slate-900 dark:text-white text-xs">
                   {language === 'GU'
-                    ? '૧. માહિતી સંગ્રહ અને હેતુ (Information Collection & Purpose)'
+                    ? '૧૦૦% નિઃશુલ્ક પ્લેટફોર્મ અને ઝીરો પેમેન્ટ ડેટા (100% Free & No Financial Data)'
                     : language === 'HI'
-                    ? '1. सूचना संग्रह और उद्देश्य (Information Collection & Purpose)'
-                    : '1) Information Collection & Purpose'}
+                    ? '100% निःशुल्क प्लेटफॉर्म और शून्य पेमेंट डेटा (100% Free & No Financial Data)'
+                    : '100% Free Platform & Zero Payment Data Collection'}
                 </h4>
               </div>
               <p className="text-slate-600 dark:text-slate-300 text-[11px] leading-relaxed pl-7">
                 {language === 'GU'
-                  ? 'અમે માત્ર હાયપર-લોકલ કમ્યુનિટી બ્રોડકાસ્ટ, વેરિફાઈડ સર્વિસ ડિરેક્ટરી અને રિયલ-ટાઇમ યુઝર કમ્યુનિકેશનને સરળ બનાવવા માટે જરૂરી અંગત અને પ્રોફાઇલ માહિતી—જેમાં તમારું પૂરું નામ, વેરિફાઈડ ઈમેઈલ સરનામું, સંપર્ક નંબર, એક્ટિવ લોકેશન (શહેર/વિસ્તાર), અને સ્વેચ્છાએ સબમિટ કરેલા વ્યવસાય/ઓળખ ચકાસણી દસ્તાવેજોનો સમાવેશ થાય છે—એકત્રિત કરીએ છીએ.'
+                  ? 'લોકોહેલ્પ (LocoHelp) નાગરિકો, ગ્રાહકો અને સર્વિસ પ્રોવાઈડર્સ (કારીગરો/દુકાનદારો) બંને માટે ૧૦૦% નિઃશુલ્ક (Free) છે. અમે કોઈપણ પક્ષ પાસેથી રજિસ્ટ્રેશન ફી, સબ્સ્ક્રિપ્શન ચાર્જ કે કમિશન લેતા નથી. લોકોહેલ્પ એપમાં કોઈપણ પ્રકારનું ઇન-એપ પેમેન્ટ ગેટવે નથી અને અમે તમારી ક્રેડિટ/ડેબિટ કાર્ડ વિગતો, બેંક એકાઉન્ટ નંબર કે UPI પિન ક્યારેય માંગતા કે સંગ્રહિત કરતા નથી.'
                   : language === 'HI'
-                  ? 'हम केवल हाइपर-लोकल सामुदायिक प्रसारण, सत्यापित सेवा निर्देशिकाओं और रीयल-टाइम उपयोगकर्ता संचार को सुविधाजनक बनाने के लिए आवश्यक व्यक्तिगत और प्रोफ़ाइल जानकारी—जिसमें आपका पूरा नाम, सत्यापित ईमेल पता, संपर्क नंबर, सक्रिय भौगोलिक स्थिति (शहर/क्षेत्र), और स्वेच्छा से प्रस्तुत व्यवसाय/पहचान सत्यापन दस्तावेज़ शामिल हैं—एकत्रित करते हैं।'
-                  : 'We collect essential personal and profile information—including your Full Name, verified Email Address, Contact Number, Active Geographical Location (City/Locality), and voluntarily submitted business/identity verification documents—solely to facilitate hyper-local community broadcasts, verified service directories, and real-time user communication.'}
+                  ? 'लोकोहेल्प (LocoHelp) आम नागरिकों, सेवा लेने वालों और सर्विस प्रोवाइडर्स (कारीगरों/दुकानदारों) दोनों के लिए 100% निःशुल्क (Free) है। हम किसी भी पक्ष से कोई रजिस्ट्रेशन शुल्क, सब्सक्रिप्शन फीस या कमीशन नहीं लेते हैं। ऐप में कोई इन-ऐप पेमेंट गेटवे नहीं है और हम आपके क्रेडिट/डेबिट कार्ड, बैंक खाते या UPI पिन की जानकारी कभी नहीं मांगते और न ही स्टोर करते हैं।'
+                  : 'LocoHelp is 100% free for both citizens (service seekers) and service providers (professionals, workers, and shopkeepers). We do not charge any registration fee, subscription fee, or commission from anyone. LocoHelp does not process in-app payments and never collects or stores your credit/debit card details, bank account numbers, or UPI PINs.'}
               </p>
             </div>
 
-            {/* Section 2 */}
+            {/* Section 2: Information Collection & Purpose */}
             <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 space-y-1.5">
               <div className="flex items-center gap-2">
                 <span className="w-5 h-5 rounded-full bg-indigo-600 text-white font-black text-[10px] flex items-center justify-center shrink-0">2</span>
                 <h4 className="font-extrabold text-slate-900 dark:text-white text-xs">
                   {language === 'GU'
-                    ? '૨. ડેટા એન્ક્રિપ્શન અને સુરક્ષિત આર્કિટેક્ચર (Data Encryption & Secure Architecture)'
+                    ? 'માહિતી સંગ્રહ અને હેતુ (Information Collection & Purpose)'
                     : language === 'HI'
-                    ? '2. डेटा एन्क्रिप्शन और सुरक्षित आर्किटेक्चर (Data Encryption & Secure Architecture)'
-                    : '2) Data Encryption & Secure Architecture'}
+                    ? 'सूचना संग्रह और उद्देश्य (Information Collection & Purpose)'
+                    : 'Information Collection & Purpose'}
                 </h4>
               </div>
               <p className="text-slate-600 dark:text-slate-300 text-[11px] leading-relaxed pl-7">
                 {language === 'GU'
-                  ? 'તમામ યુઝર માહિતી, ક્રેડેન્શિયલ્સ અને મીડિયા અસ્કયામતો અદ્યતન ક્રિપ્ટોગ્રાફિક હેશિંગનો ઉપયોગ કરીને સુરક્ષિત કરવામાં આવે છે અને અમારા સુરક્ષિત એન્ક્રિપ્ટેડ ક્લાઉડ ડેટાબેઝ અને સર્વર ઇન્ફ્રાસ્ટ્રક્ચરમાં સંગ્રહિત થાય છે. અમે તમારો પર્સનલ ડેટા કોઈ અનધિકૃત થર્ડ-પાર્ટી માર્કેટર્સને વેચતા, ભાડે આપતા કે શેર કરતા નથી.'
+                  ? 'અમે માત્ર હાયપર-લોકલ કમ્યુનિટી બ્રોડકાસ્ટ, વેરિફાઈડ સર્વિસ/દુકાન/નોકરી ડિરેક્ટરી અને રિયલ-ટાઇમ યુઝર કમ્યુનિકેશનને સરળ બનાવવા માટે જરૂરી મૂળભૂત પ્રોફાઇલ માહિતી—જેમાં તમારું પૂરું નામ, વેરિફાઈડ ઈમેઈલ સરનામું (OTP લોગિન માટે), સંપર્ક નંબર અને એક્ટિવ લોકેશન (રાજ્ય/જિલ્લો/વિસ્તાર)—એકત્રિત કરીએ છીએ.'
                   : language === 'HI'
-                  ? 'सभी उपयोगकर्ता जानकारी, क्रेडेंशियल और मीडिया एसेट उन्नत क्रिप्टोग्राफिक हैशिंग का उपयोग करके सुरक्षित हैं और हमारे सुरक्षित, एन्क्रिप्टेड क्लाउड डेटाबेस और संरक्षित सर्वर इन्फ्रास्ट्रक्चर में संग्रहीत हैं। हम आपकी व्यक्तिगत जानकारी को किसी भी अनधिकृत तीसरे पक्ष के मार्केटर्स को बिल्कुल नहीं बेचते, किराए पर नहीं देते या साझा नहीं करते हैं।'
-                  : 'All user information, credentials, and media assets are protected using advanced cryptographic hashing and stored within our secure, encrypted cloud databases and protected server infrastructure. We strictly do not sell, rent, or trade your personal data to unauthorized third-party marketers.'}
+                  ? 'हम केवल हाइपर-लोकल सामुदायिक ब्रॉडकास्ट, सत्यापित सेवा/दुकान/रोज़गार डायरेक्टरी और रीयल-टाइम उपयोगकर्ता चैट को सुविधाजनक बनाने के लिए आवश्यक बुनियादी प्रोफ़ाइल जानकारी—जिसमें आपका पूरा नाम, सत्यापित ईमेल पता (OTP लॉगिन हेतु), संपर्क नंबर और सक्रिय लोकेशन (राज्य/जिला/क्षेत्र) शामिल है—एकत्रित करते हैं।'
+                  : 'We collect basic personal and profile information—including your Full Name, verified Email Address (for OTP authentication), Contact Number, and Active Geographical Location (State/District/Area)—solely to facilitate hyper-local community broadcasts, verified service/shop/job directories, and real-time user communication.'}
               </p>
             </div>
 
-            {/* Section 3 */}
+            {/* Section 3: Phone Number & Chat Privacy */}
             <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 space-y-1.5">
               <div className="flex items-center gap-2">
                 <span className="w-5 h-5 rounded-full bg-indigo-600 text-white font-black text-[10px] flex items-center justify-center shrink-0">3</span>
                 <h4 className="font-extrabold text-slate-900 dark:text-white text-xs">
                   {language === 'GU'
-                    ? '૩. ડિવાઇસ પરવાનગીઓ: કેમેરા, ફોટો અને લોકેશન (Device Permissions Usage)'
+                    ? 'મોબાઈલ નંબર અને ચેટ ગોપનીયતા (Phone Number & Chat Privacy)'
                     : language === 'HI'
-                    ? '3. डिवाइस अनुमतियाँ: कैमरा, फोटो और लोकेशन (Device Permissions Usage)'
-                    : '3) Device Permissions: Camera, Photos & Location'}
+                    ? 'मोबाइल नंबर और चैट गोपनीयता (Phone Number & Chat Privacy)'
+                    : 'Phone Number & In-App Chat Privacy'}
                 </h4>
               </div>
               <p className="text-slate-600 dark:text-slate-300 text-[11px] leading-relaxed pl-7">
                 {language === 'GU'
-                  ? 'લોકોહેલ્પ એપ તમારી પરવાનગીથી જ (a) કેમેરા અને ફોટો ગેલેરીનો ઉપયોગ માત્ર પ્રોફાઇલ ફોટો, દુકાન/વ્યવસાયના ફોટા અથવા ચેટમાં ફોટો મોકલવા માટે કરે છે, અને (b) લોકેશન (GPS/શહેર) નો ઉપયોગ માત્ર તમારા વિસ્તારની નજીકની પોસ્ટ્સ, કારીગરો, દુકાનો અને નોકરીઓ બતાવવા માટે કરે છે. બેકગ્રાઉન્ડમાં તમારું લોકેશન કે ખાનગી મીડિયા ટ્રેક કરવામાં આવતું નથી.'
+                  ? 'સામાન્ય યુઝર્સનો મોબાઈલ નંબર ડિફોલ્ટ રૂપે ગોપનીય (Private) રહે છે અને જાહેરમાં બતાવવામાં આવતો નથી; યુઝર ઈચ્છે તો જ ચેટમાં સ્વેચ્છાએ શેર કરી શકે છે. માત્ર જે યુઝર્સ સ્વેચ્છાએ "સર્વિસ એક્સપર્ટ / કારીગર", "દુકાન" કે "નોકરી/જાહેરાત" ડિરેક્ટરીમાં પોતાનો વ્યવસાય રજિસ્ટર કરે છે, તેમનો સંપર્ક નંબર ગ્રાહકોના સીધા સંપર્ક માટે લિસ્ટિંગમાં દર્શાવવામાં આવે છે.'
                   : language === 'HI'
-                  ? 'लोकोहेल्प ऐप केवल आपकी स्पष्ट अनुमति से ही (a) कैमरा और फोटो गैलरी का उपयोग केवल प्रोफ़ाइल फ़ोटो, दुकान/व्यवसाय की फ़ोटो या चैट में छवि साझा करने के लिए करता है, और (b) लोकेशन (GPS/शहर) का उपयोग केवल आपके आस-पास के क्षेत्र की लाइव मदद, कारीगरों, दुकानों और नौकरियों को दिखाने के लिए करता है। बिना अनुमति बैकग्राउंड में आपकी लोकेशन या निजी मीडिया कभी ट्रैक नहीं किया जाता।'
-                  : 'LocoHelp accesses (a) Camera & Photo Gallery strictly with your explicit permission to let you upload profile pictures, business/shop listings, or share images in chat, and (b) Location (GPS/City) strictly to filter hyper-local broadcasts, nearby professionals, shops, and jobs in your area. We never track your background location or access private media without consent.'}
+                  ? 'सामान्य उपयोगकर्ताओं का मोबाइल नंबर डिफ़ॉल्ट रूप से गोपनीय (Private) रहता है और सार्वजनिक रूप से नहीं दिखाया जाता; उपयोगकर्ता चाहें तो चैट में स्वेच्छा से साझा कर सकते हैं। केवल वे उपयोगकर्ता जो स्वेच्छा से "सर्विस एक्सपर्ट/कारीगर", "दुकान" या "नौकरी/विज्ञापन" डायरेक्टरी में अपना व्यवसाय पंजीकृत करते हैं, उनका संपर्क नंबर ग्राहकों की सुविधा के लिए डायरेक्टरी में प्रदर्शित होता है।'
+                  : 'Regular users’ phone numbers are kept private by default and are never displayed publicly unless voluntarily shared inside private chat. Only users who voluntarily register a public listing in the Service Expert, Local Shop, or Job/Ad Directory choose to display their contact number so local customers can reach them directly.'}
               </p>
             </div>
 
-            {/* Section 4 */}
+            {/* Section 4: Device Permissions */}
             <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 space-y-1.5">
               <div className="flex items-center gap-2">
                 <span className="w-5 h-5 rounded-full bg-indigo-600 text-white font-black text-[10px] flex items-center justify-center shrink-0">4</span>
                 <h4 className="font-extrabold text-slate-900 dark:text-white text-xs">
                   {language === 'GU'
-                    ? '૪. ઓડિટ લોગ્સ અને કાનૂની પાલન (Audit Logs & Legal Compliance)'
+                    ? 'ડિવાઇસ પરવાનગીઓ: કેમેરા, ફોટો અને લોકેશન (Device Permissions Usage)'
                     : language === 'HI'
-                    ? '4. सुरक्षा ऑडिट लॉग और कानूनी अनुपालन (Audit Logs & Legal Compliance)'
-                    : '4) Security Audit Logs & Legal Compliance'}
+                    ? 'डिवाइस अनुमतियाँ: कैमरा, फोटो और लोकेशन (Device Permissions Usage)'
+                    : 'Device Permissions: Camera, Photos & Location'}
                 </h4>
               </div>
               <p className="text-slate-600 dark:text-slate-300 text-[11px] leading-relaxed pl-7">
                 {language === 'GU'
-                  ? 'પ્લેટફોર્મની અખંડિતતા જાળવવા, છેતરપિંડી રોકવા અને સમુદાયની સુરક્ષા સુનિશ્ચિત કરવા માટે, લોકોહેલ્પ સુરક્ષા ઓડિટ લોગ્સ, રિપોર્ટ કરેલી ચેટ્સ અને સમયરેખા રેકોર્ડ રાખે છે. લાગુ કાયદાઓ અને નિયમનકારી આદેશો હેઠળ, ગંભીર નિયમ ભંગ કે કાયદેસરની તપાસની સ્થિતિમાં આ માહિતી સક્ષમ કાયદાકીય અને નિયમનકારી સત્તાવાળાઓ (Competent Legal & Regulatory Authorities) સાથે શેર કરવાનો અધિકાર સુરક્ષિત રહેશે.'
+                  ? 'લોકોહેલ્પ એપ તમારી સ્પષ્ટ પરવાનગીથી જ (a) કેમેરા અને ફોટો ગેલેરીનો ઉપયોગ માત્ર લાઈવ સેલ્ફી, પ્રોફાઇલ ફોટો, દુકાન/વ્યવસાયના ફોટા અથવા ચેટમાં ફોટો અપલોડ કરવા માટે કરે છે, અને (b) લોકેશન (GPS/શહેર) નો ઉપયોગ માત્ર તમારા વિસ્તારની નજીકની પોસ્ટ્સ, કારીગરો, દુકાનો અને નોકરીઓ બતાવવા માટે કરે છે. બેકગ્રાઉન્ડમાં તમારું લોકેશન, કોન્ટેક્ટ લિસ્ટ કે ખાનગી મીડિયા ક્યારેય ટ્રેક કરવામાં આવતું નથી.'
                   : language === 'HI'
-                  ? 'प्लेटफ़ॉर्म की अखंडता बनाए रखने, धोखाधड़ी रोकने और सामुदायिक सुरक्षा सुनिश्चित करने के लिए, लोकोहेल्प सुरक्षा ऑडिट लॉग, रिपोर्ट की गई चैट और गतिविधि समय-स्टैम्प सुरक्षित रखता है। लागू कानूनों और नियामक प्रावधानों के तहत, गंभीर नियम उल्लंघन या वैध कानूनी जांच की स्थिति में यह रिकॉर्ड सक्षम कानूनी एवं नियामक प्राधिकरणों (Competent Legal & Regulatory Authorities) के साथ साझा करने का अधिकार सुरक्षित रहेगा।'
-                  : 'To maintain platform integrity, prevent fraud, and ensure community safety, LocoHelp retains security audit logs, reported chat transcripts, and activity timestamps. Under applicable laws and regulatory mandates, LocoHelp reserves the right to disclose relevant records to competent legal, regulatory, and law enforcement authorities upon valid legal request or investigation.'}
+                  ? 'लोकोहेल्प ऐप केवल आपकी स्पष्ट अनुमति से ही (a) कैमरा और फोटो गैलरी का उपयोग केवल लाइव सेल्फी, प्रोफ़ाइल फ़ोटो, दुकान/व्यवसाय की फ़ोटो या चैट में छवि अपलोड करने के लिए करता है, और (b) लोकेशन (GPS/शहर) का उपयोग केवल आपके आस-पास के क्षेत्र की लाइव मदद, कारीगरों, दुकानों और नौकरियों को दिखाने के लिए करता है। बैकग्राउंड में आपकी लोकेशन, कॉन्टैक्ट लिस्ट या निजी मीडिया कभी ट्रैक नहीं किया जाता।'
+                  : 'LocoHelp accesses (a) Camera & Photo Gallery strictly with your explicit permission when you take a live selfie, upload profile/work/shop photos, or share images in chat, and (b) Location (GPS/City) strictly to show nearby local posts, professionals, shops, and jobs in your area. We never track your location in the background or access your phonebook contacts.'}
               </p>
             </div>
 
-            {/* Section 5 */}
+            {/* Section 5: Data Security & No Third-Party Selling */}
             <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 space-y-1.5">
               <div className="flex items-center gap-2">
                 <span className="w-5 h-5 rounded-full bg-indigo-600 text-white font-black text-[10px] flex items-center justify-center shrink-0">5</span>
                 <h4 className="font-extrabold text-slate-900 dark:text-white text-xs">
                   {language === 'GU'
-                    ? '૫. ડેટા રીટેન્શન અને એકાઉન્ટ ડિલીટ નીતિ (Data Retention & Account Deletion Policy)'
+                    ? 'ડેટા સુરક્ષા અને ગોપનીયતા (Data Security & Zero Third-Party Selling)'
                     : language === 'HI'
-                    ? '5. डेटा प्रतिधारण और अकाउंट डिलीट नीति (Data Retention & Account Deletion Policy)'
-                    : '5) Data Retention & Account Deletion Policy'}
+                    ? 'डेटा सुरक्षा और गोपनीयता (Data Security & Zero Third-Party Selling)'
+                    : 'Data Security & Zero Third-Party Selling'}
                 </h4>
               </div>
               <p className="text-slate-600 dark:text-slate-300 text-[11px] leading-relaxed pl-7">
                 {language === 'GU'
-                  ? 'યુઝર્સ કોઈપણ સમયે Settings > "Request Account Closure / Delete Account" વિકલ્પ દ્વારા અથવા support@locohelp.com પર ઈમેઈલ કરીને પોતાનું એકાઉન્ટ અને અંગત ડેટા કાયમી ધોરણે ડિલીટ કરવાની વિનંતી કરી શકે છે. ચકાસણી બાદ તમારી પ્રોફાઇલ, પોસ્ટ્સ અને વ્યક્તિગત માહિતી હટાવી દેવામાં આવે છે (સિવાય કે કોઈ સક્રિય કાનૂની તપાસ કે સુરક્ષા વિવાદ હેઠળ કાયદા મુજબ ડેટા સાચવવો અનિવાર્ય હોય).'
+                  ? 'તમામ યુઝર ડેટા અને પાસવર્ડ્સ સુરક્ષિત એન્ક્રિપ્ટેડ ક્લાઉડ ડેટાબેઝમાં રાખવામાં આવે છે. અમે તમારો પર્સનલ ડેટા કોઈપણ થર્ડ-પાર્ટી એડવર્ટાઇઝર્સ કે માર્કેટિંગ કંપનીઓને ક્યારેય વેચતા કે શેર કરતા નથી. પ્લેટફોર્મ પર સ્પામ કે છેતરપિંડી રોકવા માટે એડમિન ટીમ દ્વારા સતત મોનિટરિંગ કરવામાં આવે છે.'
                   : language === 'HI'
-                  ? 'उपयोगकर्ता किसी भी समय Settings > "अकाउंट बंद / डिलीट करने का अनुरोध" विकल्प के माध्यम से या support@locohelp.com पर संपर्क करके अपना अकाउंट और व्यक्तिगत डेटा स्थायी रूप से हटाने का अनुरोध कर सकते हैं। सत्यापन के पश्चात आपकी प्रोफ़ाइल, पोस्ट और व्यक्तिगत डेटा को स्थायी रूप से हटा दिया जाता है (सिवाय उन मामलों के जहाँ किसी सक्रिय सुरक्षा शिकायत या कानूनी अनुपालन के तहत रिकॉर्ड सुरक्षित रखना अनिवार्य हो)।'
-                  : 'Users may request permanent deletion of their account and personal data at any time via Settings > "Request Account Closure / Delete Account" or by emailing support@locohelp.com. Upon verification, your profile, listings, and personal data are permanently removed, except where specific records must be retained to comply with active safety investigations or applicable legal obligations.'}
+                  ? 'सभी उपयोगकर्ता डेटा और पासवर्ड सुरक्षित एन्क्रिप्टेड क्लाउड डेटाबेस में रखे जाते हैं। हम आपका व्यक्तिगत डेटा किसी भी थर्ड-पार्टी विज्ञापनदाता या मार्केटिंग कंपनी को कभी नहीं बेचते या साझा नहीं करते हैं। प्लेटफ़ॉर्म पर स्पैम और धोखाधड़ी रोकने के लिए एडमिन टीम द्वारा सुरक्षा निगरानी रखी जाती है।'
+                  : 'All user data and credentials are protected using industry-standard encryption and stored in secure cloud databases. We strictly do not sell, rent, or trade your personal data to third-party advertisers or marketing agencies.'}
               </p>
             </div>
 
-            {/* Section 6 */}
-            <div className="p-3.5 rounded-2xl bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 space-y-1.5">
+            {/* Section 6: Data Retention & Account Deletion Policy */}
+            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 space-y-1.5">
               <div className="flex items-center gap-2">
                 <span className="w-5 h-5 rounded-full bg-indigo-600 text-white font-black text-[10px] flex items-center justify-center shrink-0">6</span>
                 <h4 className="font-extrabold text-slate-900 dark:text-white text-xs">
                   {language === 'GU'
-                    ? '૬. યુઝર અધિકારો અને ફરિયાદ નિવારણ (User Rights & Grievance Redressal)'
+                    ? 'એકાઉન્ટ અને ડેટા ડિલીટ નીતિ (Account & Data Deletion Policy)'
                     : language === 'HI'
-                    ? '6. उपयोगकर्ता अधिकार और शिकायत निवारण (User Rights & Grievance Redressal)'
-                    : '6) User Rights & Grievance Redressal'}
+                    ? 'अकाउंट और डेटा डिलीट नीति (Account & Data Deletion Policy)'
+                    : 'Account & Data Deletion Policy'}
                 </h4>
               </div>
               <p className="text-slate-600 dark:text-slate-300 text-[11px] leading-relaxed pl-7">
                 {language === 'GU'
-                  ? 'યુઝર્સ કોઈપણ સમયે તેમની રજિસ્ટર્ડ પ્રોફાઇલ માહિતીની સમીક્ષા કરી શકે છે અથવા અપડેટ માટે વિનંતી કરી શકે છે. કોઈપણ ગોપનીયતા સંબંધિત પ્રશ્નો, ડેટા ચિંતાઓ અથવા સત્તાવાર ફરિયાદો માટે, કૃપા કરીને અમારી સપોર્ટ ડેસ્કનો સંપર્ક કરો:'
+                  ? 'યુઝર્સ કોઈપણ સમયે એપના Settings > "Request Account Closure / Delete Account" વિકલ્પ દ્વારા અથવા support@locohelp.com પર ઈમેઈલ કરીને પોતાનું એકાઉન્ટ અને અંગત ડેટા કાયમી ધોરણે ડિલીટ કરવાની વિનંતી કરી શકે છે. વિનંતી બાદ તમારી પ્રોફાઇલ, પોસ્ટ્સ અને વ્યક્તિગત માહિતી કાયમી ધોરણે હટાવી દેવામાં આવે છે.'
                   : language === 'HI'
-                  ? 'उपयोगकर्ता किसी भी समय अपनी पंजीकृत प्रोफ़ाइल जानकारी की समीक्षा या अपडेट का अनुरोध कर सकते हैं। किसी भी गोपनीयता संबंधी प्रश्नों, डेटा चिंताओं, या आधिकारिक शिकायतों के लिए, कृपया हमारे सहायता डेस्क से संपर्क करें:'
-                  : 'Users may review or request updates to their registered profile information at any time. For any privacy-related queries, data concerns, or official grievances, please contact our support desk at:'}
+                  ? 'उपयोगकर्ता किसी भी समय ऐप के Settings > "अकाउंट बंद / डिलीट करने का अनुरोध" विकल्प के माध्यम से या support@locohelp.com पर ईमेल करके अपना अकाउंट और व्यक्तिगत डेटा स्थायी रूप से डिलीट करने का अनुरोध कर सकते हैं। अनुरोध के बाद आपकी प्रोफ़ाइल, पोस्ट और व्यक्तिगत डेटा स्थायी रूप से हटा दिया जाता है।'
+                  : 'Users can request permanent deletion of their account and personal data at any time directly inside the app via Settings > "Request Account Closure / Delete Account" or by emailing support@locohelp.com. Upon verification, your profile, posts, and personal data are permanently removed from active systems.'}
+              </p>
+            </div>
+
+            {/* Section 7: 18+ Age Policy & Grievance Redressal */}
+            <div className="p-3.5 rounded-2xl bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 space-y-1.5">
+              <div className="flex items-center gap-2">
+                <span className="w-5 h-5 rounded-full bg-indigo-600 text-white font-black text-[10px] flex items-center justify-center shrink-0">7</span>
+                <h4 className="font-extrabold text-slate-900 dark:text-white text-xs">
+                  {language === 'GU'
+                    ? '૧૮+ વય મર્યાદા અને સહાયતા સંપર્ક (18+ Age Policy & Support Contact)'
+                    : language === 'HI'
+                    ? '18+ आयु सीमा और सहायता संपर्क (18+ Age Policy & Support Contact)'
+                    : '18+ Age Policy & Support Contact'}
+                </h4>
+              </div>
+              <p className="text-slate-600 dark:text-slate-300 text-[11px] leading-relaxed pl-7">
+                {language === 'GU'
+                  ? 'લોકોહેલ્પ પ્લેટફોર્મ ૧૮ વર્ષ કે તેથી વધુ વયના નાગરિકો માટે છે; અમે ૧૮ વર્ષથી ઓછી વયના બાળકોનો ડેટા જાણીજોઈને એકત્રિત કરતા નથી. કોઈપણ ગોપનીયતા પ્રશ્નો, ડેટા સુધારણા અથવા સહાયતા માટે અમારો સંપર્ક કરો:'
+                  : language === 'HI'
+                  ? 'लोकोहेल्प प्लेटफ़ॉर्म 18 वर्ष या उससे अधिक आयु के नागरिकों के उपयोग के लिए है; हम जानबूझकर 18 वर्ष से कम आयु के बच्चों का डेटा एकत्रित नहीं करते हैं। किसी भी गोपनीयता संबंधी प्रश्न, डेटा अपडेट या सहायता के लिए हमसे संपर्क करें:'
+                  : 'LocoHelp is intended for users aged 18 years and older; we do not knowingly collect personal data from minors under 18. For any privacy queries, data access/deletion requests, or support, please contact us:'}
               </p>
               <div className="pl-7 pt-1 flex flex-wrap items-center gap-2">
                 <a
@@ -186,8 +207,13 @@ export default function PrivacyPolicyModal({ isOpen, onClose }: PrivacyPolicyMod
                   href="https://www.instagram.com/locohelpofficial?igsh=MWd2c282b2N6N250aA=="
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-pink-600 hover:bg-pink-700 text-white font-extrabold text-xs rounded-xl shadow-xs transition-colors"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-pink-600 via-rose-500 to-amber-500 hover:opacity-95 text-white font-extrabold text-xs rounded-xl shadow-xs transition-opacity"
                 >
+                  <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="2.5" y="2.5" width="19" height="19" rx="5" stroke="currentColor" strokeWidth="2.2" />
+                    <circle cx="12" cy="12" r="4.2" stroke="currentColor" strokeWidth="2.2" />
+                    <circle cx="17.2" cy="6.8" r="1.3" fill="currentColor" />
+                  </svg>
                   <span>@locohelpofficial</span>
                 </a>
               </div>
@@ -196,7 +222,7 @@ export default function PrivacyPolicyModal({ isOpen, onClose }: PrivacyPolicyMod
 
           {/* Footer */}
           <div className="p-3 bg-slate-50 dark:bg-slate-800/80 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
-            <span className="text-[10px] text-slate-400 font-bold">LocoHelp Legal Compliance • 2026</span>
+            <span className="text-[10px] text-slate-400 font-bold">LocoHelp © 2026 • Connecting Local Communities</span>
             <button
               onClick={onClose}
               className="bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 text-xs font-bold px-4 py-2 rounded-xl cursor-pointer"
