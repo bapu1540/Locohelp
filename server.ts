@@ -12660,8 +12660,171 @@ async function startServer() {
     });
   });
 
-  // Serve PWA Manifest, Service Worker, and Icons explicitly with proper MIME types and guaranteed 200 OK fallback
+  // Serve Sitemap, Robots.txt, PWA Manifest, Service Worker, and Icons explicitly with proper MIME types and guaranteed 200 OK fallback
   const publicDir = path.join(process.cwd(), "public");
+  const distDir = path.join(process.cwd(), "dist");
+
+  const FALLBACK_SITEMAP_XML = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://www.locohelp.com/</loc>
+    <lastmod>2026-11-01</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://locohelp.com/</loc>
+    <lastmod>2026-11-01</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://www.locohelp.com/?category=home_repair</loc>
+    <changefreq>daily</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://www.locohelp.com/?category=food_service</loc>
+    <changefreq>daily</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://www.locohelp.com/?category=salon_beauty</loc>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://www.locohelp.com/?category=it_tech</loc>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://www.locohelp.com/?category=cctv_security</loc>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://www.locohelp.com/?category=medical_help</loc>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://www.locohelp.com/?category=property_legal</loc>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://www.locohelp.com/?category=cab_auto_driver</loc>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://www.locohelp.com/?category=tempo_packers</loc>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://www.locohelp.com/?category=tutor</loc>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://www.locohelp.com/?category=parcel_delivery</loc>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://www.locohelp.com/?category=emergency</loc>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://www.locohelp.com/?category=plumber</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://www.locohelp.com/?category=electrician</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://www.locohelp.com/?category=ac_repair</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://www.locohelp.com/?category=carpenter</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://www.locohelp.com/?category=tiffin_service</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://www.locohelp.com/?category=grocery_delivery</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://www.locohelp.com/?category=mechanic</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+</urlset>`;
+
+  const FALLBACK_ROBOTS_TXT = `User-agent: *
+Allow: /
+Disallow: /api/
+
+Sitemap: https://www.locohelp.com/sitemap.xml
+Sitemap: https://locohelp.com/sitemap.xml
+`;
+
+  app.get("/sitemap.xml", (_req, res) => {
+    res.setHeader("Content-Type", "application/xml; charset=utf-8");
+    res.setHeader("Cache-Control", "public, max-age=3600");
+    try {
+      const publicSitemap = path.join(publicDir, "sitemap.xml");
+      const distSitemap = path.join(distDir, "sitemap.xml");
+      const targetFile = fs.existsSync(publicSitemap)
+        ? publicSitemap
+        : fs.existsSync(distSitemap)
+        ? distSitemap
+        : null;
+      if (targetFile) {
+        const content = fs.readFileSync(targetFile, "utf-8").trim();
+        if (content.startsWith("<?xml") || content.includes("<urlset")) {
+          return res.status(200).send(content);
+        }
+      }
+    } catch (_e) {}
+    return res.status(200).send(FALLBACK_SITEMAP_XML);
+  });
+
+  app.get("/robots.txt", (_req, res) => {
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.setHeader("Cache-Control", "public, max-age=3600");
+    try {
+      const publicRobots = path.join(publicDir, "robots.txt");
+      const distRobots = path.join(distDir, "robots.txt");
+      const targetFile = fs.existsSync(publicRobots)
+        ? publicRobots
+        : fs.existsSync(distRobots)
+        ? distRobots
+        : null;
+      if (targetFile) {
+        const content = fs.readFileSync(targetFile, "utf-8").trim();
+        if (content.length > 0 && !content.startsWith("<!DOCTYPE")) {
+          return res.status(200).send(content + "\n");
+        }
+      }
+    } catch (_e) {}
+    return res.status(200).send(FALLBACK_ROBOTS_TXT);
+  });
+
   app.get("/manifest.json", (_req, res) => {
     res.setHeader("Content-Type", "application/manifest+json; charset=utf-8");
     res.setHeader("Cache-Control", "no-cache");

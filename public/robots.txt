@@ -1,4 +1,6 @@
 User-agent: *
 Allow: /
+Disallow: /api/
 
+Sitemap: https://www.locohelp.com/sitemap.xml
 Sitemap: https://locohelp.com/sitemap.xml
