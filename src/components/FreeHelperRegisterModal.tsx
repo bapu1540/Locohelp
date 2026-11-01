@@ -64,11 +64,13 @@ export default function FreeHelperRegisterModal({
     if (cleanEmail) setFormEmail(cleanEmail);
     if (cleanPhone) setFormPhone(cleanPhone);
 
+    const resolvedDefault = defaultCategoryId || defaultCategory || 'plumber';
+
     const populateFormFromProfile = (prof: any) => {
       if (!prof) return;
       setFormName(prof.name || activeUser?.displayName || '');
       setFormEmail(prof.email || cleanEmail || '');
-      setFormCategory(prof.categoryId || defaultCategory);
+      setFormCategory(prof.categoryId || resolvedDefault);
       setCustomCategoryName(prof.customCategoryName || '');
       setFormPhone(prof.phone || cleanPhone || '');
       setIsPhonePublic(Boolean(prof.isPhonePublic === true));
@@ -112,7 +114,7 @@ export default function FreeHelperRegisterModal({
     } else {
       setExistingProfile(null);
       setIsEditing(false);
-      setFormCategory(defaultCategory);
+      setFormCategory(resolvedDefault);
     }
 
     getHelpers(true).then(serverHelpers => {
@@ -140,7 +142,7 @@ export default function FreeHelperRegisterModal({
         }
       }).catch(() => {});
     }
-  }, [isOpen, defaultCategory]);
+  }, [isOpen, defaultCategory, defaultCategoryId]);
 
   if (!isOpen) return null;
 

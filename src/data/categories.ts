@@ -1627,3 +1627,107 @@ export function saveFreeHelperProfile(
 
   return newProfile;
 }
+
+/**
+ * Colloquial Hinglish / Hindi / Gujarati search synonyms for every sub-category
+ * so local users typing everyday terms (e.g. "bijli", "nal", "mistri", "riksha", "dawa", "padhai")
+ * immediately find the right category and service experts.
+ */
+export const CATEGORY_SEARCH_SYNONYMS: Record<string, string[]> = {
+  plumber: ['nal', 'pipe', 'toti', 'pani', 'water tank', 'tanki', 'bathroom', 'tap', 'leakage', 'plumbing', 'mistri', 'motor', 'sanitary', 'flush', 'geyser pipe'],
+  electrician: ['bijli', 'light', 'fan', 'pankha', 'wire', 'wiring', 'switch', 'board', 'inverter', 'mcb', 'fuse', 'current', 'meter', 'cooler', 'geyser', 'led', 'tube light', 'bijli mistri'],
+  ac_repair: ['ac', 'fridge', 'ro', 'water purifier', 'aquaguard', 'washing machine', 'cooler', 'microwave', 'geyser', 'gas filling', 'cooling', 'refrigerator', 'appliance'],
+  carpenter: ['furniture', 'wood', 'lakdi', 'suthar', 'badhai', 'darwaza', 'door', 'lock', 'kundi', 'bed', 'palang', 'almari', 'cupboard', 'wardrobe', 'kitchen', 'table', 'chair', 'sofa'],
+  painter: ['paint', 'color', 'colour', 'putai', 'rang', 'pop', 'wall putty', 'waterproofing', 'polish', 'distemper', 'wallpaper'],
+  mason: ['mistri', 'rajmistri', 'kadiya', 'kadiyo', 'tiles', 'marble', 'granite', 'plaster', 'cement', 'brick', 'construction', 'civil', 'chuna', 'deewar', 'flooring'],
+  cleaning: ['safai', 'maid', 'kaamwali', 'kamwali', 'bai', 'cook', 'rasoiya', 'khana banane wali', 'bartan', 'jhadu', 'pocha', 'housekeeping', 'bathroom cleaning', 'sofa cleaning', 'deep cleaning'],
+  pest_control: ['pest', 'termite', 'deemak', 'cockroach', 'khatmal', 'machhar', 'rat', 'chuha', 'tank cleaning', 'pani ki tanki', 'sanitization', 'spray'],
+  tailor: ['darzi', 'silai', 'kapde', 'blouse', 'suit', 'kurti', 'lehenga', 'pant', 'shirt', 'alteration', 'fitting', 'boutique', 'pico', 'fall', 'embroidery'],
+  beautician: ['parlour', 'parlor', 'salon', 'makeup', 'bridal', 'facial', 'waxing', 'threading', 'mehendi', 'haircut', 'spa', 'beauty', 'grooming', 'manicure', 'pedicure'],
+  mehendi: ['mehndi', 'mehandi', 'henna', 'bridal mehendi', 'cone', 'shadi mehendi', 'karwa chauth'],
+  pandit_pooja: ['pandit', 'pujari', 'pooja', 'puja', 'katha', 'havan', 'vastu', 'jyotish', 'astrologer', 'kundali', 'maharaj', 'griha pravesh', 'satyanarayan', 'shadi pandit'],
+  photographer: ['photo', 'video', 'camera', 'cameraman', 'wedding shoot', 'pre wedding', 'drone', 'album', 'studio', 'birthday photo', 'reels shoot'],
+  catering_event: ['halwai', 'caterer', 'catering', 'mandap', 'tent', 'decoration', 'dj', 'sound', 'waiter', 'party food', 'bhandara', 'rasoi', 'event'],
+  web_developer: ['website', 'web', 'wordpress', 'shopify', 'ecommerce', 'domain', 'hosting', 'software', 'coding', 'programmer', 'landing page'],
+  app_developer: ['mobile app', 'android app', 'ios app', 'flutter', 'react native', 'apk', 'play store', 'application'],
+  graphic_video: ['graphic', 'logo', 'banner', 'poster', 'visiting card', 'pamphlet', 'video editing', 'reels editor', 'youtube editor', 'photoshop', 'canva', 'thumbnail'],
+  digital_marketing: ['marketing', 'instagram ads', 'facebook ads', 'google ads', 'seo', 'social media', 'promotion', 'prachar', 'lead generation', 'youtube channel'],
+  mobile_repair: ['mobile', 'phone', 'screen', 'display', 'combo', 'touch', 'battery', 'charging', 'iphone', 'android repair', 'folder', 'mobile shop'],
+  computer_laptop: ['laptop', 'computer', 'pc', 'windows', 'ssd', 'ram', 'keyboard', 'printer', 'data recovery', 'software install', 'motherboard'],
+  cctv_wifi: ['cctv', 'camera', 'wifi', 'wi-fi', 'router', 'internet', 'broadband', 'dvr', 'nvr', 'security camera', 'biometric', 'networking', 'fiber'],
+  medical_nurse: ['nurse', 'nursing', 'patient', 'mariz', 'injection', 'dressing', 'drip', 'glucose', 'caretaker', 'attendant', 'home care', 'icu', 'ward boy'],
+  medical_pharmacy: ['dawa', 'dawai', 'medicine', 'medical', 'medical store', 'chemist', 'pharmacy', 'tablet', 'syrup', 'insulin', 'surgical'],
+  physiotherapy: ['physio', 'exercise', 'back pain', 'kamar dard', 'knee pain', 'ghutna', 'joint pain', 'paralysis', 'rehab', 'chiropractor', 'massage therapy'],
+  lab_test: ['blood test', 'lab', 'pathology', 'sugar test', 'thyroid', 'cbc', 'urine test', 'sample', 'checkup', 'xray', 'ecg', 'report'],
+  ambulance_help: ['ambulance', 'emergency', 'oxygen', 'hospital', 'stretcher', 'icu ambulance', '108', 'patient transport'],
+  real_estate_broker: ['broker', 'property', 'makan', 'ghar', 'flat', 'room', 'pg', 'hostel', 'rent', 'kiraya', 'bhada', 'dukan', 'shop', 'plot', 'zameen', 'agent', 'dalal', '1bhk', '2bhk', '3bhk'],
+  vehicle_broker: ['old car', 'second hand', 'purani gadi', 'used bike', 'used car', 'activa', 'tractor', 'auto deal', 'car bazaar'],
+  rto_agent: ['rto', 'license', 'driving licence', 'dl', 'rc', 'rc transfer', 'puc', 'fastag', 'number plate', 'fitness', 'permit', 'challan'],
+  loan_insurance: ['loan', 'home loan', 'personal loan', 'business loan', 'mudra', 'bima', 'insurance', 'lic', 'mediclaim', 'health insurance', 'bike insurance', 'car insurance', 'policy', 'finance', 'emi'],
+  legal_docs: ['vakeel', 'lawyer', 'advocate', 'notary', 'stamp', 'rent agreement', 'kiraya karar', 'affidavit', 'aadhaar', 'pan card', 'passport', 'caste certificate', 'income certificate', 'ration card', 'jan seva', 'csc', 'e-seva'],
+  cab_auto_driver: ['cab', 'ola', 'uber', 'gadi', 'car booking', 'outstation', 'airport', 'drop', 'travel'],
+  auto_rickshaw: ['auto', 'rickshaw', 'riksha', 'chhakda', 'shuttle', 'school auto', 'three wheeler'],
+  private_driver: ['driver', 'car driver', 'chote', 'acting driver', 'hourly driver', 'daily driver', 'permanent driver'],
+  taxi_service: ['taxi', 'kali peeli', 'innova', 'ertiga', 'dzire', 'tour', 'yatra', 'picnic', 'bus'],
+  car_rental: ['rent car', 'kiraye par gadi', 'wedding car', 'self drive', 'baraat car', 'traveller', 'tempo traveller'],
+  tempo_packers: ['tempo', 'chota hathi', 'ace', 'bolero pickup', 'loading', 'laari', '3 wheeler tempo', 'saman dila'],
+  truck_transport: ['truck', 'eicher', 'transport', 'lpt', 'container', 'heavy load', 'goods transport', 'transporter'],
+  packers_movers: ['packers', 'movers', 'packing', 'saman pack', 'relocation', 'shifting company', 'carton'],
+  home_office_shifting: ['shifting', 'ghar shift', 'room shift', 'office shift', 'saman uthana', 'labour', 'mazdoor', 'coolie', 'helper'],
+  tutor: ['tuition', 'tution', 'tutor', 'teacher', 'sir', 'madam', 'padhai', 'school', 'coaching', 'class', 'maths', 'science', 'english', 'hindi', 'gujarati', 'commerce', 'accounts', 'home tutor'],
+  study_project: ['project', 'assignment', 'homework', 'practical', 'journal', 'file', 'model', 'chart', 'college project', 'school project', 'notes', 'thesis'],
+  computer_spoken_english: ['spoken english', 'english speaking', 'ielts', 'pte', 'computer class', 'tally', 'ccc', 'ms office', 'excel', 'typing'],
+  music_dance_art: ['music', 'singing', 'guitar', 'piano', 'casio', 'harmonium', 'tabla', 'dance', 'garba', 'drawing', 'painting', 'sketching', 'art', 'craft', 'zumba'],
+  cricket: ['cricket', 'bat', 'ball', 'turf', 'box cricket', 'match', 'tournament', 'bowler', 'batsman', 'team', 'football'],
+  badminton: ['badminton', 'racket', 'shuttle', 'tennis', 'table tennis', 'tt', 'squash', 'pickleball'],
+  gym_fitness: ['gym', 'workout', 'fitness', 'trainer', 'weight loss', 'bodybuilding', 'exercise', 'crossfit'],
+  running_yoga: ['running', 'jogging', 'morning walk', 'cycling', 'cycle', 'yoga', 'pranayama', 'meditation', 'aerobics'],
+  chai_coffee: ['chai', 'tea', 'coffee', 'tapri', 'cafe', 'gup shup', 'baatchit', 'hangout', 'dost', 'friend'],
+  companion: ['walk', 'evening walk', 'sair', 'park', 'movie', 'outing', 'companion', 'sathi'],
+  board_games: ['chess', 'shatranj', 'ludo', 'carrom', 'cards', 'uno', 'board game', 'bgmi', 'gaming'],
+  senior_help: ['senior citizen', 'buzurg', 'old age', 'dada', 'dadi', 'hospital companion', 'elderly', 'pension'],
+  pet_walking: ['dog', 'puppy', 'cat', 'pet', 'kutta', 'dog walker', 'vet', 'pet food', 'pet sitting'],
+  food_service: ['food', 'khana', 'meal', 'lunch', 'dinner', 'breakfast', 'nashta', 'paratha', 'thali', 'roti', 'sabji', 'snacks', 'fast food', 'home food'],
+  tiffin_service: ['tiffin', 'dabba', 'mess', 'monthly tiffin', 'student tiffin', 'ghar ka khana', 'lunch box'],
+  grocery_delivery: ['grocery', 'kirana', 'ration', 'rashan', 'atta', 'dal', 'chawal', 'oil', 'tel', 'sugar', 'chini', 'masala', 'general store', 'supermarket'],
+  fruits_seller: ['fruit', 'phal', 'fal', 'apple', 'seb', 'banana', 'kela', 'mango', 'aam', 'papaya', 'pomegranate', 'anar', 'coconut', 'nariyal'],
+  milk_dairy: ['milk', 'doodh', 'dudh', 'amul', 'dairy', 'paneer', 'dahi', 'curd', 'chaas', 'buttermilk', 'ghee', 'butter', 'cheese', 'shrikhand'],
+  vegetables_seller: ['vegetable', 'vegitable', 'sabzi', 'sabji', 'shakbhaji', 'bhaji', 'aloo', 'pyaz', 'tamatar', 'onion', 'potato', 'tomato', 'green veg', 'mandi'],
+  parcel_delivery: ['parcel', 'packet', 'box', 'bhejna', 'saman bhejna', 'porter', 'dunzo'],
+  courier_service: ['courier', 'post', 'speed post', 'dtdc', 'bluedart', 'delhivery', 'maruti courier', 'document send'],
+  pickup_drop: ['pickup', 'drop', 'key', 'chabi', 'charger', 'tiffin drop', 'document pickup', 'forgot item', 'lana lejana'],
+  delivery: ['delivery', 'delivery boy', 'rider', 'local delivery', 'home delivery', 'shop delivery'],
+  mechanic: ['mechanic', 'garage', 'gadi kharab', 'bike repair', 'car repair', 'scooter', 'activa', 'engine', 'clutch', 'brake', 'wire', 'service', 'breakdown'],
+  puncture_repair: ['puncture', 'panchar', 'tyre', 'tire', 'tube', 'tubeless', 'hawa', 'air', 'stepney', 'wheel'],
+  battery_jumpstart: ['battery', 'jumpstart', 'jump start', 'self', 'car start', 'exide', 'amaron', 'dead battery', 'charging'],
+  towing_service: ['towing', 'toing', 'crane', 'tow truck', 'accident', 'breakdown recovery', 'pulling'],
+  shopping_help: ['shopping', 'bazar', 'market', 'kharidari', 'saman lana', 'festival shopping', 'clothes shopping'],
+  medicine_pickup: ['dawa lana', 'medicine pickup', 'urgent medicine', 'rat ko dawai', 'chemist pickup', 'prescription'],
+  personal_helper: ['helper', 'assistant', 'bank work', 'post office', 'hospital line', 'form fill', 'companion help', 'ek ghante ka kaam'],
+  daily_errands_sub: ['errand', 'chote mote kaam', 'bill pay', 'light bill', 'xerox', 'photocopy', 'printout', 'laundry', 'istri', 'iron', 'press', 'queue', 'line'],
+  other: ['other', 'custom', 'anya', 'baki', 'kuch aur', 'general', 'help'],
+};
+
+export function matchesCategorySearch(cat: CategoryItem, rawQuery: string): boolean {
+  const q = (rawQuery || '').toLowerCase().trim();
+  if (!q) return true;
+
+  if (
+    cat.id.toLowerCase().includes(q) ||
+    cat.nameEn.toLowerCase().includes(q) ||
+    cat.nameHi.toLowerCase().includes(q) ||
+    (cat.nameGu && cat.nameGu.toLowerCase().includes(q)) ||
+    cat.description.toLowerCase().includes(q) ||
+    cat.tag.toLowerCase().includes(q)
+  ) {
+    return true;
+  }
+
+  const synonyms = CATEGORY_SEARCH_SYNONYMS[cat.id];
+  if (synonyms && synonyms.some(syn => syn.includes(q) || q.includes(syn))) {
+    return true;
+  }
+
+  return false;
+}
+

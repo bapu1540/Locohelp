@@ -4,7 +4,7 @@ import { Settings, Bell, Zap, Search, Globe, Clock, MapPin, Rocket, User, Trophy
 import { motion, AnimatePresence } from 'motion/react';
 import { useLanguage, SUPPORTED_LANGUAGES } from '../i18n';
 import { getCurrentUser, onAuthStateChange, getHelpers, getShops, logoutUser } from '../auth';
-import { CATEGORIES, MASTER_CATEGORIES, getCategoryName, getFreeHelperProfiles } from '../data/categories';
+import { CATEGORIES, MASTER_CATEGORIES, getCategoryName, getFreeHelperProfiles, matchesCategorySearch } from '../data/categories';
 import UserProfileModal from './UserProfileModal';
 import AppGuideModal from './AppGuideModal';
 import PostIntentSheet from './PostIntentSheet';
@@ -960,12 +960,16 @@ export default function HomeScreen({
     );
 
     // 2. Local Helpers & Service Providers
-    const helpers = getFreeHelperProfiles().filter(h =>
-      (h.name || '').toLowerCase().includes(q) ||
-      (h.categoryId || '').toLowerCase().includes(q) ||
-      (h.area || '').toLowerCase().includes(q) ||
-      (h.skills || []).some(s => s.toLowerCase().includes(q))
-    );
+    const helpers = getFreeHelperProfiles().filter(h => {
+      const helperCat = CATEGORIES.find(c => c.id === h.categoryId);
+      return (
+        (h.name || '').toLowerCase().includes(q) ||
+        (h.categoryId || '').toLowerCase().includes(q) ||
+        (h.area || '').toLowerCase().includes(q) ||
+        (helperCat ? matchesCategorySearch(helperCat, q) : false) ||
+        (h.skills || []).some(s => s.toLowerCase().includes(q))
+      );
+    });
 
     // 3. Registered Shops & Businesses (Approved only)
     let shopsList: any[] = [];
@@ -985,13 +989,8 @@ export default function HomeScreen({
       (s.ownerName || '').toLowerCase().includes(q)
     );
 
-    // 4. Service Categories
-    const categories = CATEGORIES.filter(c =>
-      (c.nameEn || '').toLowerCase().includes(q) ||
-      (c.nameHi || '').toLowerCase().includes(q) ||
-      (c.nameGu || '').toLowerCase().includes(q) ||
-      (c.id || '').toLowerCase().includes(q)
-    );
+    // 4. Service Categories (supports English, Hindi, Gujarati & Hinglish synonyms)
+    const categories = CATEGORIES.filter(c => matchesCategorySearch(c, q));
 
     return { posts, helpers, shops, categories };
   }, [homeSearchQuery, displayIntents]);

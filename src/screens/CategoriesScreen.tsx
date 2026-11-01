@@ -65,6 +65,7 @@ import {
   Briefcase,
   Code,
   Edit3,
+  Share2,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -78,6 +79,7 @@ import {
   getFreeHelperProfiles,
   FreeHelperProfile,
   normalizeCategorySlug,
+  matchesCategorySearch,
 } from '../data/categories';
 import { useLanguage } from '../i18n';
 import FreeHelperRegisterModal from '../components/FreeHelperRegisterModal';
@@ -642,6 +644,24 @@ export default function CategoriesScreen({
 
   const selectedCategoryObj = CATEGORIES.find((c) => c.id === activeCategory);
 
+  // Dynamically update document.title for Google SEO & browser tab clarity when viewing a specific category
+  useEffect(() => {
+    const defaultTitle = 'LocoHelp – Local Services, Shops & Urgent Help';
+    if (activeCategory !== 'all' && selectedCategoryObj) {
+      document.title = `${selectedCategoryObj.nameEn} Near You – LocoHelp Local Services`;
+    } else {
+      document.title = defaultTitle;
+    }
+    return () => {
+      document.title = defaultTitle;
+    };
+  }, [activeCategory, selectedCategoryObj]);
+
+  // Filter sub-categories when user types in search bar (supports English, Hindi, Gujarati & Hinglish synonyms)
+  const matchingSubCategoriesForSearch = searchQuery.trim()
+    ? CATEGORIES.filter((cat) => matchesCategorySearch(cat, searchQuery))
+    : [];
+
   // Filter helpers for selected category
   const filteredHelpers = helpers.filter((h) => {
     const matchesCat =
@@ -650,29 +670,17 @@ export default function CategoriesScreen({
         ? isHelperMatchingCategory(h, selectedCategoryObj)
         : h.categoryId === activeCategory);
     const q = searchQuery.toLowerCase().trim();
+    const helperCatObj = CATEGORIES.find((c) => c.id === h.categoryId);
     const matchesSearch =
       !q ||
       (h.name || '').toLowerCase().includes(q) ||
       (h.area || '').toLowerCase().includes(q) ||
       (h.customCategoryName || '').toLowerCase().includes(q) ||
+      (helperCatObj ? matchesCategorySearch(helperCatObj, q) : false) ||
       (Array.isArray(h.skills) &&
         h.skills.some((s) => String(s || '').toLowerCase().includes(q)));
     return matchesCat && matchesSearch;
   });
-
-  // Filter sub-categories when user types in search bar
-  const matchingSubCategoriesForSearch = searchQuery.trim()
-    ? CATEGORIES.filter((cat) => {
-        const q = searchQuery.toLowerCase().trim();
-        return (
-          cat.nameEn.toLowerCase().includes(q) ||
-          cat.nameHi.toLowerCase().includes(q) ||
-          (cat.nameGu && cat.nameGu.toLowerCase().includes(q)) ||
-          cat.description.toLowerCase().includes(q) ||
-          cat.tag.toLowerCase().includes(q)
-        );
-      })
-    : [];
 
   const handleChatWithHelper = (helper: FreeHelperProfile) => {
     if (isGuestUser()) {
@@ -1210,6 +1218,26 @@ export default function CategoriesScreen({
                       </div>
 
                       <div className="flex items-center gap-1.5 shrink-0">
+                        <a
+                          href={`https://wa.me/?text=${encodeURIComponent(
+                            `*${helper.name}* (${
+                              helper.categoryId === 'other' && helper.customCategoryName
+                                ? helper.customCategoryName
+                                : getCategoryName(catObj, language) || 'Service Expert'
+                            })\n📍 ${helper.area}\nLocoHelp पर वेरिफाइड प्रोफाइल देखें: https://locohelp.com`
+                          )}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 hover:bg-emerald-100 text-emerald-600 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/40 transition-colors cursor-pointer"
+                          title={tr(
+                            'Share Profile on WhatsApp',
+                            'व्हाट्सएप पर प्रोफाइल शेयर करें',
+                            'વોટ્સએપ પર પ્રોફાઇલ શેર કરો'
+                          )}
+                        >
+                          <Share2 className="w-3.5 h-3.5" />
+                        </a>
+
                         {isMine ? (
                           <button
                             type="button"
@@ -1298,6 +1326,7 @@ export default function CategoriesScreen({
         isOpen={isRegisterModalOpen}
         onClose={() => setIsRegisterModalOpen(false)}
         defaultCategory={activeCategory !== 'all' ? activeCategory : 'plumber'}
+        defaultCategoryId={activeCategory !== 'all' ? activeCategory : 'plumber'}
         onSuccess={() => {
           loadVerifiedHelpers();
         }}
