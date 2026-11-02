@@ -32,33 +32,33 @@ interface MainCatConfig {
 }
 
 const ROW_THEMES = {
-  // Row 1: #88BDF2 (Soft Sky Blue)
+  // Row 1: Light pastel shade of #469110 (#A9DF85) with #469110 icon badge
   row1: {
-    ic: '#1d5fa7',
-    bg: 'linear-gradient(135deg, #a3ccf6, #88BDF2)',
-    bd: '#5b9fe3',
-    tx: '#0c2849',
+    ic: '#469110',
+    bg: 'linear-gradient(135deg, #bfe9a2, #A9DF85)',
+    bd: '#74be43',
+    tx: '#173504',
   },
-  // Row 2: #BAC095 (Pastel Sage / Olive Green)
+  // Row 2: #FFA896 (Soft Peach / Coral)
   row2: {
-    ic: '#4d5623',
-    bg: 'linear-gradient(135deg, #cad0ab, #BAC095)',
-    bd: '#949d68',
-    tx: '#20250c',
-  },
-  // Row 3: #FFA896 (Soft Peach / Coral)
-  row3: {
     ic: '#b83720',
     bg: 'linear-gradient(135deg, #ffbfb1, #FFA896)',
     bd: '#ee826c',
     tx: '#421108',
   },
-  // Row 4: Light pastel shade of #469110 (#A9DF85) with #469110 icon badge
+  // Row 3: #BAC095 (Pastel Sage / Olive Green)
+  row3: {
+    ic: '#4d5623',
+    bg: 'linear-gradient(135deg, #cad0ab, #BAC095)',
+    bd: '#949d68',
+    tx: '#20250c',
+  },
+  // Row 4: #88BDF2 (Soft Sky Blue)
   row4: {
-    ic: '#469110',
-    bg: 'linear-gradient(135deg, #bfe9a2, #A9DF85)',
-    bd: '#74be43',
-    tx: '#173504',
+    ic: '#1d5fa7',
+    bg: 'linear-gradient(135deg, #a3ccf6, #88BDF2)',
+    bd: '#5b9fe3',
+    tx: '#0c2849',
   },
 };
 
