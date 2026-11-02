@@ -243,12 +243,12 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
     if (!file) return;
     setIsUploadingHeroBanner(true);
     try {
-      const check = await validateUploadedFile(file, { allowPdf: false });
+      const check = await validateUploadedFile(file, { allowPdf: false, maxSizeBytes: 25 * 1024 * 1024 });
       if (!check.valid) {
-        showToast(check.error || 'Invalid image file');
+        showToast(check.error || 'અમાન્ય ઈમેજ ફાઇલ (કૃપા કરીને JPG, PNG અથવા WebP પસંદ કરો)');
         return;
       }
-      const compressedUrl = await compressImageToWebP(file);
+      const compressedUrl = await compressImageToWebP(file, { maxWidth: 1920, maxHeight: 1080, quality: 0.82, folder: 'banners' });
       const res = await saveCategoryImageOnServer('__home_hero_banner__', compressedUrl);
       if (res.success) {
         setCategoryImages(prev => ({ ...prev, __home_hero_banner__: compressedUrl }));
@@ -4688,7 +4688,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                       onChange={async (e) => {
                         const file = e.target.files?.[0];
                         if (!file) return;
-                        const check = await validateUploadedFile(file, { allowPdf: false });
+                        const check = await validateUploadedFile(file, { allowPdf: false, maxSizeBytes: 25 * 1024 * 1024 });
                         if (!check.valid) {
                           showToast(check.error || 'Invalid image file');
                           return;
@@ -4998,10 +4998,10 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                 <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800 space-y-2">
                   <label className="block font-bold text-slate-300">
                     {creatingItem.module === 'businesses'
-                      ? 'Upload Shop Photos (Up to 3 Images, Max 2MB each)'
+                      ? 'Upload Shop Photos (Up to 3 Images, Max 25MB each, Auto-Compressed)'
                       : creatingItem.module === 'job_seekers'
-                      ? 'Upload Candidate Photo (Max 2MB) or Resume PDF (Max 5MB)'
-                      : 'Upload Profile / Work Photo (JPG, PNG, WEBP Max 2MB)'}
+                      ? 'Upload Candidate Photo (Max 25MB) or Resume PDF (Max 10MB)'
+                      : 'Upload Profile / Work Photo (JPG, PNG, WEBP Max 25MB, Auto-Compressed)'}
                   </label>
                   <input
                     type="file"
@@ -5011,7 +5011,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                       const files = Array.from(e.target.files || []) as File[];
                       for (const file of files.slice(0, 3)) {
                         const allowPdf = creatingItem.module === 'job_seekers';
-                        const check = await validateUploadedFile(file, { allowPdf });
+                        const check = await validateUploadedFile(file, { allowPdf, maxSizeBytes: 25 * 1024 * 1024 });
                         if (!check.valid) {
                           showToast(check.error || 'Invalid file');
                           continue;

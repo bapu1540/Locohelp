@@ -1113,7 +1113,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
       </div>
 
       {/* TAB CONTENT AREA */}
-      <div className="flex-1 overflow-y-auto scrollbar-hide px-4 pt-4 pb-28 space-y-4">
+      <div className="flex-1 overflow-y-auto scrollbar-hide px-4 pt-4 pb-32 space-y-4" style={{ paddingBottom: 'calc(7.5rem + env(safe-area-inset-bottom, 0px))' }}>
 
         {/* ============================================================== */}
         {/* TAB 1: SIMPLE USER PROFILE                                     */}

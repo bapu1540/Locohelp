@@ -16,8 +16,8 @@ export interface FileValidationResult {
 
 const ALLOWED_IMAGE_MIMES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp']);
 const ALLOWED_IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'webp', 'jfif']);
-const MAX_IMAGE_SIZE_BYTES = 15 * 1024 * 1024; // 15MB raw file limit (compressed to <500KB WebP before upload)
-const MAX_PDF_SIZE_BYTES = 5 * 1024 * 1024;   // 5MB
+const MAX_IMAGE_SIZE_BYTES = 25 * 1024 * 1024; // 25MB raw file limit (supports high-res mobile cameras, auto-compressed to WebP before save)
+const MAX_PDF_SIZE_BYTES = 10 * 1024 * 1024;  // 10MB
 
 // Dangerous extensions that must never appear anywhere in the filename (including double extensions)
 const BLOCKED_EXTENSIONS = new Set([
@@ -79,11 +79,11 @@ export function hasDangerousOrDoubleExtension(fileName: string, allowPdf: boolea
     return {
       blocked: true,
       reasonEn: allowPdf
-        ? 'Only JPG, PNG, WebP images (up to 2MB) and PDF files (up to 5MB) are allowed.'
-        : 'Only JPG, PNG, and WebP images (up to 2MB) are allowed.',
+        ? 'Only JPG, PNG, WebP images (up to 25MB) and PDF files (up to 10MB) are allowed.'
+        : 'Only JPG, PNG, and WebP images (up to 25MB) are allowed.',
       reasonHi: allowPdf
-        ? 'केवल JPG, PNG, WebP इमेज (2MB तक) और PDF फ़ाइलें (5MB तक) ही मान्य हैं।'
-        : 'केवल JPG, PNG और WebP इमेज (2MB तक) ही मान्य हैं।'
+        ? 'केवल JPG, PNG, WebP इमेज (25MB तक) और PDF फ़ाइलें (10MB तक) ही मान्य हैं।'
+        : 'केवल JPG, PNG और WebP इमेज (25MB तक) ही मान्य हैं।'
     };
   }
 
@@ -95,7 +95,7 @@ export function hasDangerousOrDoubleExtension(fileName: string, allowPdf: boolea
  */
 export async function validateUploadedFile(
   file: File | null | undefined,
-  options?: { allowPdf?: boolean }
+  options?: { allowPdf?: boolean; maxSizeBytes?: number }
 ): Promise<FileValidationResult> {
   if (!file) {
     return { valid: false, error: 'No file selected.', errorHi: 'कोई फ़ाइल नहीं चुनी गई।' };
@@ -130,8 +130,8 @@ export async function validateUploadedFile(
     if (!allowPdf) {
       return {
         valid: false,
-        error: 'PDF files are not allowed in this field. Please upload a JPG, PNG, or WebP image (max 2MB).',
-        errorHi: 'यहाँ PDF फ़ाइल मान्य नहीं है। कृपया JPG, PNG या WebP इमेज (अधिकतम 2MB) अपलोड करें।'
+        error: 'PDF files are not allowed in this field. Please upload a JPG, PNG, or WebP image (max 25MB).',
+        errorHi: 'यहाँ PDF फ़ाइल मान्य नहीं है। कृपया JPG, PNG या WebP इमेज (अधिकतम 25MB) अपलोड करें।'
       };
     }
 
@@ -199,11 +199,13 @@ export async function validateUploadedFile(
     };
   }
 
-  if (file.size > MAX_IMAGE_SIZE_BYTES) {
+  const maxImgSize = options?.maxSizeBytes ?? MAX_IMAGE_SIZE_BYTES;
+  if (file.size > maxImgSize) {
+    const mbLimit = Math.round(maxImgSize / (1024 * 1024));
     return {
       valid: false,
-      error: 'Image size exceeds the 2MB limit. Please choose an image under 2MB.',
-      errorHi: 'इमेज का साइज़ 2MB से अधिक है। कृपया 2MB से कम की इमेज चुनें।'
+      error: `Image size exceeds the ${mbLimit}MB limit. Please choose a smaller image.`,
+      errorHi: `इमेज का साइज़ ${mbLimit}MB से अधिक है। कृपया छोटी इमेज चुनें।`
     };
   }
 

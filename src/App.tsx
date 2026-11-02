@@ -429,9 +429,8 @@ function AppContent() {
         className="loco-header-bar sticky top-0 z-50 shrink-0 min-h-[50px] backdrop-blur-md shadow-xs px-1.5 sm:px-3 md:px-5 py-1.5 flex items-center justify-between gap-1 sm:gap-2 md:gap-3 w-full max-w-full box-border"
         style={{ position: 'sticky', top: 0, zIndex: 9999, overflow: 'visible' }}
       >
-        {/* Left Group: Language Selector + Left-Aligned LocoHelp Logo */}
-        <div className="flex items-center gap-1 sm:gap-2.5 flex-shrink-0" style={{ overflow: 'visible' }}>
-          {/* 1. Language Selector Dropdown (ગુજરાતી / हिन्दी / English) */}
+        {/* Left Side: Language Selector Dropdown (ગુજરાતી / हिन्दी / English) */}
+        <div className="flex items-center justify-start flex-1 sm:flex-initial min-w-[70px] sm:min-w-[100px]" style={{ overflow: 'visible' }}>
           <div className="relative flex-shrink-0" style={{ overflow: 'visible' }}>
             <button
               type="button"
@@ -494,37 +493,36 @@ function AppContent() {
               )}
             </AnimatePresence>
           </div>
-
-          {/* 2. Official LocoHelp Logo (Left-Aligned) */}
-          <div
-            onClick={() => {
-              setIsGlobalLangOpen(false);
-              setIsGlobalMenuOpen(false);
-              setIsGlobalLocationOpen(false);
-              setIsGlobalLoginOpen(false);
-              try {
-                sessionStorage.removeItem('locohelp_return_popup_cat');
-              } catch {}
-              window.dispatchEvent(new CustomEvent('locohelp_close_all_modals'));
-              handleSelectCategory('all');
-              if (currentScreen === 'admin') {
-                try {
-                  window.history.pushState({ locohelpScreen: 'home' }, '', '/');
-                } catch {}
-              }
-              navigate('home');
-            }}
-            className="flex-shrink-0 flex items-center select-none cursor-pointer py-0.5"
-            title="LocoHelp Home"
-          >
-            <LocoHelpLogo size={24} showText={true} textSize="sm" className="flex-shrink-0" />
-          </div>
         </div>
 
-        {/* 3. Right Side: Single-Line Soft Pastel Tagline Pill (Top 3-Dot Menu removed & moved to Bottom Bar 'વધુ') */}
-        <div className="flex items-center justify-end gap-1 sm:gap-2 min-w-0 flex-1" style={{ overflow: 'visible' }}>
-          {/* Strictly Single-Line Soft Pastel Tagline Pill (much smaller than logo, language-aware) */}
-          <div className="loco-tagline-singleline-box">
+        {/* Center: Official LocoHelp Logo (Centered) */}
+        <div
+          onClick={() => {
+            setIsGlobalLangOpen(false);
+            setIsGlobalMenuOpen(false);
+            setIsGlobalLocationOpen(false);
+            setIsGlobalLoginOpen(false);
+            try {
+              sessionStorage.removeItem('locohelp_return_popup_cat');
+            } catch {}
+            window.dispatchEvent(new CustomEvent('locohelp_close_all_modals'));
+            handleSelectCategory('all');
+            if (currentScreen === 'admin') {
+              try {
+                window.history.pushState({ locohelpScreen: 'home' }, '', '/');
+              } catch {}
+            }
+            navigate('home');
+          }}
+          className="flex-shrink-0 flex items-center justify-center select-none cursor-pointer py-0.5 mx-auto text-center"
+          title="LocoHelp Home"
+        >
+          <LocoHelpLogo size={24} showText={true} textSize="sm" className="flex-shrink-0" />
+        </div>
+
+        {/* Right Side: Balanced Spacer & Single-Line Soft Tagline Pill */}
+        <div className="flex items-center justify-end flex-1 sm:flex-initial min-w-[70px] sm:min-w-[100px]" style={{ overflow: 'visible' }}>
+          <div className="hidden sm:block loco-tagline-singleline-box">
             <span className="loco-tagline-singleline-text">
               {tr(
                 'Find local helpers Near You',

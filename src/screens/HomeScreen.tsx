@@ -1694,14 +1694,24 @@ export default function HomeScreen({
             </div>
           )}
 
-        <div className="px-3.5 sm:px-5 mt-3 sm:mt-4 space-y-3 max-w-full">
+        <div className="px-2.5 sm:px-4 mt-1.5 space-y-1.5 sm:space-y-2 max-w-full">
+          {/* 1. Responsive Home Page Main Hero Banner (Right below centered Logo, above Search Bar - configurable from Admin Panel) */}
+          <div className="w-full rounded-2xl overflow-hidden shadow-sm border border-sky-200/80 dark:border-slate-700 bg-sky-50/40 dark:bg-slate-800/60">
+            <img
+              src={categoryImages['__home_hero_banner__'] || '/assets/aistudio/__________________________0e3f70be.png'}
+              alt="LocoHelp — ઘરના કામ હવે થશે ખૂબ સરળ!"
+              className="w-full h-auto block object-contain"
+              loading="eager"
+              decoding="async"
+            />
+          </div>
           
-          {/* 1. Real-Time Interactive Global Search Bar across Entire Website */}
+          {/* 2. Real-Time Interactive Global Search Bar across Entire Website */}
           <div className="relative z-20">
-            <div className={`bg-white dark:bg-slate-800 border-2 transition-all rounded-2xl p-2 sm:p-2.5 flex items-center gap-2 shadow-xs ${
+            <div className={`bg-white dark:bg-slate-800 border transition-all rounded-xl py-1.5 px-2.5 flex items-center gap-2 shadow-xs ${
               isSearchFocused || homeSearchQuery ? 'border-indigo-600 dark:border-indigo-500 ring-2 ring-indigo-500/20' : 'border-violet-200 dark:border-slate-700 hover:border-indigo-400'
             }`}>
-              <Search className="w-4 h-4 text-indigo-500 dark:text-indigo-400 shrink-0 ml-1" />
+              <Search className="w-4 h-4 text-indigo-500 dark:text-indigo-400 shrink-0 ml-0.5" />
               
               <input
                 type="text"
@@ -1919,48 +1929,37 @@ export default function HomeScreen({
             </AnimatePresence>
           </div>
 
-          {/* 2. Create Post Button (Orange #FF8800) */}
+          {/* 3. Create Post Button (Orange #FF8800) - Compact, matching height */}
           <div
             onClick={handleSafeOpenPostSheet}
             style={{ background: 'linear-gradient(135deg, #FF8800 0%, #FF6600 100%)' }}
-            className="w-full rounded-2xl p-3.5 text-white shadow-lg shadow-orange-500/25 cursor-pointer active:scale-[0.98] transition-all border-2 border-orange-300 dark:border-orange-400 hover:brightness-105 flex items-center justify-between gap-3"
+            className="w-full rounded-xl py-2 px-3 sm:px-3.5 text-white shadow-md shadow-orange-500/20 cursor-pointer active:scale-[0.98] transition-all border border-orange-300 dark:border-orange-400 hover:brightness-105 flex items-center justify-between gap-2"
             title={language === 'EN' ? 'Post Requirement for Local Service' : language === 'GU' ? 'કારીગર કે સેવા માટે અહીં પોસ્ટ કરો' : 'कारीगर या सेवा के लिए यहाँ पोस्ट करें'}
           >
-            <div className="flex items-center gap-2.5">
-              <span className="text-xl shrink-0">📢</span>
-              <span className="text-sm sm:text-base font-black tracking-wide text-white drop-shadow-xs">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-base sm:text-lg shrink-0">📢</span>
+              <span className="text-xs sm:text-sm font-black tracking-wide text-white drop-shadow-xs truncate">
                 {language === 'EN' ? 'Post Requirement for Local Service' : language === 'GU' ? 'કારીગર કે સેવા માટે અહીં પોસ્ટ કરો' : 'कारीगर या सेवा के लिए यहाँ पोस्ट करें'}
               </span>
             </div>
-            <div className="w-8 h-8 rounded-xl bg-white text-slate-900 flex items-center justify-center shrink-0 shadow-xs">
-              <ChevronRight className="w-5 h-5 stroke-[2.5] text-slate-900" />
+            <div className="w-6 h-6 rounded-lg bg-white text-slate-900 flex items-center justify-center shrink-0 shadow-xs">
+              <ChevronRight className="w-3.5 h-3.5 stroke-[2.5] text-slate-900" />
             </div>
           </div>
 
-          {/* 2B. Responsive Home Page Main Hero Banner (Configurable from Admin Panel, visible to all users on Mobile, Tablet, Laptop & Computer) */}
-          <div className="w-full rounded-2xl overflow-hidden shadow-md border border-sky-200/80 dark:border-slate-700 bg-sky-50/40 dark:bg-slate-800/60">
-            <img
-              src={categoryImages['__home_hero_banner__'] || '/assets/aistudio/__________________________0e3f70be.png'}
-              alt="LocoHelp — ઘરના કામ હવે થશે ખૂબ સરળ!"
-              className="w-full h-auto block object-contain"
-              loading="eager"
-              decoding="async"
-            />
-          </div>
-
-          {/* 3. Browse Service Experts Heading Banner (Blue #0066FF - Non-clickable heading) */}
+          {/* 4. Browse Service Experts Heading Banner (Blue #0066FF) - Compact, matching height */}
           <div
             style={{ background: 'linear-gradient(135deg, #0066FF 0%, #0044CC 100%)' }}
-            className="w-full rounded-2xl p-3.5 text-white shadow-lg shadow-blue-500/25 cursor-default select-none border-2 border-blue-300 dark:border-blue-400 flex items-center justify-between gap-3"
+            className="w-full rounded-xl py-2 px-3 sm:px-3.5 text-white shadow-md shadow-blue-500/20 cursor-default select-none border border-blue-300 dark:border-blue-400 flex items-center justify-between gap-2"
           >
-            <div className="flex items-center gap-2.5">
-              <span className="text-xl shrink-0">🔍</span>
-              <span className="text-sm sm:text-base font-black tracking-wide text-white drop-shadow-xs">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-base sm:text-lg shrink-0">🔍</span>
+              <span className="text-xs sm:text-sm font-black tracking-wide text-white drop-shadow-xs truncate">
                 {language === 'EN' ? 'Browse Service Experts' : language === 'GU' ? 'સર્વિસ એક્સપર્ટ્સ અને કારીગરો શોધો' : 'ब्राउज़ सर्विस एक्सपर्ट्स'}
               </span>
             </div>
-            <div className="w-8 h-8 rounded-xl bg-white text-slate-900 flex items-center justify-center shrink-0 shadow-xs">
-              <ChevronDown className="w-5 h-5 stroke-[2.5] text-blue-700" />
+            <div className="w-6 h-6 rounded-lg bg-white text-slate-900 flex items-center justify-center shrink-0 shadow-xs">
+              <ChevronDown className="w-3.5 h-3.5 stroke-[2.5] text-blue-700" />
             </div>
           </div>
 
@@ -1992,13 +1991,13 @@ export default function HomeScreen({
             }}
           />
 
-          {/* 6. Live Community Broadcast Posts Feed (Active Nearby Radar) */}
-          <div className="bg-slate-50/90 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-3 sm:p-4 space-y-3 shadow-xs">
+          {/* 6. Live Community Broadcast Posts Feed (Active Nearby Radar) - Sleek & Compact */}
+          <div className="bg-slate-50/90 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-2.5 sm:p-3 space-y-2 shadow-xs">
             {/* Radar Feed Top Bar */}
-            <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-200/80 dark:border-slate-700/80">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping shrink-0" />
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 -ml-4.5 shrink-0" />
+            <div className="flex flex-wrap items-center justify-between gap-1.5 pb-1.5 border-b border-slate-200/80 dark:border-slate-700/80">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping shrink-0" />
+                <span className="w-2 h-2 rounded-full bg-emerald-500 -ml-3.5 shrink-0" />
                 <h2 className="text-xs sm:text-sm font-black text-slate-900 dark:text-white tracking-tight truncate">
                   {language === 'EN'
                     ? `Live Broadcast Radar (${searchedIntents.length})`
@@ -2009,12 +2008,12 @@ export default function HomeScreen({
                 <button
                   type="button"
                   onClick={() => setIsLocationModalOpen(true)}
-                  className="inline-flex items-center gap-1 text-[11px] font-black px-2.5 py-1 rounded-full bg-emerald-100 dark:bg-emerald-950/90 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 hover:bg-emerald-200 dark:hover:bg-emerald-900 transition-all cursor-pointer shadow-2xs active:scale-95 shrink-0"
+                  className="inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/90 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 hover:bg-emerald-200 dark:hover:bg-emerald-900 transition-all cursor-pointer shadow-2xs active:scale-95 shrink-0"
                   title={language === 'GU' ? 'લોકેશન બદલો (સમગ્ર ભારત)' : language === 'HI' ? 'लोकेशन बदलें (पूरा भारत)' : 'Change Location (Pan-India)'}
                 >
                   <span className="shrink-0">📍</span>
-                  <span className="truncate max-w-[110px] sm:max-w-none">{userLocation.district || 'All India'}</span>
-                  <span className="text-[9px] opacity-70 shrink-0">▾</span>
+                  <span className="truncate max-w-[100px] sm:max-w-none">{userLocation.district || 'All India'}</span>
+                  <span className="text-[8px] opacity-70 shrink-0">▾</span>
                 </button>
               </div>
 
@@ -2154,48 +2153,45 @@ export default function HomeScreen({
               </div>
             )}
 
-            {/* Broadcast Posts Feed List */}
+            {/* Broadcast Posts Feed List - Compact Empty State */}
             {searchedIntents.length === 0 ? (
               <div
                 style={{ backgroundColor: '#F0FDF4' }}
-                className="bg-[#F0FDF4] dark:bg-slate-900 border-2 border-dashed border-emerald-300 dark:border-slate-700 rounded-2xl p-6 text-center space-y-3 shadow-2xs"
+                className="bg-[#F0FDF4] dark:bg-slate-900 border border-dashed border-emerald-300 dark:border-slate-700 rounded-xl p-2.5 sm:p-3 text-center space-y-1.5 shadow-2xs"
               >
-                <div className="w-11 h-11 rounded-2xl bg-white dark:bg-indigo-950/80 border border-emerald-200 dark:border-indigo-800 text-emerald-600 dark:text-indigo-400 mx-auto flex items-center justify-center text-xl shadow-2xs">
-                  📢
+                <div className="flex items-center justify-center gap-2">
+                  <div className="w-6 h-6 rounded-lg bg-white dark:bg-indigo-950/80 border border-emerald-200 dark:border-indigo-800 text-emerald-600 dark:text-indigo-400 flex items-center justify-center text-xs shadow-2xs">
+                    📢
+                  </div>
+                  <p className="text-xs font-black text-emerald-950 dark:text-slate-200">
+                    {language === 'EN'
+                      ? 'Live Radar: Post Your Need'
+                      : language === 'GU'
+                      ? 'લાઈવ રડાર પર જરૂરિયાત પોસ્ટ કરો'
+                      : 'लाइव रडार पर अपनी ज़रूरत पोस्ट करें'}
+                  </p>
                 </div>
-                <p className="text-xs sm:text-sm font-extrabold text-emerald-950 dark:text-slate-200">
-                  {language === 'EN'
-                    ? 'Post Your Need on Live Radar'
-                    : language === 'GU'
-                    ? 'લાઈવ રડાર પર તમારી જરૂરિયાત પોસ્ટ કરો'
-                    : 'लाइव रडार पर अपनी ज़रूरत पोस्ट करें'}
-                </p>
-                <p className="text-[11px] font-medium text-emerald-800/90 dark:text-slate-400 max-w-md mx-auto leading-relaxed">
+                <p className="text-[10px] font-medium text-emerald-800/90 dark:text-slate-400 max-w-sm mx-auto leading-normal">
                   {language === 'EN'
                     ? 'Need a Plumber, Electrician, Mechanic, or Local Help right now? Create a post to alert nearby people!'
                     : language === 'GU'
-                    ? 'પ્લમ્બર, ઈલેક્ટ્રિશિયન, મિકેનિક કે કોઈ મદદ જોઈએ છે? અત્યારે જ પોસ્ટ બનાવો!'
+                    ? 'પ્લમ્બર, ઈલેક્ટ્રિશિયન, મિકેનિક કે કોઈ મદદ જોઈએ છે? નજીકના લોકોને એલર્ટ કરવા પોસ્ટ કરો!'
                     : 'प्लंबर, इलेक्ट्रीशियन, मैकेनिक या किसी भी मदद के लिए अभी अपनी पोस्ट बनाएं!'}
                 </p>
                 <div className="flex flex-wrap items-center justify-center gap-1.5 pt-0.5">
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/90 dark:bg-slate-800 border border-emerald-200 dark:border-slate-700 text-[10px] font-extrabold text-emerald-800 dark:text-emerald-300 shadow-2xs">
-                    ⚡ {language === 'EN' ? '100% Free Post' : language === 'GU' ? '100% ફ્રી પોસ્ટ' : '100% फ्री पोस्ट'}
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/90 dark:bg-slate-800 border border-emerald-200 dark:border-slate-700 text-[9px] font-extrabold text-emerald-800 dark:text-emerald-300 shadow-2xs">
+                    ⚡ {language === 'EN' ? '100% Free' : language === 'GU' ? '100% ફ્રી' : '100% फ्री'}
                   </span>
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/90 dark:bg-slate-800 border border-emerald-200 dark:border-slate-700 text-[10px] font-extrabold text-emerald-800 dark:text-emerald-300 shadow-2xs">
-                    📍 {language === 'EN' ? 'Alerts Nearby Helpers' : language === 'GU' ? 'નજીકના લોકોને એલર્ટ' : 'आस-पास तुरंत अलर्ट'}
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/90 dark:bg-slate-800 border border-emerald-200 dark:border-slate-700 text-[9px] font-extrabold text-emerald-800 dark:text-emerald-300 shadow-2xs">
+                    📍 {language === 'EN' ? 'Alerts Nearby' : language === 'GU' ? 'નજીકના લોકોને એલર્ટ' : 'आસ-પાસ તરત એલર્ટ'}
                   </span>
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/90 dark:bg-slate-800 border border-emerald-200 dark:border-slate-700 text-[10px] font-extrabold text-emerald-800 dark:text-emerald-300 shadow-2xs">
-                    💬 {language === 'EN' ? 'Direct Chat & Help' : language === 'GU' ? 'સીધી વાતચીત અને મદદ' : 'सीधी चैट और मदद'}
-                  </span>
-                </div>
-                <div className="pt-1">
                   <button
                     type="button"
                     onClick={handleSafeOpenPostSheet}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black shadow-sm active:scale-95 transition-all cursor-pointer"
+                    className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-black shadow-xs active:scale-95 transition-all cursor-pointer"
                   >
-                    <Plus className="w-4 h-4" />
-                    <span>{language === 'EN' ? 'Create Post' : language === 'GU' ? 'પોસ્ટ બનાવો' : 'पोस्ट बनाएं'}</span>
+                    <Plus className="w-3 h-3" />
+                    <span>{language === 'EN' ? 'Create Post' : language === 'GU' ? 'પોસ્ટ બનાવો' : 'પોસ્ટ બનાવો'}</span>
                   </button>
                 </div>
               </div>
@@ -2554,7 +2550,7 @@ export default function HomeScreen({
         </footer>
 
         {/* Bottom-of-Page Auto-Scrolling Official Red Warning & Legal Disclaimer Ticker (Visible only when user scrolls to the bottom) */}
-        <div className="pb-20">
+        <div className="pb-28 sm:pb-32" style={{ paddingBottom: 'calc(7.5rem + env(safe-area-inset-bottom, 0px))' }}>
           <RedWarningTicker />
         </div>
       </div>

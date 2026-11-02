@@ -52,6 +52,13 @@ const ROW_THEMES = {
     bd: '#5b9fe3',
     tx: '#0c2849',
   },
+  // Row 4: #E9D8FD / #D6BCFA (Soft Lavender / Violet)
+  row4: {
+    ic: '#7c3aed',
+    bg: 'linear-gradient(135deg, #f3e8ff, #e9d5ff)',
+    bd: '#c084fc',
+    tx: '#3b0764',
+  },
 };
 
 const MAIN_CATS: MainCatConfig[] = [
@@ -325,9 +332,134 @@ const MAIN_CATS: MainCatConfig[] = [
     ],
   },
   {
+    key: 'transport_shifting',
+    masterId: 'transport_shifting',
+    ...ROW_THEMES.row3,
+    name: [
+      'Transport & Shifting',
+      'ट्रांसपोर्ट व शिफ्टिंग',
+      'ટ્રાન્સપોર્ટ અને શિફ્ટિંગ',
+    ],
+    cardLines: [
+      ['Transport &', 'Shifting'],
+      ['ट्रांसपोर्ट व', 'शिफ्टिंग'],
+      ['ટ્રાન્સપોર્ટ', 'શિફ્ટિંગ'],
+    ],
+    iconPaths: (
+      <>
+        <path d="M5 18H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v11" />
+        <path d="M14 9h4l4 4v4a2 2 0 0 1-2 2h-2" />
+        <circle cx="7" cy="18" r="2" />
+        <circle cx="17" cy="18" r="2" />
+      </>
+    ),
+    subs: [
+      { id: 'packers_movers', label: ['Packers & Movers', 'पैकर्स एंड मूवर्स', 'પેકર્સ અને મૂવર્સ'] },
+      { id: 'tempo_packers', label: ['Tempo / Chhota Hathi', 'टेम्पो / छोटा हाथी', 'ટેમ્પો / છોટા હાથી'] },
+      { id: 'truck_transport', label: ['Truck / Loading Vehicle', 'ट्रक / लोडिंग गाड़ी', 'ટ્રક / લોડીંગ ગાડી'] },
+      { id: 'home_office_shifting', label: ['Home / Office Shifting', 'घर / ऑफिस शिफ्टिंग', 'ઘર / ઓફિસ શિફ્ટિંગ'] },
+    ],
+  },
+  {
+    key: 'cab_travel',
+    masterId: 'cab_travel',
+    ...ROW_THEMES.row3,
+    name: [
+      'Cab & Travel',
+      'कैब व ट्रैवल',
+      'કેબ અને ટ્રાવેલ',
+    ],
+    cardLines: [
+      ['Cab &', 'Travel'],
+      ['कैब व', 'ट्रैवल'],
+      ['કેબ અને', 'ટ્રાવેલ'],
+    ],
+    iconPaths: (
+      <>
+        <path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9C2.1 11.2 2 11.6 2 12v4c0 .6.4 1 1 1h2" />
+        <circle cx="7" cy="17" r="2" />
+        <circle cx="17" cy="17" r="2" />
+      </>
+    ),
+    subs: [
+      { id: 'auto_rickshaw', label: ['Auto / Rickshaw', 'ऑटो / रिक्शा', 'ઓટો / રિક્ષા'] },
+      { id: 'taxi_service', label: ['Taxi / Cab', 'टैक्सी / कैब', 'ટેક્સી / કેબ'] },
+      { id: 'private_driver', label: ['Private Driver', 'प्राइवेट ड्राइवर', 'પ્રાઇવેટ ડ્રાઇવર'] },
+      { id: 'car_rental', label: ['Car Rental / Rent a Car', 'भाड़े पर कार / गाड़ी', 'ભાડે કાર / ગાડી'] },
+    ],
+  },
+
+  // =========================================================================
+  // ROW 4 (13 to 16): Hotel & Tiffin, Sports & Fitness, Social & Friends, Other Services
+  // =========================================================================
+  {
+    key: 'hotel_tiffin',
+    masterId: 'hotel_tiffin',
+    ...ROW_THEMES.row4,
+    name: [
+      'Hotel & Tiffin',
+      'होटल और टिफिन',
+      'હોટલ અને ટિફિન',
+    ],
+    cardLines: [
+      ['Hotel &', 'Tiffin'],
+      ['होटल व', 'टिफिन'],
+      ['હોટલ અને', 'ટિફિન'],
+    ],
+    iconPaths: (
+      <>
+        <path d="M18 8h1a4 4 0 0 1 0 8h-1" />
+        <path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z" />
+        <line x1="6" y1="1" x2="6" y2="4" />
+        <line x1="10" y1="1" x2="10" y2="4" />
+        <line x1="14" y1="1" x2="14" y2="4" />
+      </>
+    ),
+    subs: [
+      { id: 'tiffin_service', label: ['Home Tiffin / Daily Mess', 'घर का टिफिन / मेस सर्विस', 'ઘરનું ટિફિન / મેસ સર્વિસ'] },
+      { id: 'hotel_restaurant', label: ['Hotels & Restaurants', 'होटल और रेस्टोरेंट', 'હોટલ અને રેસ્ટોરન્ટ'] },
+      { id: 'dhaba_kathiyawadi', label: ['Dhaba & Kathiyawadi Bhojan', 'ढाबा और काठियावाड़ी भोजन', 'ઢાબા અને કાઠિયાવાડી ભોજન'] },
+      { id: 'catering_event', label: ['Caterers & Event Cook', 'कैटरर्स और प्रसंग के रसोइया', 'કેટરર્સ અને પ્રસંગના રસોઈયા'] },
+      { id: 'fast_food_snacks', label: ['Fast Food & Snacks', 'फास्ट फूड और नाश्ता', 'ફાસ્ટ ફૂડ અને નાસ્તો'] },
+    ],
+  },
+  {
+    key: 'sports_fitness',
+    masterId: 'sports_fitness',
+    ...ROW_THEMES.row4,
+    name: [
+      'Sports & Fitness',
+      'स्पोर्ट्स व फिटनेस',
+      'સ્પોર્ટ્સ અને ફિટનેસ',
+    ],
+    cardLines: [
+      ['Sports &', 'Fitness'],
+      ['स्पोर्ट्स व', 'फिटनेस'],
+      ['સ્પોર્ટ્સ', 'ફિટનેસ'],
+    ],
+    iconPaths: (
+      <>
+        <circle cx="12" cy="12" r="10" />
+        <path d="m4.93 4.93 4.24 4.24" />
+        <path d="m14.83 9.17 4.24-4.24" />
+        <path d="m14.83 14.83 4.24 4.24" />
+        <path d="m9.17 14.83-4.24 4.24" />
+        <circle cx="12" cy="12" r="4" />
+      </>
+    ),
+    subs: [
+      { id: 'cricket', label: ['Box Cricket & Team Players', 'बॉक्स क्रिकेट और टीम प्लेयर्स', 'બોક્સ ક્રિકેટ અને ટીમ પ્લેયર્સ'] },
+      { id: 'badminton', label: ['Badminton & Tennis Players', 'बैडमिंटन और टेनिस प्लेयर', 'બેડમિંટન અને ટેનિસ પ્લેયર'] },
+      { id: 'gym_fitness', label: ['Gym & Workout Partner', 'जिम और वर्कआउट पार्टनर', 'જીમ અને વર્કઆઉટ પાર્ટનર'] },
+      { id: 'running_yoga', label: ['Morning Running & Walking', 'मॉर्निंग रनिंग और वॉकिंग', 'મોર્નિંગ running'] },
+      { id: 'cycling_partner', label: ['Cycling Partner', 'साइकिलिंग पार्टनर', 'સાયકલિંગ'] },
+      { id: 'yoga_partner', label: ['Yoga Partner & Guide', 'योगा साथी', 'યોગા સાથી'] },
+    ],
+  },
+  {
     key: 'social_care',
     masterId: 'social_care',
-    ...ROW_THEMES.row3,
+    ...ROW_THEMES.row4,
     name: [
       'Social & Friends',
       'सोशल व फ्रेंड्स',
@@ -336,7 +468,7 @@ const MAIN_CATS: MainCatConfig[] = [
     cardLines: [
       ['Social &', 'Friends'],
       ['सोशल व', 'फ्रेंड्स'],
-      ['સોશિયલ અને', 'ફ્રેન્ડ્સ'],
+      ['સોશિયલ', 'ફ્રેન્ડ્સ'],
     ],
     iconPaths: (
       <>
@@ -358,7 +490,7 @@ const MAIN_CATS: MainCatConfig[] = [
   {
     key: 'other_custom',
     masterId: 'other_custom',
-    ...ROW_THEMES.row3,
+    ...ROW_THEMES.row4,
     name: [
       'Other Services',
       'अन्य सेवाएं',
@@ -389,34 +521,11 @@ const MAIN_CATS: MainCatConfig[] = [
       { id: 'physiotherapy', label: ['Physiotherapy at Home', 'घर पर फिजियोथेरेपी', 'ઘરે ફિઝિયોથેરાપી'] },
       { id: 'lab_test', label: ['Lab Test & Sample Collection', 'लैब टेस्ट और सैंपल कलेक्शन', 'લેબ ટેસ્ટ અને સેમ્પલ કલેક્શન'] },
       { id: 'ambulance_help', label: ['Ambulance & Hospital Help', 'एम्बुलेंस और हॉस्पिटल मदद', 'એમ્બ્યુલન્સ અને હોસ્પિટલ મદદ'] },
-      // Cab & Travel
-      { id: 'cab_auto_driver', label: ['Cab', 'कैब (Cab)', 'કેબ (Cab)'] },
-      { id: 'auto_rickshaw', label: ['Auto', 'ऑटो / रिक्शा (Auto)', 'ઓટો / રિક્ષા (Auto)'] },
-      { id: 'private_driver', label: ['Driver', 'प्राइवेट ड्राइवर (Driver)', 'પ્રાઇવેટ ડ્રાઇવર (Driver)'] },
-      { id: 'taxi_service', label: ['Taxi', 'टैक्सी (Taxi)', 'ટેક્સી (Taxi)'] },
-      { id: 'car_rental', label: ['Car Rental', 'किराये पर कार (Car Rental)', 'ભાડે કાર (Car Rental)'] },
-      // Transport & Shifting
-      { id: 'tempo_packers', label: ['Tempo', 'टेम्पो / छोटा हाथी (Tempo)', 'ટેમ્પો / છોટા હાથી (Tempo)'] },
-      { id: 'truck_transport', label: ['Truck', 'ट्रक / लोडिंग गाड़ी (Truck)', 'ટ્રક / લોડિંગ ગાડી (Truck)'] },
-      { id: 'packers_movers', label: ['Packers & Movers', 'पैकर्स एंड मूवर्स (Packers & Movers)', 'પેકર્સ એન્ડ મૂવર્સ (Packers & Movers)'] },
-      { id: 'home_office_shifting', label: ['Shifting', 'घर / ऑफिस शिफ्टिंग (Shifting)', 'ઘર / ઓફિસ શિફ્ટિંગ (Shifting)'] },
       // Tuition & Classes
       { id: 'tutor', label: ['Tuition & School Teacher', 'होम ट्यूटर और स्कूल शिक्षक', 'હોમ ટ્યુટર અને સ્કૂલ શિક્ષક'] },
       { id: 'study_project', label: ['Project & Study Help', 'प्रोजेक्ट, असाइनमेंट और पढ़ाई में मदद', 'પ્રોજેક્ટ, અસાઇનમેન્ટ અને અભ્યાસમાં મદદ'] },
       { id: 'computer_spoken_english', label: ['Computer & Spoken English Classes', 'कंप्यूटर और स्पोकन इंग्लिश', 'કમ્પ્યુટર અને સ્પોકન ઇંગ્લિશ'] },
       { id: 'music_dance_art', label: ['Music, Dance & Art Teacher', 'संगीत, गरबा/डांस और ड्राइंग शिक्षक', 'સંગીત, ગરબા/ડાન્સ અને ડ્રોઇંગ શિક્ષક'] },
-      // Sports & Fitness
-      { id: 'cricket', label: ['Cricket Partner & Team', 'बॉक्स क्रिकेट और टीम प्लेयर्स', 'બોક્સ ક્રિકેટ અને ટીમ પ્લેયર્સ'] },
-      { id: 'badminton', label: ['Badminton & Tennis Partner', 'बैडमिंटन और टेनिस साथी', 'બેડમિન્ટન અને ટેનિસ સાથી'] },
-      { id: 'gym_fitness', label: ['Gym & Workout Buddy', 'जिम और वर्कआउट पार्टनर', 'જિમ અને વર્કઆઉટ પાર્ટનર'] },
-      { id: 'running_yoga', label: ['Running, Cycling & Yoga Partner', 'मॉर्निंग रनिंग, साइकिलिंग और योगा साथी', 'મોર્નિંગ રનિંગ, સાયકલિંગ અને યોગા સાથી'] },
-      // Food & Grocery
-      { id: 'food_service', label: ['Food', 'फूड / खाना (Food)', 'ફૂડ / જમવાનું (Food)'] },
-      { id: 'tiffin_service', label: ['Tiffin', 'टिफिन सर्विस (Tiffin)', 'ટિફિન સર્વિસ (Tiffin)'] },
-      { id: 'grocery_delivery', label: ['Grocery', 'ग्रोसरी / किराना (Grocery)', 'ગ્રોસરી / કરિયાણું (Grocery)'] },
-      { id: 'fruits_seller', label: ['Fruits', 'ताज़े फल (Fruits)', 'તાજા ફળો (Fruits)'] },
-      { id: 'milk_dairy', label: ['Milk', 'दूध व डेयरी (Milk)', 'દૂધ અને ડેરી (Milk)'] },
-      { id: 'vegetables_seller', label: ['Vegetables', 'हरी सब्जियां (Vegetables)', 'લીલા શાકભાજી (Vegetables)'] },
       // Custom / Other
       { id: 'other', label: ['Other / Custom Category', 'कोई भी अन्य लोकल हुनर या आपकी ज़रूरत', 'કોઈપણ અન્ય લોકલ હુનર કે તમારી જરૂરિયાત'] },
     ],
@@ -602,7 +711,7 @@ export default function HomeCategoryGrid({
 
   return (
     <>
-      {/* 12 Main Categories Grid (4 columns × 3 rows, strictly uniform compact box size) */}
+      {/* 16 Main Categories Grid (4 columns × 4 rows, strictly uniform compact box size) */}
       <section className="py-0.5" aria-label="Service categories">
         <div
           className="loco-cat-grid-4 grid grid-cols-4 auto-rows-[74px] sm:auto-rows-[82px] gap-1.5 sm:gap-2"

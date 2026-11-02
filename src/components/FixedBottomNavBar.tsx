@@ -745,7 +745,10 @@ export default function FixedBottomNavBar({
           backgroundColor: '#ffffff',
           borderTop: '2px solid #cbd5e1',
           boxShadow: '0 -4px 20px rgba(15, 23, 42, 0.12)',
-          padding: '6px 4px',
+          paddingTop: '6px',
+          paddingLeft: '4px',
+          paddingRight: '4px',
+          paddingBottom: 'calc(6px + env(safe-area-inset-bottom, 0px))',
           userSelect: 'none'
         }}
       >
