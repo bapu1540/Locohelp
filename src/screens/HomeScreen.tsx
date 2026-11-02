@@ -3,7 +3,7 @@ import { Screen, Intent, Language } from '../types';
 import { Settings, Bell, Zap, Search, Globe, Clock, MapPin, Rocket, User, Trophy, Wrench, Filter, Star, UserCheck, MessageSquare, Plus, Check, X, Share2, MessageCircle, HelpCircle, Smartphone, RefreshCw, ChevronDown, ChevronRight, Sparkles, Trash2, Shield, ShieldAlert, MoreVertical, LogIn, LogOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useLanguage, SUPPORTED_LANGUAGES } from '../i18n';
-import { getCurrentUser, onAuthStateChange, getHelpers, getShops, logoutUser } from '../auth';
+import { getCurrentUser, onAuthStateChange, getHelpers, getShops, logoutUser, isMessageSentByUser } from '../auth';
 import { CATEGORIES, MASTER_CATEGORIES, getCategoryName, getFreeHelperProfiles, matchesCategorySearch } from '../data/categories';
 import UserProfileModal from './UserProfileModal';
 import AppGuideModal from './AppGuideModal';
@@ -28,6 +28,7 @@ import InstallAppModal from '../components/InstallAppModal';
 import RedWarningTicker from '../components/RedWarningTicker';
 import PublicSuggestionsBanner from '../components/PublicSuggestionsBanner';
 import HomeCategoryGrid from '../components/HomeCategoryGrid';
+import HomeBelowCategorySection from '../components/HomeBelowCategorySection';
 
 interface HomeScreenProps {
   onNavigate: (screen: Screen) => void;
@@ -623,15 +624,16 @@ export default function HomeScreen({
     social_casual: ['chai', 'tea', 'coffee', 'meetup', 'walk', 'chess', 'book', 'companion', 'game', 'gaming', 'pet', 'dog', 'chat', 'friend'],
     daily_errands: ['clean', 'maid', 'housekeep', 'deliver', 'parcel', 'luggage', 'shift', 'tutor', 'teach', 'study', 'senior', 'elder', 'medicine'],
 
-    // All 49 Sub-Categories
+    //All Sub-Categories
     plumber: ['plumb', 'pipe', 'tap', 'water', 'leak', 'flush', 'basin', 'tank', 'प्लंबर', 'પ્લમ્બર'],
     electrician: ['electr', 'wire', 'wiring', 'switch', 'light', 'fan', 'inverter', 'fuse', 'इलेक्ट्रीशियन', 'ઇલેક્ટ્રિશિયન'],
     ac_repair: ['ac', 'air condition', 'fridge', 'refrigerator', 'ro', 'cooling', 'washing machine', 'appliance', 'एसी', 'फ्रिज'],
     carpenter: ['carpent', 'suthar', 'wood', 'door', 'lock', 'furniture', 'bed', 'sofa', 'कारपेंटर', 'सुथार', 'સુથાર'],
-    painter: ['paint', 'wall', 'putty', 'color', 'polish', 'pop', 'पेंटर', 'પેઇન્ટર'],
+    painter: ['paint', 'wall', 'putty', 'color', 'polish', 'pop', 'पेंटर', 'પેઇન્ટર', 'કલરકામ'],
     mason: ['mason', 'kadiyo', 'mistri', 'tile', 'plaster', 'cement', 'brick', 'कड़िया', 'मिस्त्री', 'કડિયો'],
-    cleaning: ['clean', 'maid', 'cook', 'sweep', 'housekeep', 'सफाई', 'मेड', 'रसोइया', 'સફાઈ'],
-    pest_control: ['pest', 'termite', 'cockroach', 'tank clean', 'पेस्ट', 'टंकी', 'પેસ્ટ'],
+    maid_cook: ['maid', 'cook', 'kaamwali', 'kamwali', 'rasoiya', 'कामवाल', 'रसोइया', 'કામવાળા', 'રસોઈયા'],
+    cleaning: ['clean', 'sweep', 'housekeep', 'सफाई', 'સફાઈ'],
+    pest_control: ['pest', 'termite', 'cockroach', 'tank clean', 'पेस्ट', 'टंकी', 'પેસ્ટ', 'જંતુનાશક'],
     tailor: ['tailor', 'darzi', 'boutique', 'stitch', 'blouse', 'दर्जी', 'बुटीक', 'દરજી'],
     beautician: ['beauti', 'salon', 'parlour', 'makeup', 'facial', 'bridal', 'ब्यूटीशियन', 'पार्लर', 'બ્યુટિશિયન'],
     mehendi: ['mehendi', 'mehndi', 'henna', 'मेहंदी', 'મહેંદી'],
@@ -1922,17 +1924,28 @@ export default function HomeScreen({
             onClick={handleSafeOpenPostSheet}
             style={{ background: 'linear-gradient(135deg, #FF8800 0%, #FF6600 100%)' }}
             className="w-full rounded-2xl p-3.5 text-white shadow-lg shadow-orange-500/25 cursor-pointer active:scale-[0.98] transition-all border-2 border-orange-300 dark:border-orange-400 hover:brightness-105 flex items-center justify-between gap-3"
-            title={language === 'EN' ? 'Create Post' : language === 'GU' ? 'પોસ્ટ બનાવો' : 'पोस्ट बनाएं'}
+            title={language === 'EN' ? 'Post Requirement for Local Service' : language === 'GU' ? 'કારીગર કે સેવા માટે અહીં પોસ્ટ કરો' : 'कारीगर या सेवा के लिए यहाँ पोस्ट करें'}
           >
             <div className="flex items-center gap-2.5">
               <span className="text-xl shrink-0">📢</span>
               <span className="text-sm sm:text-base font-black tracking-wide text-white drop-shadow-xs">
-                {language === 'EN' ? 'Create Post' : language === 'GU' ? 'પોસ્ટ બનાવો' : 'पोस्ट बनाएं'}
+                {language === 'EN' ? 'Post Requirement for Local Service' : language === 'GU' ? 'કારીગર કે સેવા માટે અહીં પોસ્ટ કરો' : 'कारीगर या सेवा के लिए यहाँ पोस्ट करें'}
               </span>
             </div>
             <div className="w-8 h-8 rounded-xl bg-white text-slate-900 flex items-center justify-center shrink-0 shadow-xs">
               <ChevronRight className="w-5 h-5 stroke-[2.5] text-slate-900" />
             </div>
+          </div>
+
+          {/* 2B. Responsive Home Page Main Hero Banner (Configurable from Admin Panel, visible to all users on Mobile, Tablet, Laptop & Computer) */}
+          <div className="w-full rounded-2xl overflow-hidden shadow-md border border-sky-200/80 dark:border-slate-700 bg-sky-50/40 dark:bg-slate-800/60">
+            <img
+              src={categoryImages['__home_hero_banner__'] || '/assets/aistudio/__________________________0e3f70be.png'}
+              alt="LocoHelp — ઘરના કામ હવે થશે ખૂબ સરળ!"
+              className="w-full h-auto block object-contain"
+              loading="eager"
+              decoding="async"
+            />
           </div>
 
           {/* 3. Browse Service Experts Heading Banner (Blue #0066FF - Non-clickable heading) */}
@@ -1951,28 +1964,33 @@ export default function HomeScreen({
             </div>
           </div>
 
-          {/* 3B. 10 Main Categories Grid + Sub-Categories Popup Modal */}
+          {/* 3B. 12 Main Categories Grid (4x3) + Sub-Categories Popup Modal */}
           <HomeCategoryGrid
             onNavigate={onNavigate}
             onSelectCategory={onSelectCategory}
           />
 
-          {/* 4. Business & Shop Register Banner (Vibrant Purple Theme) */}
-          <div
-            onClick={handleSafeRegisterShop}
-            className="w-full rounded-2xl p-3.5 text-white bg-gradient-to-r from-purple-600 via-purple-700 to-indigo-600 shadow-lg shadow-purple-600/25 cursor-pointer active:scale-[0.98] transition-all border-2 border-purple-400/80 hover:brightness-105 flex items-center justify-between gap-3"
-            title="Business & Shop Registration"
-          >
-            <div className="flex items-center gap-2.5">
-              <span className="text-xl shrink-0">🏪</span>
-              <span className="text-sm sm:text-base font-black tracking-wide text-white drop-shadow-xs">
-                {language === 'EN' ? 'Business & Shop Register' : language === 'GU' ? 'દુકાન અને બિઝનેસ રજિસ્ટર કરો' : 'दुकान व बिजनेस रजिस्टर करें'}
-              </span>
-            </div>
-            <div className="w-8 h-8 rounded-xl bg-white text-slate-900 flex items-center justify-center shrink-0 shadow-xs">
-              <ChevronRight className="w-5 h-5 stroke-[2.5] text-slate-900" />
-            </div>
-          </div>
+          {/* 4. Trust Features Strip + Available Service Providers (3 Visible + Profile Popup) + Urgent/Business Ad Banners + Shop/Expert & Job Banners */}
+          <HomeBelowCategorySection
+            onNavigate={onNavigate}
+            onSelectCategory={onSelectCategory}
+            onUrgentBookNow={handleSafeOpenPostSheet}
+            onOpenShopRegister={handleSafeRegisterShop}
+            onOpenFreeHelperRegister={handleSafeCreateProfile}
+            onOpenJobSeeker={() => {
+              setSeekerModalInitialTab('registered');
+              setIsJobSeekerModalOpen(true);
+            }}
+            onOpenJobEmployer={() => {
+              setEmployerModalInitialTab('browse');
+              setIsEmployerVacancyModalOpen(true);
+            }}
+            onOpenDirectChat={(intentOrProvider) => handleSafeOpenChat(intentOrProvider)}
+            showToast={(msg) => {
+              setCreatedToast(msg);
+              setTimeout(() => setCreatedToast(null), 3200);
+            }}
+          />
 
           {/* 6. Live Community Broadcast Posts Feed (Active Nearby Radar) */}
           <div className="bg-slate-50/90 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-3 sm:p-4 space-y-3 shadow-xs">
@@ -2198,6 +2216,7 @@ export default function HomeScreen({
                     (currentUid && intentAuthorId === currentUid) ||
                     (currentEmailUid && intentAuthorId === currentEmailUid) ||
                     (currentEmail && (intentAuthorEmail === currentEmail || intentAuthorId === currentEmail)) ||
+                    isMessageSentByUser({ sender_id: intentAuthorId, sender_email: intentAuthorEmail }, currentUserObj) ||
                     myPostIds.includes(intent.id) ||
                     intent.id === newlyCreatedId
                   );
@@ -2450,60 +2469,6 @@ export default function HomeScreen({
             onOpenChat={handleSafeOpenChat}
           />
 
-          {/* 7. Dedicated Job Portal Section (Side-by-side interactive banners: Job Seeker & For Employer) */}
-          <JobPortalSection 
-            onOpenSeekerNew={() => {
-              if (isGuestUser()) {
-                setLoginPromptTitle({
-                  en: 'Sign In Required for Job Profile',
-                  hi: 'नौकरी प्रोफाइल बनाने के लिए लॉगिन करें',
-                  gu: 'નોકરી પ્રોફાઇલ બનાવવા માટે લોગિન કરો'
-                });
-                setLoginSuccessAction(() => () => {
-                  setSeekerModalInitialTab('new');
-                  setIsJobSeekerModalOpen(true);
-                });
-                setIsLoginPromptOpen(true);
-                return;
-              }
-              setSeekerModalInitialTab('new');
-              setIsJobSeekerModalOpen(true);
-            }}
-            onOpenSeekerRegistered={() => {
-              setSeekerModalInitialTab('registered');
-              setIsJobSeekerModalOpen(true);
-            }}
-            onOpenEmployerForm={() => {
-              setEmployerModalInitialTab('browse');
-              setIsEmployerVacancyModalOpen(true);
-            }}
-            onOpenEmployerNew={() => {
-              if (isGuestUser()) {
-                setLoginPromptTitle({
-                  en: 'Sign In Required to Post Vacancy',
-                  hi: 'वेकेंसी पोस्ट करने के लिए लॉगिन करें',
-                  gu: 'વેકેન્સી પોસ્ટ કરવા માટે લોગિન કરો'
-                });
-                setLoginSuccessAction(() => () => {
-                  setEmployerModalInitialTab('new');
-                  setIsEmployerVacancyModalOpen(true);
-                });
-                setIsLoginPromptOpen(true);
-                return;
-              }
-              setEmployerModalInitialTab('new');
-              setIsEmployerVacancyModalOpen(true);
-            }}
-            onOpenEmployerRegistered={() => {
-              setEmployerModalInitialTab('registered');
-              setIsEmployerVacancyModalOpen(true);
-            }}
-            onBrowseJobs={() => {
-              setJobBrowseInitialTab('all');
-              setIsJobBrowseModalOpen(true);
-            }}
-          />
-
           {/* 4. Unified Community, Guide & Vision Section (Chhote aur compact buttons) */}
           <div className="bg-white/90 dark:bg-slate-800/90 border border-violet-200/70 dark:border-slate-700/70 rounded-2xl p-2.5 shadow-xs space-y-2">
             <div className="flex items-center justify-between px-1">
@@ -2589,7 +2554,9 @@ export default function HomeScreen({
         </footer>
 
         {/* Bottom-of-Page Auto-Scrolling Official Red Warning & Legal Disclaimer Ticker (Visible only when user scrolls to the bottom) */}
-        <RedWarningTicker />
+        <div className="pb-20">
+          <RedWarningTicker />
+        </div>
       </div>
     </div>
 

@@ -316,13 +316,24 @@ export default function LoginPromptModal({
         setOtpStep('verify');
         setOtpCooldownSeconds(res.cooldownRemaining || 60);
         const remAfter = typeof res.remainingToday === 'number' ? res.remainingToday : Math.max(0, mobileOtpRemainingToday - 1);
-        setInfoMessage(
-          tr(
-            `📱 6-digit SMS OTP sent to +91 ${cleanDigits}! (Remaining today: ${remAfter}/${MAX_DAILY_MOBILE_OTP}). Set a password below so you never need OTP again.`,
-            `📱 +91 ${cleanDigits} पर 6-अंकों का SMS OTP भेज दिया गया है! (आज बचे हुए OTP: ${remAfter}/${MAX_DAILY_MOBILE_OTP})। नीचे पासवर्ड बना लें ताकि बार-बार OTP न लगे।`,
-            `📱 +91 ${cleanDigits} પર 6-અંકનો SMS OTP મોકલાયો છે! (આજે બાકી OTP: ${remAfter}/${MAX_DAILY_MOBILE_OTP}). નીચે પાસવર્ડ સેટ કરો જેથી ફરી OTP ન લાગે.`
-          )
-        );
+        if (res.devCode) {
+          setOtpCode(res.devCode);
+          setInfoMessage(
+            tr(
+              `📱 Your 6-Digit Mobile OTP Code for +91 ${cleanDigits} is: ${res.devCode} (Auto-filled below! Set a password so you never need OTP again.)`,
+              `📱 +91 ${cleanDigits} के लिए आपका 6-अंकों का मोबाइल OTP कोड है: ${res.devCode} (नीचे अपने-आप भर दिया गया है! पासवर्ड बना लें ताकि बार-बार OTP न लगे।)`,
+              `📱 +91 ${cleanDigits} માટે તમારો 6-અંકનો મોબાઇલ OTP કોડ છે: ${res.devCode} (નીચે ઓટો-ફિલ કરેલ છે! પાસવર્ડ સેટ કરો જેથી ફરી OTP ન લાગે.)`
+            )
+          );
+        } else {
+          setInfoMessage(
+            tr(
+              `📱 6-digit SMS OTP sent to +91 ${cleanDigits}! (Remaining today: ${remAfter}/${MAX_DAILY_MOBILE_OTP}). Set a password below so you never need OTP again.`,
+              `📱 +91 ${cleanDigits} पर 6-अंकों का SMS OTP भेज दिया गया है! (आज बचे हुए OTP: ${remAfter}/${MAX_DAILY_MOBILE_OTP})। नीचे पासवर्ड बना लें ताकि बार-बार OTP न लगे।`,
+              `📱 +91 ${cleanDigits} પર 6-અંકનો SMS OTP મોકલાયો છે! (આજે બાકી OTP: ${remAfter}/${MAX_DAILY_MOBILE_OTP}). નીચે પાસવર્ડ સેટ કરો જેથી ફરી OTP ન લાગે.`
+            )
+          );
+        }
       } else {
         if (res.cooldownRemaining) setOtpCooldownSeconds(res.cooldownRemaining);
         setErrorMessage(
@@ -486,13 +497,24 @@ export default function LoginPromptModal({
         setPasswordOtpSent(true);
         setOtpCooldownSeconds(res.cooldownRemaining || 60);
         const remAfter = typeof res.remainingToday === 'number' ? res.remainingToday : Math.max(0, mobileOtpRemainingToday - 1);
-        setInfoMessage(
-          tr(
-            `📱 6-digit SMS OTP sent to +91 ${cleanDigits} (Remaining today: ${remAfter}/${MAX_DAILY_MOBILE_OTP}). Enter it below!`,
-            `📱 +91 ${cleanDigits} पर 6-अंकों का SMS OTP भेज दिया गया है (आज बचे OTP: ${remAfter}/${MAX_DAILY_MOBILE_OTP})। नीचे दर्ज करें!`,
-            `📱 +91 ${cleanDigits} પર 6-અંકનો SMS OTP મોકલાયો છે (આજે બાકી OTP: ${remAfter}/${MAX_DAILY_MOBILE_OTP}). નીચે દાખલ કરો!`
-          )
-        );
+        if (res.devCode) {
+          setOtpCode(res.devCode);
+          setInfoMessage(
+            tr(
+              `📱 Your 6-Digit Mobile OTP Code for +91 ${cleanDigits} is: ${res.devCode}`,
+              `📱 +91 ${cleanDigits} के लिए आपका 6-अंकों का मोबाइल OTP कोड है: ${res.devCode}`,
+              `📱 +91 ${cleanDigits} માટે તમારો 6-અંકનો મોબાઇલ OTP કોડ છે: ${res.devCode}`
+            )
+          );
+        } else {
+          setInfoMessage(
+            tr(
+              `📱 6-digit SMS OTP sent to +91 ${cleanDigits} (Remaining today: ${remAfter}/${MAX_DAILY_MOBILE_OTP}). Enter it below!`,
+              `📱 +91 ${cleanDigits} पर 6-अंकों का SMS OTP भेज दिया गया है (आज बचे OTP: ${remAfter}/${MAX_DAILY_MOBILE_OTP})। नीचे दर्ज करें!`,
+              `📱 +91 ${cleanDigits} પર 6-અંકનો SMS OTP મોકલાયો છે (આજે બાકી OTP: ${remAfter}/${MAX_DAILY_MOBILE_OTP}). નીચે દાખલ કરો!`
+            )
+          );
+        }
       } else {
         if (res.cooldownRemaining) setOtpCooldownSeconds(res.cooldownRemaining);
         setErrorMessage(res.error || tr('Failed to send SMS OTP', 'SMS OTP भेजने में विफल', 'SMS OTP મોકલવામાં નિષ્ફળ'));
@@ -685,8 +707,8 @@ export default function LoginPromptModal({
           exit={{ opacity: 0, scale: 0.92, y: 16 }}
           className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden relative z-50 p-5 flex flex-col items-center text-center space-y-3.5 my-auto"
         >
-          {/* Invisible Firebase Phone Auth reCAPTCHA Mount Point */}
-          <div id="recaptcha-container" className="hidden" />
+          {/* Firebase Phone Auth reCAPTCHA Mount Point (not display:none so Incognito challenges can render) */}
+          <div id="recaptcha-container" className="min-h-[1px] flex justify-center overflow-visible" />
 
           {/* Close Button */}
           <button

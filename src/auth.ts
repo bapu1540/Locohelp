@@ -164,32 +164,36 @@ export function getCurrentUser(): AppUser {
   try {
     const saved = localStorage.getItem('locohelp_user');
     const lastEmail = (localStorage.getItem('locohelp_last_logged_in_email') || '').trim().toLowerCase();
+    const lastPhone = (localStorage.getItem('locohelp_last_logged_in_phone') || '').replace(/\D/g, '').slice(-10);
     const lastName = localStorage.getItem('locohelp_last_logged_in_name') || '';
 
     if (saved) {
       const parsed = JSON.parse(saved);
-      const effectiveEmail = (parsed?.email || lastEmail || '').trim().toLowerCase();
+      const effectiveEmail = (parsed?.email || lastEmail || (lastPhone.length === 10 ? `${lastPhone}@phone.locohelp.com` : '')).trim().toLowerCase();
       const rawUid = parsed?.uid && parsed.uid !== 'guest_user'
         ? String(parsed.uid)
-        : (effectiveEmail ? `email_${effectiveEmail.replace(/[^a-z0-9]/g, '_')}` : '');
+        : (lastPhone.length === 10 ? `phone_${lastPhone}` : (effectiveEmail ? `email_${effectiveEmail.replace(/[^a-z0-9]/g, '_')}` : ''));
 
       if (rawUid && rawUid !== 'guest_user') {
         return {
           ...parsed,
           uid: ensureValidUUID(rawUid),
           email: effectiveEmail || parsed?.email || '',
+          phone: parsed?.phone || (lastPhone.length === 10 ? `+91 ${lastPhone}` : undefined),
           displayName: parsed?.displayName || lastName || (effectiveEmail ? effectiveEmail.split('@')[0] : 'Community Member'),
           isGuest: false
         };
       }
     }
 
-    if (lastEmail) {
-      const emailSlug = `email_${lastEmail.replace(/[^a-z0-9]/g, '_')}`;
+    if (lastEmail || lastPhone.length === 10) {
+      const resolvedEmail = lastEmail || `${lastPhone}@phone.locohelp.com`;
+      const rawId = lastPhone.length === 10 ? `phone_${lastPhone}` : `email_${resolvedEmail.replace(/[^a-z0-9]/g, '_')}`;
       return {
-        uid: ensureValidUUID(emailSlug),
-        displayName: lastName || lastEmail.split('@')[0] || 'Community Member',
-        email: lastEmail,
+        uid: ensureValidUUID(rawId),
+        displayName: lastName || (lastPhone.length === 10 ? `Member +91 ${lastPhone.slice(-4)}` : resolvedEmail.split('@')[0]) || 'Community Member',
+        email: resolvedEmail,
+        phone: lastPhone.length === 10 ? `+91 ${lastPhone}` : undefined,
         isGuest: false
       };
     }
@@ -204,10 +208,10 @@ export function getCurrentUser(): AppUser {
 }
 
 /**
- * Builds a normalized set of all possible IDs and email representations for a user
- * (including UUID, raw email_ slug, email, and legacy UUID variants) so sender comparisons never fail.
+ * Builds a normalized set of all possible IDs and email/phone representations for a user
+ * (including UUID, raw phone_ / email_ slug, email, and legacy UUID variants) so sender comparisons never fail.
  */
-export function getUserIdentitySet(user?: { uid?: string; id?: string; email?: string } | null): Set<string> {
+export function getUserIdentitySet(user?: { uid?: string; id?: string; email?: string; phone?: string } | null): Set<string> {
   const ids = new Set<string>();
   const target = user || getCurrentUser();
   if (!target) return ids;
@@ -226,10 +230,40 @@ export function getUserIdentitySet(user?: { uid?: string; id?: string; email?: s
     });
   };
 
+  const addPhoneIdentityVariants = (rawPhoneOrId?: string | null) => {
+    if (!rawPhoneOrId) return;
+    const str = String(rawPhoneOrId).trim().toLowerCase();
+    let tenDigits = '';
+    if (str.startsWith('phone_')) {
+      const d = str.replace(/\D/g, '').slice(-10);
+      if (d.length === 10) tenDigits = d;
+    } else if (str.endsWith('@phone.locohelp.com')) {
+      const d = str.split('@')[0].replace(/\D/g, '').slice(-10);
+      if (d.length === 10) tenDigits = d;
+    } else {
+      const d = str.replace(/\D/g, '');
+      if (d.length === 10 && /^[6-9]\d{9}$/.test(d)) {
+        tenDigits = d;
+      } else if (d.length === 12 && d.startsWith('91') && /^[6-9]\d{9}$/.test(d.slice(2))) {
+        tenDigits = d.slice(2);
+      }
+    }
+    if (tenDigits.length === 10) {
+      addCandidate(`phone_${tenDigits}`);
+      addCandidate(`${tenDigits}@phone.locohelp.com`);
+      addCandidate(`email_${tenDigits}_phone_locohelp_com`);
+      addCandidate(`otp_${tenDigits}_phone_locohelp_com`);
+      addCandidate(tenDigits);
+    }
+  };
+
   addCandidate(target.uid);
   addCandidate((target as any).id);
+  addPhoneIdentityVariants(target.uid);
+  addPhoneIdentityVariants((target as any).id);
+  addPhoneIdentityVariants((target as any).phone);
 
-  // Also check raw stored uid in localStorage if checking current user
+  // Also check raw stored uid/phone in localStorage if checking current user
   if (!user) {
     try {
       const rawSaved = localStorage.getItem('locohelp_user');
@@ -238,6 +272,13 @@ export function getUserIdentitySet(user?: { uid?: string; id?: string; email?: s
         addCandidate(parsed?.uid);
         addCandidate(parsed?.id);
         addCandidate(parsed?.email);
+        addPhoneIdentityVariants(parsed?.uid);
+        addPhoneIdentityVariants(parsed?.phone);
+        addPhoneIdentityVariants(parsed?.email);
+      }
+      const savedPhone = localStorage.getItem('locohelp_last_logged_in_phone');
+      if (savedPhone) {
+        addPhoneIdentityVariants(savedPhone);
       }
     } catch {}
   }
@@ -248,6 +289,7 @@ export function getUserIdentitySet(user?: { uid?: string; id?: string; email?: s
     addCandidate(ensureValidUUID(email));
     addCandidate(`email_${email.replace(/[^a-z0-9]/g, '_')}`);
     addCandidate(`otp_${email.replace(/[^a-z0-9]/g, '_')}`);
+    addPhoneIdentityVariants(email);
   }
 
   return ids;
@@ -566,6 +608,7 @@ export async function sendMobileOtp(
   success: boolean;
   error?: string;
   phoneE164?: string;
+  devCode?: string;
   cooldownRemaining?: number;
   usedToday?: number;
   remainingToday?: number;
@@ -618,6 +661,7 @@ export async function sendMobileOtp(
   // 3. Check & reserve daily OTP slot on PostgreSQL server BEFORE invoking Firebase SMS
   let serverUsedCount: number | undefined = undefined;
   let serverSlotReserved = false;
+  let serverFallbackDevCode: string | undefined = undefined;
   try {
     const guardRes = await fetch('/api/auth/mobile-otp-guard', {
       method: 'POST',
@@ -655,13 +699,33 @@ export async function sendMobileOtp(
     } else {
       serverSlotReserved = true;
       serverUsedCount = Number(guardData.usedToday) || localQuota.usedToday + 1;
+      if (guardData.fallbackOtpCode) {
+        serverFallbackDevCode = String(guardData.fallbackOtpCode);
+      }
     }
   } catch {}
 
   // 4. Trigger Firebase Phone Auth SMS
   const res = await sendFirebasePhoneOtp(norm.tenDigits, recaptchaContainerId);
   if (!res.success) {
-    // Rollback server slot if Firebase failed before sending SMS (e.g., domain setup / network error)
+    // If Firebase SMS is blocked by Computer Incognito third-party cookies / reCAPTCHA / preview domain,
+    // seamlessly fall back to server-verified 6-digit OTP so the user is never locked out!
+    if (serverFallbackDevCode) {
+      recordOtpSentTimestamp(cooldownKey);
+      const updatedQuota = recordDailyMobileOtpSent(norm.tenDigits, serverUsedCount);
+      return {
+        success: true,
+        phoneE164: norm.e164,
+        devCode: serverFallbackDevCode,
+        cooldownRemaining: 60,
+        usedToday: updatedQuota.usedToday,
+        remainingToday: updatedQuota.remainingToday,
+        maxPerDay: MAX_DAILY_MOBILE_OTP,
+        dailyLimitReached: updatedQuota.dailyLimitReached
+      };
+    }
+
+    // Rollback server slot if Firebase failed and no fallback code was available
     if (serverSlotReserved) {
       fetch('/api/auth/mobile-otp-guard', {
         method: 'POST',
@@ -700,7 +764,7 @@ export async function sendMobileOtp(
 }
 
 /**
- * Verifies 6-Digit Firebase Phone OTP & Creates/Restores Server JWT Session (with optional Password saving)
+ * Verifies 6-Digit Firebase Phone OTP (or Server Fallback OTP in Incognito) & Creates/Restores Server JWT Session
  */
 export async function verifyMobileOtp(
   phone: string,
@@ -720,26 +784,16 @@ export async function verifyMobileOtp(
     };
   }
 
-  const fbVerify = await verifyFirebasePhoneOtpCode(code);
-  if (!fbVerify.success) {
-    return {
-      success: false,
-      error:
-        fbVerify.error ||
-        trAuth(
-          'Invalid OTP code! Please try again.',
-          'गलत OTP कोड! कृपया पुनः प्रयास करें।',
-          'ખોટો OTP કોડ! કૃપા કરીને ફરી પ્રયાસ કરો.'
-        )
-    };
-  }
+  const cleanOtp = String(code || '').replace(/\D/g, '').trim();
+  const fbVerify = await verifyFirebasePhoneOtpCode(cleanOtp);
 
   try {
     const res = await fetch('/api/auth/verify-firebase-phone', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        idToken: fbVerify.idToken,
+        idToken: fbVerify.success ? fbVerify.idToken : undefined,
+        otpCode: cleanOtp,
         phone: norm.tenDigits,
         newPassword: newPassword && newPassword.trim().length >= 6 ? newPassword.trim() : undefined,
         name: name ? sanitizeText(name) : undefined
@@ -751,10 +805,10 @@ export async function verifyMobileOtp(
       return {
         success: false,
         error: localizeServerAuthError(
-          data.error,
-          'Mobile verification failed. Please try again.',
-          'मोबाइल वेरिफिकेशन विफल रहा। कृपया पुनः प्रयास करें।',
-          'મોબાઇલ વેરિફિકેશન નિષ્ફળ રહ્યું. કૃપા કરીને ફરી પ્રયાસ કરો.'
+          data.error || fbVerify.error,
+          'Invalid OTP code! Please try again.',
+          'गलत OTP कोड! कृपया पुनः प्रयास करें।',
+          'ખોટો OTP કોડ! કૃપા કરીને ફરી પ્રયાસ કરો.'
         )
       };
     }

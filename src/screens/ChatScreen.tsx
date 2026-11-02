@@ -215,15 +215,33 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false, 
   const [isHeaderMenuOpen, setIsHeaderMenuOpen] = useState(false);
   const [isSafetyBannerDismissed, setIsSafetyBannerDismissed] = useState(false);
 
-  // Sync selected replier if currentIntent changes (e.g., opened from My Chats list or View Responses modal)
+  // Sync selected replier if currentIntent changes (e.g., opened from My Chats list, View Responses modal, or post card)
   useEffect(() => {
     if (currentIntent) {
-      const repId = (currentIntent as any).selectedReplierId || (currentIntent as any).helperId || null;
-      if (repId) {
-        setSelectedReplierId(repId);
+      const explicitRepId = (currentIntent as any).selectedReplierId || (currentIntent as any).helperId || null;
+      if (explicitRepId) {
+        setSelectedReplierId(explicitRepId);
         setSelectedReplierName((currentIntent as any).selectedReplierName || (currentIntent as any).authorName || null);
         setSelectedReplierEmail((currentIntent as any).selectedReplierEmail || null);
         setSelectedReplierAvatar((currentIntent as any).selectedReplierAvatar || null);
+      } else {
+        const preloadedRepliers = Array.isArray((currentIntent as any).repliers)
+          ? (currentIntent as any).repliers
+          : Array.isArray((currentIntent as any).responses)
+          ? (currentIntent as any).responses
+          : [];
+        const firstOther = preloadedRepliers.find((r: any) => {
+          const rId = String(r?.sender_id || r?.senderId || r?.helperId || r?.id || '').trim();
+          const rEmail = String(r?.sender_email || r?.senderEmail || r?.helperEmail || '').trim();
+          return rId && !isMessageSentByUser({ sender_id: rId, sender_email: rEmail }, getCurrentUser());
+        });
+        if (firstOther) {
+          const rId = String(firstOther.sender_id || firstOther.senderId || firstOther.helperId || firstOther.id || '').trim();
+          setSelectedReplierId(rId);
+          setSelectedReplierName(firstOther.sender_name || firstOther.senderName || firstOther.helperName || firstOther.name || 'Community Helper');
+          setSelectedReplierEmail(firstOther.sender_email || firstOther.senderEmail || firstOther.helperEmail || null);
+          setSelectedReplierAvatar(firstOther.sender_avatar || firstOther.senderAvatar || firstOther.helperAvatar || null);
+        }
       }
     } else {
       setSelectedReplierId(null);
@@ -391,6 +409,9 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false, 
         const myUid = activeUser?.uid || '';
         const myEmail = (activeUser?.email || '').toLowerCase();
 
+        let effectiveHelperId = activeHelperId;
+        let effectiveConvId = activeConversationId;
+
         // If Post Owner, also keep the list of responders synced so they can switch or select a helper
         if (isPostOwner) {
           try {
@@ -410,6 +431,8 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false, 
                   const firstHelper = convList[0];
                   const firstHelperId = firstHelper.helperId || firstHelper.senderId || firstHelper.helper_id;
                   if (firstHelperId) {
+                    effectiveHelperId = String(firstHelperId);
+                    effectiveConvId = firstHelper.id || firstHelper.conversationId || `conv_${chatId}__${String(firstHelperId).toLowerCase()}`;
                     setSelectedReplierId(firstHelperId);
                     setSelectedReplierName(firstHelper.helperName || firstHelper.senderName || 'Community Helper');
                     setSelectedReplierEmail(firstHelper.helperEmail || firstHelper.senderEmail || null);
@@ -421,20 +444,31 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false, 
           } catch {}
         }
 
-        // STRICT RULE: If Post Owner has not selected a specific Helper yet, do NOT load a mixed chat feed
-        if (isPostOwner && !selectedReplierId) {
-          return;
-        }
-        if (!activeConversationId) return;
+        const targetConvToFetch = effectiveConvId || chatId;
+        if (!targetConvToFetch) return;
 
-        const serverMessages = await fetchChatMessages(activeConversationId, {
+        const serverMessages = await fetchChatMessages(targetConvToFetch, {
           postId: chatId,
-          helperId: activeHelperId,
+          helperId: effectiveHelperId || undefined,
           userId: myUid,
           userEmail: myEmail
         });
 
         if (isMounted && Array.isArray(serverMessages)) {
+          // If Post Owner had no selectedReplierId yet, auto-select the first responder found in serverMessages
+          if (isPostOwner && !selectedReplierId && !effectiveHelperId && serverMessages.length > 0) {
+            const firstIncoming = serverMessages.find((m: any) => !isMessageSentByUser(m, activeUser));
+            if (firstIncoming) {
+              const autoHelperId = String(firstIncoming.sender_id || firstIncoming.senderId || firstIncoming.authorId || '').trim();
+              if (autoHelperId && autoHelperId !== 'system') {
+                setSelectedReplierId(autoHelperId);
+                setSelectedReplierName(firstIncoming.sender_name || firstIncoming.senderName || firstIncoming.authorName || 'Community Helper');
+                setSelectedReplierEmail(firstIncoming.sender_email || firstIncoming.senderEmail || null);
+                setSelectedReplierAvatar(firstIncoming.sender_avatar || firstIncoming.senderAvatar || null);
+              }
+            }
+          }
+
           setMessages(prev => {
             const map = new Map<string, any>();
             prev.forEach(m => {
@@ -993,6 +1027,31 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false, 
       isCollaborator?: boolean;
     }>();
 
+    const preloadedList = [
+      ...(Array.isArray((currentIntent as any)?.repliers) ? (currentIntent as any).repliers : []),
+      ...(Array.isArray((currentIntent as any)?.responses) ? (currentIntent as any).responses : [])
+    ];
+    preloadedList.forEach((r: any) => {
+      const hId = String(r?.sender_id || r?.senderId || r?.helperId || r?.id || '').trim();
+      if (!hId || hId === 'system') return;
+      const hEmail = String(r?.sender_email || r?.senderEmail || r?.helperEmail || '').trim();
+      if (isMessageSentByUser({ sender_id: hId, sender_email: hEmail }, currentUser)) return;
+      const key = hId.toLowerCase();
+      if (!map.has(key)) {
+        map.set(key, {
+          id: hId,
+          name: r.sender_name || r.senderName || r.helperName || r.name || 'Community Helper',
+          email: hEmail,
+          avatar: r.sender_avatar || r.senderAvatar || r.helperAvatar || '',
+          lastMessage: r.message || r.text || r.lastMessage || 'Sent a message',
+          updatedAt: r.created_at || r.createdAt || r.updatedAt || new Date().toISOString(),
+          count: Number(r.count) || 1,
+          unreadCount: Number(r.unreadCount) || 0,
+          isCollaborator: Boolean(r.isCollaborator)
+        });
+      }
+    });
+
     inboxConversations.forEach((c: any) => {
       const hId = String(c?.helperId || c?.helper_id || c?.senderId || '').trim();
       if (!hId || hId === 'system') return;
@@ -1036,10 +1095,10 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false, 
       }
     });
     return Array.from(map.values());
-  }, [inboxConversations, messages, currentUser]);
+  }, [inboxConversations, messages, currentUser, currentIntent]);
 
   const visibleMessages = React.useMemo(() => {
-    if (isPostOwner && !selectedReplierId) return [];
+    if (isPostOwner && !selectedReplierId && messages.length === 0) return [];
     return messages;
   }, [messages, isPostOwner, selectedReplierId]);
 
@@ -1479,9 +1538,45 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false, 
         )}
       </AnimatePresence>
 
+      {/* If Post Owner has multiple responders, show a 1-tap responder switcher strip */}
+      {isPostOwner && distinctRepliers.length > 0 && (
+        <div className="px-3 py-1.5 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center gap-1.5 overflow-x-auto scrollbar-hide">
+          <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 shrink-0">
+            {tr('Replies:', 'जवाब:', 'જવાબ:')}
+          </span>
+          {distinctRepliers.map(rep => {
+            const isSelected = Boolean(selectedReplierId && selectedReplierId.toLowerCase() === rep.id.toLowerCase());
+            return (
+              <button
+                key={rep.id}
+                type="button"
+                onClick={() => {
+                  setSelectedReplierId(rep.id);
+                  setSelectedReplierName(rep.name);
+                  setSelectedReplierEmail(rep.email || null);
+                  setSelectedReplierAvatar(rep.avatar || null);
+                }}
+                className={`px-2.5 py-1 rounded-full text-[11px] font-extrabold flex items-center gap-1.5 shrink-0 transition-all cursor-pointer ${
+                  isSelected
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-emerald-50'
+                }`}
+              >
+                <span className="truncate max-w-[110px]">{rep.name}</span>
+                {rep.unreadCount > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full bg-amber-400 text-slate-950 text-[9px] font-black">
+                    {rep.unreadCount}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* 2. MESSAGES VIEWPORT (Or Responder Selection Inbox if Post Owner hasn't picked a Helper) */}
       <div ref={messagesContainerRef} onScroll={handleContainerScroll} className="flex-1 overflow-y-auto p-4 space-y-3.5 bg-[#F8F6F0] dark:bg-slate-950 relative">
-        {isPostOwner && !selectedReplierId ? (
+        {isPostOwner && !selectedReplierId && visibleMessages.length === 0 ? (
           <div className="py-8 max-w-md mx-auto space-y-3">
             {distinctRepliers.length === 0 ? (
               <div className="py-10 px-4 text-center space-y-3 bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 shadow-xs">

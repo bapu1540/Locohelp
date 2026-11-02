@@ -233,6 +233,58 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
     }
   };
 
+  // Home Page Main Hero Banner State (stored in PostgreSQL category_images under '__home_hero_banner__')
+  const DEFAULT_HOME_HERO_BANNER = '/assets/aistudio/__________________________0e3f70be.png';
+  const [categoryImages, setCategoryImages] = useState<Record<string, string>>(() => getCachedCategoryImages());
+  const [isUploadingHeroBanner, setIsUploadingHeroBanner] = useState(false);
+
+  const handleUploadHomeHeroBanner = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsUploadingHeroBanner(true);
+    try {
+      const check = await validateUploadedFile(file, { allowPdf: false });
+      if (!check.valid) {
+        showToast(check.error || 'Invalid image file');
+        return;
+      }
+      const compressedUrl = await compressImageToWebP(file);
+      const res = await saveCategoryImageOnServer('__home_hero_banner__', compressedUrl);
+      if (res.success) {
+        setCategoryImages(prev => ({ ...prev, __home_hero_banner__: compressedUrl }));
+        showToast('✅ હોમ પેજનું મેઈન બેનર સફળતાપૂર્વક અપડેટ થઈ ગયું! દરેક યુઝરને લાઈવ દેખાશે.');
+      } else {
+        showToast(res.error || 'બેનર અપડેટ કરવામાં ભૂલ આવી');
+      }
+    } catch (err: any) {
+      showToast(err?.message || 'બેનર અપલોડ કરવામાં સમસ્યા આવી');
+    } finally {
+      setIsUploadingHeroBanner(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleResetHomeHeroBanner = async () => {
+    setIsUploadingHeroBanner(true);
+    try {
+      const res = await deleteCategoryImageOnServer('__home_hero_banner__');
+      if (res.success) {
+        setCategoryImages(prev => {
+          const next = { ...prev };
+          delete next['__home_hero_banner__'];
+          return next;
+        });
+        showToast('🔄 ડિફોલ્ટ હોમ પેજ બેનર ફરીથી સેટ થઈ ગયું!');
+      } else {
+        showToast(res.error || 'બેનર રીસેટ કરવામાં ભૂલ આવી');
+      }
+    } catch (err: any) {
+      showToast(err?.message || 'Error resetting banner');
+    } finally {
+      setIsUploadingHeroBanner(false);
+    }
+  };
+
   // Action Loading States
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
@@ -717,11 +769,12 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
       } catch {}
 
       // Bonus: Sponsored Ads, Security Vault, Public Suggestions & Site Lock
-      const [liveAds, liveVault, liveSugs, liveLock] = await Promise.all([
+      const [liveAds, liveVault, liveSugs, liveLock, liveCatImgs] = await Promise.all([
         fetchLiveAds(),
         fetchAdminSecurityVault(),
         fetchPublicSuggestions(),
-        fetchAdminSiteLock()
+        fetchAdminSiteLock(),
+        fetchCategoryImages()
       ]);
       if (Array.isArray(liveAds)) {
         setAds(liveAds);
@@ -734,6 +787,9 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
       }
       if (liveLock && typeof liveLock.isLocked === 'boolean') {
         setSiteLockState({ isLocked: liveLock.isLocked, accessPin: liveLock.accessPin || '1540' });
+      }
+      if (liveCatImgs && typeof liveCatImgs === 'object') {
+        setCategoryImages(liveCatImgs);
       }
     } catch (err) {
       console.warn('Admin load data warning:', err);
@@ -2489,6 +2545,73 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                 </span>
               </div>
             </motion.div>
+
+            {/* 10. HOME PAGE MAIN BANNER MANAGER (BELOW CREATE POST BUTTON) */}
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="rounded-3xl bg-gradient-to-br from-blue-950/90 via-[#111827] to-indigo-950/80 border-2 border-cyan-500/40 p-5 sm:p-6 shadow-2xl space-y-4"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shrink-0">
+                    <ImageIcon className="w-6 h-6 text-white" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
+                        🖼️ હોમ પેજ મેઈન બેનર (Live For All Users)
+                      </span>
+                      <span className="text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-emerald-500 text-slate-950">
+                        ✓ Active on Mobile, Tablet &amp; PC
+                      </span>
+                    </div>
+                    <h2 className="text-base sm:text-lg font-black text-white mt-1">
+                      પોસ્ટ બનાવો ની નીચેનું મેઈન બેનર (Home Page Hero Banner)
+                    </h2>
+                    <p className="text-xs text-slate-300 font-medium mt-0.5">
+                      અહીંથી તમે ગમે ત્યારે હોમ પેજ પર &ldquo;પોસ્ટ બનાવો&rdquo; બટનની નીચે દેખાતું બેનર બદલી શકો છો. નવો ફોટો અપલોડ કરતા જ દરેક યુઝરને મોબાઈલ, ટેબલેટ અને કોમ્પ્યુટરમાં તરત જ દેખાશે.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <label className="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white font-black text-xs sm:text-sm shadow-lg transition-all cursor-pointer flex items-center gap-2">
+                    <Upload className="w-4 h-4" />
+                    <span>{isUploadingHeroBanner ? 'અપલોડ થઈ રહ્યું છે...' : '📸 નવું બેનર અપલોડ / ચેન્જ કરો'}</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleUploadHomeHeroBanner}
+                      disabled={isUploadingHeroBanner}
+                      className="hidden"
+                    />
+                  </label>
+
+                  {categoryImages['__home_hero_banner__'] && (
+                    <button
+                      type="button"
+                      onClick={handleResetHomeHeroBanner}
+                      disabled={isUploadingHeroBanner}
+                      className="px-3.5 py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 font-black text-xs transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      🔄 ડિફોલ્ટ બેનર રાખો
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-2xl overflow-hidden border border-slate-700/80 bg-slate-950/70 p-2 max-w-2xl">
+                <p className="text-[11px] font-bold text-cyan-300 mb-1.5 px-1">
+                  👁️ અત્યારે હોમ પેજ પર દેખાતું લાઈવ બેનર (Current Live Banner Preview):
+                </p>
+                <img
+                  src={categoryImages['__home_hero_banner__'] || DEFAULT_HOME_HERO_BANNER}
+                  alt="Home Page Main Banner Preview"
+                  className="w-full h-auto block object-contain rounded-xl"
+                />
+              </div>
+            </motion.div>
           </div>
         )}
 
@@ -3606,6 +3729,53 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
               >
                 <Plus className="w-4 h-4" /> + Upload New 16:9 Ad Banner
               </button>
+            </div>
+
+            {/* Home Page Main Hero Banner Changer inside Ads & Banners Module */}
+            <div className="rounded-3xl bg-gradient-to-br from-blue-950/90 via-[#111827] to-indigo-950/80 border-2 border-cyan-500/40 p-5 sm:p-6 shadow-xl space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
+                    🖼️ હોમ પેજ મેઈન બેનર (Below Create Post Button)
+                  </span>
+                  <h3 className="text-base sm:text-lg font-black text-white mt-1">
+                    પોસ્ટ બનાવો ની નીચેનું મેઈન બેનર બદલો
+                  </h3>
+                  <p className="text-xs text-slate-300 font-medium">
+                    અહીંથી અપલોડ કરેલો ફોટો દરેક યુઝરને મોબાઈલ, ટેબલેટ, લેપટોપ અને કોમ્પ્યુટર પર સરખી રીતે દેખાશે.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <label className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white font-black text-xs shadow-lg transition-all cursor-pointer flex items-center gap-2">
+                    <Upload className="w-4 h-4" />
+                    <span>{isUploadingHeroBanner ? 'અપલોડ થઈ રહ્યું છે...' : '📸 નવું બેનર અપલોડ / ચેન્જ કરો'}</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleUploadHomeHeroBanner}
+                      disabled={isUploadingHeroBanner}
+                      className="hidden"
+                    />
+                  </label>
+                  {categoryImages['__home_hero_banner__'] && (
+                    <button
+                      type="button"
+                      onClick={handleResetHomeHeroBanner}
+                      disabled={isUploadingHeroBanner}
+                      className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 font-black text-xs transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      🔄 ડિફોલ્ટ બેનર રાખો
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="rounded-2xl overflow-hidden border border-slate-700/80 bg-slate-950/70 p-2 max-w-xl">
+                <img
+                  src={categoryImages['__home_hero_banner__'] || DEFAULT_HOME_HERO_BANNER}
+                  alt="Home Page Main Banner Preview"
+                  className="w-full h-auto block object-contain rounded-xl"
+                />
+              </div>
             </div>
 
             {ads.length === 0 ? (

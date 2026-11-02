@@ -361,14 +361,16 @@ export default function AdBannerSection({ onOpenChat, onOpenPostAd }: AdBannerSe
         className="flex items-center gap-3 overflow-x-auto snap-x snap-mandatory scroll-smooth scrollbar-hide pb-1"
       >
         {allScrollableBanners.map((adItem) => {
-          // 1. PERMANENT LOCKED LOCOHELP OFFICIAL ADVERTISEMENT BANNER (Strict 16:9 Aspect Ratio, Read-Only Display)
+          // 1. PERMANENT LOCKED LOCOHELP OFFICIAL ADVERTISEMENT BANNER (Clicking opens Admin Contact Email support@locohelp.com)
           if (adItem.isPermanentOfficialBanner) {
             const bannerImg = adItem.photoUrl || '/assets/aistudio/advertisement_30c9824f.png';
             return (
-              <div
+              <a
                 key={adItem.id}
                 data-ad-slide="true"
-                className="w-full shrink-0 snap-center relative aspect-video overflow-hidden rounded-xl bg-slate-900 border-2 border-amber-400/80 shadow-lg flex items-center justify-center"
+                href="mailto:support@locohelp.com?subject=LocoHelp%20Sponsored%20Advertisement%20Inquiry&body=Namaste%20LocoHelp%20Admin,%0A%0AI%20want%20to%20place%20an%20advertisement%20banner%20for%20my%20business%20on%20LocoHelp."
+                title="Click to email Admin (support@locohelp.com) to place your Advertisement"
+                className="w-full shrink-0 snap-center relative aspect-video overflow-hidden rounded-xl bg-slate-900 border-2 border-amber-400/80 shadow-lg flex items-center justify-center cursor-pointer"
               >
                 <img
                   src={bannerImg}
@@ -377,7 +379,7 @@ export default function AdBannerSection({ onOpenChat, onOpenPostAd }: AdBannerSe
                   loading="lazy"
                   decoding="async"
                 />
-              </div>
+              </a>
             );
           }
 

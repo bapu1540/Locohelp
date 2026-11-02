@@ -225,6 +225,8 @@ interface CategoryColorPalette {
 
 function getMainCategoryPalette(id: string): CategoryColorPalette {
   switch (id) {
+    case 'electrician_main':
+    case 'cleaning_main':
     case 'home_repair':
       return {
         mainBg: 'linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%)',
@@ -239,6 +241,7 @@ function getMainCategoryPalette(id: string): CategoryColorPalette {
         subIconBg: '#D1FAE5',
         subIconColor: '#059669',
       };
+    case 'painter_main':
     case 'personal_events':
       return {
         mainBg: 'linear-gradient(135deg, #FDF2F8 0%, #FCE7F3 100%)',
@@ -267,6 +270,7 @@ function getMainCategoryPalette(id: string): CategoryColorPalette {
         subIconBg: '#E0E7FF',
         subIconColor: '#4F46E5',
       };
+    case 'plumber_main':
     case 'cctv_mobile':
     case 'business_staff':
       return {
@@ -282,6 +286,7 @@ function getMainCategoryPalette(id: string): CategoryColorPalette {
         subIconBg: '#DBEAFE',
         subIconColor: '#2563EB',
       };
+    case 'pest_control_main':
     case 'hospital_medical':
       return {
         mainBg: 'linear-gradient(135deg, #FEF2F2 0%, #FEE2E2 100%)',
@@ -296,6 +301,7 @@ function getMainCategoryPalette(id: string): CategoryColorPalette {
         subIconBg: '#FEE2E2',
         subIconColor: '#DC2626',
       };
+    case 'ac_repair_main':
     case 'brokers_agents':
       return {
         mainBg: 'linear-gradient(135deg, #ECFEFF 0%, #CFFAFE 100%)',
@@ -310,6 +316,9 @@ function getMainCategoryPalette(id: string): CategoryColorPalette {
         subIconBg: '#CFFAFE',
         subIconColor: '#0891B2',
       };
+    case 'maid_cook_main':
+    case 'carpenter_main':
+    case 'mason_main':
     case 'vehicle_transport':
       return {
         mainBg: 'linear-gradient(135deg, #FFF7ED 0%, #FFEDD5 100%)',
@@ -549,8 +558,9 @@ export default function CategoriesScreen({
     if (selectedCategory) {
       const isMain = MASTER_CATEGORIES.some((m) => m.id === selectedCategory);
       if (isMain) {
-        if (selectedCategory === 'other_custom') {
-          setActiveCategory('other');
+        const subs = getSubCategoriesByMainId(selectedCategory as any);
+        if (subs.length === 1) {
+          setActiveCategory(subs[0].id);
         } else {
           setActiveCategory('all');
           setExpandedGroups((prev) => ({ ...prev, [selectedCategory]: true }));
@@ -602,9 +612,10 @@ export default function CategoriesScreen({
   };
 
   const toggleMainGroup = (mainCat: MasterCategory) => {
-    // Tapping #10 ("Other / Custom Category") directly opens the 'other' Custom Category view without needing to expand
-    if (mainCat.id === 'other_custom') {
-      handleSelectCategory('other');
+    const subs = getSubCategoriesByMainId(mainCat.id);
+    // Single-service main categories (1 to 9) open directly
+    if (subs.length === 1) {
+      handleSelectCategory(subs[0].id);
       return;
     }
     setExpandedGroups((prev) => ({
@@ -926,7 +937,7 @@ export default function CategoriesScreen({
               <div className="space-y-2.5">
                 {MASTER_CATEGORIES.map((mainCat) => {
                   const subCategories = getSubCategoriesByMainId(mainCat.id);
-                  const isDirectOther = mainCat.id === 'other_custom';
+                  const isDirectSingle = subCategories.length === 1;
                   const isExpanded = Boolean(expandedGroups[mainCat.id]);
                   const palette = getMainCategoryPalette(mainCat.id);
 
@@ -970,7 +981,7 @@ export default function CategoriesScreen({
                             }}
                             className="w-7 h-7 rounded-lg flex items-center justify-center shadow-2xs"
                           >
-                            {isDirectOther ? (
+                            {isDirectSingle ? (
                               <ChevronRight className="w-4 h-4" />
                             ) : isExpanded ? (
                               <ChevronDown className="w-4 h-4" />
@@ -983,7 +994,7 @@ export default function CategoriesScreen({
 
                       {/* Expandable Sub-Categories Simple Horizontal Banners */}
                       <AnimatePresence initial={false}>
-                        {isExpanded && !isDirectOther && (
+                        {isExpanded && !isDirectSingle && (
                           <motion.div
                             initial={{ opacity: 0, height: 0 }}
                             animate={{ opacity: 1, height: 'auto' }}

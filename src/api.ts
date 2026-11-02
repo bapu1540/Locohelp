@@ -11,6 +11,17 @@ import {
 export interface ChatMessage {
   id: string;
   authorId: string;
+  sender_id?: string;
+  senderId?: string;
+  user_id?: string;
+  authorName?: string;
+  sender_name?: string;
+  senderName?: string;
+  sender_email?: string;
+  senderEmail?: string;
+  sender_avatar?: string;
+  senderAvatar?: string;
+  receiverId?: string;
   text: string;
   type?: 'text' | 'pin' | 'identity_request' | 'identity_shared' | 'attachment' | 'task_completed';
   attachmentUrl?: string | null;

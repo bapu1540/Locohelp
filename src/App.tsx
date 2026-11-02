@@ -59,6 +59,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import { trackSpaPageView } from './lib/analytics';
 
 import PrivateLockGate from './components/PrivateLockGate';
+import FixedBottomNavBar from './components/FixedBottomNavBar';
 
 export default function App() {
   return (
@@ -520,7 +521,7 @@ function AppContent() {
           </div>
         </div>
 
-        {/* 3. Right Side: Single-Line Soft Pastel Tagline Pill + 3-Dot Menu (⋮) */}
+        {/* 3. Right Side: Single-Line Soft Pastel Tagline Pill (Top 3-Dot Menu removed & moved to Bottom Bar 'વધુ') */}
         <div className="flex items-center justify-end gap-1 sm:gap-2 min-w-0 flex-1" style={{ overflow: 'visible' }}>
           {/* Strictly Single-Line Soft Pastel Tagline Pill (much smaller than logo, language-aware) */}
           <div className="loco-tagline-singleline-box">
@@ -531,132 +532,6 @@ function AppContent() {
                 'નજીકના લોકલ મદદગારો શોધો'
               )}
             </span>
-          </div>
-
-          {/* 3-Dot Menu (⋮) */}
-          <div className="relative flex-shrink-0" style={{ overflow: 'visible' }}>
-            <button
-              type="button"
-              onClick={() => {
-                setIsGlobalLangOpen(false);
-                setIsGlobalMenuOpen((prev) => !prev);
-              }}
-              className="w-6.5 h-6.5 sm:w-9 sm:h-9 p-1 sm:p-1.5 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-violet-50 dark:hover:bg-slate-700 transition-colors shadow-2xs cursor-pointer shrink-0 flex items-center justify-center active:scale-95"
-              title={tr('Menu (Profile, Settings, Sign In)', 'मेनू (प्रोफ़ाइल, सेटिंग्स, लॉगिन)', 'મેનુ (પ્રોફાઇલ, સેટિંગ્સ, લોગિન)')}
-              aria-label="Open menu"
-            >
-              <MoreVertical className="w-3.5 h-3.5 sm:w-5 sm:h-5 text-slate-800 dark:text-slate-200 shrink-0" />
-            </button>
-
-            <AnimatePresence>
-              {isGlobalMenuOpen && (
-                <>
-                  <div
-                    className="fixed inset-0 z-50"
-                    style={{ position: 'fixed', inset: 0, zIndex: 10000 }}
-                    onClick={() => setIsGlobalMenuOpen(false)}
-                  />
-                  <motion.div
-                    initial={{ opacity: 0, y: -6, scale: 0.96 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: -6, scale: 0.96 }}
-                    transition={{ duration: 0.15 }}
-                    className="w-48 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 p-1.5 z-50 space-y-1"
-                    style={{ position: 'fixed', top: '54px', right: '8px', zIndex: 10005 }}
-                  >
-                    {/* Option: My Chats (Directly opens Chat Screen, totally separate from Profile) */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsGlobalMenuOpen(false);
-                        if (isGuestUser()) {
-                          setIsGlobalLoginOpen(true);
-                          return;
-                        }
-                        setActiveIntent(null);
-                        navigate('chat');
-                      }}
-                      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-black text-indigo-700 dark:text-indigo-300 bg-indigo-50/70 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/80 transition-colors cursor-pointer text-left"
-                    >
-                      <MessageSquare className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
-                      <span>{tr('My Chats', 'मेरी बातचीत', 'મારી વાતચીત')}</span>
-                    </button>
-
-                    {/* Option 1: Profile */}
-                    <button
-                      type="button"
-                      onClick={handleGlobalProfileClick}
-                      className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-extrabold text-slate-800 dark:text-slate-200 hover:bg-violet-50 dark:hover:bg-slate-800 transition-colors cursor-pointer text-left"
-                    >
-                      <User className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
-                      <span>{tr('Profile', 'प्रोफ़ाइल', 'પ્રોફાઇલ')}</span>
-                    </button>
-
-                    {/* Option 2: Notifications */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsGlobalMenuOpen(false);
-                        navigate('notifications');
-                      }}
-                      className="w-full flex items-center justify-between gap-2.5 px-3 py-2.5 rounded-xl text-xs font-extrabold text-slate-800 dark:text-slate-200 hover:bg-violet-50 dark:hover:bg-slate-800 transition-colors cursor-pointer text-left"
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <Bell className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
-                        <span>{tr('Notifications', 'नोटिफिकेशन', 'નોટિફિકેશન')}</span>
-                      </div>
-                    </button>
-
-                    {/* Option 3: Settings */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsGlobalMenuOpen(false);
-                        navigate('settings');
-                      }}
-                      className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-extrabold text-slate-800 dark:text-slate-200 hover:bg-violet-50 dark:hover:bg-slate-800 transition-colors cursor-pointer text-left"
-                    >
-                      <Settings className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
-                      <span>{tr('Settings', 'सेटिंग्स', 'સેટિંગ્સ')}</span>
-                    </button>
-
-                    <div className="h-px bg-slate-100 dark:bg-slate-800 my-0.5" />
-
-                    {/* Option 4: Sign In / Login or Log Out */}
-                    {isGuestUser() ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsGlobalMenuOpen(false);
-                          setIsGlobalLoginOpen(true);
-                        }}
-                        className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-extrabold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-800 transition-colors cursor-pointer text-left"
-                      >
-                        <LogIn className="w-4 h-4 shrink-0" />
-                        <span>{tr('Sign In / Login', 'लॉगिन / साइन इन', 'લોગિન / સાઇન ઇન')}</span>
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          setIsGlobalMenuOpen(false);
-                          await logoutUser();
-                          setAuthTick((n) => n + 1);
-                          window.dispatchEvent(new Event('storage'));
-                          if (currentScreen === 'profile') {
-                            navigate('home');
-                          }
-                        }}
-                        className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-extrabold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-slate-800 transition-colors cursor-pointer text-left"
-                      >
-                        <LogOut className="w-4 h-4 shrink-0" />
-                        <span>{tr('Log Out', 'लॉग आउट', 'લોગ આઉટ')}</span>
-                      </button>
-                    )}
-                  </motion.div>
-                </>
-              )}
-            </AnimatePresence>
           </div>
         </div>
       </header>
@@ -746,6 +621,29 @@ function AppContent() {
           />
         )}
       </main>
+
+      {/* Fixed Bottom Navigation Bar (હોમ | મારી બુકિંગ | પસંદીદા | સંદેશ | વધુ) */}
+      {currentScreen !== 'admin' && (
+        <FixedBottomNavBar
+          currentScreen={currentScreen}
+          onNavigate={navigate}
+          onSelectCategory={handleSelectCategory}
+          onOpenChat={(intent) => {
+            setActiveIntent(intent || null);
+            navigate('chat');
+          }}
+          onOpenProfile={handleGlobalProfileClick}
+          onOpenLogin={() => setIsGlobalLoginOpen(true)}
+          onLogout={async () => {
+            await logoutUser();
+            setAuthTick((n) => n + 1);
+            window.dispatchEvent(new Event('storage'));
+            if (currentScreen === 'profile') {
+              navigate('home');
+            }
+          }}
+        />
+      )}
 
       {/* Global Pan-India Location Modal accessible from the top header on any screen */}
       <PanIndiaLocationModal
