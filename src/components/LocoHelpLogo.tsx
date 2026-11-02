@@ -4,7 +4,7 @@ interface LocoHelpLogoProps {
   size?: number;
   className?: string;
   showText?: boolean;
-  textSize?: 'sm' | 'md' | 'lg' | 'xl';
+  textSize?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
 }
 
 export default function LocoHelpLogo({ 
@@ -19,7 +19,9 @@ export default function LocoHelpLogo({
         width={size} 
         height={size} 
         viewBox="0 0 100 100" 
-        className="drop-shadow-md flex-shrink-0 overflow-visible h-7 w-7 md:h-9 md:w-9"
+        className={`drop-shadow-md flex-shrink-0 overflow-visible ${
+          textSize === 'xs' ? 'h-6 w-6 sm:h-7 sm:w-7 md:h-9 md:w-9' : 'h-7 w-7 md:h-9 md:w-9'
+        }`}
       >
         {/* 1. Supporting Bottom Arc / Curve (Aakar - Loco Orange #FF8800) */}
         {/* Smooth, symmetrical smile cradle centered around the pin tip */}
@@ -42,6 +44,7 @@ export default function LocoHelpLogo({
 
       {showText && (
         <div className={`font-black tracking-tight flex-shrink-0 flex items-center justify-center gap-0.5 text-center leading-none ${
+          textSize === 'xs' ? 'text-lg sm:text-2xl md:text-3xl' :
           textSize === 'sm' ? 'text-2xl sm:text-3xl md:text-4xl' :
           textSize === 'lg' ? 'text-4xl sm:text-6xl' :
           textSize === 'xl' ? 'text-5xl sm:text-7xl' :

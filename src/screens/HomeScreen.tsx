@@ -73,6 +73,7 @@ export default function HomeScreen({
   const [isSyncing, setIsSyncing] = useState(false);
   const [isPostAdModalOpen, setIsPostAdModalOpen] = useState(false);
   const [isRegisterShopModalOpen, setIsRegisterShopModalOpen] = useState(false);
+  const [shopModalInitialTab, setShopModalInitialTab] = useState<'registered' | 'new'>('new');
   const [isFreeHelperModalOpen, setIsFreeHelperModalOpen] = useState(false);
   const [postToDelete, setPostToDelete] = useState<string | null>(null);
   const [selectedIntentForResponses, setSelectedIntentForResponses] = useState<Intent | null>(null);
@@ -553,10 +554,14 @@ export default function HomeScreen({
         hi: 'अपनी दुकान या सर्विस दर्ज करने के लिए ईमेल OTP या पासवर्ड से लॉगिन करें।',
         gu: 'તમારી દુકાન, શોરૂમ કે બિઝનેસ રજિસ્ટર કરવા માટે ઈમેલ OTP અથવા પાસવર્ડથી લોગિન કરો.'
       });
-      setLoginSuccessAction(() => () => setIsRegisterShopModalOpen(true));
+      setLoginSuccessAction(() => () => {
+        setShopModalInitialTab('new');
+        setIsRegisterShopModalOpen(true);
+      });
       setIsLoginPromptOpen(true);
       return;
     }
+    setShopModalInitialTab('new');
     setIsRegisterShopModalOpen(true);
   };
 
@@ -1519,7 +1524,7 @@ export default function HomeScreen({
         ? "⚡ Post Uploaded! Your post is now live on all phones."
         : language === 'GU'
         ? "⚡ પોસ્ટ અપલોડ થઈ ગઈ! તમારી પોસ્ટ બધા ફોન પર લાઈવ છે."
-        : "⚡ Post Uploaded! Aapki post sabhi phones par live hai."
+        : "⚡ पोस्ट अपलोड हो गई! आपकी पोस्ट सभी फ़ोन पर लाइव है।"
     );
     setTimeout(() => setCreatedToast(null), 5000);
     // Smoothly scroll to top so user sees their newly created post immediately
@@ -1668,7 +1673,7 @@ export default function HomeScreen({
                     ? 'Enable Local Alerts 🔔'
                     : language === 'GU'
                     ? 'એલર્ટ ચાલુ કરો 🔔'
-                    : 'Enable Local Alerts 🔔'}
+                    : 'लोकल अलर्ट चालू करें 🔔'}
                 </button>
                 <button
                   type="button"
@@ -1830,6 +1835,8 @@ export default function HomeScreen({
                           <div 
                             key={shop.id}
                             onClick={() => {
+                              setHomeSearchQuery('');
+                              setShopModalInitialTab('registered');
                               setIsRegisterShopModalOpen(true);
                             }}
                             className="p-2 rounded-xl bg-amber-50/60 dark:bg-slate-800/80 hover:bg-amber-100/80 dark:hover:bg-slate-800 border border-amber-100 dark:border-slate-700 cursor-pointer transition-colors flex items-center justify-between text-xs"
@@ -2131,28 +2138,48 @@ export default function HomeScreen({
 
             {/* Broadcast Posts Feed List */}
             {searchedIntents.length === 0 ? (
-              <div className="bg-white dark:bg-slate-900 border border-dashed border-slate-300 dark:border-slate-700 rounded-2xl p-6 text-center space-y-2.5">
-                <div className="w-11 h-11 rounded-2xl bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 mx-auto flex items-center justify-center text-xl">
+              <div
+                style={{ backgroundColor: '#F0FDF4' }}
+                className="bg-[#F0FDF4] dark:bg-slate-900 border-2 border-dashed border-emerald-300 dark:border-slate-700 rounded-2xl p-6 text-center space-y-3 shadow-2xs"
+              >
+                <div className="w-11 h-11 rounded-2xl bg-white dark:bg-indigo-950/80 border border-emerald-200 dark:border-indigo-800 text-emerald-600 dark:text-indigo-400 mx-auto flex items-center justify-center text-xl shadow-2xs">
                   📢
                 </div>
-                <p className="text-xs sm:text-sm font-extrabold text-slate-700 dark:text-slate-200">
-                  {t('home.noRequests')}
+                <p className="text-xs sm:text-sm font-extrabold text-emerald-950 dark:text-slate-200">
+                  {language === 'EN'
+                    ? 'Post Your Need on Live Radar'
+                    : language === 'GU'
+                    ? 'લાઈવ રડાર પર તમારી જરૂરિયાત પોસ્ટ કરો'
+                    : 'लाइव रडार पर अपनी ज़रूरत पोस्ट करें'}
                 </p>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+                <p className="text-[11px] font-medium text-emerald-800/90 dark:text-slate-400 max-w-md mx-auto leading-relaxed">
                   {language === 'EN'
                     ? 'Need a Plumber, Electrician, Mechanic, or Local Help right now? Create a post to alert nearby people!'
                     : language === 'GU'
                     ? 'પ્લમ્બર, ઈલેક્ટ્રિશિયન, મિકેનિક કે કોઈ મદદ જોઈએ છે? અત્યારે જ પોસ્ટ બનાવો!'
                     : 'प्लंबर, इलेक्ट्रीशियन, मैकेनिक या किसी भी मदद के लिए अभी अपनी पोस्ट बनाएं!'}
                 </p>
-                <button
-                  type="button"
-                  onClick={handleSafeOpenPostSheet}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black shadow-sm active:scale-95 transition-all cursor-pointer"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>{language === 'EN' ? 'Create Post' : language === 'GU' ? 'પોસ્ટ બનાવો' : 'पोस्ट बनाएं'}</span>
-                </button>
+                <div className="flex flex-wrap items-center justify-center gap-1.5 pt-0.5">
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/90 dark:bg-slate-800 border border-emerald-200 dark:border-slate-700 text-[10px] font-extrabold text-emerald-800 dark:text-emerald-300 shadow-2xs">
+                    ⚡ {language === 'EN' ? '100% Free Post' : language === 'GU' ? '100% ફ્રી પોસ્ટ' : '100% फ्री पोस्ट'}
+                  </span>
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/90 dark:bg-slate-800 border border-emerald-200 dark:border-slate-700 text-[10px] font-extrabold text-emerald-800 dark:text-emerald-300 shadow-2xs">
+                    📍 {language === 'EN' ? 'Alerts Nearby Helpers' : language === 'GU' ? 'નજીકના લોકોને એલર્ટ' : 'आस-पास तुरंत अलर्ट'}
+                  </span>
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/90 dark:bg-slate-800 border border-emerald-200 dark:border-slate-700 text-[10px] font-extrabold text-emerald-800 dark:text-emerald-300 shadow-2xs">
+                    💬 {language === 'EN' ? 'Direct Chat & Help' : language === 'GU' ? 'સીધી વાતચીત અને મદદ' : 'सीधी चैट और मदद'}
+                  </span>
+                </div>
+                <div className="pt-1">
+                  <button
+                    type="button"
+                    onClick={handleSafeOpenPostSheet}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black shadow-sm active:scale-95 transition-all cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>{language === 'EN' ? 'Create Post' : language === 'GU' ? 'પોસ્ટ બનાવો' : 'पोस्ट बनाएं'}</span>
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="space-y-2.5 max-h-[540px] overflow-y-auto pr-0.5 scrollbar-hide">
@@ -2432,6 +2459,10 @@ export default function HomeScreen({
                   hi: 'नौकरी प्रोफाइल बनाने के लिए लॉगिन करें',
                   gu: 'નોકરી પ્રોફાઇલ બનાવવા માટે લોગિન કરો'
                 });
+                setLoginSuccessAction(() => () => {
+                  setSeekerModalInitialTab('new');
+                  setIsJobSeekerModalOpen(true);
+                });
                 setIsLoginPromptOpen(true);
                 return;
               }
@@ -2452,6 +2483,10 @@ export default function HomeScreen({
                   en: 'Sign In Required to Post Vacancy',
                   hi: 'वेकेंसी पोस्ट करने के लिए लॉगिन करें',
                   gu: 'વેકેન્સી પોસ્ટ કરવા માટે લોગિન કરો'
+                });
+                setLoginSuccessAction(() => () => {
+                  setEmployerModalInitialTab('new');
+                  setIsEmployerVacancyModalOpen(true);
                 });
                 setIsLoginPromptOpen(true);
                 return;
@@ -2580,11 +2615,11 @@ export default function HomeScreen({
         )}
       </AnimatePresence>
 
-      {/* Register Shop, Showroom or Mall Modal (Opens ONLY Shop Registration Form) */}
+      {/* Register Shop, Showroom or Mall Modal */}
       <RegisterShopModal 
         isOpen={isRegisterShopModalOpen}
         onClose={() => setIsRegisterShopModalOpen(false)}
-        initialTab="new"
+        initialTab={shopModalInitialTab}
         onSuccess={() => {
           setCreatedToast("⏳ " + (language === 'EN' ? 'Business / Shop submitted for Admin approval!' : language === 'GU' ? 'દુકાન/બિઝનેસ એડમિન અપ્રૂવલ માટે સબમિટ થઈ ગયું!' : 'दुकान/बिज़नेस एडमिन अप्रूवल के लिए सबमिट हो गया!'));
           setTimeout(() => setCreatedToast(null), 4000);
@@ -2643,7 +2678,13 @@ export default function HomeScreen({
           >
             <div className="flex items-center gap-2">
               <span className="text-base">✅</span>
-              <span>WhatsApp invite message ready to send!</span>
+              <span>
+                {language === 'EN'
+                  ? 'WhatsApp invite message ready to send!'
+                  : language === 'GU'
+                  ? 'વોટ્સએપ આમંત્રણ મેસેજ મોકલવા માટે તૈયાર છે!'
+                  : 'व्हाट्सऐप आमंत्रण संदेश भेजने के लिए तैयार है!'}
+              </span>
             </div>
             <button onClick={() => setShowShareToast(false)} className="text-white/80 hover:text-white">
               <X className="w-4 h-4" />

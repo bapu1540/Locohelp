@@ -425,100 +425,114 @@ function AppContent() {
     >
       {/* GLOBAL FIXED TOP HEADER BANNER: Always visible across all screens, modals, popups, and Admin Panel */}
       <header
-        className="sticky top-0 z-50 shrink-0 h-[52px] min-h-[52px] bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800 shadow-xs px-2 md:px-5 py-1.5 flex items-center justify-between gap-1.5 md:gap-3 lg:gap-4 w-full max-w-full box-border"
+        className="loco-header-bar sticky top-0 z-50 shrink-0 min-h-[50px] backdrop-blur-md shadow-xs px-1.5 sm:px-3 md:px-5 py-1.5 flex items-center justify-between gap-1 sm:gap-2 md:gap-3 w-full max-w-full box-border"
         style={{ position: 'sticky', top: 0, zIndex: 9999, overflow: 'visible' }}
       >
-        {/* 1. Language Selector Dropdown (ગુજરાતી / हिन्दी / English) */}
-        <div className="relative flex-shrink-0" style={{ overflow: 'visible' }}>
-          <button
-            type="button"
+        {/* Left Group: Language Selector + Left-Aligned LocoHelp Logo */}
+        <div className="flex items-center gap-1 sm:gap-2.5 flex-shrink-0" style={{ overflow: 'visible' }}>
+          {/* 1. Language Selector Dropdown (ગુજરાતી / हिन्दी / English) */}
+          <div className="relative flex-shrink-0" style={{ overflow: 'visible' }}>
+            <button
+              type="button"
+              onClick={() => {
+                setIsGlobalMenuOpen(false);
+                setIsGlobalLangOpen((prev) => !prev);
+              }}
+              className="flex items-center gap-0.5 sm:gap-1 px-1.5 sm:px-2.5 md:px-3 py-1 md:py-1.5 bg-white dark:bg-slate-800 rounded-full hover:bg-violet-50 dark:hover:bg-slate-700 transition-colors border border-slate-200 dark:border-slate-700 shadow-2xs shrink-0 active:scale-95 cursor-pointer text-[10px] sm:text-xs"
+              title={tr('Select Language', 'भाषा चुनें', 'ભાષા પસંદ કરો')}
+            >
+              <span className="text-[10px] sm:text-xs leading-none shrink-0">🌐</span>
+              <span className="text-[10px] sm:text-xs font-black text-stone-800 dark:text-slate-200 whitespace-nowrap md:hidden">
+                {language === 'GU' ? 'ગુજ' : language === 'HI' ? 'हिं' : 'EN'}
+              </span>
+              <span className="hidden md:inline text-xs font-black text-stone-800 dark:text-slate-200 whitespace-nowrap">
+                {currentLangObj.nativeName}
+              </span>
+              <span className="text-[8px] md:text-xs text-slate-500 dark:text-slate-400 leading-none shrink-0">▾</span>
+            </button>
+
+            <AnimatePresence>
+              {isGlobalLangOpen && (
+                <>
+                  <div
+                    className="fixed inset-0 z-50"
+                    style={{ position: 'fixed', inset: 0, zIndex: 10000 }}
+                    onClick={() => setIsGlobalLangOpen(false)}
+                  />
+                  <motion.div
+                    initial={{ opacity: 0, y: -6, scale: 0.96 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -6, scale: 0.96 }}
+                    transition={{ duration: 0.15 }}
+                    className="w-44 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 p-1.5 z-50 space-y-1"
+                    style={{ position: 'fixed', top: '56px', left: '8px', zIndex: 10005 }}
+                  >
+                    {SUPPORTED_LANGUAGES.map((langItem) => {
+                      const isSelected = language === langItem.code;
+                      return (
+                        <button
+                          key={langItem.code}
+                          type="button"
+                          onClick={() => {
+                            setLanguage(langItem.code);
+                            setIsGlobalLangOpen(false);
+                          }}
+                          className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-extrabold transition-colors cursor-pointer ${
+                            isSelected
+                              ? 'bg-indigo-600 text-white shadow-2xs'
+                              : 'text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+                          }`}
+                        >
+                          <span>{langItem.nativeName}</span>
+                          {isSelected && <Check className="w-3.5 h-3.5 shrink-0" />}
+                        </button>
+                      );
+                    })}
+                  </motion.div>
+                </>
+              )}
+            </AnimatePresence>
+          </div>
+
+          {/* 2. Official LocoHelp Logo (Left-Aligned) */}
+          <div
             onClick={() => {
+              setIsGlobalLangOpen(false);
               setIsGlobalMenuOpen(false);
-              setIsGlobalLangOpen((prev) => !prev);
-            }}
-            className="flex items-center gap-1 px-2.5 md:px-3 py-1 md:py-1.5 bg-white dark:bg-slate-800 rounded-full hover:bg-violet-50 dark:hover:bg-slate-700 transition-colors border border-slate-200 dark:border-slate-700 shadow-2xs shrink-0 active:scale-95 cursor-pointer text-xs"
-            title={tr('Select Language', 'भाषा चुनें', 'ભાષા પસંદ કરો')}
-          >
-            <span className="text-xs leading-none shrink-0">🌐</span>
-            <span className="text-xs font-black text-stone-800 dark:text-slate-200 whitespace-nowrap md:hidden">
-              {language === 'GU' ? 'ગુજ' : language === 'HI' ? 'हिं' : 'EN'}
-            </span>
-            <span className="hidden md:inline text-xs font-black text-stone-800 dark:text-slate-200 whitespace-nowrap">
-              {currentLangObj.nativeName}
-            </span>
-            <span className="text-[10px] md:text-xs text-slate-500 dark:text-slate-400 leading-none shrink-0">▾</span>
-          </button>
-
-          <AnimatePresence>
-            {isGlobalLangOpen && (
-              <>
-                <div
-                  className="fixed inset-0 z-50"
-                  style={{ position: 'fixed', inset: 0, zIndex: 10000 }}
-                  onClick={() => setIsGlobalLangOpen(false)}
-                />
-                <motion.div
-                  initial={{ opacity: 0, y: -6, scale: 0.96 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: -6, scale: 0.96 }}
-                  transition={{ duration: 0.15 }}
-                  className="w-44 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 p-1.5 z-50 space-y-1"
-                  style={{ position: 'fixed', top: '54px', left: '8px', zIndex: 10005 }}
-                >
-                  {SUPPORTED_LANGUAGES.map((langItem) => {
-                    const isSelected = language === langItem.code;
-                    return (
-                      <button
-                        key={langItem.code}
-                        type="button"
-                        onClick={() => {
-                          setLanguage(langItem.code);
-                          setIsGlobalLangOpen(false);
-                        }}
-                        className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-extrabold transition-colors cursor-pointer ${
-                          isSelected
-                            ? 'bg-indigo-600 text-white shadow-2xs'
-                            : 'text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
-                        }`}
-                      >
-                        <span>{langItem.nativeName}</span>
-                        {isSelected && <Check className="w-3.5 h-3.5 shrink-0" />}
-                      </button>
-                    );
-                  })}
-                </motion.div>
-              </>
-            )}
-          </AnimatePresence>
-        </div>
-
-        {/* 2. Official LocoHelp Logo & Brand Typography */}
-        <div
-          onClick={() => {
-            setIsGlobalLangOpen(false);
-            setIsGlobalMenuOpen(false);
-            setIsGlobalLocationOpen(false);
-            setIsGlobalLoginOpen(false);
-            try {
-              sessionStorage.removeItem('locohelp_return_popup_cat');
-            } catch {}
-            window.dispatchEvent(new CustomEvent('locohelp_close_all_modals'));
-            handleSelectCategory('all');
-            if (currentScreen === 'admin') {
+              setIsGlobalLocationOpen(false);
+              setIsGlobalLoginOpen(false);
               try {
-                window.history.pushState({ locohelpScreen: 'home' }, '', '/');
+                sessionStorage.removeItem('locohelp_return_popup_cat');
               } catch {}
-            }
-            navigate('home');
-          }}
-          className="flex-shrink-0 flex items-center justify-center select-none cursor-pointer py-0.5"
-          title="LocoHelp Home"
-        >
-          <LocoHelpLogo size={28} showText={true} textSize="sm" className="flex-shrink-0" />
+              window.dispatchEvent(new CustomEvent('locohelp_close_all_modals'));
+              handleSelectCategory('all');
+              if (currentScreen === 'admin') {
+                try {
+                  window.history.pushState({ locohelpScreen: 'home' }, '', '/');
+                } catch {}
+              }
+              navigate('home');
+            }}
+            className="flex-shrink-0 flex items-center select-none cursor-pointer py-0.5"
+            title="LocoHelp Home"
+          >
+            <LocoHelpLogo size={24} showText={true} textSize="sm" className="flex-shrink-0" />
+          </div>
         </div>
 
-        {/* 3. Right Side: 3-Dot Menu (⋮) */}
-        <div className="flex items-center gap-1.5 md:gap-3 flex-shrink-0" style={{ overflow: 'visible' }}>
+        {/* 3. Right Side: Single-Line Soft Pastel Tagline Pill + 3-Dot Menu (⋮) */}
+        <div className="flex items-center justify-end gap-1 sm:gap-2 min-w-0 flex-1" style={{ overflow: 'visible' }}>
+          {/* Strictly Single-Line Soft Pastel Tagline Pill (much smaller than logo, language-aware) */}
+          <div className="loco-tagline-singleline-box">
+            <span className="loco-tagline-singleline-text">
+              {tr(
+                'Find local helpers Near You',
+                'आस-पास के लोकल मददगार खोजें',
+                'નજીકના લોકલ મદદગારો શોધો'
+              )}
+            </span>
+          </div>
+
           {/* 3-Dot Menu (⋮) */}
           <div className="relative flex-shrink-0" style={{ overflow: 'visible' }}>
             <button
@@ -527,11 +541,11 @@ function AppContent() {
                 setIsGlobalLangOpen(false);
                 setIsGlobalMenuOpen((prev) => !prev);
               }}
-              className="w-7 h-7 sm:w-9 sm:h-9 p-1 sm:p-1.5 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-violet-50 dark:hover:bg-slate-700 transition-colors shadow-2xs cursor-pointer shrink-0 flex items-center justify-center active:scale-95"
+              className="w-6.5 h-6.5 sm:w-9 sm:h-9 p-1 sm:p-1.5 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-violet-50 dark:hover:bg-slate-700 transition-colors shadow-2xs cursor-pointer shrink-0 flex items-center justify-center active:scale-95"
               title={tr('Menu (Profile, Settings, Sign In)', 'मेनू (प्रोफ़ाइल, सेटिंग्स, लॉगिन)', 'મેનુ (પ્રોફાઇલ, સેટિંગ્સ, લોગિન)')}
               aria-label="Open menu"
             >
-              <MoreVertical className="w-4 h-4 sm:w-5 sm:h-5 text-slate-800 dark:text-slate-200 shrink-0" />
+              <MoreVertical className="w-3.5 h-3.5 sm:w-5 sm:h-5 text-slate-800 dark:text-slate-200 shrink-0" />
             </button>
 
             <AnimatePresence>

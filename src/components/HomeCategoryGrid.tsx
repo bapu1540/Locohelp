@@ -725,7 +725,7 @@ export default function HomeCategoryGrid({
     <>
       {/* 16 Main Categories Grid (4 columns, strictly uniform compact box size) */}
       <section className="py-0.5" aria-label="Service categories">
-        <div className="grid grid-cols-4 auto-rows-[72px] sm:auto-rows-[80px] gap-1.5 sm:gap-2">
+        <div className="loco-cat-grid-4 grid grid-cols-4 auto-rows-[72px] sm:auto-rows-[80px] gap-1.5 sm:gap-2">
           {MAIN_CATS.map((cat) => {
             const [line1, line2] = cat.cardLines[langIdx];
             return (

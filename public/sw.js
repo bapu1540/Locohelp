@@ -1,6 +1,6 @@
 /* eslint-disable no-undef */
 // Unified PWA + Firebase Cloud Messaging Background Service Worker for LocoHelp
-const CACHE_NAME = 'locohelp-pwa-v9';
+const CACHE_NAME = 'locohelp-pwa-v10';
 const STATIC_ASSETS = [
   '/manifest.json',
   '/pwa-192x192.png',
