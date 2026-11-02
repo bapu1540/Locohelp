@@ -50,7 +50,7 @@ if (fs.existsSync(ENV_FILE_PATH)) {
   } catch (e) {}
 }
 
-// Strictly use live Railway PostgreSQL database (never local JSON fallback files or SQLite)
+const PUBLIC_DIR = path.join(process.cwd(), "public");
 const DATA_DIR = path.join(process.cwd(), "data");
 const INTENTS_FILE = path.join(DATA_DIR, "intents.json");
 const DELETED_INTENTS_FILE = path.join(DATA_DIR, "deleted_intents.json");
@@ -405,31 +405,42 @@ async function uploadDataToFirebaseServer(
   const match = trimmed.match(/^data:([a-zA-Z0-9/+.-]+);base64,([A-Za-z0-9+/=\s]+)$/);
   if (!match) return trimmed;
 
+  const mime = match[1].toLowerCase();
+  const base64Data = match[2].replace(/\s+/g, "");
+  const buffer = Buffer.from(base64Data, "base64");
+  const ext = getExtFromMimeServer(mime);
+  const cleanSub = (subFolder || "media")
+    .replace(/^\/+|\/+$/g, "")
+    .replace(/^locohelp\/?/i, "") || "media";
+  const rand = crypto.randomBytes(4).toString("hex");
+  const safeName = customFileName
+    ? `${Date.now()}_${rand}_${customFileName.replace(/[^a-zA-Z0-9._-]/g, "_")}`
+    : `${Date.now()}_${rand}.${ext}`;
+
   const storageInstance = getServerFirebaseStorageInstance();
-  if (!storageInstance) {
-    return trimmed;
+  if (storageInstance) {
+    try {
+      const storagePath = `locohelp/${cleanSub}/${safeName}`;
+      const fileRef = fbStorageRef(storageInstance, storagePath);
+      await fbUploadBytes(fileRef, new Uint8Array(buffer) as unknown as Uint8Array<ArrayBuffer>, { contentType: mime });
+      const downloadUrl = await fbGetDownloadURL(fileRef);
+      if (downloadUrl) return downloadUrl;
+    } catch (err: any) {
+      console.warn("[Firebase Storage] Upload notice, saving to local static file:", err?.message || err);
+    }
   }
 
+  // Fallback: Save to public/uploads/<cleanSub>/<safeName> and return direct URL
   try {
-    const mime = match[1].toLowerCase();
-    const base64Data = match[2].replace(/\s+/g, "");
-    const buffer = Buffer.from(base64Data, "base64");
-    const ext = getExtFromMimeServer(mime);
-    const cleanSub = (subFolder || "media")
-      .replace(/^\/+|\/+$/g, "")
-      .replace(/^locohelp\/?/i, "") || "media";
-    const rand = crypto.randomBytes(4).toString("hex");
-    const safeName = customFileName
-      ? `${Date.now()}_${rand}_${customFileName.replace(/[^a-zA-Z0-9._-]/g, "_")}`
-      : `${Date.now()}_${rand}.${ext}`;
-    const storagePath = `locohelp/${cleanSub}/${safeName}`;
-
-    const fileRef = fbStorageRef(storageInstance, storagePath);
-    await fbUploadBytes(fileRef, new Uint8Array(buffer) as unknown as Uint8Array<ArrayBuffer>, { contentType: mime });
-    const downloadUrl = await fbGetDownloadURL(fileRef);
-    return downloadUrl || trimmed;
-  } catch (err: any) {
-    console.warn("[Firebase Storage] Upload notice:", err?.message || err);
+    const targetDir = path.join(PUBLIC_DIR, "uploads", cleanSub);
+    if (!fs.existsSync(targetDir)) {
+      fs.mkdirSync(targetDir, { recursive: true });
+    }
+    const filePath = path.join(targetDir, safeName);
+    fs.writeFileSync(filePath, buffer);
+    return `/uploads/${cleanSub}/${safeName}`;
+  } catch (fsErr: any) {
+    console.warn("[Local File Storage] Notice:", fsErr?.message || fsErr);
     return trimmed;
   }
 }
@@ -497,11 +508,20 @@ function collectFirebaseStoragePaths(input: unknown, collected = new Set<string>
  * whenever an item is deleted or its media is replaced.
  */
 async function deleteFilesFromFirebaseStorage(source: unknown): Promise<number> {
+  let deletedCount = 0;
+  if (typeof source === "string" && source.startsWith("/uploads/")) {
+    try {
+      const localFilePath = path.join(PUBLIC_DIR, source);
+      if (fs.existsSync(localFilePath)) {
+        fs.unlinkSync(localFilePath);
+        deletedCount++;
+      }
+    } catch {}
+  }
   const storageInstance = getServerFirebaseStorageInstance();
-  if (!storageInstance) return 0;
+  if (!storageInstance) return deletedCount;
 
   const paths = collectFirebaseStoragePaths(source);
-  let deletedCount = 0;
   for (const storagePath of paths) {
     try {
       const fileRef = fbStorageRef(storageInstance, storagePath);
@@ -711,13 +731,13 @@ function verifyPassword(password: string, storedHash: string): boolean {
 // Allowlist: image/jpeg, image/png, image/webp (<= 2MB) & application/pdf with %PDF- header (<= 5MB)
 // Blocks double extensions (.pdf.exe, .jpg.js), SVG, HTML, and executables
 // ==========================================
-const MAX_IMAGE_BYTES = 2 * 1024 * 1024; // 2 MB
-const MAX_PDF_BYTES = 5 * 1024 * 1024;   // 5 MB
+const MAX_IMAGE_BYTES = 25 * 1024 * 1024; // 25 MB
+const MAX_PDF_BYTES = 10 * 1024 * 1024;   // 10 MB
 const DANGEROUS_EXT_REGEX = /\.(exe|bat|cmd|sh|php|pl|py|rb|js|jsx|ts|tsx|mjs|cjs|html|htm|svg|xml|jar|msi|vbs|scr|ps1|pif|com|gadget|wsf)(\.|$)/i;
 
 function validateServerUploadedData(
   input: unknown,
-  options: { allowPdf?: boolean; fileName?: string } = { allowPdf: true }
+  options: { allowPdf?: boolean; fileName?: string; maxSizeBytes?: number } = { allowPdf: true }
 ): { valid: boolean; error?: string } {
   if (!input || typeof input !== "string") return { valid: true };
   const trimmed = input.trim();
@@ -782,8 +802,9 @@ function validateServerUploadedData(
 
   const allowedImages = ["image/jpeg", "image/png", "image/webp"];
   if (allowedImages.includes(mime)) {
-    if (buf.length > MAX_IMAGE_BYTES) {
-      return { valid: false, error: "Image exceeds 2MB maximum size limit." };
+    const maxImgBytes = options.maxSizeBytes || MAX_IMAGE_BYTES;
+    if (buf.length > maxImgBytes) {
+      return { valid: false, error: `Image exceeds ${Math.round(maxImgBytes / (1024 * 1024))}MB maximum size limit.` };
     }
     const isJpeg = buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
     const isPng = buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
@@ -799,10 +820,11 @@ function validateServerUploadedData(
 
   if (mime === "application/pdf") {
     if (!options.allowPdf) {
-      return { valid: false, error: "Only image files (JPEG, PNG, WebP up to 2MB) are permitted for this field." };
+      return { valid: false, error: "Only image files (JPEG, PNG, WebP) are permitted for this field." };
     }
-    if (buf.length > MAX_PDF_BYTES) {
-      return { valid: false, error: "PDF exceeds 5MB maximum size limit." };
+    const maxPdfLimit = options.maxSizeBytes || MAX_PDF_BYTES;
+    if (buf.length > maxPdfLimit) {
+      return { valid: false, error: `PDF document exceeds ${Math.round(maxPdfLimit / (1024 * 1024))}MB limit.` };
     }
     const pdfHeader = buf.subarray(0, 5).toString("ascii");
     if (pdfHeader !== "%PDF-") {
@@ -3217,8 +3239,9 @@ async function startServer() {
     next();
   });
 
-  // Parse JSON bodies (bounded to 8MB max payload for 5MB base64 PDFs; also accepts text/plain JSON)
-  app.use(express.json({ limit: "8mb", type: ["application/json", "text/plain"] }));
+  // Parse JSON bodies (bounded to 35MB max payload for raw mobile camera uploads & banners; also accepts text/plain JSON)
+  app.use(express.json({ limit: "35mb", type: ["application/json", "text/plain"] }));
+  app.use(express.urlencoded({ extended: true, limit: "35mb" }));
 
   // Auto-Trigger Table Creation Middleware on /api requests if tables haven't been verified yet
   app.use("/api", async (_req, _res, next) => {
@@ -12460,9 +12483,15 @@ async function startServer() {
         return res.status(400).json({ error: "categoryId and imageUrl are required" });
       }
 
-      const cleanUrl = await uploadDataToFirebaseServer(rawUrl, "categories", `category_${cleanId}.webp`);
+      const subFolder = cleanId === "__home_hero_banner__" ? "banners" : "categories";
+      const customFileName = cleanId === "__home_hero_banner__" ? "home_hero_banner.webp" : `category_${cleanId}.webp`;
+      const cleanUrl = await uploadDataToFirebaseServer(rawUrl, subFolder, customFileName);
 
       const fileImages = readJsonFile<Record<string, string>>(CATEGORY_IMAGES_FILE, {});
+      const previousUrl = fileImages[cleanId];
+      if (previousUrl && previousUrl !== cleanUrl) {
+        await deleteFilesFromFirebaseStorage(previousUrl).catch(() => {});
+      }
       fileImages[cleanId] = cleanUrl;
       writeJsonFile(CATEGORY_IMAGES_FILE, fileImages);
 
@@ -12496,6 +12525,9 @@ async function startServer() {
       }
 
       invalidatePublicCache(['category_images']);
+      try {
+        broadcastRealtimeEvent("category_images_updated", { images: fileImages, categoryId: cleanId, imageUrl: cleanUrl });
+      } catch {}
       return res.json({ success: true, categoryId: cleanId, imageUrl: cleanUrl, images: fileImages });
     } catch (e: any) {
       return res.status(500).json({ error: e.message || "Failed to save category image" });
@@ -12514,6 +12546,10 @@ async function startServer() {
       }
 
       const fileImages = readJsonFile<Record<string, string>>(CATEGORY_IMAGES_FILE, {});
+      const previousUrl = fileImages[cleanId];
+      if (previousUrl) {
+        await deleteFilesFromFirebaseStorage(previousUrl).catch(() => {});
+      }
       delete fileImages[cleanId];
       writeJsonFile(CATEGORY_IMAGES_FILE, fileImages);
 
@@ -12532,6 +12568,9 @@ async function startServer() {
       }
 
       invalidatePublicCache(['category_images']);
+      try {
+        broadcastRealtimeEvent("category_images_updated", { images: fileImages, categoryId: cleanId, deleted: true });
+      } catch {}
       return res.json({ success: true, categoryId: cleanId, images: fileImages });
     } catch (e: any) {
       return res.status(500).json({ error: e.message || "Failed to delete category image" });

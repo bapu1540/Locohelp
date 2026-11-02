@@ -1476,7 +1476,7 @@ export async function fetchCategoryImages(): Promise<Record<string, string>> {
 export async function saveCategoryImageOnServer(
   categoryId: string,
   imageUrl: string
-): Promise<{ success: boolean; images?: Record<string, string>; error?: string }> {
+): Promise<{ success: boolean; images?: Record<string, string>; imageUrl?: string; error?: string }> {
   try {
     const delRaw = localStorage.getItem('locohelp_deleted_category_images');
     if (delRaw) {
@@ -1502,12 +1502,19 @@ export async function saveCategoryImageOnServer(
     if (!res.ok) {
       return { success: false, error: data.error || 'Failed to save category image' };
     }
-    const merged = { ...getCachedCategoryImages(), ...(data.images || {}), [categoryId]: imageUrl };
+    const finalUrl = (data && data.imageUrl) ? String(data.imageUrl) : imageUrl;
+    const serverImages = (data && data.images && typeof data.images === 'object') ? data.images : {};
+    const merged = { ...getCachedCategoryImages(), ...serverImages, [categoryId]: finalUrl };
     try {
       localStorage.setItem('locohelp_category_images', JSON.stringify(merged));
+    } catch (e) {
+      console.warn('localStorage quota warning for category images:', e);
+    }
+    try {
       window.dispatchEvent(new Event('locohelp_category_images_updated'));
+      window.dispatchEvent(new Event('storage'));
     } catch {}
-    return { success: true, images: merged };
+    return { success: true, images: merged, imageUrl: finalUrl };
   } catch (e: any) {
     return { success: false, error: e.message || 'Network error while saving category image' };
   }
@@ -1537,12 +1544,15 @@ export async function deleteCategoryImageOnServer(
     if (!res.ok) {
       return { success: false, error: data.error || 'Failed to delete category image' };
     }
-    if (data.images) {
-      try {
-        window.dispatchEvent(new Event('locohelp_category_images_updated'));
-      } catch {}
-    }
-    return { success: true, images: getCachedCategoryImages() };
+    const remaining = (data && data.images && typeof data.images === 'object') ? data.images : getCachedCategoryImages();
+    try {
+      localStorage.setItem('locohelp_category_images', JSON.stringify(remaining));
+    } catch {}
+    try {
+      window.dispatchEvent(new Event('locohelp_category_images_updated'));
+      window.dispatchEvent(new Event('storage'));
+    } catch {}
+    return { success: true, images: remaining };
   } catch (e: any) {
     return { success: false, error: e.message || 'Network error while deleting category image' };
   }

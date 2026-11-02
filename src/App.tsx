@@ -621,7 +621,7 @@ function AppContent() {
       </main>
 
       {/* Fixed Bottom Navigation Bar (હોમ | મારી બુકિંગ | પસંદીદા | સંદેશ | વધુ) */}
-      {currentScreen !== 'admin' && (
+      {currentScreen !== 'admin' && currentScreen !== 'chat' && (
         <FixedBottomNavBar
           currentScreen={currentScreen}
           onNavigate={navigate}

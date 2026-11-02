@@ -62,6 +62,8 @@ export interface ShowcaseProviderItem {
   aboutGu?: string;
   aboutHi?: string;
   aboutEn?: string;
+  userId?: string;
+  email?: string;
 }
 
 export const DEFAULT_SHOWCASE_PROVIDERS: ShowcaseProviderItem[] = [
@@ -272,6 +274,8 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
           const role = prov.skills?.[0] || prov.category || 'Service Expert';
           return {
             id: String(prov.id || `live-prov-${idx}`),
+            userId: String(prov.userId || prov.user_id || prov.id || ''),
+            email: String(prov.email || ''),
             nameGu: prov.name,
             nameHi: prov.name,
             nameEn: prov.name,
@@ -1490,15 +1494,23 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
                     onClick={() => {
                       const prov = selectedProviderProfile;
                       setSelectedProviderProfile(null);
+                      const provTargetId = prov.userId || prov.id;
+                      const provEmail = prov.email || '';
                       onOpenDirectChat({
                         id: `provider_chat_${prov.id}`,
-                        authorId: prov.id,
+                        authorId: provTargetId,
+                        authorEmail: provEmail,
                         authorName:
                           language === 'GU'
                             ? prov.nameGu
                             : language === 'HI'
                             ? prov.nameHi
                             : prov.nameEn,
+                        helperId: provTargetId,
+                        helperName: prov.nameEn || prov.nameGu,
+                        helperEmail: provEmail,
+                        receiverId: provTargetId,
+                        isDirectProviderChat: true,
                         description:
                           language === 'GU'
                             ? `${prov.nameGu} (${prov.roleGu}) સાથે સીધી વાતચીત`

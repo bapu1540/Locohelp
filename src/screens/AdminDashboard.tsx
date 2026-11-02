@@ -238,6 +238,23 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
   const [categoryImages, setCategoryImages] = useState<Record<string, string>>(() => getCachedCategoryImages());
   const [isUploadingHeroBanner, setIsUploadingHeroBanner] = useState(false);
 
+  useEffect(() => {
+    const handleCatImagesSync = () => {
+      fetchCategoryImages().then(imgs => {
+        if (imgs && typeof imgs === 'object') {
+          setCategoryImages(imgs);
+        }
+      }).catch(() => {});
+    };
+    handleCatImagesSync();
+    window.addEventListener('locohelp_category_images_updated', handleCatImagesSync);
+    window.addEventListener('storage', handleCatImagesSync);
+    return () => {
+      window.removeEventListener('locohelp_category_images_updated', handleCatImagesSync);
+      window.removeEventListener('storage', handleCatImagesSync);
+    };
+  }, []);
+
   const handleUploadHomeHeroBanner = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -248,10 +265,21 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         showToast(check.error || 'અમાન્ય ઈમેજ ફાઇલ (કૃપા કરીને JPG, PNG અથવા WebP પસંદ કરો)');
         return;
       }
-      const compressedUrl = await compressImageToWebP(file, { maxWidth: 1920, maxHeight: 1080, quality: 0.82, folder: 'banners' });
+      let compressedUrl: string;
+      try {
+        compressedUrl = await compressImageToWebP(file, { maxWidth: 1920, maxHeight: 1080, quality: 0.82, folder: 'banners' });
+      } catch (_compErr) {
+        compressedUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || ''));
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+      }
       const res = await saveCategoryImageOnServer('__home_hero_banner__', compressedUrl);
       if (res.success) {
-        setCategoryImages(prev => ({ ...prev, __home_hero_banner__: compressedUrl }));
+        const finalUrl = (res.images && res.images['__home_hero_banner__']) || res.imageUrl || compressedUrl;
+        setCategoryImages(prev => ({ ...prev, __home_hero_banner__: finalUrl }));
         showToast('✅ હોમ પેજનું મેઈન બેનર સફળતાપૂર્વક અપડેટ થઈ ગયું! દરેક યુઝરને લાઈવ દેખાશે.');
       } else {
         showToast(res.error || 'બેનર અપડેટ કરવામાં ભૂલ આવી');
@@ -2567,10 +2595,10 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                       </span>
                     </div>
                     <h2 className="text-base sm:text-lg font-black text-white mt-1">
-                      પોસ્ટ બનાવો ની નીચેનું મેઈન બેનર (Home Page Hero Banner)
+                      હોમ પેજ મેઈન હીરો બેનર (LocoHelp Logo નીચે / સર્ચ બાર ઉપર)
                     </h2>
                     <p className="text-xs text-slate-300 font-medium mt-0.5">
-                      અહીંથી તમે ગમે ત્યારે હોમ પેજ પર &ldquo;પોસ્ટ બનાવો&rdquo; બટનની નીચે દેખાતું બેનર બદલી શકો છો. નવો ફોટો અપલોડ કરતા જ દરેક યુઝરને મોબાઈલ, ટેબલેટ અને કોમ્પ્યુટરમાં તરત જ દેખાશે.
+                      અહીંથી તમે હોમ પેજ પર LocoHelp લોગોની નીચે અને સર્ચ બારની ઉપર દેખાતું મેઈન બેનર બદલી શકો છો. નવો ફોટો અપલોડ કરતા જ દરેક યુઝરને મોબાઈલ, ટેબલેટ અને કોમ્પ્યુટરમાં તરત જ લાઈવ દેખાશે.
                     </p>
                   </div>
                 </div>
@@ -3736,13 +3764,13 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div>
                   <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
-                    🖼️ હોમ પેજ મેઈન બેનર (Below Create Post Button)
+                    🖼️ હોમ પેજ મેઈન બેનર (LocoHelp Logo નીચે / સર્ચ બાર ઉપર)
                   </span>
                   <h3 className="text-base sm:text-lg font-black text-white mt-1">
-                    પોસ્ટ બનાવો ની નીચેનું મેઈન બેનર બદલો
+                    હોમ પેજ મેઈન બેનર બદલો (Logo નીચે / સર્ચ બાર ઉપર)
                   </h3>
                   <p className="text-xs text-slate-300 font-medium">
-                    અહીંથી અપલોડ કરેલો ફોટો દરેક યુઝરને મોબાઈલ, ટેબલેટ, લેપટોપ અને કોમ્પ્યુટર પર સરખી રીતે દેખાશે.
+                    અહીંથી અપલોડ કરેલો ફોટો હોમ પેજ પર LocoHelp લોગોની નીચે અને સર્ચ બારની ઉપર દરેક યુઝરને મોબાઈલ, ટેબલેટ, લેપટોપ અને કોમ્પ્યુટર પર સરખી રીતે દેખાશે.
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2.5">
