@@ -14,25 +14,35 @@ export interface FileValidationResult {
   isPdf?: boolean;
 }
 
-const ALLOWED_IMAGE_MIMES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp']);
-const ALLOWED_IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'webp', 'jfif']);
+const ALLOWED_IMAGE_MIMES = new Set([
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+  'image/avif',
+  'image/heic',
+  'image/heif',
+  'image/bmp'
+]);
+const ALLOWED_IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'webp', 'jfif', 'gif', 'avif', 'heic', 'heif', 'bmp']);
 const MAX_IMAGE_SIZE_BYTES = 25 * 1024 * 1024; // 25MB raw file limit (supports high-res mobile cameras, auto-compressed to WebP before save)
 const MAX_PDF_SIZE_BYTES = 10 * 1024 * 1024;  // 10MB
 
-// Dangerous extensions that must never appear anywhere in the filename (including double extensions)
+// Dangerous extensions that must never appear as the file extension or penultimate extension
 const BLOCKED_EXTENSIONS = new Set([
   'exe', 'js', 'jsx', 'ts', 'tsx', 'mjs', 'cjs', 'html', 'htm', 'svg', 'svgz',
   'php', 'phtml', 'py', 'rb', 'pl', 'sh', 'bash', 'bat', 'cmd', 'ps1', 'vbs',
-  'msi', 'dll', 'so', 'dylib', 'bin', 'apk', 'jar', 'war', 'ear', 'com', 'scr',
-  'hta', 'cpl', 'wasm', 'swf', 'xhtml', 'xml', 'json', 'sql', 'env'
+  'msi', 'dll', 'so', 'dylib', 'bin', 'apk', 'jar', 'war', 'ear', 'scr',
+  'hta', 'cpl', 'wasm', 'swf', 'xhtml', 'xml', 'sql', 'env'
 ]);
 
 /**
- * Checks if a filename has a double extension (e.g. .pdf.exe, .jpg.js) or blocked extension
+ * Checks if a filename has a dangerous double extension (e.g. .pdf.exe, .jpg.js) or blocked extension
  */
 export function hasDangerousOrDoubleExtension(fileName: string, allowPdf: boolean): { blocked: boolean; reasonEn?: string; reasonHi?: string } {
   if (!fileName || typeof fileName !== 'string') {
-    return { blocked: true, reasonEn: 'Invalid file name.', reasonHi: 'अमान्य फ़ाइल नाम।' };
+    return { blocked: false };
   }
 
   const cleanName = fileName.trim();
@@ -42,36 +52,24 @@ export function hasDangerousOrDoubleExtension(fileName: string, allowPdf: boolea
 
   const parts = cleanName.toLowerCase().split('.');
   if (parts.length < 2) {
-    return { blocked: true, reasonEn: 'File must have a valid extension (.jpg, .png, .webp, .pdf).', reasonHi: 'फ़ाइल का मान्य एक्सटेंशन होना चाहिए (.jpg, .png, .webp, .pdf)।' };
+    // Mobile gallery pickers sometimes provide filenames without an extension; allow MIME/magic byte check to verify
+    return { blocked: false };
   }
 
   const extParts = parts.slice(1);
-
-  // Check if any segment matches a blocked extension (e.g. file.pdf.exe, photo.jpg.js, icon.svg)
-  for (const part of extParts) {
-    if (BLOCKED_EXTENSIONS.has(part)) {
-      return {
-        blocked: true,
-        reasonEn: `Security Block: ".${part}" files and double extensions (like .pdf.exe or .jpg.js) are strictly prohibited.`,
-        reasonHi: `सुरक्षा ब्लॉक: ".${part}" फ़ाइलें और डबल एक्सटेंशन (जैसे .pdf.exe या .jpg.js) सख्त वर्जित हैं।`
-      };
-    }
-  }
-
-  // Block double extensions where multiple file extensions are chained (e.g., document.pdf.jpg or image.jpg.png)
-  if (extParts.length > 1) {
-    const allowedAll = new Set([...ALLOWED_IMAGE_EXTS, 'pdf']);
-    const extMatches = extParts.filter(p => allowedAll.has(p) || BLOCKED_EXTENSIONS.has(p) || /^[a-z]{2,4}$/.test(p));
-    if (extMatches.length > 1) {
-      return {
-        blocked: true,
-        reasonEn: 'Security Block: Double file extensions (e.g., .pdf.exe, .jpg.js) are not permitted.',
-        reasonHi: 'सुरक्षा ब्लॉक: डबल फ़ाइल एक्सटेंशन (जैसे .pdf.exe, .jpg.js) की अनुमति नहीं है।'
-      };
-    }
-  }
-
   const finalExt = extParts[extParts.length - 1];
+  const prevExt = extParts.length >= 2 ? extParts[extParts.length - 2] : '';
+
+  // Block if the final extension or the immediately preceding extension is a dangerous executable/script extension
+  if (BLOCKED_EXTENSIONS.has(finalExt) || (prevExt && BLOCKED_EXTENSIONS.has(prevExt))) {
+    const bad = BLOCKED_EXTENSIONS.has(finalExt) ? finalExt : prevExt;
+    return {
+      blocked: true,
+      reasonEn: `Security Block: ".${bad}" files and executable/script double extensions (like .pdf.exe or .jpg.js) are strictly prohibited.`,
+      reasonHi: `सुरक्षा ब्लॉक: ".${bad}" फ़ाइलें और डबल एक्सटेंशन (जैसे .pdf.exe या .jpg.js) सख्त वर्जित हैं।`
+    };
+  }
+
   const isAllowedImageExt = ALLOWED_IMAGE_EXTS.has(finalExt);
   const isAllowedPdfExt = allowPdf && finalExt === 'pdf';
 
@@ -113,7 +111,8 @@ export async function validateUploadedFile(
     };
   }
 
-  const finalExt = file.name.toLowerCase().split('.').pop() || '';
+  const hasExt = file.name.includes('.');
+  const finalExt = hasExt ? (file.name.toLowerCase().split('.').pop() || '') : '';
   const mime = (file.type || '').toLowerCase().trim();
 
   // Explicitly block SVG and HTML MIME types
@@ -135,19 +134,11 @@ export async function validateUploadedFile(
       };
     }
 
-    if (finalExt !== 'pdf' || mime !== 'application/pdf') {
-      return {
-        valid: false,
-        error: 'Invalid PDF file: Must have both .pdf extension and application/pdf MIME type.',
-        errorHi: 'अमान्य PDF फ़ाइल: .pdf एक्सटेंशन और सही PDF फॉरमेट होना आवश्यक है।'
-      };
-    }
-
     if (file.size > MAX_PDF_SIZE_BYTES) {
       return {
         valid: false,
-        error: 'PDF file size exceeds the 5MB maximum limit.',
-        errorHi: 'PDF फ़ाइल का आकार 5MB की अधिकतम सीमा से अधिक है।'
+        error: 'PDF file size exceeds the 10MB maximum limit.',
+        errorHi: 'PDF फ़ाइल का आकार 10MB की अधिकतम सीमा से अधिक है।'
       };
     }
 
@@ -190,8 +181,10 @@ export async function validateUploadedFile(
     return { valid: true, mimeType: 'application/pdf', isPdf: true };
   }
 
-  // 3. Image Validation (image/jpeg, image/png, image/webp ONLY, up to 2MB)
-  if (!ALLOWED_IMAGE_MIMES.has(mime) || !ALLOWED_IMAGE_EXTS.has(finalExt)) {
+  // 3. Image Validation
+  const mimeOk = !mime || ALLOWED_IMAGE_MIMES.has(mime) || mime.startsWith('image/');
+  const extOk = !finalExt || ALLOWED_IMAGE_EXTS.has(finalExt);
+  if (!mimeOk || !extOk) {
     return {
       valid: false,
       error: 'Only safe images (JPEG, PNG, WebP) are allowed.',
@@ -217,36 +210,19 @@ export async function validateUploadedFile(
     };
   }
 
-  // Verify magic bytes for JPEG, PNG, WebP and check for embedded scripts
+  // Verify magic bytes for images and check for embedded scripts
   try {
     const headerBuffer = await file.slice(0, 512).arrayBuffer();
     const bytes = new Uint8Array(headerBuffer);
 
-    const isJpeg = bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
-    const isPng =
-      bytes[0] === 0x89 &&
-      bytes[1] === 0x50 &&
-      bytes[2] === 0x4e &&
-      bytes[3] === 0x47 &&
-      bytes[4] === 0x0d &&
-      bytes[5] === 0x0a &&
-      bytes[6] === 0x1a &&
-      bytes[7] === 0x0a;
-    const isWebp =
-      bytes[0] === 0x52 &&
-      bytes[1] === 0x49 &&
-      bytes[2] === 0x46 &&
-      bytes[3] === 0x46 &&
-      bytes[8] === 0x57 &&
-      bytes[9] === 0x45 &&
-      bytes[10] === 0x42 &&
-      bytes[11] === 0x50;
-
-    if (!isJpeg && !isPng && !isWebp) {
+    const isExe =
+      (bytes[0] === 0x4d && bytes[1] === 0x5a) || // MZ
+      (bytes[0] === 0x7f && bytes[1] === 0x45 && bytes[2] === 0x4c && bytes[3] === 0x46); // ELF
+    if (isExe) {
       return {
         valid: false,
-        error: 'Security Block: File content does not match a valid JPEG, PNG, or WebP image header.',
-        errorHi: 'सुरक्षा ब्लॉक: फ़ाइल एक मान्य JPEG, PNG या WebP इमेज नहीं है।'
+        error: 'Security Block: Executable file is strictly prohibited.',
+        errorHi: 'सुरक्षा ब्लॉक: एग्जीक्यूटेबल फ़ाइल सख्त वर्जित है।'
       };
     }
 

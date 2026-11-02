@@ -1695,16 +1695,24 @@ export default function HomeScreen({
           )}
 
         <div className="px-2.5 sm:px-4 mt-1.5 space-y-1.5 sm:space-y-2 max-w-full">
-          {/* 1. Responsive Home Page Main Hero Banner (Right below centered Logo, above Search Bar - configurable from Admin Panel) */}
-          <div className="w-full rounded-2xl overflow-hidden shadow-sm border border-sky-200/80 dark:border-slate-700 bg-sky-50/40 dark:bg-slate-800/60">
-            <img
-              src={categoryImages['__home_hero_banner__'] || '/assets/aistudio/__________________________0e3f70be.png'}
-              alt="LocoHelp — ઘરના કામ હવે થશે ખૂબ સરળ!"
-              className="w-full h-auto block object-contain"
-              loading="eager"
-              decoding="async"
-            />
-          </div>
+          {/* 1. Responsive Home Page Main Hero Banner (Right below centered Logo, above Search Bar - configurable/deletable from Admin Panel) */}
+          {categoryImages['__home_hero_banner__'] !== '__deleted__' && (
+            <div className="w-full rounded-2xl overflow-hidden shadow-sm border border-sky-200/80 dark:border-slate-700 bg-sky-50/40 dark:bg-slate-800/60">
+              <img
+                src={categoryImages['__home_hero_banner__'] || '/assets/aistudio/__________________________0e3f70be.png'}
+                alt="LocoHelp — ઘરના કામ હવે થશે ખૂબ સરળ!"
+                className="w-full h-auto block object-contain"
+                loading="eager"
+                decoding="async"
+                onError={(e) => {
+                  const fallback = '/assets/aistudio/__________________________0e3f70be.png';
+                  if (e.currentTarget.src !== window.location.origin + fallback) {
+                    e.currentTarget.src = fallback;
+                  }
+                }}
+              />
+            </div>
+          )}
           
           {/* 2. Real-Time Interactive Global Search Bar across Entire Website */}
           <div className="relative z-20">

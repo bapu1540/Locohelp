@@ -237,6 +237,8 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
   const DEFAULT_HOME_HERO_BANNER = '/assets/aistudio/__________________________0e3f70be.png';
   const [categoryImages, setCategoryImages] = useState<Record<string, string>>(() => getCachedCategoryImages());
   const [isUploadingHeroBanner, setIsUploadingHeroBanner] = useState(false);
+  const [isEditingHeroBanner, setIsEditingHeroBanner] = useState(false);
+  const [heroBannerCustomUrlInput, setHeroBannerCustomUrlInput] = useState('');
 
   useEffect(() => {
     const handleCatImagesSync = () => {
@@ -280,7 +282,8 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
       if (res.success) {
         const finalUrl = (res.images && res.images['__home_hero_banner__']) || res.imageUrl || compressedUrl;
         setCategoryImages(prev => ({ ...prev, __home_hero_banner__: finalUrl }));
-        showToast('✅ હોમ પેજનું મેઈન બેનર સફળતાપૂર્વક અપડેટ થઈ ગયું! દરેક યુઝરને લાઈવ દેખાશે.');
+        setIsEditingHeroBanner(false);
+        showToast('✅ હોમ પેજનું મેઈન બેનર સફળતાપૂર્વક અપલોડ / અપડેટ થઈ ગયું! દરેક યુઝરને લાઈવ દેખાશે.');
       } else {
         showToast(res.error || 'બેનર અપડેટ કરવામાં ભૂલ આવી');
       }
@@ -289,6 +292,48 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
     } finally {
       setIsUploadingHeroBanner(false);
       e.target.value = '';
+    }
+  };
+
+  const handleSaveHeroBannerCustomUrl = async () => {
+    const cleanUrl = heroBannerCustomUrlInput.trim();
+    if (!cleanUrl) {
+      showToast('⚠️ કૃપા કરીને બેનર ઈમેજ URL નાખો અથવા ફોટો અપલોડ કરો');
+      return;
+    }
+    setIsUploadingHeroBanner(true);
+    try {
+      const res = await saveCategoryImageOnServer('__home_hero_banner__', cleanUrl);
+      if (res.success) {
+        const finalUrl = (res.images && res.images['__home_hero_banner__']) || res.imageUrl || cleanUrl;
+        setCategoryImages(prev => ({ ...prev, __home_hero_banner__: finalUrl }));
+        setIsEditingHeroBanner(false);
+        showToast('✅ હોમ પેજ બેનર સફળતાપૂર્વક એડિટ / સેવ થઈ ગયું!');
+      } else {
+        showToast(res.error || 'બેનર એડિટ કરવામાં ભૂલ આવી');
+      }
+    } catch (err: any) {
+      showToast(err?.message || 'બેનર સેવ કરવામાં સમસ્યા આવી');
+    } finally {
+      setIsUploadingHeroBanner(false);
+    }
+  };
+
+  const handleDeleteHomeHeroBanner = async () => {
+    setIsUploadingHeroBanner(true);
+    try {
+      const res = await saveCategoryImageOnServer('__home_hero_banner__', '__deleted__');
+      if (res.success) {
+        setCategoryImages(prev => ({ ...prev, __home_hero_banner__: '__deleted__' }));
+        setIsEditingHeroBanner(false);
+        showToast('🗑️ હોમ પેજ મેઈન બેનર સફળતાપૂર્વક ડીલીટ (દૂર) કરવામાં આવ્યું છે!');
+      } else {
+        showToast(res.error || 'બેનર ડીલીટ કરવામાં ભૂલ આવી');
+      }
+    } catch (err: any) {
+      showToast(err?.message || 'Error deleting banner');
+    } finally {
+      setIsUploadingHeroBanner(false);
     }
   };
 
@@ -302,6 +347,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
           delete next['__home_hero_banner__'];
           return next;
         });
+        setIsEditingHeroBanner(false);
         showToast('🔄 ડિફોલ્ટ હોમ પેજ બેનર ફરીથી સેટ થઈ ગયું!');
       } else {
         showToast(res.error || 'બેનર રીસેટ કરવામાં ભૂલ આવી');
@@ -2574,7 +2620,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
               </div>
             </motion.div>
 
-            {/* 10. HOME PAGE MAIN BANNER MANAGER (BELOW CREATE POST BUTTON) */}
+            {/* 10. HOME PAGE MAIN BANNER MANAGER (UPLOAD, EDIT, DELETE & RESET) */}
             <motion.div
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
@@ -2590,23 +2636,30 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                       <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
                         🖼️ હોમ પેજ મેઈન બેનર (Live For All Users)
                       </span>
-                      <span className="text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-emerald-500 text-slate-950">
-                        ✓ Active on Mobile, Tablet &amp; PC
+                      <span className={`text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full ${
+                        categoryImages['__home_hero_banner__'] === '__deleted__'
+                          ? 'bg-red-500/20 text-red-300 border border-red-500/40'
+                          : 'bg-emerald-500 text-slate-950'
+                      }`}>
+                        {categoryImages['__home_hero_banner__'] === '__deleted__'
+                          ? '🚫 બેનર ડીલીટ (Hidden)'
+                          : '✓ Active on Mobile, Tablet & PC'}
                       </span>
                     </div>
                     <h2 className="text-base sm:text-lg font-black text-white mt-1">
                       હોમ પેજ મેઈન હીરો બેનર (LocoHelp Logo નીચે / સર્ચ બાર ઉપર)
                     </h2>
                     <p className="text-xs text-slate-300 font-medium mt-0.5">
-                      અહીંથી તમે હોમ પેજ પર LocoHelp લોગોની નીચે અને સર્ચ બારની ઉપર દેખાતું મેઈન બેનર બદલી શકો છો. નવો ફોટો અપલોડ કરતા જ દરેક યુઝરને મોબાઈલ, ટેબલેટ અને કોમ્પ્યુટરમાં તરત જ લાઈવ દેખાશે.
+                      અહીંથી તમે હોમ પેજ પર દેખાતું મેઈન બેનર <strong>અપલોડ (Upload)</strong>, <strong>એડિટ (Edit)</strong> અથવા <strong>ડીલીટ (Delete)</strong> કરી શકો છો.
                     </p>
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* 1. Upload Button */}
                   <label className="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white font-black text-xs sm:text-sm shadow-lg transition-all cursor-pointer flex items-center gap-2">
                     <Upload className="w-4 h-4" />
-                    <span>{isUploadingHeroBanner ? 'અપલોડ થઈ રહ્યું છે...' : '📸 નવું બેનર અપલોડ / ચેન્જ કરો'}</span>
+                    <span>{isUploadingHeroBanner ? '⏳ પ્રક્રિયા ચાલુ છે...' : '📸 અપલોડ કરો (Upload)'}</span>
                     <input
                       type="file"
                       accept="image/*"
@@ -2616,28 +2669,123 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                     />
                   </label>
 
+                  {/* 2. Edit Button */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const currentVal = categoryImages['__home_hero_banner__'];
+                      setHeroBannerCustomUrlInput(
+                        currentVal && currentVal !== '__deleted__' ? currentVal : DEFAULT_HOME_HERO_BANNER
+                      );
+                      setIsEditingHeroBanner(prev => !prev);
+                    }}
+                    disabled={isUploadingHeroBanner}
+                    className="px-3.5 py-2.5 rounded-2xl bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-200 border border-indigo-400/40 font-black text-xs transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                    <span>✏️ એડિટ કરો (Edit)</span>
+                  </button>
+
+                  {/* 3. Delete Button */}
+                  {categoryImages['__home_hero_banner__'] !== '__deleted__' && (
+                    <button
+                      type="button"
+                      onClick={handleDeleteHomeHeroBanner}
+                      disabled={isUploadingHeroBanner}
+                      className="px-3.5 py-2.5 rounded-2xl bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/40 font-black text-xs transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>🗑️ ડીલીટ કરો (Delete)</span>
+                    </button>
+                  )}
+
+                  {/* 4. Restore Default Button */}
                   {categoryImages['__home_hero_banner__'] && (
                     <button
                       type="button"
                       onClick={handleResetHomeHeroBanner}
                       disabled={isUploadingHeroBanner}
-                      className="px-3.5 py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 font-black text-xs transition-all cursor-pointer disabled:opacity-50"
+                      className="px-3.5 py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 font-black text-xs transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
                     >
-                      🔄 ડિફોલ્ટ બેનર રાખો
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>🔄 ડિફોલ્ટ બેનર રાખો</span>
                     </button>
                   )}
                 </div>
               </div>
 
+              {/* Expandable Edit Panel */}
+              {isEditingHeroBanner && (
+                <div className="p-4 rounded-2xl bg-slate-900/95 border border-indigo-500/40 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs sm:text-sm font-black text-indigo-300 flex items-center gap-2">
+                      <Edit3 className="w-4 h-4" />
+                      <span>બેનર એડિટ કરો (નવો ફોટો પસંદ કરો અથવા ઈમેજ URL બદલો)</span>
+                    </h4>
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingHeroBanner(false)}
+                      className="text-slate-400 hover:text-white cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-2.5">
+                    <input
+                      type="text"
+                      value={heroBannerCustomUrlInput}
+                      onChange={e => setHeroBannerCustomUrlInput(e.target.value)}
+                      placeholder="https://... અથવા /assets/... ઈમેજ લિંક નાખો"
+                      className="flex-1 px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white focus:outline-none focus:border-cyan-400"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSaveHeroBannerCustomUrl}
+                      disabled={isUploadingHeroBanner}
+                      className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs cursor-pointer transition-all shrink-0 disabled:opacity-50"
+                    >
+                      💾 URL સેવ કરો
+                    </button>
+                    <label className="px-4 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-black text-xs cursor-pointer transition-all shrink-0 flex items-center justify-center gap-1.5">
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>ગેલેરીમાંથી ફોટો બદલો</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleUploadHomeHeroBanner}
+                        disabled={isUploadingHeroBanner}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                </div>
+              )}
+
               <div className="rounded-2xl overflow-hidden border border-slate-700/80 bg-slate-950/70 p-2 max-w-2xl">
                 <p className="text-[11px] font-bold text-cyan-300 mb-1.5 px-1">
-                  👁️ અત્યારે હોમ પેજ પર દેખાતું લાઈવ બેનર (Current Live Banner Preview):
+                  👁️ અત્યારે હોમ પેજ પર દેખાતું લાઈવ બેનર (Current Live Banner Status):
                 </p>
-                <img
-                  src={categoryImages['__home_hero_banner__'] || DEFAULT_HOME_HERO_BANNER}
-                  alt="Home Page Main Banner Preview"
-                  className="w-full h-auto block object-contain rounded-xl"
-                />
+                {categoryImages['__home_hero_banner__'] === '__deleted__' ? (
+                  <div className="p-6 text-center rounded-xl bg-slate-900/90 border border-red-500/30 space-y-2">
+                    <p className="text-sm font-black text-red-300">
+                      🚫 હોમ પેજ પરથી મેઈન બેનર ડીલીટ (દૂર) કરેલ છે.
+                    </p>
+                    <p className="text-xs text-slate-400">
+                      નવું બેનર મૂકવા માટે ઉપર <strong>&ldquo;📸 અપલોડ કરો&rdquo;</strong> અથવા <strong>&ldquo;🔄 ડિફોલ્ટ બેનર રાખો&rdquo;</strong> પર ક્લિક કરો.
+                    </p>
+                  </div>
+                ) : (
+                  <img
+                    src={categoryImages['__home_hero_banner__'] || DEFAULT_HOME_HERO_BANNER}
+                    alt="Home Page Main Banner Preview"
+                    className="w-full h-auto block object-contain rounded-xl"
+                    onError={(e) => {
+                      if (e.currentTarget.src !== window.location.origin + DEFAULT_HOME_HERO_BANNER) {
+                        e.currentTarget.src = DEFAULT_HOME_HERO_BANNER;
+                      }
+                    }}
+                  />
+                )}
               </div>
             </motion.div>
           </div>
@@ -3767,16 +3915,16 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                     🖼️ હોમ પેજ મેઈન બેનર (LocoHelp Logo નીચે / સર્ચ બાર ઉપર)
                   </span>
                   <h3 className="text-base sm:text-lg font-black text-white mt-1">
-                    હોમ પેજ મેઈન બેનર બદલો (Logo નીચે / સર્ચ બાર ઉપર)
+                    હોમ પેજ મેઈન બેનર અપલોડ, એડિટ અથવા ડીલીટ કરો
                   </h3>
                   <p className="text-xs text-slate-300 font-medium">
                     અહીંથી અપલોડ કરેલો ફોટો હોમ પેજ પર LocoHelp લોગોની નીચે અને સર્ચ બારની ઉપર દરેક યુઝરને મોબાઈલ, ટેબલેટ, લેપટોપ અને કોમ્પ્યુટર પર સરખી રીતે દેખાશે.
                   </p>
                 </div>
-                <div className="flex flex-wrap items-center gap-2.5">
+                <div className="flex flex-wrap items-center gap-2">
                   <label className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white font-black text-xs shadow-lg transition-all cursor-pointer flex items-center gap-2">
                     <Upload className="w-4 h-4" />
-                    <span>{isUploadingHeroBanner ? 'અપલોડ થઈ રહ્યું છે...' : '📸 નવું બેનર અપલોડ / ચેન્જ કરો'}</span>
+                    <span>{isUploadingHeroBanner ? '⏳ પ્રક્રિયા ચાલુ છે...' : '📸 અપલોડ કરો (Upload)'}</span>
                     <input
                       type="file"
                       accept="image/*"
@@ -3785,24 +3933,117 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                       className="hidden"
                     />
                   </label>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const currentVal = categoryImages['__home_hero_banner__'];
+                      setHeroBannerCustomUrlInput(
+                        currentVal && currentVal !== '__deleted__' ? currentVal : DEFAULT_HOME_HERO_BANNER
+                      );
+                      setIsEditingHeroBanner(prev => !prev);
+                    }}
+                    disabled={isUploadingHeroBanner}
+                    className="px-3.5 py-2.5 rounded-xl bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-200 border border-indigo-400/40 font-black text-xs transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                    <span>✏️ એડિટ કરો (Edit)</span>
+                  </button>
+
+                  {categoryImages['__home_hero_banner__'] !== '__deleted__' && (
+                    <button
+                      type="button"
+                      onClick={handleDeleteHomeHeroBanner}
+                      disabled={isUploadingHeroBanner}
+                      className="px-3.5 py-2.5 rounded-xl bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/40 font-black text-xs transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>🗑️ ડીલીટ કરો (Delete)</span>
+                    </button>
+                  )}
+
                   {categoryImages['__home_hero_banner__'] && (
                     <button
                       type="button"
                       onClick={handleResetHomeHeroBanner}
                       disabled={isUploadingHeroBanner}
-                      className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 font-black text-xs transition-all cursor-pointer disabled:opacity-50"
+                      className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 font-black text-xs transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
                     >
-                      🔄 ડિફોલ્ટ બેનર રાખો
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>🔄 ડિફોલ્ટ બેનર રાખો</span>
                     </button>
                   )}
                 </div>
               </div>
+
+              {isEditingHeroBanner && (
+                <div className="p-4 rounded-2xl bg-slate-900/95 border border-indigo-500/40 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs sm:text-sm font-black text-indigo-300 flex items-center gap-2">
+                      <Edit3 className="w-4 h-4" />
+                      <span>બેનર એડિટ કરો (નવો ફોટો પસંદ કરો અથવા ઈમેજ URL બદલો)</span>
+                    </h4>
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingHeroBanner(false)}
+                      className="text-slate-400 hover:text-white cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-2.5">
+                    <input
+                      type="text"
+                      value={heroBannerCustomUrlInput}
+                      onChange={e => setHeroBannerCustomUrlInput(e.target.value)}
+                      placeholder="https://... અથવા /assets/... ઈમેજ લિંક નાખો"
+                      className="flex-1 px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white focus:outline-none focus:border-cyan-400"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSaveHeroBannerCustomUrl}
+                      disabled={isUploadingHeroBanner}
+                      className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs cursor-pointer transition-all shrink-0 disabled:opacity-50"
+                    >
+                      💾 URL સેવ કરો
+                    </button>
+                    <label className="px-4 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-black text-xs cursor-pointer transition-all shrink-0 flex items-center justify-center gap-1.5">
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>ગેલેરીમાંથી ફોટો બદલો</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleUploadHomeHeroBanner}
+                        disabled={isUploadingHeroBanner}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                </div>
+              )}
+
               <div className="rounded-2xl overflow-hidden border border-slate-700/80 bg-slate-950/70 p-2 max-w-xl">
-                <img
-                  src={categoryImages['__home_hero_banner__'] || DEFAULT_HOME_HERO_BANNER}
-                  alt="Home Page Main Banner Preview"
-                  className="w-full h-auto block object-contain rounded-xl"
-                />
+                {categoryImages['__home_hero_banner__'] === '__deleted__' ? (
+                  <div className="p-6 text-center rounded-xl bg-slate-900/90 border border-red-500/30 space-y-2">
+                    <p className="text-sm font-black text-red-300">
+                      🚫 હોમ પેજ પરથી મેઈન બેનર ડીલીટ (દૂર) કરેલ છે.
+                    </p>
+                    <p className="text-xs text-slate-400">
+                      નવું બેનર મૂકવા માટે ઉપર <strong>&ldquo;📸 અપલોડ કરો&rdquo;</strong> અથવા <strong>&ldquo;🔄 ડિફોલ્ટ બેનર રાખો&rdquo;</strong> પર ક્લિક કરો.
+                    </p>
+                  </div>
+                ) : (
+                  <img
+                    src={categoryImages['__home_hero_banner__'] || DEFAULT_HOME_HERO_BANNER}
+                    alt="Home Page Main Banner Preview"
+                    className="w-full h-auto block object-contain rounded-xl"
+                    onError={(e) => {
+                      if (e.currentTarget.src !== window.location.origin + DEFAULT_HOME_HERO_BANNER) {
+                        e.currentTarget.src = DEFAULT_HOME_HERO_BANNER;
+                      }
+                    }}
+                  />
+                )}
               </div>
             </div>
 

@@ -1486,13 +1486,6 @@ export async function saveCategoryImageOnServer(
   } catch {}
 
   try {
-    // Also persist directly to PUT /api/categories/:id in PostgreSQL categories table
-    fetch(`/api/categories/${encodeURIComponent(categoryId)}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-      body: JSON.stringify({ categoryId, image_url: imageUrl, imageUrl })
-    }).catch(() => {});
-
     const res = await fetch('/api/category-images', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },

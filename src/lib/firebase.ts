@@ -93,7 +93,7 @@ export async function uploadFileToFirebaseStorage(
   if (typeof input === 'string') {
     const trimmed = input.trim();
     if (!trimmed) return '';
-    if (/^https?:\/\//i.test(trimmed)) {
+    if (/^https?:\/\//i.test(trimmed) || trimmed.startsWith('/uploads/') || trimmed.startsWith('/assets/')) {
       return trimmed;
     }
   }
@@ -104,45 +104,13 @@ export async function uploadFileToFirebaseStorage(
   const randSuffix = Math.random().toString(36).substring(2, 9);
   const timestamp = Date.now();
 
-  // 1. Try direct client-side Firebase Storage SDK upload when configured
-  if (isFirebaseStorageConfigured()) {
-    try {
-      if (typeof input === 'string' && input.startsWith('data:')) {
-        const mimeMatch = input.match(/^data:([^;]+);base64,/i);
-        const mime = mimeMatch ? mimeMatch[1] : 'image/webp';
-        const ext = getExtensionFromMime(mime);
-        const safeName = customFileName
-          ? customFileName.replace(/[^a-zA-Z0-9._-]/g, '_')
-          : `${timestamp}_${randSuffix}.${ext}`;
-        const storagePath = `locohelp/${cleanSubFolder}/${safeName}`;
-        const storageReference = ref(storage, storagePath);
-        await uploadString(storageReference, input, 'data_url', { contentType: mime });
-        const downloadUrl = await getDownloadURL(storageReference);
-        if (downloadUrl) return downloadUrl;
-      } else if (input instanceof Blob) {
-        const fileObj = input as File;
-        const mime = fileObj.type || 'image/webp';
-        const ext = getExtensionFromMime(mime);
-        const rawName = customFileName || fileObj.name || `${timestamp}_${randSuffix}.${ext}`;
-        const safeName = `${timestamp}_${randSuffix}_${rawName.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-        const storagePath = `locohelp/${cleanSubFolder}/${safeName}`;
-        const storageReference = ref(storage, storagePath);
-        await uploadBytes(storageReference, input, { contentType: mime });
-        const downloadUrl = await getDownloadURL(storageReference);
-        if (downloadUrl) return downloadUrl;
-      }
-    } catch (clientUploadErr) {
-      console.warn('[Firebase Storage] Client SDK upload fallback to server endpoint:', clientUploadErr);
-    }
-  }
+  const dataUrl = typeof input === 'string' ? input : await fileOrBlobToDataUrl(input);
+  const fileName =
+    customFileName ||
+    (typeof input === 'object' && 'name' in input ? (input as File).name : undefined);
 
-  // 2. Upload via backend /api/storage/upload (which uses server process.env.FIREBASE_* to upload to locohelp/)
+  // 1. Primary: Upload via backend /api/storage/upload (bypasses browser CORS & uploads directly to Firebase Storage or /uploads/)
   try {
-    const dataUrl = typeof input === 'string' ? input : await fileOrBlobToDataUrl(input);
-    const fileName =
-      customFileName ||
-      (typeof input === 'object' && 'name' in input ? (input as File).name : undefined);
-
     const res = await fetch('/api/storage/upload', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -162,8 +130,29 @@ export async function uploadFileToFirebaseStorage(
     console.warn('[Firebase Storage] Server upload fallback notice:', serverUploadErr);
   }
 
-  // Fallback to in-memory data URL if Firebase credentials are not yet supplied in environment
-  return typeof input === 'string' ? input : await fileOrBlobToDataUrl(input);
+  // 2. Fallback: Try direct client-side Firebase Storage SDK upload when configured
+  if (isFirebaseStorageConfigured()) {
+    try {
+      if (dataUrl.startsWith('data:')) {
+        const mimeMatch = dataUrl.match(/^data:([^;]+);base64,/i);
+        const mime = mimeMatch ? mimeMatch[1] : 'image/webp';
+        const ext = getExtensionFromMime(mime);
+        const safeName = customFileName
+          ? customFileName.replace(/[^a-zA-Z0-9._-]/g, '_')
+          : `${timestamp}_${randSuffix}.${ext}`;
+        const storagePath = `locohelp/${cleanSubFolder}/${safeName}`;
+        const storageReference = ref(storage, storagePath);
+        await uploadString(storageReference, dataUrl, 'data_url', { contentType: mime });
+        const downloadUrl = await getDownloadURL(storageReference);
+        if (downloadUrl) return downloadUrl;
+      }
+    } catch (clientUploadErr) {
+      console.warn('[Firebase Storage] Client SDK upload fallback notice:', clientUploadErr);
+    }
+  }
+
+  // Fallback to in-memory data URL
+  return dataUrl;
 }
 
 /**

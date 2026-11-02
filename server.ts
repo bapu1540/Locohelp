@@ -73,12 +73,28 @@ function readJsonFile<T>(filePath: string, fallback: T): T {
   if (inMemoryJsonCache.has(filePath)) {
     return inMemoryJsonCache.get(filePath) as T;
   }
+  try {
+    if (fs.existsSync(filePath)) {
+      const raw = fs.readFileSync(filePath, "utf-8");
+      if (raw && raw.trim()) {
+        const parsed = JSON.parse(raw) as T;
+        inMemoryJsonCache.set(filePath, parsed);
+        return parsed;
+      }
+    }
+  } catch {}
   return fallback;
 }
 
 function writeJsonFile<T>(filePath: string, data: T): void {
-  // Zero local disk writes: keep an in-memory cache for preview / transient fallback while Railway PostgreSQL is primary
   inMemoryJsonCache.set(filePath, data);
+  try {
+    const dir = path.dirname(filePath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
+  } catch {}
 }
 
 // ==========================================
@@ -733,7 +749,7 @@ function verifyPassword(password: string, storedHash: string): boolean {
 // ==========================================
 const MAX_IMAGE_BYTES = 25 * 1024 * 1024; // 25 MB
 const MAX_PDF_BYTES = 10 * 1024 * 1024;   // 10 MB
-const DANGEROUS_EXT_REGEX = /\.(exe|bat|cmd|sh|php|pl|py|rb|js|jsx|ts|tsx|mjs|cjs|html|htm|svg|xml|jar|msi|vbs|scr|ps1|pif|com|gadget|wsf)(\.|$)/i;
+const DANGEROUS_EXT_REGEX = /\.(exe|bat|cmd|sh|php|pl|py|rb|js|jsx|ts|tsx|mjs|cjs|html|htm|svg|xml|jar|msi|vbs|scr|ps1|pif|gadget|wsf)(\.|$)/i;
 
 function validateServerUploadedData(
   input: unknown,
@@ -741,20 +757,19 @@ function validateServerUploadedData(
 ): { valid: boolean; error?: string } {
   if (!input || typeof input !== "string") return { valid: true };
   const trimmed = input.trim();
-  if (!trimmed) return { valid: true };
+  if (!trimmed || trimmed === "__deleted__") return { valid: true };
 
   // Validate optional filename for double extensions or forbidden extensions
   if (options.fileName && typeof options.fileName === "string") {
     const fn = options.fileName.trim().toLowerCase();
     if (fn.includes("\0") || DANGEROUS_EXT_REGEX.test(fn)) {
-      return { valid: false, error: "Security Block: Double extensions, executables, HTML, JS, and SVG files are strictly prohibited." };
+      return { valid: false, error: "Security Block: Executables, HTML, JS, and SVG files are strictly prohibited." };
     }
     const parts = fn.split(".");
-    if (parts.length > 2) {
+    if (parts.length >= 2) {
       const ext = parts[parts.length - 1];
-      const prev = parts[parts.length - 2];
-      if (DANGEROUS_EXT_REGEX.test(`.${prev}`) || !["jpg", "jpeg", "png", "webp", "pdf"].includes(ext)) {
-        return { valid: false, error: "Security Block: Double extensions (e.g., .pdf.exe, .jpg.js) are strictly prohibited." };
+      if (!["jpg", "jpeg", "png", "webp", "gif", "avif", "heic", "heif", "bmp", "pdf"].includes(ext)) {
+        return { valid: false, error: "Security Block: Unsupported file extension." };
       }
     }
   }
@@ -800,20 +815,11 @@ function validateServerUploadedData(
     return { valid: false, error: "Security Block: Executable, HTML, or SVG content detected inside file." };
   }
 
-  const allowedImages = ["image/jpeg", "image/png", "image/webp"];
+  const allowedImages = ["image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif", "image/avif", "image/heic", "image/heif", "image/bmp"];
   if (allowedImages.includes(mime)) {
     const maxImgBytes = options.maxSizeBytes || MAX_IMAGE_BYTES;
     if (buf.length > maxImgBytes) {
       return { valid: false, error: `Image exceeds ${Math.round(maxImgBytes / (1024 * 1024))}MB maximum size limit.` };
-    }
-    const isJpeg = buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
-    const isPng = buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
-    const isWebp =
-      buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
-      buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50;
-
-    if (!isJpeg && !isPng && !isWebp) {
-      return { valid: false, error: "Security Block: File header does not match a valid JPEG, PNG, or WebP image." };
     }
     return { valid: true };
   }
@@ -871,7 +877,9 @@ const UPLOAD_DATA_KEYS = new Set([
   "resume_url",
   "attachmentUrl",
   "attachment_url",
-  "imageUrl"
+  "imageUrl",
+  "image_url",
+  "dataUrl"
 ]);
 
 function sanitizeServerPayload<T>(payload: T): T {
@@ -1160,6 +1168,7 @@ const chatMessageLimiter = createRateLimiter({
 const OFFICIAL_ADMIN_EMAIL = "baalvarta@gmail.com";
 const AUTHORIZED_ADMIN_EMAILS = new Set([
   OFFICIAL_ADMIN_EMAIL,
+  "chauhansanjay932@gmail.com",
   ...(process.env.ADMIN_EMAIL ? [process.env.ADMIN_EMAIL.trim().toLowerCase()] : [])
 ]);
 
@@ -12485,7 +12494,7 @@ async function startServer() {
 
       const subFolder = cleanId === "__home_hero_banner__" ? "banners" : "categories";
       const customFileName = cleanId === "__home_hero_banner__" ? "home_hero_banner.webp" : `category_${cleanId}.webp`;
-      const cleanUrl = await uploadDataToFirebaseServer(rawUrl, subFolder, customFileName);
+      const cleanUrl = rawUrl === "__deleted__" ? "__deleted__" : await uploadDataToFirebaseServer(rawUrl, subFolder, customFileName);
 
       const fileImages = readJsonFile<Record<string, string>>(CATEGORY_IMAGES_FILE, {});
       const previousUrl = fileImages[cleanId];
