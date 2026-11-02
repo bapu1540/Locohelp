@@ -31,15 +31,44 @@ interface MainCatConfig {
   }[];
 }
 
+const ROW_THEMES = {
+  // Row 1: #88BDF2 (Soft Sky Blue)
+  row1: {
+    ic: '#1d5fa7',
+    bg: 'linear-gradient(135deg, #a3ccf6, #88BDF2)',
+    bd: '#5b9fe3',
+    tx: '#0c2849',
+  },
+  // Row 2: #BAC095 (Pastel Sage / Olive Green)
+  row2: {
+    ic: '#4d5623',
+    bg: 'linear-gradient(135deg, #cad0ab, #BAC095)',
+    bd: '#949d68',
+    tx: '#20250c',
+  },
+  // Row 3: #FFA896 (Soft Peach / Coral)
+  row3: {
+    ic: '#b83720',
+    bg: 'linear-gradient(135deg, #ffbfb1, #FFA896)',
+    bd: '#ee826c',
+    tx: '#421108',
+  },
+  // Row 4: Light pastel shade of #469110 (#A9DF85) with #469110 icon badge
+  row4: {
+    ic: '#469110',
+    bg: 'linear-gradient(135deg, #bfe9a2, #A9DF85)',
+    bd: '#74be43',
+    tx: '#173504',
+  },
+};
+
 const MAIN_CATS: MainCatConfig[] = [
+  // ================= ROW 1 (#88BDF2) =================
   // 1. Home Services
   {
     key: 'home',
     masterId: 'home_repair',
-    ic: '#059669',
-    bg: 'linear-gradient(135deg, #ecfdf5, #d1fae5)',
-    bd: '#6ee7b7',
-    tx: '#064e3b',
+    ...ROW_THEMES.row1,
     name: [
       'Home Services',
       'होम सर्विस',
@@ -71,10 +100,7 @@ const MAIN_CATS: MainCatConfig[] = [
   {
     key: 'care',
     masterId: 'personal_events',
-    ic: '#db2777',
-    bg: 'linear-gradient(135deg, #fdf2f8, #fce7f3)',
-    bd: '#f9a8d4',
-    tx: '#831843',
+    ...ROW_THEMES.row1,
     name: [
       'Salon & Events',
       'सैलून व इवेंट',
@@ -107,10 +133,7 @@ const MAIN_CATS: MainCatConfig[] = [
   {
     key: 'it',
     masterId: 'it_tech',
-    ic: '#4f46e5',
-    bg: 'linear-gradient(135deg, #eef2ff, #e0e7ff)',
-    bd: '#a5b4fc',
-    tx: '#312e81',
+    ...ROW_THEMES.row1,
     name: [
       'IT & Tech',
       'आईटी व टेक',
@@ -138,10 +161,7 @@ const MAIN_CATS: MainCatConfig[] = [
   {
     key: 'cctv_mobile',
     masterId: 'cctv_mobile',
-    ic: '#2563eb',
-    bg: 'linear-gradient(135deg, #eff6ff, #dbeafe)',
-    bd: '#93c5fd',
-    tx: '#1e3a8a',
+    ...ROW_THEMES.row1,
     name: [
       'CCTV & Mobile',
       'CCTV व मोबाइल',
@@ -164,14 +184,13 @@ const MAIN_CATS: MainCatConfig[] = [
       { id: 'cctv_wifi', label: ['CCTV & Wi-Fi Technician', 'CCTV कैमरा और वाई-फाई टेक्नीशियन', 'CCTV કેમેરા અને વાઈ-ફાઈ ટેકનિશિયન'] },
     ],
   },
+
+  // ================= ROW 2 (#BAC095) =================
   // 5. Hospital & Medical
   {
     key: 'hospital',
     masterId: 'hospital_medical',
-    ic: '#dc2626',
-    bg: 'linear-gradient(135deg, #fef2f2, #fee2e2)',
-    bd: '#fca5a5',
-    tx: '#7f1d1d',
+    ...ROW_THEMES.row2,
     name: [
       'Hospital & Medical',
       'हॉस्पिटल व मेडिकल',
@@ -199,10 +218,7 @@ const MAIN_CATS: MainCatConfig[] = [
   {
     key: 'broker',
     masterId: 'brokers_agents',
-    ic: '#0891b2',
-    bg: 'linear-gradient(135deg, #ecfeff, #cffafe)',
-    bd: '#67e8f9',
-    tx: '#164e63',
+    ...ROW_THEMES.row2,
     name: [
       'Brokers & Agents',
       'ब्रोकर व एजेंट',
@@ -236,10 +252,7 @@ const MAIN_CATS: MainCatConfig[] = [
   {
     key: 'vehicle',
     masterId: 'vehicle_transport',
-    ic: '#ea580c',
-    bg: 'linear-gradient(135deg, #fff7ed, #ffedd5)',
-    bd: '#fdba74',
-    tx: '#7c2d12',
+    ...ROW_THEMES.row2,
     name: [
       'Cab & Travel',
       'कैब व ट्रैवल',
@@ -270,10 +283,7 @@ const MAIN_CATS: MainCatConfig[] = [
   {
     key: 'transport',
     masterId: 'tempo_transport',
-    ic: '#b45309',
-    bg: 'linear-gradient(135deg, #fefce8, #fef08a)',
-    bd: '#fde047',
-    tx: '#713f12',
+    ...ROW_THEMES.row2,
     name: [
       'Transport & Moving',
       'ट्रांसपोर्ट व मूविंग',
@@ -300,14 +310,13 @@ const MAIN_CATS: MainCatConfig[] = [
       { id: 'home_office_shifting', label: ['Shifting', 'घर / ऑफिस शिफ्टिंग (Shifting)', 'ઘર / ઓફિસ શિફ્ટિંગ (Shifting)'] },
     ],
   },
+
+  // ================= ROW 3 (#FFA896) =================
   // 9. Tutors & Classes
   {
     key: 'edu',
     masterId: 'education_classes',
-    ic: '#7c3aed',
-    bg: 'linear-gradient(135deg, #f5f3ff, #ede9fe)',
-    bd: '#c4b5fd',
-    tx: '#4c1d95',
+    ...ROW_THEMES.row3,
     name: [
       'Tutors & Classes',
       'ट्यूटर व क्लास',
@@ -336,10 +345,7 @@ const MAIN_CATS: MainCatConfig[] = [
   {
     key: 'sports',
     masterId: 'sports_fitness',
-    ic: '#d97706',
-    bg: 'linear-gradient(135deg, #fffbeb, #fef3c7)',
-    bd: '#fcd34d',
-    tx: '#78350f',
+    ...ROW_THEMES.row3,
     name: [
       'Sports & Fitness',
       'स्पोर्ट्स व फिटनेस',
@@ -371,10 +377,7 @@ const MAIN_CATS: MainCatConfig[] = [
   {
     key: 'social',
     masterId: 'social_care',
-    ic: '#e11d48',
-    bg: 'linear-gradient(135deg, #fff1f2, #ffe4e6)',
-    bd: '#fda4af',
-    tx: '#881337',
+    ...ROW_THEMES.row3,
     name: [
       'Social & Friends',
       'सोशल व फ्रेंड्स',
@@ -405,10 +408,7 @@ const MAIN_CATS: MainCatConfig[] = [
   {
     key: 'food_grocery',
     masterId: 'food_grocery',
-    ic: '#16a34a',
-    bg: 'linear-gradient(135deg, #f0fdf4, #dcfce7)',
-    bd: '#86efac',
-    tx: '#14532d',
+    ...ROW_THEMES.row3,
     name: [
       'Food & Grocery',
       'फूड व ग्रोसरी',
@@ -435,14 +435,13 @@ const MAIN_CATS: MainCatConfig[] = [
       { id: 'vegetables_seller', label: ['Vegetables', 'हरी सब्जियां (Vegetables)', 'લીલા શાકભાજી (Vegetables)'] },
     ],
   },
+
+  // ================= ROW 4 (Light Pastel of #469110) =================
   // 13. Delivery & Courier
   {
     key: 'delivery_courier',
     masterId: 'delivery_courier',
-    ic: '#0284c7',
-    bg: 'linear-gradient(135deg, #f0f9ff, #e0f2fe)',
-    bd: '#7dd3fc',
-    tx: '#0c4a6e',
+    ...ROW_THEMES.row4,
     name: [
       'Delivery & Courier',
       'डिलीवरी व कूरियर',
@@ -472,10 +471,7 @@ const MAIN_CATS: MainCatConfig[] = [
   {
     key: 'vehicle_help',
     masterId: 'vehicle_help',
-    ic: '#c2410c',
-    bg: 'linear-gradient(135deg, #fff7ed, #fed7aa)',
-    bd: '#fb923c',
-    tx: '#7c2d12',
+    ...ROW_THEMES.row4,
     name: [
       'Vehicle Help',
       'व्हीकल हेल्प',
@@ -502,10 +498,7 @@ const MAIN_CATS: MainCatConfig[] = [
   {
     key: 'daily_help',
     masterId: 'daily_help',
-    ic: '#9333ea',
-    bg: 'linear-gradient(135deg, #faf5ff, #f3e8ff)',
-    bd: '#d8b4fe',
-    tx: '#581c87',
+    ...ROW_THEMES.row4,
     name: [
       'Daily Help',
       'डेली हेल्प',
@@ -534,10 +527,7 @@ const MAIN_CATS: MainCatConfig[] = [
   {
     key: 'other',
     masterId: 'other_custom',
-    ic: '#0d9488',
-    bg: 'linear-gradient(135deg, #f0fdfa, #ccfbf1)',
-    bd: '#5eead4',
-    tx: '#134e4a',
+    ...ROW_THEMES.row4,
     name: [
       'Other Services',
       'अन्य सेवाएं',

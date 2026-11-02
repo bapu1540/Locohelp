@@ -158,7 +158,15 @@ function AppContent() {
     reportedPostTitle?: string;
   }>({});
   const [prevScreen, setPrevScreen] = useState<Screen>('home');
-  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [selectedCategory, setSelectedCategory] = useState<string>(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const catParam = (params.get('category') || '').trim();
+      return catParam || 'all';
+    } catch {
+      return 'all';
+    }
+  });
 
   useEffect(() => {
     const handleOpenReport = (e: any) => {
