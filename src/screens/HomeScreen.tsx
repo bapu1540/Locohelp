@@ -492,8 +492,24 @@ export default function HomeScreen({
   const verifyUserApprovalBeforeAction = async (onApproved: () => void) => {
     const u = getCurrentUser();
     const email = (u?.email || localStorage.getItem('locohelp_last_logged_in_email') || '').trim().toLowerCase();
-    const uid = (u?.uid || '').trim();
-    const phone = localStorage.getItem('locohelp_profile_phone') || '';
+    const uid = (u?.uid && u.uid !== 'guest_user' ? u.uid : '').trim();
+    const phone = (u?.phone || localStorage.getItem('locohelp_last_logged_in_phone') || localStorage.getItem('locohelp_profile_phone') || '').trim();
+
+    if (!uid && !email && !phone) {
+      await logoutUser();
+      setIsPendingApprovalModalOpen(false);
+      setLoginPromptTitle({
+        en: 'Sign In Required',
+        hi: 'लॉगिन आवश्यक है',
+        gu: 'લોગિન જરૂરી છે'
+      });
+      setLoginSuccessAction(() => () => {
+        void verifyUserApprovalBeforeAction(onApproved);
+      });
+      setIsLoginPromptOpen(true);
+      return;
+    }
+
     try {
       const res = await fetch(
         `/api/users/approval-status?uid=${encodeURIComponent(uid)}&email=${encodeURIComponent(email)}&phone=${encodeURIComponent(phone)}&_t=${Date.now()}`,
@@ -501,8 +517,28 @@ export default function HomeScreen({
       );
       if (res.ok) {
         const data = await res.json();
+        const st = String(data?.status || 'pending').toLowerCase();
+        if (st === 'deleted' || st === 'not_found' || st === 'guest') {
+          await logoutUser();
+          setIsPendingApprovalModalOpen(false);
+          setLoginPromptTitle({
+            en: 'Sign In Required',
+            hi: 'लॉगिन आवश्यक है',
+            gu: 'લોગિન જરૂરી છે'
+          });
+          setLoginPromptDesc({
+            en: 'Please sign in with your Mobile Number or Email OTP to continue.',
+            hi: 'आगे बढ़ने के लिए कृपया अपने मोबाइल नंबर या ईमेल OTP से लॉगिन करें।',
+            gu: 'આગળ વધવા માટે કૃપા કરીને તમારા મોબાઇલ નંબર અથવા ઈમેલ OTP થી લોગિન કરો.'
+          });
+          setLoginSuccessAction(() => () => {
+            void verifyUserApprovalBeforeAction(onApproved);
+          });
+          setIsLoginPromptOpen(true);
+          return;
+        }
         localStorage.setItem('locohelp_account_approved', data?.isApproved ? 'true' : 'false');
-        localStorage.setItem('locohelp_account_status', String(data?.status || 'pending'));
+        localStorage.setItem('locohelp_account_status', st);
         if (data?.isApproved) {
           onApproved();
           return;
@@ -1731,24 +1767,67 @@ export default function HomeScreen({
           )}
 
         <div className="px-2.5 sm:px-4 mt-1.5 space-y-1.5 sm:space-y-2 max-w-full">
-          {/* 1. Responsive Home Page Main Hero Banner (Right below centered Logo, above Search Bar - configurable/deletable from Admin Panel) */}
-          {categoryImages['__home_hero_banner__'] !== '__deleted__' && (
-            <div className="w-full rounded-2xl overflow-hidden shadow-sm border border-sky-200/80 dark:border-slate-700 bg-sky-50/40 dark:bg-slate-800/60">
-              <img
-                src={categoryImages['__home_hero_banner__'] || '/assets/aistudio/__________________________0e3f70be.png'}
-                alt="LocoHelp — ઘરના કામ હવે થશે ખૂબ સરળ!"
-                className="w-full h-auto block object-contain"
-                loading="eager"
-                decoding="async"
-                onError={(e) => {
-                  const fallback = '/assets/aistudio/__________________________0e3f70be.png';
-                  if (e.currentTarget.src !== window.location.origin + fallback) {
-                    e.currentTarget.src = fallback;
+          {/* 1. Responsive 3-Language Home Page Main Hero Banner (GU / HI / EN with Default Hindi Fallback) */}
+          {categoryImages['__home_hero_banner__'] !== '__deleted__' && (() => {
+            const DEFAULT_HINDI_BANNER = '/assets/aistudio/hindi_banner_baedca50.png';
+            const DEFAULT_GUJARATI_BANNER = '/assets/aistudio/__________________________0e3f70be.png';
+
+            const customHi =
+              categoryImages['__home_hero_banner_hi__'] &&
+              categoryImages['__home_hero_banner_hi__'] !== '__deleted__'
+                ? categoryImages['__home_hero_banner_hi__']
+                : '';
+            const customGu =
+              categoryImages['__home_hero_banner_gu__'] &&
+              categoryImages['__home_hero_banner_gu__'] !== '__deleted__'
+                ? categoryImages['__home_hero_banner_gu__']
+                : categoryImages['__home_hero_banner__'] &&
+                  categoryImages['__home_hero_banner__'] !== '__deleted__'
+                ? categoryImages['__home_hero_banner__']
+                : '';
+            const customEn =
+              categoryImages['__home_hero_banner_en__'] &&
+              categoryImages['__home_hero_banner_en__'] !== '__deleted__'
+                ? categoryImages['__home_hero_banner_en__']
+                : '';
+
+            const hindiFallback = customHi || DEFAULT_HINDI_BANNER;
+
+            let activeHeroBannerUrl = hindiFallback;
+            if (language === 'HI') {
+              activeHeroBannerUrl = customHi || DEFAULT_HINDI_BANNER;
+            } else if (language === 'GU') {
+              activeHeroBannerUrl =
+                categoryImages['__home_hero_banner_gu__'] === '__deleted__'
+                  ? hindiFallback
+                  : customGu || DEFAULT_GUJARATI_BANNER || hindiFallback;
+            } else if (language === 'EN') {
+              activeHeroBannerUrl = customEn || hindiFallback;
+            }
+
+            return (
+              <div className="w-full rounded-2xl overflow-hidden shadow-sm border border-sky-200/80 dark:border-slate-700 bg-sky-50/40 dark:bg-slate-800/60">
+                <img
+                  src={activeHeroBannerUrl}
+                  alt={
+                    language === 'GU'
+                      ? 'LocoHelp — ઘરના કામ હવે થશે ખૂબ સરળ!'
+                      : language === 'EN'
+                      ? 'LocoHelp — Trusted Local Service Providers Near You'
+                      : 'LocoHelp — घरेलू काम अब होंगे और भी आसान!'
                   }
-                }}
-              />
-            </div>
-          )}
+                  className="w-full h-auto block object-contain"
+                  loading="eager"
+                  decoding="async"
+                  onError={(e) => {
+                    if (e.currentTarget.src !== window.location.origin + DEFAULT_HINDI_BANNER) {
+                      e.currentTarget.src = DEFAULT_HINDI_BANNER;
+                    }
+                  }}
+                />
+              </div>
+            );
+          })()}
           
           {/* 2. Real-Time Interactive Global Search Bar across Entire Website */}
           <div className="relative z-20">

@@ -4876,7 +4876,6 @@ async function startServer() {
     const uid = String(rawUid || "").trim();
     const email = String(rawEmail || "").trim().toLowerCase();
     const phoneDigits = normalizePhoneDigitsServer(rawPhone || "");
-    const formattedPhone = phoneDigits ? `+91 ${phoneDigits}` : "";
 
     // Master Admin accounts are always approved
     if (email && MASTER_ADMIN_EMAILS.some((ae) => ae.toLowerCase() === email)) {
@@ -4896,6 +4895,17 @@ async function startServer() {
       )
     );
 
+    await loadDeletedEntitiesFromDbOnce().catch(() => {});
+    if (
+      (uid && isEntityDeleted(uid)) ||
+      (email && isEntityDeleted(email)) ||
+      idCandidates.some((cid) => isEntityDeleted(cid))
+    ) {
+      return { isApproved: false, status: "deleted" };
+    }
+
+    let accountFound = false;
+
     if (dbPool && isDbConnected && (idCandidates.length > 0 || email || phoneDigits)) {
       try {
         // 1. Check verification_requests table
@@ -4912,15 +4922,17 @@ async function startServer() {
           )
           .catch(() => ({ rows: [] as any[] }));
         if (vRes.rows.length > 0) {
+          accountFound = true;
           const st = String(vRes.rows[0].status || "pending").toLowerCase();
+          if (st === "deleted") return { isApproved: false, status: "deleted" };
           if (st === "approved") return { isApproved: true, status: "approved" };
           if (st === "rejected") return { isApproved: false, status: "rejected" };
         }
 
-        // 2. Check profiles table
+        // 2. Check profiles table (including soft-deleted check)
         const pRes = await dbPool
           .query(
-            `SELECT verified, is_verified, status FROM profiles
+            `SELECT verified, is_verified, status, is_deleted FROM profiles
              WHERE (
                LOWER(COALESCE(uid, '')) = ANY($1::text[])
                OR LOWER(COALESCE(id, '')) = ANY($1::text[])
@@ -4928,8 +4940,7 @@ async function startServer() {
                OR ($2 <> '' AND LOWER(COALESCE(email, '')) = LOWER($2))
                OR ($3 <> '' AND REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE '%' || $3)
              )
-             AND COALESCE(is_deleted, false) = false
-             ORDER BY CASE WHEN COALESCE(is_verified, false) = true OR COALESCE(verified, false) = true OR LOWER(COALESCE(status, '')) = 'approved' THEN 0 ELSE 1 END
+             ORDER BY COALESCE(is_deleted, false) ASC, CASE WHEN COALESCE(is_verified, false) = true OR COALESCE(verified, false) = true OR LOWER(COALESCE(status, '')) = 'approved' THEN 0 ELSE 1 END
              LIMIT 1`,
             [idCandidates, email, phoneDigits]
           )
@@ -4937,6 +4948,10 @@ async function startServer() {
         if (pRes.rows.length > 0) {
           const row = pRes.rows[0];
           const st = String(row.status || "pending").toLowerCase();
+          if (row.is_deleted === true || st === "deleted" || st === "deletion_requested") {
+            return { isApproved: false, status: "deleted" };
+          }
+          accountFound = true;
           if (row.is_verified === true || row.verified === true || st === "approved") {
             return { isApproved: true, status: "approved" };
           }
@@ -4945,24 +4960,54 @@ async function startServer() {
           }
         }
 
-        // 3. Check helpers table (if user is an approved Service Provider)
+        // 3. Check helpers table (if user is a Service Provider)
         const hRes = await dbPool
           .query(
-            `SELECT is_verified, status FROM helpers
+            `SELECT is_verified, status, is_deleted FROM helpers
              WHERE (
                LOWER(COALESCE(id, '')) = ANY($1::text[])
                OR LOWER(COALESCE(user_id, '')) = ANY($1::text[])
                OR ($2 <> '' AND LOWER(COALESCE(email, '')) = LOWER($2))
                OR ($3 <> '' AND REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE '%' || $3)
              )
-             AND COALESCE(is_deleted, false) = false
-             AND (COALESCE(is_verified, false) = true OR LOWER(COALESCE(status, '')) = 'approved')
+             ORDER BY COALESCE(is_deleted, false) ASC
              LIMIT 1`,
             [idCandidates, email, phoneDigits]
           )
           .catch(() => ({ rows: [] as any[] }));
         if (hRes.rows.length > 0) {
-          return { isApproved: true, status: "approved" };
+          const hRow = hRes.rows[0];
+          const hSt = String(hRow.status || "pending").toLowerCase();
+          if (hRow.is_deleted === true || hSt === "deleted") {
+            if (!accountFound) return { isApproved: false, status: "deleted" };
+          } else {
+            accountFound = true;
+            if (hRow.is_verified === true || hSt === "approved") {
+              return { isApproved: true, status: "approved" };
+            }
+          }
+        }
+
+        // 4. Check users / user_passwords tables to see if account exists at all
+        if (!accountFound) {
+          const uRes = await dbPool
+            .query(
+              `SELECT id, is_deleted FROM users
+               WHERE (
+                 LOWER(COALESCE(id, '')) = ANY($1::text[])
+                 OR ($2 <> '' AND LOWER(COALESCE(email, '')) = LOWER($2))
+                 OR ($3 <> '' AND REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE '%' || $3)
+               )
+               LIMIT 1`,
+              [idCandidates, email, phoneDigits]
+            )
+            .catch(() => ({ rows: [] as any[] }));
+          if (uRes.rows.length > 0) {
+            if (uRes.rows[0].is_deleted === true) {
+              return { isApproved: false, status: "deleted" };
+            }
+            accountFound = true;
+          }
         }
       } catch {}
     }
@@ -4984,6 +5029,7 @@ async function startServer() {
         );
       });
       if (matchedVerif) {
+        accountFound = true;
         const st = String(matchedVerif.status || "pending").toLowerCase();
         if (st === "approved") return { isApproved: true, status: "approved" };
         if (st === "rejected") return { isApproved: false, status: "rejected" };
@@ -5000,6 +5046,7 @@ async function startServer() {
           (email && pEm === email) ||
           (phoneDigits && pPh === phoneDigits)
         ) {
+          accountFound = true;
           const st = String(p.status || "pending").toLowerCase();
           if (p.isVerified === true || p.is_verified === true || p.verified === true || st === "approved") {
             return { isApproved: true, status: "approved" };
@@ -5008,6 +5055,10 @@ async function startServer() {
         }
       }
     } catch {}
+
+    if (!accountFound) {
+      return { isApproved: false, status: "not_found" };
+    }
 
     return { isApproved: false, status: "pending" };
   };
@@ -6268,14 +6319,22 @@ async function startServer() {
         } catch {}
       }
 
+      const approval = await getUserApprovalState(decoded.uid, decoded.email || "", dbPhone);
+      if (approval.status === "deleted" || approval.status === "not_found") {
+        res.setHeader('Set-Cookie', 'locohelp_token=; Path=/; Max-Age=0; SameSite=Lax');
+        return res.status(401).json({
+          success: false,
+          status: approval.status,
+          error: "Account deleted or not found. Please log in again."
+        });
+      }
+
       const refreshedToken = createSessionToken({
         uid: decoded.uid,
         email: decoded.email || "",
         name: dbName
       });
       res.setHeader('Set-Cookie', `locohelp_token=${refreshedToken}; Path=/; Max-Age=${365 * 24 * 3600}; SameSite=Lax`);
-
-      const approval = await getUserApprovalState(decoded.uid, decoded.email || "", dbPhone);
 
       res.json({
         success: true,
@@ -13406,8 +13465,9 @@ async function startServer() {
         return res.status(400).json({ error: "categoryId and imageUrl are required" });
       }
 
-      const subFolder = cleanId === "__home_hero_banner__" ? "banners" : "categories";
-      const customFileName = cleanId === "__home_hero_banner__" ? "home_hero_banner.webp" : `category_${cleanId}.webp`;
+      const isHeroBanner = cleanId.startsWith("__home_hero_banner");
+      const subFolder = isHeroBanner ? "banners" : "categories";
+      const customFileName = isHeroBanner ? `${cleanId.replace(/^__+|__+$/g, "")}.webp` : `category_${cleanId}.webp`;
       const cleanUrl = rawUrl === "__deleted__" ? "__deleted__" : await uploadDataToFirebaseServer(rawUrl, subFolder, customFileName);
 
       const fileImages = readJsonFile<Record<string, string>>(CATEGORY_IMAGES_FILE, {});

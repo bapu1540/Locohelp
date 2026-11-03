@@ -360,7 +360,33 @@ export async function restoreSessionFromServer(): Promise<AppUser | null> {
       headers,
       credentials: 'include'
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      try {
+        const errData = await res.json().catch(() => ({}));
+        if (errData?.status === 'deleted' || errData?.status === 'not_found') {
+          await logoutUser();
+          return null;
+        }
+        // If browser still thinks user is logged in, verify account still exists in PostgreSQL
+        if (localStorage.getItem('locohelp_logged_in') === 'true' || localStorage.getItem('locohelp_user')) {
+          const localU = getCurrentUser();
+          if (localU && !localU.isGuest && localU.uid !== 'guest_user') {
+            const stRes = await fetch(
+              `/api/users/approval-status?uid=${encodeURIComponent(localU.uid || '')}&email=${encodeURIComponent(localU.email || '')}&phone=${encodeURIComponent(localU.phone || '')}&_t=${Date.now()}`,
+              { cache: 'no-store' }
+            );
+            if (stRes.ok) {
+              const stData = await stRes.json();
+              if (stData?.status === 'deleted' || stData?.status === 'not_found') {
+                await logoutUser();
+                return null;
+              }
+            }
+          }
+        }
+      } catch {}
+      return null;
+    }
     const data = await res.json();
     if (!data || !data.success || !data.user) return null;
 
@@ -2083,7 +2109,11 @@ export async function logoutUser() {
       'locohelp_admin_token',
       'locohelp_admin_logged_in',
       'locohelp_last_logged_in_email',
-      'locohelp_last_logged_in_name'
+      'locohelp_last_logged_in_phone',
+      'locohelp_last_logged_in_name',
+      'locohelp_profile_phone',
+      'locohelp_account_approved',
+      'locohelp_account_status'
     ];
     sessionKeysToRemove.forEach(key => {
       localStorage.removeItem(key);

@@ -248,10 +248,13 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
     }
   };
 
-  // Home Page Main Hero Banner State (stored in PostgreSQL category_images under '__home_hero_banner__')
+  // Home Page Main Hero Banner State (stored in PostgreSQL category_images under '__home_hero_banner_gu__', '__home_hero_banner_hi__', '__home_hero_banner_en__')
   const DEFAULT_HOME_HERO_BANNER = '/assets/aistudio/__________________________0e3f70be.png';
+  const DEFAULT_HOME_HERO_BANNER_GU = '/assets/aistudio/__________________________0e3f70be.png';
+  const DEFAULT_HOME_HERO_BANNER_HI = '/assets/aistudio/hindi_banner_baedca50.png';
   const [categoryImages, setCategoryImages] = useState<Record<string, string>>(() => getCachedCategoryImages());
   const [isUploadingHeroBanner, setIsUploadingHeroBanner] = useState(false);
+  const [uploadingBannerLang, setUploadingBannerLang] = useState<'gu' | 'hi' | 'en' | null>(null);
   const [isEditingHeroBanner, setIsEditingHeroBanner] = useState(false);
   const [heroBannerCustomUrlInput, setHeroBannerCustomUrlInput] = useState('');
 
@@ -272,14 +275,20 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
     };
   }, []);
 
-  const handleUploadHomeHeroBanner = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleUploadLanguageHeroBanner = async (
+    langKey: 'gu' | 'hi' | 'en',
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    const storageKey = `__home_hero_banner_${langKey}__`;
+    const langLabel = langKey === 'gu' ? 'ગુજરાતી (GU)' : langKey === 'hi' ? 'हिंदी (HI)' : 'English (EN)';
     setIsUploadingHeroBanner(true);
+    setUploadingBannerLang(langKey);
     try {
       const check = await validateUploadedFile(file, { allowPdf: false, maxSizeBytes: 25 * 1024 * 1024 });
       if (!check.valid) {
-        showToast(check.error || 'અમાન્ય ઈમેજ ફાઇલ (કૃપા કરીને JPG, PNG અથવા WebP પસંદ કરો)');
+        showToast(check.error || 'अमान्य इमेज फ़ाइल (कृपया JPG, PNG या WebP चुनें)');
         return;
       }
       let compressedUrl: string;
@@ -293,42 +302,86 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
           reader.readAsDataURL(file);
         });
       }
-      const res = await saveCategoryImageOnServer('__home_hero_banner__', compressedUrl);
+      const res = await saveCategoryImageOnServer(storageKey, compressedUrl);
       if (res.success) {
-        const finalUrl = (res.images && res.images['__home_hero_banner__']) || res.imageUrl || compressedUrl;
-        setCategoryImages(prev => ({ ...prev, __home_hero_banner__: finalUrl }));
-        setIsEditingHeroBanner(false);
-        showToast('✅ હોમ પેજનું મેઈન બેનર સફળતાપૂર્વક અપલોડ / અપડેટ થઈ ગયું! દરેક યુઝરને લાઈવ દેખાશે.');
+        const finalUrl = (res.images && res.images[storageKey]) || res.imageUrl || compressedUrl;
+        setCategoryImages(prev => ({
+          ...prev,
+          [storageKey]: finalUrl,
+          ...(langKey === 'gu' ? { __home_hero_banner__: finalUrl } : {})
+        }));
+        if (langKey === 'gu') {
+          await saveCategoryImageOnServer('__home_hero_banner__', finalUrl).catch(() => {});
+        }
+        showToast(`✅ ${langLabel} होम पेज बैनर सफलतापूर्वक अपलोड हो गया!`);
       } else {
-        showToast(res.error || 'બેનર અપડેટ કરવામાં ભૂલ આવી');
+        showToast(res.error || 'बैनर अपडेट करने में त्रुटि आई');
       }
     } catch (err: any) {
-      showToast(err?.message || 'બેનર અપલોડ કરવામાં સમસ્યા આવી');
+      showToast(err?.message || 'बैनर अपलोड करने में समस्या आई');
     } finally {
       setIsUploadingHeroBanner(false);
+      setUploadingBannerLang(null);
       e.target.value = '';
     }
   };
 
+  const handleResetLanguageHeroBanner = async (langKey: 'gu' | 'hi' | 'en') => {
+    const storageKey = `__home_hero_banner_${langKey}__`;
+    const langLabel = langKey === 'gu' ? 'ગુજરાતી (GU)' : langKey === 'hi' ? 'हिंदी (HI)' : 'English (EN)';
+    setIsUploadingHeroBanner(true);
+    setUploadingBannerLang(langKey);
+    try {
+      const res = await deleteCategoryImageOnServer(storageKey);
+      if (langKey === 'gu') {
+        await deleteCategoryImageOnServer('__home_hero_banner__').catch(() => {});
+      }
+      if (res.success) {
+        setCategoryImages(prev => {
+          const next = { ...prev };
+          delete next[storageKey];
+          if (langKey === 'gu') delete next['__home_hero_banner__'];
+          return next;
+        });
+        showToast(`🔄 ${langLabel} डिफ़ॉल्ट बैनर फिर से सेट हो गया!`);
+      } else {
+        showToast(res.error || 'बैनर रीसेट करने में त्रुटि आई');
+      }
+    } catch (err: any) {
+      showToast(err?.message || 'Error resetting banner');
+    } finally {
+      setIsUploadingHeroBanner(false);
+      setUploadingBannerLang(null);
+    }
+  };
+
+  const handleUploadHomeHeroBanner = (e: React.ChangeEvent<HTMLInputElement>) =>
+    handleUploadLanguageHeroBanner('gu', e);
+
   const handleSaveHeroBannerCustomUrl = async () => {
     const cleanUrl = heroBannerCustomUrlInput.trim();
     if (!cleanUrl) {
-      showToast('⚠️ કૃપા કરીને બેનર ઈમેજ URL નાખો અથવા ફોટો અપલોડ કરો');
+      showToast('⚠️ कृपया बैनर इमेज URL डालें या फोटो अपलोड करें');
       return;
     }
     setIsUploadingHeroBanner(true);
     try {
-      const res = await saveCategoryImageOnServer('__home_hero_banner__', cleanUrl);
+      const res = await saveCategoryImageOnServer('__home_hero_banner_gu__', cleanUrl);
+      await saveCategoryImageOnServer('__home_hero_banner__', cleanUrl).catch(() => {});
       if (res.success) {
-        const finalUrl = (res.images && res.images['__home_hero_banner__']) || res.imageUrl || cleanUrl;
-        setCategoryImages(prev => ({ ...prev, __home_hero_banner__: finalUrl }));
+        const finalUrl = (res.images && res.images['__home_hero_banner_gu__']) || res.imageUrl || cleanUrl;
+        setCategoryImages(prev => ({
+          ...prev,
+          __home_hero_banner_gu__: finalUrl,
+          __home_hero_banner__: finalUrl
+        }));
         setIsEditingHeroBanner(false);
-        showToast('✅ હોમ પેજ બેનર સફળતાપૂર્વક એડિટ / સેવ થઈ ગયું!');
+        showToast('✅ होम पेज बैनर सफलतापूर्वक सेव हो गया!');
       } else {
-        showToast(res.error || 'બેનર એડિટ કરવામાં ભૂલ આવી');
+        showToast(res.error || 'बैनर एडिट करने में त्रुटि आई');
       }
     } catch (err: any) {
-      showToast(err?.message || 'બેનર સેવ કરવામાં સમસ્યા આવી');
+      showToast(err?.message || 'बैनर सेव करने में समस्या आई');
     } finally {
       setIsUploadingHeroBanner(false);
     }
@@ -341,9 +394,9 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
       if (res.success) {
         setCategoryImages(prev => ({ ...prev, __home_hero_banner__: '__deleted__' }));
         setIsEditingHeroBanner(false);
-        showToast('🗑️ હોમ પેજ મેઈન બેનર સફળતાપૂર્વક ડીલીટ (દૂર) કરવામાં આવ્યું છે!');
+        showToast('🗑️ होम पेज मेन बैनर हटाया गया!');
       } else {
-        showToast(res.error || 'બેનર ડીલીટ કરવામાં ભૂલ આવી');
+        showToast(res.error || 'बैनर डिलीट करने में त्रुटि आई');
       }
     } catch (err: any) {
       showToast(err?.message || 'Error deleting banner');
@@ -353,25 +406,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
   };
 
   const handleResetHomeHeroBanner = async () => {
-    setIsUploadingHeroBanner(true);
-    try {
-      const res = await deleteCategoryImageOnServer('__home_hero_banner__');
-      if (res.success) {
-        setCategoryImages(prev => {
-          const next = { ...prev };
-          delete next['__home_hero_banner__'];
-          return next;
-        });
-        setIsEditingHeroBanner(false);
-        showToast('🔄 ડિફોલ્ટ હોમ પેજ બેનર ફરીથી સેટ થઈ ગયું!');
-      } else {
-        showToast(res.error || 'બેનર રીસેટ કરવામાં ભૂલ આવી');
-      }
-    } catch (err: any) {
-      showToast(err?.message || 'Error resetting banner');
-    } finally {
-      setIsUploadingHeroBanner(false);
-    }
+    await handleResetLanguageHeroBanner('gu');
   };
 
   // Action Loading States
@@ -2774,7 +2809,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         })()}
 
         {/* ============================================================ */}
-        {/* VIEW 1A: DEDICATED HERO PHOTO BANNER MANAGER                 */}
+        {/* VIEW 1A: DEDICATED 3-LANGUAGE HERO PHOTO BANNER MANAGER      */}
         {/* ============================================================ */}
         {activeModule === 'hero_banner' && (
           <div className="space-y-4">
@@ -2787,118 +2822,142 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                 <span>← Back to Admin Dashboard</span>
               </button>
               <span className="text-xs font-black text-cyan-300">
-                🖼️ Section #1: Main Website Top Hero Photo Banner
+                🖼️ Section #1: 3-Language Top Hero Photo Banner (GU / HI / EN)
               </span>
             </div>
 
-            <div className="rounded-3xl bg-gradient-to-br from-blue-950/90 via-[#111827] to-indigo-950/80 border-2 border-cyan-500/40 p-5 sm:p-6 shadow-2xl space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="rounded-3xl bg-gradient-to-br from-blue-950/90 via-[#111827] to-indigo-950/80 border-2 border-cyan-500/40 p-5 sm:p-6 shadow-2xl space-y-5">
+              <div className="flex flex-wrap items-center justify-between gap-4 pb-3 border-b border-slate-800">
                 <div className="flex items-center gap-3.5">
                   <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shrink-0">
                     <ImageIcon className="w-6 h-6 text-white" />
                   </div>
                   <div>
                     <h2 className="text-base sm:text-lg font-black text-white">
-                      હોમ પેજ મેઈન હીરો બેનર (LocoHelp Logo નીચે / સર્ચ બાર ઉપર)
+                      3-Language Home Page Hero Banner (ગુજરાતી • हिंदी • English)
                     </h2>
                     <p className="text-xs text-slate-300 font-medium mt-0.5">
-                      અહીંથી તમે હોમ પેજ પર દેખાતું મેઈન બેનર અપલોડ (Upload), એડિટ (Edit) અથવા ડીલીટ (Delete) કરી શકો છો.
+                      यूज़र वेबसाइट पर जो भाषा चुनेगा उसे उसी भाषा का बैनर दिखेगा। स्मार्ट बैकअप: अगर किसी भाषा का बैनर अपलोड नहीं है, तो अपने-आप <strong>हिंदी वाला बैनर</strong> दिखाई देगा।
                     </p>
                   </div>
                 </div>
-
-                <div className="flex flex-wrap items-center gap-2">
-                  <label className="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white font-black text-xs sm:text-sm shadow-lg transition-all cursor-pointer flex items-center gap-2">
-                    <Upload className="w-4 h-4" />
-                    <span>{isUploadingHeroBanner ? '⏳ પ્રક્રિયા ચાલુ છે...' : '📸 અપલોડ કરો (Upload)'}</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleUploadHomeHeroBanner}
-                      disabled={isUploadingHeroBanner}
-                      className="hidden"
-                    />
-                  </label>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const currentVal = categoryImages['__home_hero_banner__'];
-                      setHeroBannerCustomUrlInput(
-                        currentVal && currentVal !== '__deleted__' ? currentVal : DEFAULT_HOME_HERO_BANNER
-                      );
-                      setIsEditingHeroBanner(prev => !prev);
-                    }}
-                    disabled={isUploadingHeroBanner}
-                    className="px-3.5 py-2.5 rounded-2xl bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-200 border border-indigo-400/40 font-black text-xs transition-all cursor-pointer flex items-center gap-1.5"
-                  >
-                    <Edit3 className="w-3.5 h-3.5" />
-                    <span>✏️ એડિટ કરો (Edit)</span>
-                  </button>
-
-                  {categoryImages['__home_hero_banner__'] !== '__deleted__' && (
-                    <button
-                      type="button"
-                      onClick={handleDeleteHomeHeroBanner}
-                      disabled={isUploadingHeroBanner}
-                      className="px-3.5 py-2.5 rounded-2xl bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/40 font-black text-xs transition-all cursor-pointer flex items-center gap-1.5"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span>🗑️ ડીલીટ કરો (Delete)</span>
-                    </button>
-                  )}
-
-                  {categoryImages['__home_hero_banner__'] && (
-                    <button
-                      type="button"
-                      onClick={handleResetHomeHeroBanner}
-                      disabled={isUploadingHeroBanner}
-                      className="px-3.5 py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 font-black text-xs transition-all cursor-pointer flex items-center gap-1.5"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                      <span>🔄 ડિફોલ્ટ બેનર રાખો</span>
-                    </button>
-                  )}
-                </div>
               </div>
 
-              {isEditingHeroBanner && (
-                <div className="p-4 rounded-2xl bg-slate-900/95 border border-indigo-500/40 space-y-3">
-                  <div className="flex flex-col sm:flex-row gap-2.5">
-                    <input
-                      type="text"
-                      value={heroBannerCustomUrlInput}
-                      onChange={e => setHeroBannerCustomUrlInput(e.target.value)}
-                      placeholder="https://... અથવા /assets/... ઈમેજ લિંક નાખો"
-                      className="flex-1 px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleSaveHeroBannerCustomUrl}
-                      disabled={isUploadingHeroBanner}
-                      className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs cursor-pointer"
-                    >
-                      💾 URL સેવ કરો
-                    </button>
-                  </div>
-                </div>
-              )}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                {([
+                  {
+                    langKey: 'gu' as const,
+                    badge: '1. ગુજરાતી (GU)',
+                    title: 'ગુજરાતી ભાષાનું બેનર',
+                    subtitle: 'जब यूज़र ગુજરાતી (GU) चुनेगा तब यह बैनर दिखेगा',
+                    storageKey: '__home_hero_banner_gu__',
+                    defaultImg: DEFAULT_HOME_HERO_BANNER_GU,
+                    accent: 'border-emerald-500/40 bg-emerald-950/20'
+                  },
+                  {
+                    langKey: 'hi' as const,
+                    badge: '2. हिंदी (HI - Default Fallback)',
+                    title: 'हिंदी भाषा का बैनर (मुख्य बैकअप)',
+                    subtitle: 'हिंदी चुनने पर और किसी अन्य भाषा का बैनर न होने पर यही बैनर दिखेगा',
+                    storageKey: '__home_hero_banner_hi__',
+                    defaultImg: DEFAULT_HOME_HERO_BANNER_HI,
+                    accent: 'border-amber-500/50 bg-amber-950/20'
+                  },
+                  {
+                    langKey: 'en' as const,
+                    badge: '3. English (EN)',
+                    title: 'English Language Banner',
+                    subtitle: 'जब तक English बैनर अपलोड नहीं करेंगे, तब तक हिंदी बैनर ही दिखेगा',
+                    storageKey: '__home_hero_banner_en__',
+                    defaultImg: DEFAULT_HOME_HERO_BANNER_HI,
+                    accent: 'border-cyan-500/40 bg-cyan-950/20'
+                  }
+                ]).map((slot) => {
+                  const rawStored =
+                    slot.langKey === 'gu'
+                      ? categoryImages['__home_hero_banner_gu__'] || categoryImages['__home_hero_banner__']
+                      : categoryImages[slot.storageKey];
+                  const hasCustomUploaded = Boolean(rawStored && rawStored !== '__deleted__');
+                  const fallbackHindi =
+                    categoryImages['__home_hero_banner_hi__'] &&
+                    categoryImages['__home_hero_banner_hi__'] !== '__deleted__'
+                      ? categoryImages['__home_hero_banner_hi__']
+                      : DEFAULT_HOME_HERO_BANNER_HI;
+                  const livePreviewUrl = hasCustomUploaded
+                    ? rawStored
+                    : slot.langKey === 'gu'
+                    ? DEFAULT_HOME_HERO_BANNER_GU
+                    : fallbackHindi;
 
-              <div className="rounded-2xl overflow-hidden border border-slate-700/80 bg-slate-950/70 p-3 max-w-2xl">
-                <p className="text-[11px] font-bold text-cyan-300 mb-2">
-                  👁️ અત્યારે હોમ પેજ પર દેખાતું લાઈવ બેનર (Current Live Banner Preview):
-                </p>
-                {categoryImages['__home_hero_banner__'] === '__deleted__' ? (
-                  <div className="p-6 text-center rounded-xl bg-slate-900/90 border border-red-500/30">
-                    <p className="text-sm font-black text-red-300">🚫 હોમ પેજ પરથી મેઈન બેનર ડીલીટ (દૂર) કરેલ છે.</p>
-                  </div>
-                ) : (
-                  <img
-                    src={categoryImages['__home_hero_banner__'] || DEFAULT_HOME_HERO_BANNER}
-                    alt="Home Page Main Banner Preview"
-                    className="w-full h-auto block object-contain rounded-xl"
-                  />
-                )}
+                  return (
+                    <div
+                      key={slot.langKey}
+                      className={`rounded-2xl border ${slot.accent} p-4 flex flex-col justify-between gap-3 bg-slate-900/90 shadow-lg`}
+                    >
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-xs font-black text-white">
+                            {slot.badge}
+                          </span>
+                          {hasCustomUploaded ? (
+                            <span className="px-2 py-0.5 rounded-md bg-emerald-500/20 border border-emerald-500/40 text-[10px] font-black text-emerald-300">
+                              ✓ Custom Uploaded
+                            </span>
+                          ) : slot.langKey === 'en' ? (
+                            <span className="px-2 py-0.5 rounded-md bg-amber-500/20 border border-amber-500/40 text-[10px] font-black text-amber-300">
+                              ⚡ Using Hindi Fallback
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-md bg-cyan-500/20 border border-cyan-500/40 text-[10px] font-black text-cyan-300">
+                              ✓ Active Default
+                            </span>
+                          )}
+                        </div>
+                        <h3 className="text-sm font-black text-white">{slot.title}</h3>
+                        <p className="text-[11px] text-slate-400">{slot.subtitle}</p>
+
+                        <div className="rounded-xl overflow-hidden border border-slate-700 bg-slate-950 p-1.5 mt-2">
+                          <img
+                            src={livePreviewUrl}
+                            alt={slot.title}
+                            className="w-full h-auto block object-contain rounded-lg"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-800">
+                        <label className="flex-1 py-2 px-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white font-black text-xs shadow-md transition-all cursor-pointer flex items-center justify-center gap-1.5">
+                          <Upload className="w-3.5 h-3.5" />
+                          <span>
+                            {isUploadingHeroBanner && uploadingBannerLang === slot.langKey
+                              ? '⏳ Uploading...'
+                              : `📸 Upload ${slot.langKey.toUpperCase()}`}
+                          </span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => handleUploadLanguageHeroBanner(slot.langKey, e)}
+                            disabled={isUploadingHeroBanner}
+                            className="hidden"
+                          />
+                        </label>
+
+                        {hasCustomUploaded && (
+                          <button
+                            type="button"
+                            onClick={() => handleResetLanguageHeroBanner(slot.langKey)}
+                            disabled={isUploadingHeroBanner}
+                            className="py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 font-black text-xs transition-all cursor-pointer flex items-center gap-1"
+                            title="Reset to default banner"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" />
+                            <span>Reset</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>
