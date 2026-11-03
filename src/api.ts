@@ -330,9 +330,14 @@ export async function broadcastIntentToServer(intent: Intent): Promise<Intent> {
       body: JSON.stringify(cleanIntent)
     });
 
-    if (res.status === 429) {
+    if (res.status === 429 || res.status === 403 || res.status === 401) {
       const errData = await res.json().catch(() => ({}));
-      throw new Error(errData.error || 'Rate limit: Please wait 30 seconds before posting again.');
+      throw new Error(
+        errData.error ||
+          (res.status === 403
+            ? 'आपका अकाउंट अभी एडमिन अप्रूवल (Admin Approval) के लिए पेंडिंग है। अप्रूव होने के बाद ही आप पोस्ट कर सकते हैं।'
+            : 'Rate limit: Please wait 30 seconds before posting again.')
+      );
     }
 
     if (res.ok) {
@@ -350,7 +355,7 @@ export async function broadcastIntentToServer(intent: Intent): Promise<Intent> {
       return saved;
     }
   } catch (err: any) {
-    if (err?.message && err.message.includes('wait')) {
+    if (err?.message && (err.message.includes('wait') || err.message.includes('Approval') || err.message.includes('अप्रूव') || err.message.includes('અપ્રૂવલ') || err.message.includes('लॉगिन'))) {
       throw err;
     }
     console.warn("Failed to broadcast to server (operating offline):", err);
@@ -527,6 +532,9 @@ export async function sendChatMessage(
     intent_id: postIdVal,
     postOwnerId: postOwnerIdVal,
     post_owner_id: postOwnerIdVal,
+    postOwnerEmail: sanitizeText((msg as any).postOwnerEmail || (msg as any).post_owner_email || ''),
+    post_owner_email: sanitizeText((msg as any).postOwnerEmail || (msg as any).post_owner_email || ''),
+    postOwnerName: sanitizeText((msg as any).postOwnerName || (msg as any).posterName || ''),
     helperId: helperIdVal,
     helper_id: helperIdVal,
     helperName: sanitizeText((msg as any).helperName || ''),
@@ -581,6 +589,14 @@ export async function sendChatMessage(
         );
       } catch {}
       return saved;
+    } else {
+      const errJson = await res.json().catch(() => ({}));
+      return {
+        ...payload,
+        error: errJson?.error || 'Failed to send message',
+        code: errJson?.code || (res.status === 403 ? 'ACCOUNT_PENDING_APPROVAL' : 'SEND_FAILED'),
+        httpStatus: res.status
+      } as any;
     }
   } catch (err) {
     console.warn("Failed to send 1-on-1 chat message to server:", err);
@@ -1068,9 +1084,46 @@ export async function resetDatabaseOnServer(): Promise<{ success: boolean; messa
 // IDENTITY VERIFICATION & WATERMARKED DOCS API
 // ==========================================
 
+export async function fetchUserApprovalStatus(
+  uid?: string,
+  email?: string,
+  phone?: string
+): Promise<{ isApproved: boolean; status: string }> {
+  try {
+    const params = new URLSearchParams();
+    if (uid) params.set('uid', uid);
+    if (email) params.set('email', email);
+    if (phone) params.set('phone', phone);
+    params.set('_t', String(Date.now()));
+    const res = await fetch(`/api/users/approval-status?${params.toString()}`, {
+      cache: 'no-store',
+      headers: {
+        'Cache-Control': 'no-cache',
+        ...getAuthHeaders()
+      }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      try {
+        localStorage.setItem('locohelp_account_approved', data?.isApproved ? 'true' : 'false');
+        localStorage.setItem('locohelp_account_status', String(data?.status || 'pending'));
+      } catch {}
+      return {
+        isApproved: Boolean(data?.isApproved),
+        status: String(data?.status || 'pending')
+      };
+    }
+  } catch {}
+  const cached = localStorage.getItem('locohelp_account_approved') === 'true';
+  return {
+    isApproved: cached,
+    status: localStorage.getItem('locohelp_account_status') || (cached ? 'approved' : 'pending')
+  };
+}
+
 export interface VerificationRequestItem {
   id: string;
-  entityType: 'user_profile' | 'business';
+  entityType: 'user_profile' | 'business' | 'helper';
   entityId: string;
   userId: string;
   userName: string;

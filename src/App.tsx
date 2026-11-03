@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Screen, Intent } from './types';
 import { LanguageProvider, useLanguage, SUPPORTED_LANGUAGES } from './i18n';
 import { logoutUser, ensureProfileExists, onAuthStateChange, restoreSessionFromServer, getCurrentUser } from './auth';
-import { syncBrowserDataToPostgres } from './api';
+import { syncBrowserDataToPostgres, fetchPostConversations } from './api';
 import { isGuestUser } from './lib/authUtils';
 import LocoHelpLogo from './components/LocoHelpLogo';
 import PanIndiaLocationModal from './components/PanIndiaLocationModal';
@@ -81,8 +81,42 @@ function AppContent() {
   const [isGlobalLoginOpen, setIsGlobalLoginOpen] = useState(false);
   const [globalUserLocation, setGlobalUserLocation] = useState<UserManualLocation>(() => getSavedUserLocation());
   const [, setAuthTick] = useState(0);
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
 
   const currentLangObj = SUPPORTED_LANGUAGES.find(l => l.code === language) || SUPPORTED_LANGUAGES[0];
+
+  // Poll unread messages count for the Top Header Chat Icon badge
+  useEffect(() => {
+    let active = true;
+    const refreshUnread = async () => {
+      try {
+        if (isGuestUser()) {
+          if (active) setUnreadChatCount(0);
+          return;
+        }
+        const u = getCurrentUser();
+        const uid = String(u?.uid || '').trim();
+        const email = String(u?.email || localStorage.getItem('locohelp_last_logged_in_email') || '').trim();
+        if (!uid && !email) {
+          if (active) setUnreadChatCount(0);
+          return;
+        }
+        const convs = await fetchPostConversations({ userId: uid || email, userEmail: email });
+        if (!active) return;
+        const total = (Array.isArray(convs) ? convs : []).reduce(
+          (sum: number, c: any) => sum + (Number(c?.unreadCount) || 0),
+          0
+        );
+        setUnreadChatCount(total);
+      } catch {}
+    };
+    refreshUnread();
+    const timer = setInterval(refreshUnread, 4000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, []);
 
   useEffect(() => {
     const handleLocUpdate = (e: any) => {
@@ -520,9 +554,9 @@ function AppContent() {
           <LocoHelpLogo size={24} showText={true} textSize="sm" className="flex-shrink-0" />
         </div>
 
-        {/* Right Side: Balanced Spacer & Single-Line Soft Tagline Pill */}
+        {/* Right Side: Single-line Tagline Box */}
         <div className="flex items-center justify-end flex-1 sm:flex-initial min-w-[70px] sm:min-w-[100px]" style={{ overflow: 'visible' }}>
-          <div className="hidden sm:block loco-tagline-singleline-box">
+          <div className="loco-tagline-singleline-box">
             <span className="loco-tagline-singleline-text">
               {tr(
                 'Find local helpers Near You',
@@ -624,6 +658,7 @@ function AppContent() {
       {currentScreen !== 'admin' && currentScreen !== 'chat' && (
         <FixedBottomNavBar
           currentScreen={currentScreen}
+          unreadChatCount={unreadChatCount}
           onNavigate={navigate}
           onSelectCategory={handleSelectCategory}
           onOpenChat={(intent) => {

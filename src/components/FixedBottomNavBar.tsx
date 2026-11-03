@@ -25,6 +25,7 @@ import { DEFAULT_SHOWCASE_PROVIDERS, ShowcaseProviderItem } from './HomeBelowCat
 
 interface FixedBottomNavBarProps {
   currentScreen: Screen;
+  unreadChatCount?: number;
   onNavigate: (screen: Screen) => void;
   onSelectCategory: (cat: string) => void;
   onOpenChat: (intent?: any) => void;
@@ -35,6 +36,7 @@ interface FixedBottomNavBarProps {
 
 export default function FixedBottomNavBar({
   currentScreen,
+  unreadChatCount = 0,
   onNavigate,
   onSelectCategory,
   onOpenChat,
@@ -556,38 +558,7 @@ export default function FixedBottomNavBar({
                 gap: '4px'
               }}
             >
-              {/* Option 1: My Chats */}
-              <button
-                type="button"
-                onClick={() => {
-                  setIsMoreMenuOpen(false);
-                  if (isGuestUser()) {
-                    onOpenLogin();
-                    return;
-                  }
-                  onOpenChat(null);
-                }}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '10px',
-                  width: '100%',
-                  padding: '10px 12px',
-                  borderRadius: '12px',
-                  backgroundColor: '#EEF2FF',
-                  color: '#3730A3',
-                  fontWeight: 800,
-                  fontSize: '12px',
-                  textAlign: 'left',
-                  border: 'none',
-                  cursor: 'pointer'
-                }}
-              >
-                <MessageSquare className="w-4 h-4 shrink-0" style={{ color: '#4F46E5' }} />
-                <span>{tr('My Chats', 'मेरी बातचीत', 'મારી વાતચીત')}</span>
-              </button>
-
-              {/* Option 2: Profile */}
+              {/* Option 1: Profile */}
               <button
                 type="button"
                 onClick={() => {
@@ -887,7 +858,7 @@ export default function FixedBottomNavBar({
             </span>
           </button>
 
-          {/* 4. સંદેશ (Messages / Live Chat) */}
+          {/* 4. સંદેશ (Messages / Live Chat Inbox with Unread Count Badge) */}
           <button
             type="button"
             onClick={() => {
@@ -900,6 +871,7 @@ export default function FixedBottomNavBar({
               onOpenChat(null);
             }}
             style={{
+              position: 'relative',
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
@@ -911,21 +883,48 @@ export default function FixedBottomNavBar({
               cursor: 'pointer'
             }}
           >
-            <MessageSquare
-              style={{
-                width: '20px',
-                height: '20px',
-                color: isChatActive ? '#2563EB' : '#334155',
-                strokeWidth: isChatActive ? 2.5 : 2
-              }}
-            />
+            <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+              <MessageSquare
+                style={{
+                  width: '20px',
+                  height: '20px',
+                  color: isChatActive ? '#2563EB' : unreadChatCount > 0 ? '#0D9488' : '#334155',
+                  strokeWidth: isChatActive || unreadChatCount > 0 ? 2.5 : 2
+                }}
+              />
+              {unreadChatCount > 0 && (
+                <span
+                  style={{
+                    position: 'absolute',
+                    top: '-6px',
+                    right: '-10px',
+                    minWidth: '17px',
+                    height: '17px',
+                    padding: '0 4px',
+                    borderRadius: '9999px',
+                    backgroundColor: '#E11D48',
+                    color: '#ffffff',
+                    fontSize: '10px',
+                    fontWeight: 900,
+                    lineHeight: '15px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    border: '1.5px solid #ffffff',
+                    boxShadow: '0 2px 4px rgba(225, 29, 72, 0.35)'
+                  }}
+                >
+                  {unreadChatCount > 99 ? '99+' : unreadChatCount}
+                </span>
+              )}
+            </div>
             <span
               style={{
                 fontSize: '11px',
                 marginTop: '2px',
                 lineHeight: 1.15,
-                fontWeight: isChatActive ? 900 : 700,
-                color: isChatActive ? '#2563EB' : '#1E293B',
+                fontWeight: isChatActive || unreadChatCount > 0 ? 900 : 700,
+                color: isChatActive ? '#2563EB' : unreadChatCount > 0 ? '#0D9488' : '#1E293B',
                 whiteSpace: 'nowrap'
               }}
             >

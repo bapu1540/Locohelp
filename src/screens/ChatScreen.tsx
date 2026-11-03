@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Intent } from '../types';
-import { ArrowLeft, ShieldAlert, CheckCircle2, Send, MapPin, UserCheck, Paperclip, Navigation, Mic, Star, Sparkles, Trash2, Home, ShieldCheck, Check, Camera, Image as ImageIcon, X, Share2, Video, PhoneOff, MicOff, RefreshCw, AlertTriangle, MessageSquare, MoreVertical } from 'lucide-react';
+import { ArrowLeft, ShieldAlert, CheckCircle2, Send, MapPin, UserCheck, Paperclip, Navigation, Mic, Star, Sparkles, Trash2, Home, ShieldCheck, Check, Camera, Image as ImageIcon, X, Share2, Video, Phone, PhoneOff, MicOff, RefreshCw, AlertTriangle, MessageSquare, MoreVertical } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { getCurrentUser, isMessageSentByUser } from '../auth';
 import { useLanguage, COMPLIANCE_REPORT_REASONS } from '../i18n';
@@ -91,7 +91,7 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false, 
 
   const chatId = currentIntent?.id || (currentIntent ? 'chat_community_helper' : '');
 
-  // Determine whether the logged-in user is the Post Owner (User A) or a Helper/Responder (User B)
+  // Determine whether the logged-in user is the Post Owner / Service Provider (User A) or a Customer / Helper (User B)
   const isPostOwner = React.useMemo(() => {
     try {
       const myPostIds: string[] = JSON.parse(localStorage.getItem('locohelp_my_post_ids') || '[]');
@@ -107,9 +107,17 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false, 
     );
   }, [chatId, currentIntent?.authorId, (currentIntent as any)?.authorEmail, currentUser]);
 
-  const [selectedReplierId, setSelectedReplierId] = useState<string | null>(
-    (currentIntent as any)?.selectedReplierId || (currentIntent as any)?.helperId || null
-  );
+  const [selectedReplierId, setSelectedReplierId] = useState<string | null>(() => {
+    const rawRep = (currentIntent as any)?.selectedReplierId || (currentIntent as any)?.helperId || null;
+    if (
+      rawRep &&
+      currentIntent?.authorId &&
+      String(rawRep).toLowerCase() === String(currentIntent.authorId).toLowerCase()
+    ) {
+      return null;
+    }
+    return rawRep;
+  });
   const [selectedReplierName, setSelectedReplierName] = useState<string | null>(
     (currentIntent as any)?.selectedReplierName || null
   );
@@ -120,10 +128,24 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false, 
     (currentIntent as any)?.selectedReplierAvatar || null
   );
 
-  // For Helper (User B), helperId is the conversation's helperId or their own UID; for Post Owner (User A), helperId MUST be selectedReplierId
-  const activeHelperId = isPostOwner
-    ? (selectedReplierId || (currentIntent as any)?.helperId || '')
-    : ((currentIntent as any)?.helperId || (currentUser?.uid && currentUser.uid !== 'guest_user' ? currentUser.uid : '') || selectedReplierId || '');
+  // For Helper/Customer (User B), helperId is their own UID (never the post owner/provider's ID); for Post Owner (User A), helperId MUST be selectedReplierId
+  const activeHelperId = React.useMemo(() => {
+    const rawIntentHelperId = String((currentIntent as any)?.helperId || '').trim();
+    const safeIntentHelperId =
+      rawIntentHelperId &&
+      (!currentIntent?.authorId || rawIntentHelperId.toLowerCase() !== String(currentIntent.authorId).toLowerCase())
+        ? rawIntentHelperId
+        : '';
+    if (isPostOwner) {
+      return selectedReplierId || safeIntentHelperId || '';
+    }
+    return (
+      safeIntentHelperId ||
+      (currentUser?.uid && currentUser.uid !== 'guest_user' ? currentUser.uid : '') ||
+      selectedReplierId ||
+      ''
+    );
+  }, [isPostOwner, selectedReplierId, currentIntent, currentUser]);
 
   // Deterministic 1-on-1 conversation ID per (post_id, helper_id)
   const activeConversationId = React.useMemo(() => {
@@ -218,11 +240,16 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false, 
   // Sync selected replier if currentIntent changes (e.g., opened from My Chats list, View Responses modal, or post card)
   useEffect(() => {
     if (currentIntent) {
-      const explicitRepId = (currentIntent as any).selectedReplierId || (currentIntent as any).helperId || null;
+      const rawExplicitRepId = (currentIntent as any).selectedReplierId || (currentIntent as any).helperId || null;
+      const explicitRepId =
+        rawExplicitRepId &&
+        (!currentIntent.authorId || String(rawExplicitRepId).toLowerCase() !== String(currentIntent.authorId).toLowerCase())
+          ? rawExplicitRepId
+          : null;
       if (explicitRepId) {
         setSelectedReplierId(explicitRepId);
-        setSelectedReplierName((currentIntent as any).selectedReplierName || (currentIntent as any).authorName || null);
-        setSelectedReplierEmail((currentIntent as any).selectedReplierEmail || null);
+        setSelectedReplierName((currentIntent as any).selectedReplierName || (currentIntent as any).helperName || (currentIntent as any).authorName || null);
+        setSelectedReplierEmail((currentIntent as any).selectedReplierEmail || (currentIntent as any).helperEmail || null);
         setSelectedReplierAvatar((currentIntent as any).selectedReplierAvatar || null);
       } else {
         const preloadedRepliers = Array.isArray((currentIntent as any).repliers)
@@ -780,7 +807,16 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false, 
 
     // Store in backend PostgreSQL conversations + messages via POST /api/chat/send
     try {
-      await sendChatMessage(chatId, messageData);
+      const sendRes: any = await sendChatMessage(chatId, messageData);
+      if (sendRes && (sendRes.code === 'ACCOUNT_PENDING_APPROVAL' || sendRes.httpStatus === 403 || sendRes.error)) {
+        // Remove optimistic message if blocked by Admin Approval check
+        setMessages(prev => prev.filter(m => m.id !== messageData.id));
+        setReportStatusBanner(
+          sendRes.error ||
+            '⏳ आपका अकाउंट अभी एडमिन अप्रूवल के लिए पेंडिंग है। अप्रूव होने के बाद ही आप मैसेज भेज सकते हैं।'
+        );
+        setTimeout(() => setReportStatusBanner(null), 6000);
+      }
     } catch (e) {}
   };
 
@@ -1013,6 +1049,25 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false, 
     ? rawLocation.replace(/^,\s*|,\s*$|,+/g, ',').replace(/,\s*,/g, ',').replace(/^,\s*/, '').replace(/,\s*$/, '').trim() || "Local Area"
     : "Local Area";
   const topicDesc = currentIntent?.description || (currentIntent as any)?.title || "LocoHelp Direct Broadcast & Service Inquiry";
+
+  // Extract peer's 10-digit phone number (from intent or synthetic phone email) for Direct Call / WhatsApp
+  const peerPhoneDigits = React.useMemo(() => {
+    const candidates = [
+      (currentIntent as any)?.phone,
+      (currentIntent as any)?.authorPhone,
+      selectedReplierEmail?.endsWith('@phone.locohelp.com') ? selectedReplierEmail.split('@')[0] : '',
+      String((currentIntent as any)?.authorEmail || '').endsWith('@phone.locohelp.com')
+        ? String((currentIntent as any)?.authorEmail || '').split('@')[0]
+        : '',
+      String(selectedReplierId || '').startsWith('phone_') ? String(selectedReplierId || '').replace('phone_', '') : '',
+      String(currentIntent?.authorId || '').startsWith('phone_') ? String(currentIntent?.authorId || '').replace('phone_', '') : ''
+    ];
+    for (const c of candidates) {
+      const d = String(c || '').replace(/\D/g, '').slice(-10);
+      if (/^[6-9]\d{9}$/.test(d)) return d;
+    }
+    return '';
+  }, [currentIntent, selectedReplierEmail, selectedReplierId]);
 
   const distinctRepliers = React.useMemo(() => {
     const map = new Map<string, {
@@ -1373,8 +1428,33 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false, 
           </div>
         </div>
 
-        {/* Right Side: Replier Switcher (ONLY if >1 people replied) + Single Clean 3-Dot Options Menu */}
-        <div className="flex items-center gap-1 shrink-0 relative">
+        {/* Right Side: Direct Call + WhatsApp + Replier Switcher + Options Menu */}
+        <div className="flex items-center gap-1.5 shrink-0 relative">
+          {peerPhoneDigits && (
+            <>
+              <a
+                href={`tel:+91${peerPhoneDigits}`}
+                className="px-2.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] sm:text-xs font-black flex items-center gap-1 shadow-xs active:scale-95 transition-all"
+                title={tr('Direct Call', 'डायरेक्ट कॉल करें', 'ડાયરેક્ટ કોલ કરો')}
+              >
+                <Phone className="w-3.5 h-3.5 shrink-0" />
+                <span className="hidden sm:inline">{tr('Call', 'कॉल', 'કોલ')}</span>
+              </a>
+              <a
+                href={`https://wa.me/91${peerPhoneDigits}?text=${encodeURIComponent(
+                  `Namaste ${peerName}, LocoHelp par aapse baat karni hai.`
+                )}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-2.5 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-[10px] sm:text-xs font-black flex items-center gap-1 shadow-xs active:scale-95 transition-all"
+                title="WhatsApp"
+              >
+                <span>💬</span>
+                <span className="hidden sm:inline">WhatsApp</span>
+              </a>
+            </>
+          )}
+
           {isPostOwner && distinctRepliers.length > 1 && selectedReplierId && (
             <button
               type="button"
@@ -1732,11 +1812,14 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false, 
                     {msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Just now'}
                   </span>
                   {isMe && (
-                    <span className="flex items-center text-[11px] font-extrabold leading-none tracking-tighter" title={msg.isRead ? 'Seen / Read' : 'Delivered'}>
-                      {msg.isRead ? (
+                    <span
+                      className="flex items-center text-[11px] font-extrabold leading-none tracking-tighter"
+                      title={Boolean(msg.isRead || (msg as any).is_read) ? 'Read (✓✓)' : 'Sent (✓)'}
+                    >
+                      {Boolean(msg.isRead || (msg as any).is_read) ? (
                         <span className="text-sky-300">✓✓</span>
                       ) : (
-                        <span className="text-white/70">✓✓</span>
+                        <span className="text-white/80">✓</span>
                       )}
                     </span>
                   )}

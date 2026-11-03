@@ -795,7 +795,7 @@ export async function verifyMobileOtp(
         idToken: fbVerify.success ? fbVerify.idToken : undefined,
         otpCode: cleanOtp,
         phone: norm.tenDigits,
-        newPassword: newPassword && newPassword.trim().length >= 6 ? newPassword.trim() : undefined,
+        newPassword: newPassword && newPassword.trim().length >= 4 ? newPassword.trim() : undefined,
         name: name ? sanitizeText(name) : undefined
       })
     });
@@ -857,6 +857,172 @@ export async function verifyMobileOtp(
 }
 
 /**
+ * Smart PostgreSQL Lookup for Phone Number / Identifier ("Login Once, Stay Logged In")
+ */
+export async function checkPhoneInPostgres(identifier: string): Promise<{
+  exists: boolean;
+  uid?: string;
+  name?: string;
+  email?: string;
+  phone?: string;
+  hasPassword?: boolean;
+  hasBiometric?: boolean;
+  credentialId?: string;
+  isApproved?: boolean;
+  approvalStatus?: string;
+}> {
+  try {
+    const clean = String(identifier || '').trim();
+    if (!clean) return { exists: false };
+    const res = await fetch(`/api/auth/check-phone?phone=${encodeURIComponent(clean)}`, {
+      method: 'GET',
+      headers: { Accept: 'application/json' }
+    });
+    if (!res.ok) return { exists: false };
+    const data = await res.json();
+    return {
+      exists: Boolean(data.exists),
+      uid: data.uid || '',
+      name: data.name || '',
+      email: data.email || '',
+      phone: data.phone || '',
+      hasPassword: Boolean(data.hasPassword),
+      hasBiometric: Boolean(data.hasBiometric),
+      credentialId: data.credentialId || '',
+      isApproved: Boolean(data.isApproved),
+      approvalStatus: data.approvalStatus || 'pending'
+    };
+  } catch {
+    return { exists: false };
+  }
+}
+
+/**
+ * Smart Unified Phone + 4-Digit PIN / Password Authentication
+ * - Existing User: Logs in directly with saved PIN/Password (no repeated OTP needed)
+ * - New User: Registers permanently in PostgreSQL with initial status = 'pending'
+ */
+export async function smartPhoneAuth(params: {
+  phone: string;
+  password: string;
+  name?: string;
+  mode?: string;
+}): Promise<{
+  success: boolean;
+  isReturningUser?: boolean;
+  isApproved?: boolean;
+  approvalStatus?: string;
+  needsReset?: boolean;
+  error?: string;
+  user?: AppUser;
+}> {
+  const cleanInput = String(params.phone || '').trim().toLowerCase();
+  const isPhone = isPhoneIdentifier(cleanInput);
+  if (!isPhone && !isValidEmail(cleanInput)) {
+    return {
+      success: false,
+      error: trAuth(
+        'Please enter a valid 10-digit Mobile Number.',
+        'कृपया सही 10-अंकों का मोबाइल नंबर दर्ज करें।',
+        'કૃપા કરીને 10-અંકનો સાચો મોબાઇલ નંબર દાખલ કરો.'
+      )
+    };
+  }
+  const secret = String(params.password || '').trim();
+  if (!secret || secret.length < 4) {
+    return {
+      success: false,
+      error: trAuth(
+        'Please enter at least a 4-digit PIN or Password.',
+        'कृपया कम से कम 4 अंकों का PIN या पासवर्ड दर्ज करें।',
+        'કૃપા કરીને ઓછામાં ઓછો 4 અંકનો PIN કે પાસવર્ડ દાખલ કરો.'
+      )
+    };
+  }
+
+  const normalizedIdentifier = isPhone ? normalizeIndianPhone(cleanInput) : cleanInput;
+
+  try {
+    const res = await fetch('/api/auth/smart-phone-auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        phone: normalizedIdentifier,
+        identifier: normalizedIdentifier,
+        password: secret,
+        pin: secret,
+        name: params.name ? sanitizeText(params.name) : undefined,
+        mode: params.mode
+      })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      return {
+        success: false,
+        needsReset: Boolean(data.needsReset),
+        error: localizeServerAuthError(
+          data.error,
+          'Incorrect PIN / Password. Please try again.',
+          'गलत PIN या पासवर्ड! कृपया पुनः प्रयास करें।',
+          'ખોટો PIN કે પાસવર્ડ! કૃપા કરીને ફરી પ્રયાસ કરો.'
+        )
+      };
+    }
+
+    const resolvedEmail =
+      data.user?.email || (isPhone ? `${normalizedIdentifier}@phone.locohelp.com` : cleanInput);
+    const userData: AppUser = {
+      uid: ensureValidUUID(data.user?.uid || resolvedEmail),
+      displayName: sanitizeText(
+        data.user?.displayName ||
+          params.name ||
+          (isPhone ? `Member +91 ${normalizedIdentifier.slice(-4)}` : resolvedEmail.split('@')[0])
+      ),
+      email: resolvedEmail,
+      phone: sanitizeText(data.user?.phone || (isPhone ? `+91 ${normalizedIdentifier}` : '')),
+      photoURL: 'https://lh3.googleusercontent.com/a/default-user',
+      isGuest: false
+    };
+
+    if (data.token) {
+      localStorage.setItem('locohelp_token', data.token);
+    }
+    localStorage.setItem('locohelp_user', JSON.stringify(userData));
+    localStorage.setItem('locohelp_logged_in', 'true');
+    localStorage.setItem('locohelp_last_logged_in_email', resolvedEmail);
+    if (isPhone) {
+      localStorage.setItem('locohelp_last_logged_in_phone', normalizedIdentifier);
+    }
+    localStorage.setItem('locohelp_last_logged_in_name', userData.displayName);
+
+    try {
+      await saveUserProfile(userData);
+    } catch {}
+
+    window.dispatchEvent(new Event('storage'));
+    window.postMessage({ type: 'LOCOHELP_AUTH_SUCCESS' }, '*');
+    notifyAuthState('SIGNED_IN', userData);
+
+    return {
+      success: true,
+      isReturningUser: Boolean(data.isReturningUser),
+      isApproved: Boolean(data.isApproved),
+      approvalStatus: data.approvalStatus || 'pending',
+      user: userData
+    };
+  } catch {
+    return {
+      success: false,
+      error: trAuth(
+        'Connection error. Please try again.',
+        'कनेक्शन त्रुटि। कृपया पुनः प्रयास करें।',
+        'કનેક્શન ભૂલ. કૃપા કરીને ફરી પ્રયાસ કરો.'
+      )
+    };
+  }
+}
+
+/**
  * Email OR Mobile Number & Password Login with JWT session persistence (₹0 SMS OTP cost!)
  */
 export async function signInWithPassword(identifier: string, password: string): Promise<{
@@ -878,13 +1044,13 @@ export async function signInWithPassword(identifier: string, password: string): 
       )
     };
   }
-  if (!password || password.length < 6) {
+  if (!password || password.length < 4) {
     return {
       success: false,
       error: trAuth(
-        'Password must be at least 6 characters.',
-        'पासवर्ड कम से कम 6 अक्षरों का होना चाहिए।',
-        'પાસવર્ડ ઓછામાં ઓછો 6 અક્ષરોનો હોવો જોઈએ.'
+        'PIN / Password must be at least 4 characters.',
+        'PIN / पासवर्ड कम से कम 4 अक्षरों का होना चाहिए।',
+        'PIN / પાસવર્ડ ઓછામાં ઓછો 4 અક્ષરોનો હોવો જોઈએ.'
       )
     };
   }
@@ -981,13 +1147,13 @@ export async function signUpWithPassword(
       )
     };
   }
-  if (!password || password.length < 6) {
+  if (!password || password.length < 4) {
     return {
       success: false,
       error: trAuth(
-        'Password must be at least 6 characters.',
-        'पासवर्ड कम से कम 6 अक्षरों का होना चाहिए।',
-        'પાસવર્ડ ઓછામાં ઓછો 6 અક્ષરોનો હોવો જોઈએ.'
+        'PIN / Password must be at least 4 characters.',
+        'PIN / पासवर्ड कम से कम 4 अक्षरों का होना चाहिए।',
+        'PIN / પાસવર્ડ ઓછામાં ઓછો 4 અક્ષરોનો હોવો જોઈએ.'
       )
     };
   }

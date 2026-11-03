@@ -91,6 +91,7 @@ import { isEntityOwner } from '../lib/ownership';
 import {
   getCachedCategoryImages,
   fetchCategoryImages,
+  fetchUserApprovalStatus,
 } from '../api';
 
 interface CategoriesScreenProps {
@@ -693,27 +694,54 @@ export default function CategoriesScreen({
     return matchesCat && matchesSearch;
   });
 
+  const [pendingApprovalNotice, setPendingApprovalNotice] = useState<string | null>(null);
+
+  const verifyCategoryUserApproval = async (onApproved: () => void) => {
+    const u = getCurrentUser();
+    const res = await fetchUserApprovalStatus(
+      u?.uid || '',
+      u?.email || localStorage.getItem('locohelp_last_logged_in_email') || '',
+      u?.phone || localStorage.getItem('locohelp_last_logged_in_phone') || ''
+    );
+    if (!res.isApproved) {
+      setPendingApprovalNotice(
+        'Tamaro account Admin approval mate pending chhe. Approval bad tame post ane chat kari shaksho.'
+      );
+      setTimeout(() => setPendingApprovalNotice(null), 6500);
+      return;
+    }
+    onApproved();
+  };
+
   const handleChatWithHelper = (helper: FreeHelperProfile) => {
     if (isGuestUser()) {
       setIsLoginPromptOpen(true);
       return;
     }
-    if (onOpenChat) {
-      onOpenChat({
-        id: 'intent_' + helper.id,
-        authorId: helper.id,
-        authorName: helper.name,
-        description: `${helper.name} (${
-          helper.customCategoryName ||
-          CATEGORIES.find((c) => c.id === helper.categoryId)?.nameEn ||
-          'Service Expert'
-        })`,
-        tags: helper.skills || [],
-        distance: helper.distance || 0.8,
-        status: 'active',
-        createdAt: new Date().toISOString(),
-      });
-    }
+    verifyCategoryUserApproval(() => {
+      if (onOpenChat) {
+        const targetProviderId = helper.userId || helper.id;
+        const targetProviderEmail = (helper as any).email || '';
+        onOpenChat({
+          id: `provider_chat_${helper.id}`,
+          authorId: targetProviderId,
+          authorEmail: targetProviderEmail,
+          authorName: helper.name,
+          providerHelperId: helper.id,
+          receiverId: targetProviderId,
+          isDirectProviderChat: true,
+          description: `${helper.name} (${
+            helper.customCategoryName ||
+            CATEGORIES.find((c) => c.id === helper.categoryId)?.nameEn ||
+            'Service Expert'
+          })`,
+          tags: helper.skills || [],
+          distance: helper.distance || 0.8,
+          status: 'active',
+          createdAt: new Date().toISOString(),
+        } as any);
+      }
+    });
   };
 
   return (
@@ -745,7 +773,7 @@ export default function CategoriesScreen({
               setIsLoginPromptOpen(true);
               return;
             }
-            setIsRegisterModalOpen(true);
+            verifyCategoryUserApproval(() => setIsRegisterModalOpen(true));
           }}
           style={{
             background: 'linear-gradient(135deg, #FF6600 0%, #E03E00 100%)',
@@ -762,6 +790,19 @@ export default function CategoriesScreen({
           </span>
         </button>
       </div>
+
+      {pendingApprovalNotice && (
+        <div className="mx-4 mt-3 p-3.5 rounded-2xl bg-amber-50 border-2 border-amber-300 text-amber-900 text-xs sm:text-sm font-black shadow-md flex items-center justify-between gap-3">
+          <span>⏳ {pendingApprovalNotice}</span>
+          <button
+            type="button"
+            onClick={() => setPendingApprovalNotice(null)}
+            className="px-2 py-1 rounded-lg bg-amber-200/70 text-amber-950 text-xs font-black"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       <div className="p-4 max-w-5xl w-full mx-auto space-y-4">
         {/* Search Bar */}
@@ -1311,14 +1352,11 @@ export default function CategoriesScreen({
                             <button
                               type="button"
                               onClick={() => handleChatWithHelper(helper)}
-                              style={{
-                                background:
-                                  'linear-gradient(135deg, #FF6600 0%, #E03E00 100%)',
-                              }}
-                              className="px-3 py-1.5 rounded-xl text-white text-xs font-bold flex items-center gap-1 shadow-sm transition-colors cursor-pointer"
+                              className="px-3 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-extrabold flex items-center gap-1 shadow-sm transition-colors cursor-pointer"
                             >
-                              <MessageCircle className="w-3.5 h-3.5" />
-                              <span>{tr('Chat', 'चैट करें', 'ચેટ કરો')}</span>
+                              <span>
+                                {tr('💬 Chat', '💬 चैट करें', '💬 મેસેજ કરો (Chat)')}
+                              </span>
                             </button>
                           </>
                         )}

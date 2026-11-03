@@ -576,8 +576,8 @@ export default function AppGuideModal({ onClose, onExplore }: AppGuideModalProps
         initial={{ opacity: 0, scale: 0.95, y: 15 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 15 }}
-        className="bg-[#FAF8F5] dark:bg-slate-900 border border-[#EAE4D9] dark:border-slate-800 rounded-[28px] w-full max-w-xl max-h-[82vh] flex flex-col shadow-2xl overflow-hidden relative"
-        style={{ marginBottom: 'calc(58px + env(safe-area-inset-bottom, 0px))' }}
+        className="bg-[#FAF8F5] dark:bg-slate-900 border border-[#EAE4D9] dark:border-slate-800 rounded-[28px] w-full max-w-xl max-h-[80dvh] flex flex-col shadow-2xl overflow-hidden relative"
+        style={{ marginBottom: 'calc(68px + env(safe-area-inset-bottom, 0px))' }}
       >
         {/* Modal Top Header with Language Selector */}
         <div className="px-5 py-3.5 bg-[#F2EDE4] dark:bg-slate-800/90 border-b border-[#E2DDD2] dark:border-slate-800 flex items-center justify-between shrink-0">

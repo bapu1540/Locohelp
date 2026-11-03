@@ -705,32 +705,28 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
           setVerificationsList(liveVerifs);
         }
 
-        // Map helper categories by id / userId / email so Simple User Profiles accurately show their registered category
-        const helperByKey = new Map<string, any>();
+        // Keep Simple User Profiles 100% separate from Service Providers (helpers)
+        const helperIdSet = new Set<string>();
         loadedHelpersList.forEach(h => {
-          if (!h) return;
-          if (h.id) helperByKey.set(String(h.id), h);
-          if (h.userId) helperByKey.set(String(h.userId), h);
-          if (h.email) helperByKey.set(String(h.email).toLowerCase(), h);
+          if (h && h.id) helperIdSet.add(String(h.id).toLowerCase());
         });
 
-        const userVerifs = (Array.isArray(liveVerifs) ? liveVerifs : []).filter(v => v.entityType === 'user_profile');
+        const userVerifs = (Array.isArray(liveVerifs) ? liveVerifs : []).filter(
+          v =>
+            v.entityType === 'user_profile' &&
+            !String(v.id || '').startsWith('verif_hlp_') &&
+            !String(v.entityId || '').startsWith('helper_') &&
+            !helperIdSet.has(String(v.entityId || '').toLowerCase())
+        );
         const combinedUsersMap = new Map<string, any>();
 
         if (Array.isArray(usersList)) {
           usersList.forEach(u => {
             if (!u || !u.id || deletedUsersSet.has(String(u.id)) || deletedHelpersSet.has(String(u.id))) return;
-            const matchedHelper =
-              helperByKey.get(String(u.id)) ||
-              (u.email ? helperByKey.get(String(u.email).toLowerCase()) : undefined);
-            const rawCat =
-              u.categoryId ||
-              u.category ||
-              matchedHelper?.categoryId ||
-              matchedHelper?.category ||
-              '';
+            if (String(u.id).startsWith('helper_') || helperIdSet.has(String(u.id).toLowerCase())) return;
+            const rawCat = u.categoryId || u.category || '';
             const normCat = rawCat
-              ? normalizeCategorySlug(rawCat, u.skills || matchedHelper?.skills, u.customCategoryName || matchedHelper?.customCategoryName)
+              ? normalizeCategorySlug(rawCat, u.skills, u.customCategoryName)
               : { categoryId: 'other', customCategoryName: '' };
             const uStatusLow = String(u.status || '').toLowerCase();
             const isRejected = uStatusLow === 'rejected';
@@ -739,17 +735,15 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
               Boolean(
                 uStatusLow === 'approved' ||
                   u.isVerified === true ||
-                  u.is_verified === true ||
-                  matchedHelper?.status === 'approved' ||
-                  matchedHelper?.isVerified === true
+                  u.is_verified === true
               );
             combinedUsersMap.set(u.id, {
               ...u,
               categoryId: normCat.categoryId,
               category: normCat.categoryId,
-              customCategoryName: u.customCategoryName || matchedHelper?.customCategoryName || normCat.customCategoryName,
-              skills: u.skills || (Array.isArray(matchedHelper?.skills) ? matchedHelper.skills.join(', ') : matchedHelper?.skills) || '',
-              area: u.area || u.address || matchedHelper?.area || '',
+              customCategoryName: u.customCategoryName || normCat.customCategoryName,
+              skills: u.skills || '',
+              area: u.area || u.address || '',
               status: isRejected ? 'rejected' : isApproved ? 'approved' : 'pending',
               isVerified: isApproved
             });
@@ -759,14 +753,11 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         userVerifs.forEach(uv => {
           const targetKey = String(uv.entityId || uv.userId || uv.id || '');
           if (!targetKey || deletedUsersSet.has(targetKey) || deletedHelpersSet.has(targetKey)) return;
+          if (targetKey.startsWith('helper_') || helperIdSet.has(targetKey.toLowerCase())) return;
           const existing =
             combinedUsersMap.get(String(uv.entityId || '')) ||
             combinedUsersMap.get(String(uv.userId || '')) ||
             (uv.userEmail ? Array.from(combinedUsersMap.values()).find(x => x.email && x.email.toLowerCase() === uv.userEmail.toLowerCase()) : undefined);
-          const matchedHelper =
-            helperByKey.get(String(uv.entityId || '')) ||
-            helperByKey.get(String(uv.userId || '')) ||
-            (uv.userEmail ? helperByKey.get(String(uv.userEmail).toLowerCase()) : undefined);
 
           const uvStatusLow = String(uv.status || '').toLowerCase();
           if (existing) {
@@ -778,9 +769,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
               Boolean(
                 exStatusLow === 'approved' ||
                   existing.isVerified === true ||
-                  uvStatusLow === 'approved' ||
-                  matchedHelper?.status === 'approved' ||
-                  matchedHelper?.isVerified === true
+                  uvStatusLow === 'approved'
               );
             combinedUsersMap.set(existing.id, {
               ...existing,
@@ -791,30 +780,24 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
               isVerified: isApproved
             });
           } else {
-            const rawCat = uv.category || matchedHelper?.categoryId || matchedHelper?.category || '';
+            const rawCat = uv.category || '';
             const normCat = rawCat
-              ? normalizeCategorySlug(rawCat, matchedHelper?.skills, matchedHelper?.customCategoryName)
+              ? normalizeCategorySlug(rawCat, '', '')
               : { categoryId: 'other', customCategoryName: '' };
             const isRejected = uvStatusLow === 'rejected';
-            const isApproved =
-              !isRejected &&
-              Boolean(
-                uvStatusLow === 'approved' ||
-                  matchedHelper?.status === 'approved' ||
-                  matchedHelper?.isVerified === true
-              );
+            const isApproved = !isRejected && uvStatusLow === 'approved';
             const finalId = uv.entityId || uv.userId || uv.id;
             combinedUsersMap.set(finalId, {
               id: finalId,
               uid: finalId,
               verificationId: uv.id,
-              name: uv.userName || matchedHelper?.name || 'Community Member',
-              email: uv.userEmail || matchedHelper?.email || '',
-              phone: uv.userPhone || matchedHelper?.phone || '',
-              area: uv.area || matchedHelper?.area || 'Local Area',
+              name: uv.userName || 'Community Member',
+              email: uv.userEmail || '',
+              phone: uv.userPhone || '',
+              area: uv.area || 'Local Area',
               categoryId: normCat.categoryId,
               category: normCat.categoryId,
-              customCategoryName: matchedHelper?.customCategoryName || normCat.customCategoryName || '',
+              customCategoryName: normCat.customCategoryName || '',
               idDocumentType: uv.idDocumentType,
               idDocumentWatermarked: uv.idDocumentWatermarked,
               status: isRejected ? 'rejected' : isApproved ? 'approved' : 'pending',
@@ -1073,21 +1056,6 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         if (res.success) {
           const updatedHelper = { ...item, ...(res.item || {}), ...fullUpdates };
           setHelpers(prev => prev.map(h => (h.id === id ? updatedHelper : h)));
-          // Also sync matching record in simpleUsers and verificationsList so Pending count updates immediately across all modules!
-          setSimpleUsers(prev =>
-            prev.map(u =>
-              u.id === id || u.uid === id || (item.email && u.email && u.email.toLowerCase() === item.email.toLowerCase())
-                ? {
-                    ...u,
-                    categoryId: norm.categoryId,
-                    category: norm.categoryId,
-                    status: newStatus,
-                    isVerified: isApproved,
-                    is_verified: isApproved
-                  }
-                : u
-            )
-          );
           setVerificationsList(prev =>
             prev.map(v =>
               v.entityId === id || v.userId === id || (item.email && v.userEmail?.toLowerCase() === item.email.toLowerCase())
@@ -1129,28 +1097,8 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
           is_approved: isApproved
         };
         const res = await updateAdminUserOnServer(id, userUpdates);
-        // Also update / upsert in helpers if this user has a category so they appear in live website categories
-        if (norm.categoryId && norm.categoryId !== 'other') {
-          await updateAdminHelperOnServer(id, {
-            ...userUpdates,
-            id,
-            name: item.name || item.userName || 'Service Expert',
-            categoryId: norm.categoryId,
-            skills: item.skills ? (Array.isArray(item.skills) ? item.skills : String(item.skills).split(',').map((s: string) => s.trim())) : [norm.categoryId],
-            area: item.area || item.address || 'Local Area',
-            status: newStatus,
-            isVerified: isApproved
-          }).catch(() => {});
-        }
         if (res.success || item.verificationId) {
           setSimpleUsers(prev => prev.map(u => (u.id === id ? { ...u, ...userUpdates } : u)));
-          setHelpers(prev =>
-            prev.map(h =>
-              h.id === id || h.userId === id || (item.email && h.email && h.email.toLowerCase() === item.email.toLowerCase())
-                ? { ...h, status: newStatus, isVerified: isApproved, is_verified: isApproved }
-                : h
-            )
-          );
           setVerificationsList(prev =>
             prev.map(v =>
               v.id === item.verificationId || v.entityId === id || v.userId === id
@@ -1158,7 +1106,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                 : v
             )
           );
-          showToast(isApproved ? '✅ User Profile Approved & Synced!' : '❌ User Profile Rejected.');
+          showToast(isApproved ? '✅ Simple User Account Approved! User can now Post & Message.' : '❌ Simple User Account Rejected.');
         } else {
           showToast(res.error || 'Failed to update User Profile');
         }

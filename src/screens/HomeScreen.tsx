@@ -486,6 +486,32 @@ export default function HomeScreen({
     return parseFloat((R * c).toFixed(1));
   };
 
+  const [isPendingApprovalModalOpen, setIsPendingApprovalModalOpen] = useState(false);
+  const [checkingApprovalState, setCheckingApprovalState] = useState(false);
+
+  const verifyUserApprovalBeforeAction = async (onApproved: () => void) => {
+    const u = getCurrentUser();
+    const email = (u?.email || localStorage.getItem('locohelp_last_logged_in_email') || '').trim().toLowerCase();
+    const uid = (u?.uid || '').trim();
+    const phone = localStorage.getItem('locohelp_profile_phone') || '';
+    try {
+      const res = await fetch(
+        `/api/users/approval-status?uid=${encodeURIComponent(uid)}&email=${encodeURIComponent(email)}&phone=${encodeURIComponent(phone)}&_t=${Date.now()}`,
+        { cache: 'no-store' }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        localStorage.setItem('locohelp_account_approved', data?.isApproved ? 'true' : 'false');
+        localStorage.setItem('locohelp_account_status', String(data?.status || 'pending'));
+        if (data?.isApproved) {
+          onApproved();
+          return;
+        }
+      }
+    } catch {}
+    setIsPendingApprovalModalOpen(true);
+  };
+
   const handleSafeOpenChat = (intent?: any) => {
     if (isGuestUser()) {
       setLoginPromptTitle({
@@ -498,11 +524,13 @@ export default function HomeScreen({
         hi: 'पड़ोसियों और सर्विस एक्सपर्ट्स से चैट करने के लिए ईमेल OTP या पासवर्ड से लॉगिन करें।',
         gu: 'સ્થાનિક સર્વિસ એક્સપર્ટ્સ અને પાડોશીઓ સાથે વાત કરવા માટે ઈમેલ OTP અથવા પાસવર્ડથી લોગિન કરો!'
       });
-      setLoginSuccessAction(() => () => setChatModalIntent(intent || null));
+      setLoginSuccessAction(() => () => {
+        void verifyUserApprovalBeforeAction(() => setChatModalIntent(intent || null));
+      });
       setIsLoginPromptOpen(true);
       return;
     }
-    setChatModalIntent(intent || null);
+    void verifyUserApprovalBeforeAction(() => setChatModalIntent(intent || null));
   };
 
   const handleSafeOpenPostSheet = () => {
@@ -517,11 +545,13 @@ export default function HomeScreen({
         hi: 'अपने एरिया में आवश्यकता पोस्ट करने के लिए ईमेल OTP या पासवर्ड से लॉगिन करें।',
         gu: 'તમારા વિસ્તારમાં તમારી જરૂરિયાત પોસ્ટ કરવા માટે ઈમેલ OTP અથવા પાસવર્ડથી લોગિન કરો!'
       });
-      setLoginSuccessAction(() => () => setIsPostSheetOpen(true));
+      setLoginSuccessAction(() => () => {
+        void verifyUserApprovalBeforeAction(() => setIsPostSheetOpen(true));
+      });
       setIsLoginPromptOpen(true);
       return;
     }
-    setIsPostSheetOpen(true);
+    void verifyUserApprovalBeforeAction(() => setIsPostSheetOpen(true));
   };
 
   const handleSafeProfileClick = () => {
@@ -556,14 +586,18 @@ export default function HomeScreen({
         gu: 'તમારી દુકાન, શોરૂમ કે બિઝનેસ રજિસ્ટર કરવા માટે ઈમેલ OTP અથવા પાસવર્ડથી લોગિન કરો.'
       });
       setLoginSuccessAction(() => () => {
-        setShopModalInitialTab('new');
-        setIsRegisterShopModalOpen(true);
+        verifyUserApprovalBeforeAction(() => {
+          setShopModalInitialTab('new');
+          setIsRegisterShopModalOpen(true);
+        });
       });
       setIsLoginPromptOpen(true);
       return;
     }
-    setShopModalInitialTab('new');
-    setIsRegisterShopModalOpen(true);
+    verifyUserApprovalBeforeAction(() => {
+      setShopModalInitialTab('new');
+      setIsRegisterShopModalOpen(true);
+    });
   };
 
   const handleSafeCreateProfile = () => {
@@ -578,11 +612,13 @@ export default function HomeScreen({
         hi: 'अपनी रेटिंग, स्किल्स और मोबाइल नंबर के साथ सर्विस एक्सपर्ट्स लिस्टिंग में प्रोफाइल बनाने के लिए साइन-इन करें।',
         gu: 'તમારા કૌશલ્ય, રેટિંગ અને મોબાઇલ નંબર સાથે સર્વિસ એક્સપર્ટ પ્રોફાઇલ બનાવવા માટે લોગિન કરો.'
       });
-      setLoginSuccessAction(() => () => setIsFreeHelperModalOpen(true));
+      setLoginSuccessAction(() => () => {
+        verifyUserApprovalBeforeAction(() => setIsFreeHelperModalOpen(true));
+      });
       setIsLoginPromptOpen(true);
       return;
     }
-    setIsFreeHelperModalOpen(true);
+    verifyUserApprovalBeforeAction(() => setIsFreeHelperModalOpen(true));
   };
 
   const handleWhatsAppShare = () => {
@@ -2444,18 +2480,17 @@ export default function HomeScreen({
                               <button
                                 type="button"
                                 onClick={() => handleSafeOpenChat(intent)}
-                                className={`h-9 px-1 rounded-xl text-[10px] sm:text-[11px] font-black flex items-center justify-center gap-1 shadow-xs transition-all cursor-pointer active:scale-95 truncate ${
+                                className={`h-9 px-1.5 rounded-xl text-[10px] sm:text-[11px] font-black flex items-center justify-center gap-1 shadow-xs transition-all cursor-pointer active:scale-95 truncate ${
                                   hasChattedOnThisPost
-                                    ? 'bg-gradient-to-r from-emerald-600 to-indigo-600 text-white ring-1 ring-emerald-400/40'
-                                    : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                                    ? 'bg-gradient-to-r from-emerald-600 to-teal-700 text-white ring-1 ring-emerald-400/40'
+                                    : 'bg-teal-600 hover:bg-teal-700 text-white'
                                 }`}
                                 title={hasChattedOnThisPost ? 'Continue conversation' : t('home.directChat')}
                               >
-                                <MessageCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" />
                                 <span className="truncate">
                                   {hasChattedOnThisPost
-                                    ? tr('Your Chat', 'आपकी चैट', 'તમારી ચેટ')
-                                    : tr('Chat', 'चैट', 'ચેટ')}
+                                    ? tr('💬 Your Chat', '💬 आपकी चैट', '💬 તમારી ચેટ')
+                                    : tr('💬 Chat', '💬 चैट करें', '💬 મેસેજ કરો (Chat)')}
                                 </span>
                               </button>
                             </div>
@@ -2771,19 +2806,94 @@ export default function HomeScreen({
         )}
       </AnimatePresence>
 
-      {/* Live Broadcast Post In-Place Chat Modal Popup */}
+      {/* Account Pending Admin Approval Modal (3-Step Lifecycle: Login -> Admin Approval -> Post & Message) */}
+      <AnimatePresence>
+        {isPendingApprovalModalOpen && (
+          <div
+            className="fixed inset-0 z-[10500] flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-xs"
+            style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 10500 }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 12 }}
+              className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl border border-amber-300 dark:border-amber-700/60 flex flex-col gap-4 text-center"
+            >
+              <div className="w-14 h-14 rounded-2xl bg-amber-100 dark:bg-amber-950/60 text-amber-600 mx-auto flex items-center justify-center text-3xl shadow-inner">
+                ⏳
+              </div>
+              <div>
+                <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white">
+                  {language === 'GU'
+                    ? 'એડમિન અપ્રૂવલ બાકી છે (Pending Approval)'
+                    : language === 'HI'
+                    ? 'एडमिन अप्रूवल पेंडिंग है (Pending Approval)'
+                    : 'Account Pending Admin Approval'}
+                </h3>
+                <p className="text-xs sm:text-sm text-amber-800 dark:text-amber-300 mt-2 font-extrabold bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 rounded-xl px-3 py-2">
+                  Tamaro account Admin approval mate pending chhe. Approval bad tame post ane chat kari shaksho.
+                </p>
+                <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 mt-2 leading-relaxed font-medium">
+                  {language === 'GU'
+                    ? 'તમારું એકાઉન્ટ એડમિન અપ્રૂવલ માટે પેન્ડિંગ છે. અપ્રૂવલ બાદ તમે પોસ્ટ અને ચેટ કરી શકશો. ત્યાં સુધી તમે બધી કેટેગરી અને યાદી જોઈ શકો છો.'
+                    : language === 'HI'
+                    ? 'आपका अकाउंट एडमिन अप्रूवल के लिए पेंडिंग है। अप्रूवल के बाद आप पोस्ट और चैट कर सकेंगे। तब तक आप सभी कैटेगरी और लिस्टिंग देख सकते हैं।'
+                    : 'Your account is pending Admin approval. After approval, you will be able to create posts and send direct chat messages.'}
+                </p>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-2.5 pt-2">
+                <button
+                  type="button"
+                  disabled={checkingApprovalState}
+                  onClick={async () => {
+                    setCheckingApprovalState(true);
+                    await verifyUserApprovalBeforeAction(() => {
+                      setIsPendingApprovalModalOpen(false);
+                      setCreatedToast(
+                        language === 'GU'
+                          ? '✅ તમારું એકાઉન્ટ એડમિન દ્વારા અપ્રૂવ થઈ ગયું છે!'
+                          : '✅ आपका अकाउंट एडमिन द्वारा अप्रूव हो गया है!'
+                      );
+                      setTimeout(() => setCreatedToast(null), 4000);
+                    });
+                    setCheckingApprovalState(false);
+                  }}
+                  className="flex-1 py-2.5 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-xs shadow-md transition-all cursor-pointer"
+                >
+                  {checkingApprovalState
+                    ? 'Checking...'
+                    : language === 'GU'
+                    ? '🔄 સ્ટેટસ ચેક કરો'
+                    : language === 'HI'
+                    ? '🔄 अप्रूवल स्टेटस चेक करें'
+                    : '🔄 Check Approval Status'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsPendingApprovalModalOpen(false)}
+                  className="flex-1 py-2.5 px-4 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                >
+                  {language === 'GU' ? 'સમજી ગયો (OK)' : language === 'HI' ? 'ठीक है (OK)' : 'Got It (OK)'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Live Broadcast Post In-Place Chat Modal Popup (zIndex 10000 so FixedBottomNavBar never hides the message input bar) */}
       <AnimatePresence>
         {chatModalIntent && (
           <div
-            className="fixed inset-x-0 bottom-0 top-[52px] z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-xs p-0 sm:p-4"
-            style={{ position: 'fixed', top: '52px', left: 0, right: 0, bottom: 0, zIndex: 9000 }}
+            className="fixed inset-0 z-[10000] flex items-center justify-center bg-slate-950/75 backdrop-blur-xs p-0 sm:p-4"
+            style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 10000 }}
           >
             <motion.div
               initial={{ opacity: 0, y: 30, scale: 0.98 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 30, scale: 0.98 }}
               transition={{ duration: 0.2 }}
-              className="w-full max-w-2xl h-full sm:h-[92vh] sm:max-h-[820px] bg-white dark:bg-slate-900 sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-slate-200 dark:border-slate-800"
+              className="w-full max-w-2xl h-[100dvh] sm:h-[92vh] sm:max-h-[820px] bg-white dark:bg-slate-900 sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-slate-200 dark:border-slate-800"
             >
               {/* Chat Screen Component Container (Single Unified Header inside ChatScreen) */}
               <div className="flex-1 min-h-0 relative overflow-hidden flex flex-col">

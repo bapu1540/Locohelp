@@ -770,8 +770,8 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
 
                   <span
                     style={{
-                      width: '24px',
-                      height: '24px',
+                      width: '22px',
+                      height: '22px',
                       borderRadius: '9999px',
                       backgroundColor: '#16a34a',
                       color: '#ffffff',
@@ -784,6 +784,63 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
                     <Phone className="w-3 h-3 fill-white" />
                   </span>
                 </div>
+
+                {/* Direct 1-Click Chat Button on Service Expert Card */}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const provTargetId = item.userId || item.id;
+                    const provEmail = item.email || '';
+                    onOpenDirectChat({
+                      id: `provider_chat_${item.id}`,
+                      authorId: provTargetId,
+                      authorEmail: provEmail,
+                      authorName:
+                        language === 'GU'
+                          ? item.nameGu
+                          : language === 'HI'
+                          ? item.nameHi
+                          : item.nameEn,
+                      providerHelperId: item.id,
+                      receiverId: provTargetId,
+                      isDirectProviderChat: true,
+                      description:
+                        language === 'GU'
+                          ? `${item.nameGu} (${item.roleGu}) સાથે સીધી વાતચીત`
+                          : `${item.nameEn} (${item.roleEn}) Direct Inquiry`,
+                      category: item.categoryKey,
+                      location: item.areaEn || 'Local Area',
+                      distance: Number(item.distance) || 1.2,
+                      status: 'active',
+                      createdAt: new Date().toISOString(),
+                    });
+                  }}
+                  style={{
+                    marginTop: '5px',
+                    width: '100%',
+                    padding: '4px 4px',
+                    borderRadius: '8px',
+                    backgroundColor: '#0d9488',
+                    color: '#ffffff',
+                    fontSize: '8.5px',
+                    fontWeight: 900,
+                    border: 'none',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '3px',
+                  }}
+                >
+                  <span>
+                    {language === 'GU'
+                      ? '💬 મેસેજ કરો (Chat)'
+                      : language === 'HI'
+                      ? '💬 चैट करें (Chat)'
+                      : '💬 Chat'}
+                  </span>
+                </button>
               </div>
             );
           })}
@@ -1506,9 +1563,7 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
                             : language === 'HI'
                             ? prov.nameHi
                             : prov.nameEn,
-                        helperId: provTargetId,
-                        helperName: prov.nameEn || prov.nameGu,
-                        helperEmail: provEmail,
+                        providerHelperId: prov.id,
                         receiverId: provTargetId,
                         isDirectProviderChat: true,
                         description:
@@ -1540,10 +1595,10 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
                     <MessageCircle className="w-4 h-4" />
                     <span>
                       {language === 'GU'
-                        ? 'સીધી વાતચીત (ચેટ)'
+                        ? '💬 મેસેજ કરો (Chat)'
                         : language === 'HI'
-                        ? 'सीधी बातचीत (चैट)'
-                        : 'Direct Chat'}
+                        ? '💬 चैट करें (Chat)'
+                        : '💬 Direct Chat'}
                     </span>
                   </button>
                 </div>
