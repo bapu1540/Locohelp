@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   X,
   Phone,
+  Mail,
   Lock,
   User as UserIcon,
   Eye,
@@ -23,7 +24,6 @@ import {
   signInWithPassword,
   sendEmailOtp,
   verifyEmailOtp,
-  resetUserPassword,
   isBiometricSupported,
   getSavedBiometricInfo,
   signInWithBiometricPasskey,
@@ -76,12 +76,13 @@ export default function LoginPromptModal({
     approvalStatus?: string;
   }>({ checked: false, exists: false });
 
-  // Mode: 'pin' (default clean PIN/Password login/register) or 'otp' (1-time OTP verification / forgot PIN)
-  const [authMethod, setAuthMethod] = useState<'pin' | 'otp'>('pin');
+  // OTP & PIN setup states
+  const [forceOtpMode, setForceOtpMode] = useState(false);
   const [otpSent, setOtpSent] = useState(false);
   const [otpCode, setOtpCode] = useState('');
   const [devOtpHint, setDevOtpHint] = useState('');
   const [cooldown, setCooldown] = useState(0);
+  const [otpVerifiedForPinSetup, setOtpVerifiedForPinSetup] = useState(false);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -104,15 +105,23 @@ export default function LoginPromptModal({
     if (!isOpen) return;
     setErrorMsg(null);
     setSuccessMsg(null);
+    setForceOtpMode(false);
     setOtpSent(false);
     setOtpCode('');
     setDevOtpHint('');
+    setOtpVerifiedForPinSetup(false);
+    setPinOrPassword('');
     setShowBiometricSetupPrompt(false);
 
     const savedPhone = localStorage.getItem('locohelp_last_logged_in_phone') || '';
+    const savedEmail = localStorage.getItem('locohelp_last_logged_in_email') || '';
     const savedName = localStorage.getItem('locohelp_last_logged_in_name') || '';
-    if (savedPhone && !phoneOrEmail) {
-      setPhoneOrEmail(savedPhone);
+    if (!phoneOrEmail) {
+      if (savedPhone) {
+        setPhoneOrEmail(savedPhone);
+      } else if (savedEmail && !savedEmail.endsWith('@phone.locohelp.com')) {
+        setPhoneOrEmail(savedEmail);
+      }
     }
     if (savedName && !name) {
       setName(savedName);
@@ -133,7 +142,7 @@ export default function LoginPromptModal({
     return () => clearInterval(timer);
   }, [cooldown]);
 
-  // Smart PostgreSQL Recognition as soon as user enters 10-digit phone number (or valid email)
+  // Smart PostgreSQL Recognition as soon as user enters 10-digit phone number OR valid email
   useEffect(() => {
     const raw = phoneOrEmail.trim();
     const digits = raw.replace(/\D/g, '');
@@ -141,7 +150,14 @@ export default function LoginPromptModal({
       !raw.includes('@') &&
       ((digits.length === 10 && /^[6-9]\d{9}$/.test(digits)) ||
         (digits.length === 12 && digits.startsWith('91') && /^[6-9]\d{9}$/.test(digits.slice(2))));
-    const isEmail = raw.includes('@') && raw.includes('.');
+    const isEmail = raw.includes('@') && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw);
+
+    // Reset OTP progress when user edits their phone/email
+    setOtpSent(false);
+    setOtpCode('');
+    setDevOtpHint('');
+    setOtpVerifiedForPinSetup(false);
+    setForceOtpMode(false);
 
     if (!isTenDigitPhone && !isEmail) {
       setCheckedUser({ checked: false, exists: false });
@@ -184,9 +200,17 @@ export default function LoginPromptModal({
 
   const rawInput = phoneOrEmail.trim();
   const cleanDigits = rawInput.replace(/\D/g, '').slice(-10);
-  const isEmailInput = rawInput.includes('@');
-  const isValidPhone = !isEmailInput && /^[6-9]\d{9}$/.test(cleanDigits);
-  const isValidEmail = isEmailInput && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawInput);
+  const isEmailInput = rawInput.includes('@') || /[a-zA-Z]/.test(rawInput);
+  const isValidPhone = !rawInput.includes('@') && /^[6-9]\d{9}$/.test(cleanDigits);
+  const isValidEmail = rawInput.includes('@') && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawInput);
+
+  // Returning user who ALREADY has a saved PIN/Password in PostgreSQL can log in directly with PIN/Password
+  const canLoginDirectlyWithPin =
+    checkedUser.checked &&
+    checkedUser.exists &&
+    Boolean(checkedUser.hasPassword) &&
+    !forceOtpMode &&
+    !otpVerifiedForPinSetup;
 
   const displayActionBanner =
     actionName ||
@@ -207,9 +231,9 @@ export default function LoginPromptModal({
         setErrorMsg(
           res.error ||
             tr(
-              'Biometric login failed. Please enter your PIN / Password below.',
-              'फिंगरप्रिंट लॉगिन नहीं हो सका। कृपया नीचे अपना PIN / पासवर्ड डालें।',
-              'ફિંગરપ્રિન્ટ લોગિન નિષ્ફળ. કૃપા કરી નીચે તમારો PIN / પાસવર્ડ નાખો.'
+              'Biometric login failed. Please log in below.',
+              'फिंगरप्रिंट लॉगिन नहीं हो सका। कृपया नीचे लॉगिन करें।',
+              'ફિંગરપ્રિન્ટ લોગિન નિષ્ફળ. કૃપા કરી નીચે લોગિન કરો.'
             )
         );
         setIsSubmitting(false);
@@ -231,8 +255,8 @@ export default function LoginPromptModal({
     }
   };
 
-  // Main Submit for PIN / Password Login or New User Registration
-  const handlePinOrPasswordSubmit = async (e: React.FormEvent) => {
+  // Returning Verified User: Direct Login with Saved PIN / Password
+  const handleReturningPinLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
     setSuccessMsg(null);
@@ -240,20 +264,9 @@ export default function LoginPromptModal({
     if (!isValidPhone && !isValidEmail) {
       setErrorMsg(
         tr(
-          'Please enter a valid 10-digit Mobile Number.',
-          'कृपया सही 10-अंकों का मोबाइल नंबर दर्ज करें।',
-          'કૃપા કરીને 10-અંકનો સાચો મોબાઇલ નંબર લખો.'
-        )
-      );
-      return;
-    }
-
-    if (!checkedUser.exists && !name.trim()) {
-      setErrorMsg(
-        tr(
-          'Please enter your Full Name.',
-          'कृपया अपना पूरा नाम लिखें।',
-          'કૃપા કરીને તમારું પૂરું નામ લખો.'
+          'Please enter a valid 10-digit Mobile Number or Email ID.',
+          'कृपया सही 10-अंकों का मोबाइल नंबर या ईमेल आईडी दर्ज करें।',
+          'કૃપા કરીને 10-અંકનો સાચો મોબાઇલ નંબર અથવા ઈમેલ આઈડી લખો.'
         )
       );
       return;
@@ -262,9 +275,9 @@ export default function LoginPromptModal({
     if (!pinOrPassword || pinOrPassword.trim().length < 4) {
       setErrorMsg(
         tr(
-          'Please enter a 4-digit PIN or Password (min 4 characters).',
-          'कृपया 4-अंकों का PIN या पासवर्ड डालें (कम से कम 4 अक्षर)।',
-          'કૃપા કરીને 4-અંકનો PIN અથવા પાસવર્ડ નાખો (ઓછામાં ઓછા 4 અક્ષર).'
+          'Please enter your 4-digit PIN or Password.',
+          'कृपया अपना 4-अंकों का PIN या पासवर्ड डालें।',
+          'કૃપા કરીને તમારો 4-અંકનો PIN અથવા પાસવર્ડ નાખો.'
         )
       );
       return;
@@ -273,14 +286,14 @@ export default function LoginPromptModal({
     setIsSubmitting(true);
     try {
       const res = await smartPhoneAuth({
-        phone: isEmailInput ? rawInput : cleanDigits,
+        phone: isValidEmail ? rawInput.toLowerCase() : cleanDigits,
         password: pinOrPassword.trim(),
         name: name.trim() || checkedUser.name || undefined
       });
 
       if (!res.success) {
-        if (isEmailInput) {
-          const emailRes = await signInWithPassword(rawInput, pinOrPassword.trim());
+        if (isValidEmail) {
+          const emailRes = await signInWithPassword(rawInput.toLowerCase(), pinOrPassword.trim());
           if (emailRes.success) {
             setSuccessMsg(
               tr('Logged in successfully!', 'सफलतापूर्वक लॉगिन हो गया!', 'સફળતાપૂર્વક લોગિન થઈ ગયું!')
@@ -292,12 +305,15 @@ export default function LoginPromptModal({
             return;
           }
         }
+        if (res.needsOtp) {
+          setForceOtpMode(true);
+        }
         setErrorMsg(
           res.error ||
             tr(
-              'Incorrect PIN / Password. Try again or use OTP below.',
-              'गलत PIN / पासवर्ड! पुनः प्रयास करें या नीचे OTP चुनें।',
-              'ખોટો PIN / પાસવર્ડ! ફરી પ્રયાસ કરો અથવા નીચે OTP વાપરો.'
+              'Incorrect PIN / Password. Try again or login with OTP below.',
+              'गलत PIN / पासवर्ड! पुनः प्रयास करें या नीचे OTP से लॉगिन करें।',
+              'ખોટો PIN / પાસવર્ડ! ફરી પ્રયાસ કરો અથવા નીચે OTP થી લોગિન કરો.'
             )
         );
         setIsSubmitting(false);
@@ -306,28 +322,21 @@ export default function LoginPromptModal({
 
       setIsSubmitting(false);
 
-      // Offer 1-tap Biometric setup if device supports it and not yet enabled
       if (biometricSupported && !hasLocalPasskey && !checkedUser.hasBiometric) {
         setShowBiometricSetupPrompt(true);
         return;
       }
 
       setSuccessMsg(
-        checkedUser.exists
-          ? tr(
-              'Welcome back! You are logged in.',
-              'वापसी पर स्वागत है! आप लॉगिन हो गए हैं।',
-              'ફરી સ્વાગત છે! તમે લોગિન થઈ ગયા છો.'
-            )
-          : tr(
-              'Account created! Sent for Admin Approval.',
-              'अकाउंट बन गया! एडमिन अप्रूवल के लिए भेजा गया है।',
-              'એકાઉન્ટ બની ગયું! એડમિન અપ્રૂવલ માટે મોકલાયું છે.'
-            )
+        tr(
+          'Welcome back! You are logged in.',
+          'वापसी पर स्वागत है! आप लॉगिन हो गए हैं।',
+          'ફરી સ્વાગત છે! તમે લોગિન થઈ ગયા છો.'
+        )
       );
       setTimeout(() => {
         finishSuccess();
-      }, 550);
+      }, 500);
     } catch {
       setIsSubmitting(false);
       setErrorMsg(
@@ -340,7 +349,7 @@ export default function LoginPromptModal({
     }
   };
 
-  // Send 1-time OTP (for new user verification or forgot PIN)
+  // Step 1 for New Users / Forgot PIN: Send 6-Digit OTP to Mobile OR Email
   const handleSendOtp = async () => {
     setErrorMsg(null);
     setSuccessMsg(null);
@@ -348,9 +357,20 @@ export default function LoginPromptModal({
     if (!isValidPhone && !isValidEmail) {
       setErrorMsg(
         tr(
-          'Please enter your 10-digit Mobile Number first.',
-          'कृपया पहले अपना 10-अंकों का मोबाइल नंबर दर्ज करें।',
-          'કૃપા કરીને પહેલા તમારો 10-અંકનો મોબાઇલ નંબર લખો.'
+          'Please enter a valid 10-digit Mobile Number or Email ID first.',
+          'कृपया पहले सही 10-अंकों का मोबाइल नंबर या ईमेल आईडी दर्ज करें।',
+          'કૃપા કરીને પહેલા 10-અંકનો સાચો મોબાઇલ નંબર અથવા ઈમેલ આઈડી લખો.'
+        )
+      );
+      return;
+    }
+
+    if (!checkedUser.exists && !name.trim()) {
+      setErrorMsg(
+        tr(
+          'Please enter your Full Name before requesting OTP.',
+          'कृपया OTP मंगाने से पहले अपना पूरा नाम लिखें।',
+          'કૃપા કરીને OTP મેળવતા પહેલા તમારું પૂરું નામ લખો.'
         )
       );
       return;
@@ -358,11 +378,11 @@ export default function LoginPromptModal({
 
     setIsSubmitting(true);
     try {
-      if (isEmailInput) {
-        const res = await sendEmailOtp(rawInput);
+      if (isValidEmail) {
+        const res = await sendEmailOtp(rawInput.toLowerCase());
         setIsSubmitting(false);
         if (!res.success) {
-          setErrorMsg(res.error || 'Failed to send OTP');
+          setErrorMsg(res.error || tr('Failed to send Email OTP.', 'ईमेल OTP भेजने में विफल।', 'ઈમેલ OTP મોકલવામાં નિષ્ફળ.'));
           return;
         }
         setOtpSent(true);
@@ -371,11 +391,18 @@ export default function LoginPromptModal({
           setDevOtpHint(res.devCode);
           setOtpCode(res.devCode);
         }
+        setSuccessMsg(
+          tr(
+            '6-digit OTP sent to your Email! Enter it below.',
+            'आपके ईमेल पर 6-अंकों का OTP भेजा गया है! नीचे दर्ज करें।',
+            'તમારા ઈમેલ પર 6-અંકનો OTP મોકલવામાં આવ્યો છે! નીચે નાખો.'
+          )
+        );
       } else {
         const res = await sendMobileOtp(cleanDigits, 'recaptcha-container');
         setIsSubmitting(false);
         if (!res.success) {
-          setErrorMsg(res.error || 'Failed to send OTP');
+          setErrorMsg(res.error || tr('Failed to send Mobile OTP.', 'मोबाइल OTP भेजने में विफल।', 'મોબાઇલ OTP મોકલવામાં નિષ્ફળ.'));
           return;
         }
         setOtpSent(true);
@@ -384,22 +411,22 @@ export default function LoginPromptModal({
           setDevOtpHint(res.devCode);
           setOtpCode(res.devCode);
         }
+        setSuccessMsg(
+          tr(
+            '6-digit OTP sent to your Mobile Number! Enter it below.',
+            'आपके मोबाइल नंबर पर 6-अंकों का OTP भेजा गया है! नीचे दर्ज करें।',
+            'તમારા મોબાઇલ નંબર પર 6-અંકનો OTP મોકલવામાં આવ્યો છે! નીચે નાખો.'
+          )
+        );
       }
-      setSuccessMsg(
-        tr(
-          '6-digit OTP sent! Enter it below.',
-          '6-अंकों का OTP भेजा गया! नीचे दर्ज करें।',
-          '6-અંકનો OTP મોકલવામાં આવ્યો છે! નીચે દાખલ કરો.'
-        )
-      );
     } catch {
       setIsSubmitting(false);
       setErrorMsg(tr('Failed to send OTP.', 'OTP भेजने में त्रुटि।', 'OTP મોકલવામાં ભૂલ.'));
     }
   };
 
-  // Verify OTP + Save New PIN/Password
-  const handleVerifyOtp = async (e: React.FormEvent) => {
+  // Step 2: Verify 6-Digit OTP First -> Then Unlock "Set 4-Digit PIN / Password" Screen
+  const handleVerifyOtpStep = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
     setSuccessMsg(null);
@@ -418,48 +445,104 @@ export default function LoginPromptModal({
 
     setIsSubmitting(true);
     try {
-      const pwdToSave = pinOrPassword.trim().length >= 4 ? pinOrPassword.trim() : undefined;
       const finalName = name.trim() || checkedUser.name || undefined;
 
-      if (isEmailInput) {
-        if (pwdToSave && pwdToSave.length >= 6) {
-          const r = await resetUserPassword(rawInput, pwdToSave, finalName, cleanCode);
-          if (!r.success) {
-            setErrorMsg(r.error || 'Invalid OTP');
-            setIsSubmitting(false);
-            return;
-          }
-        } else {
-          const r = await verifyEmailOtp(rawInput, cleanCode, pwdToSave);
-          if (!r.success) {
-            setErrorMsg(r.error || 'Invalid OTP');
-            setIsSubmitting(false);
-            return;
-          }
+      if (isValidEmail) {
+        const r = await verifyEmailOtp(rawInput.toLowerCase(), cleanCode, undefined, finalName);
+        if (!r.success) {
+          setErrorMsg(r.error || tr('Invalid OTP code.', 'गलत OTP कोड।', 'ખોટો OTP કોડ.'));
+          setIsSubmitting(false);
+          return;
         }
       } else {
-        const r = await verifyMobileOtp(cleanDigits, cleanCode, pwdToSave, finalName);
+        const r = await verifyMobileOtp(cleanDigits, cleanCode, undefined, finalName);
         if (!r.success) {
-          setErrorMsg(r.error || 'Invalid OTP');
+          setErrorMsg(r.error || tr('Invalid OTP code.', 'गलत OTP कोड।', 'ખોટો OTP કોડ.'));
           setIsSubmitting(false);
           return;
         }
       }
 
       setIsSubmitting(false);
+      setOtpVerifiedForPinSetup(true);
+      setPinOrPassword('');
       setSuccessMsg(
         tr(
-          'Verified & Logged In Permanently!',
-          'वेरिफाई और लॉगिन सफल!',
-          'વેરિફાઈ અને કાયમી લોગિન સફળ!'
+          'OTP Verified! Now set your 4-digit PIN / Password for future direct login.',
+          'OTP वेरिफाई हो गया! अब भविष्य में सीधे लॉगिन के लिए अपना 4-अंकों का PIN / पासवर्ड सेट करें।',
+          'OTP વેરિફાઈ થઈ ગયો! હવે ભવિષ્યમાં સીધા લોગિન માટે તમારો 4-અંકનો PIN / પાસવર્ડ સેટ કરો.'
+        )
+      );
+    } catch {
+      setIsSubmitting(false);
+      setErrorMsg(tr('Verification failed.', 'वेरिफिकेशन विफल।', 'વેરિફિકેશન નિષ્ફળ.'));
+    }
+  };
+
+  // Step 3 (After OTP Verified): Save 4-Digit PIN / Password Permanently in PostgreSQL
+  const handleSavePinAfterOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg(null);
+    setSuccessMsg(null);
+
+    if (!pinOrPassword || pinOrPassword.trim().length < 4) {
+      setErrorMsg(
+        tr(
+          'Please enter at least a 4-digit PIN or Password.',
+          'कृपया कम से कम 4-अंकों का PIN या पासवर्ड लिखें।',
+          'કૃપા કરીને ઓછામાં ઓછો 4-અંકનો PIN અથવા પાસવર્ડ લખો.'
+        )
+      );
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const res = await smartPhoneAuth({
+        phone: isValidEmail ? rawInput.toLowerCase() : cleanDigits,
+        password: pinOrPassword.trim(),
+        name: name.trim() || checkedUser.name || undefined,
+        mode: 'set_after_otp',
+        afterOtpVerified: true
+      });
+
+      setIsSubmitting(false);
+      if (!res.success) {
+        setErrorMsg(
+          res.error ||
+            tr(
+              'Could not save PIN / Password. Please try again.',
+              'PIN / पासवर्ड सेव नहीं हो सका। कृपया पुनः प्रयास करें।',
+              'PIN / પાસવર્ડ સેવ થઈ શક્યો નહીં. ફરી પ્રયાસ કરો.'
+            )
+        );
+        return;
+      }
+
+      if (biometricSupported && !hasLocalPasskey && !checkedUser.hasBiometric) {
+        setShowBiometricSetupPrompt(true);
+        return;
+      }
+
+      setSuccessMsg(
+        tr(
+          'PIN Saved & Logged In Permanently!',
+          'PIN सेव हो गया और आप स्थायी रूप से लॉगिन हो गए!',
+          'PIN સેવ થઈ ગયો અને તમે કાયમી લોગિન થઈ ગયા!'
         )
       );
       setTimeout(() => {
         finishSuccess();
-      }, 500);
+      }, 450);
     } catch {
       setIsSubmitting(false);
-      setErrorMsg(tr('Verification failed.', 'वेरिफिकेशन विफल।', 'વેરિફિકેશન નિષ્ફળ.'));
+      setErrorMsg(
+        tr(
+          'Connection error. Please try again.',
+          'कनेक्शन त्रुटि। कृपया पुनः प्रयास करें।',
+          'કનેક્શન ભૂલ. કૃપા કરીને ફરી પ્રયાસ કરો.'
+        )
+      );
     }
   };
 
@@ -488,9 +571,9 @@ export default function LoginPromptModal({
               </h2>
               <p className="text-[11px] text-teal-100 font-semibold">
                 {tr(
-                  'Login once • Stay logged in permanently',
-                  'एक बार लॉगिन करें • हमेशा लॉगिन रहें',
-                  'એકવાર લોગિન કરો • કાયમ લોગિન રહો'
+                  'Mobile or Email • Safe OTP Verification',
+                  'मोबाइल या ईमेल • सुरक्षित OTP वेरिफिकेशन',
+                  'મોબાઇલ કે ઈમેલ • સુરક્ષિત OTP વેરિફિકેશન'
                 )}
               </p>
             </div>
@@ -539,7 +622,7 @@ export default function LoginPromptModal({
           </div>
         </div>
 
-        {/* Optional Biometric Enable Prompt after First Login */}
+        {/* Optional Biometric Enable Prompt after Login */}
         {showBiometricSetupPrompt ? (
           <div className="p-6 text-center space-y-4">
             <div className="w-16 h-16 rounded-2xl bg-teal-50 border border-teal-200 text-teal-700 flex items-center justify-center mx-auto">
@@ -591,7 +674,7 @@ export default function LoginPromptModal({
             )}
 
             {/* 1-Tap Biometric Passkey Button for Returning Users */}
-            {biometricSupported && (hasLocalPasskey || checkedUser.hasBiometric) && (
+            {biometricSupported && (hasLocalPasskey || checkedUser.hasBiometric) && !otpVerifiedForPinSetup && (
               <button
                 type="button"
                 onClick={handleBiometricLogin}
@@ -624,27 +707,34 @@ export default function LoginPromptModal({
               </div>
             )}
 
-            {/* Step 1: Mobile Number Input (Auto-checks PostgreSQL) */}
+            {/* Step 1: Mandatory Mobile Number OR Email ID Input */}
             <div>
               <label className="block text-xs font-black text-slate-700 mb-1.5">
                 {tr(
-                  '1. Mobile Number (10 Digits)',
-                  '1. मोबाइल नंबर (10 अंक)',
-                  '1. મોબાઇલ નંબર (10 અંક)'
+                  '1. Mobile Number or Email ID (Mandatory)',
+                  '1. मोबाइल नंबर या ईमेल आईडी (अनिवार्य)',
+                  '1. મોબાઇલ નંબર અથવા ઈમેલ આઈડી (ફરજિયાત)'
                 )}
               </label>
               <div className="relative flex items-center">
                 <div className="absolute left-3.5 flex items-center gap-1 text-slate-500 font-bold text-xs pointer-events-none">
-                  <Phone size={15} className="text-teal-600" />
-                  {!isEmailInput && <span>+91</span>}
+                  {isEmailInput ? (
+                    <Mail size={15} className="text-teal-600" />
+                  ) : (
+                    <>
+                      <Phone size={15} className="text-teal-600" />
+                      <span>+91</span>
+                    </>
+                  )}
                 </div>
                 <input
                   type="text"
-                  inputMode="tel"
+                  inputMode="text"
+                  disabled={otpVerifiedForPinSetup}
                   value={phoneOrEmail}
                   onChange={(e) => {
                     const val = e.target.value;
-                    if (!val.includes('@') && /^\d+$/.test(val.replace(/\s+/g, ''))) {
+                    if (!val.includes('@') && !/[a-zA-Z]/.test(val) && /^\d+$/.test(val.replace(/\s+/g, ''))) {
                       setPhoneOrEmail(val.replace(/\D/g, '').slice(0, 10));
                     } else {
                       setPhoneOrEmail(val);
@@ -652,13 +742,13 @@ export default function LoginPromptModal({
                     setErrorMsg(null);
                   }}
                   placeholder={tr(
-                    'Enter 10-digit mobile number',
-                    'अपना 10 अंकों का मोबाइल नंबर लिखें',
-                    'તમારો 10 અંકનો મોબાઇલ નંબર લખો'
+                    'Enter 10-digit Mobile Number or Email ID',
+                    '10 अंकों का मोबाइल नंबर या ईमेल आईडी लिखें',
+                    '10 અંકનો મોબાઇલ નંબર અથવા ઈમેલ આઈડી લખો'
                   )}
                   className={`w-full ${
                     isEmailInput ? 'pl-10' : 'pl-16'
-                  } pr-10 py-3 rounded-2xl border-2 border-slate-200 focus:border-teal-600 focus:outline-none text-sm font-black text-slate-900 tracking-wide`}
+                  } pr-10 py-3 rounded-2xl border-2 border-slate-200 focus:border-teal-600 focus:outline-none text-sm font-black text-slate-900 tracking-wide disabled:bg-slate-100`}
                   autoFocus
                 />
                 {isCheckingUser && (
@@ -667,16 +757,16 @@ export default function LoginPromptModal({
               </div>
 
               {/* Smart Recognition Status Badge */}
-              {checkedUser.checked && (
+              {checkedUser.checked && !otpVerifiedForPinSetup && (
                 <div className="mt-2">
-                  {checkedUser.exists ? (
+                  {checkedUser.exists && checkedUser.hasPassword ? (
                     <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-teal-50 border border-teal-200 text-teal-800 text-[11px] font-extrabold">
                       <CheckCircle2 size={13} className="text-teal-600 shrink-0" />
                       <span>
                         {tr(
-                          `Welcome back, ${checkedUser.name || 'Member'}! Enter your PIN/Password below.`,
-                          `स्वागत है, ${checkedUser.name || 'सदस्य'}! नीचे अपना PIN/पासवर्ड डालें।`,
-                          `ફરી સ્વાગત છે, ${checkedUser.name || 'સભ્ય'}! નીચે તમારો PIN/પાસવર્ડ નાખો.`
+                          `Welcome back, ${checkedUser.name || 'Member'}! Enter your saved PIN/Password below.`,
+                          `स्वागत है, ${checkedUser.name || 'सदस्य'}! नीचे अपना सेव किया हुआ PIN/पासवर्ड डालें।`,
+                          `ફરી સ્વાગત છે, ${checkedUser.name || 'સભ્ય'}! નીચે તમારો સેવ કરેલો PIN/પાસવર્ડ નાખો.`
                         )}
                       </span>
                     </div>
@@ -684,11 +774,17 @@ export default function LoginPromptModal({
                     <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-blue-50 border border-blue-200 text-blue-800 text-[11px] font-extrabold">
                       <Sparkles size={13} className="text-blue-600 shrink-0" />
                       <span>
-                        {tr(
-                          'New Number! Enter your Name & set a 4-digit PIN below.',
-                          'नया नंबर! नीचे अपना नाम और 4-अंकों का PIN सेट करें।',
-                          'નવો નંબર! નીચે તમારું નામ અને 4-અંકનો PIN સેટ કરો.'
-                        )}
+                        {isValidEmail
+                          ? tr(
+                              'Verify with 6-digit Email OTP first, then set your PIN/Password.',
+                              'पहले ईमेल OTP से वेरिफाई करें, फिर अपना PIN/पासवर्ड सेट करें।',
+                              'પહેલા ઈમેલ OTP થી વેરિફાઈ કરો, પછી તમારો PIN/પાસવર્ડ સેટ કરો.'
+                            )
+                          : tr(
+                              'Verify with 6-digit Mobile OTP first, then set your PIN/Password.',
+                              'पहले मोबाइल OTP से वेरिफाई करें, फिर अपना PIN/पासवर्ड सेट करें।',
+                              'પહેલા મોબાઇલ OTP થી વેરિફાઈ કરો, પછી તમારો PIN/પાસવર્ડ સેટ કરો.'
+                            )}
                       </span>
                     </div>
                   )}
@@ -696,91 +792,28 @@ export default function LoginPromptModal({
               )}
             </div>
 
-            {/* Mode Switch Tabs: Direct PIN/Password vs 1-Time OTP */}
-            <div className="grid grid-cols-2 gap-1.5 bg-slate-100 p-1 rounded-2xl border border-slate-200">
-              <button
-                type="button"
-                onClick={() => {
-                  setAuthMethod('pin');
-                  setErrorMsg(null);
-                }}
-                className={`py-2 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all ${
-                  authMethod === 'pin'
-                    ? 'bg-white text-teal-800 shadow-xs border border-slate-200/80'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <Lock size={13} />
-                <span>{tr('PIN / Password', 'PIN / पासवर्ड', 'PIN / પાસવર્ડ')}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setAuthMethod('otp');
-                  setErrorMsg(null);
-                }}
-                className={`py-2 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all ${
-                  authMethod === 'otp'
-                    ? 'bg-white text-teal-800 shadow-xs border border-slate-200/80'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <KeyRound size={13} />
-                <span>{tr('1-Time OTP', '1-बार OTP कोड', '1-વાર OTP કોડ')}</span>
-              </button>
-            </div>
-
-            {authMethod === 'pin' ? (
-              <form onSubmit={handlePinOrPasswordSubmit} className="space-y-3.5">
-                {/* Show Name field only for New Users (or if name wasn't saved yet) */}
-                {(!checkedUser.exists || !checkedUser.name) && (
-                  <div>
-                    <label className="block text-xs font-black text-slate-700 mb-1">
-                      {tr('Your Full Name', 'आपका पूरा नाम', 'તમારું પૂરું નામ')}
-                    </label>
-                    <div className="relative flex items-center">
-                      <UserIcon size={15} className="absolute left-3.5 text-slate-400" />
-                      <input
-                        type="text"
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
-                        placeholder={tr(
-                          'Enter your full name',
-                          'अपना पूरा नाम लिखें',
-                          'તમારું પૂરું નામ લખો'
-                        )}
-                        className="w-full pl-10 pr-4 py-2.5 rounded-2xl border-2 border-slate-200 focus:border-teal-600 focus:outline-none text-sm font-bold text-slate-900"
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {/* 4-Digit PIN or Password */}
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-xs font-black text-slate-700">
-                      {checkedUser.exists && checkedUser.hasPassword
-                        ? tr(
-                            '2. Enter Your PIN / Password',
-                            '2. अपना PIN / पासवर्ड डालें',
-                            '2. તમારો PIN / પાસવર્ડ નાખો'
-                          )
-                        : tr(
-                            '2. Set a 4-Digit PIN or Password',
-                            '2. अपना 4-अंकों का PIN या पासवर्ड बनाएं',
-                            '2. 4-અંકનો PIN અથવા પાસવર્ડ બનાવો'
-                          )}
-                    </label>
-                    {checkedUser.exists && (
-                      <button
-                        type="button"
-                        onClick={() => setAuthMethod('otp')}
-                        className="text-[11px] font-extrabold text-teal-700 hover:underline"
-                      >
-                        {tr('Forgot PIN? Use OTP', 'PIN भूल गए? OTP चुनें', 'PIN ભૂલી ગયા? OTP વાપરો')}
-                      </button>
+            {/* CASE 1: OTP Just Verified -> Show "Set 4-Digit PIN / Password" Step */}
+            {otpVerifiedForPinSetup ? (
+              <form onSubmit={handleSavePinAfterOtp} className="space-y-3.5 pt-1">
+                <div className="rounded-2xl bg-teal-50 border border-teal-200 p-3 text-xs font-extrabold text-teal-900 flex items-center gap-2">
+                  <ShieldCheck size={18} className="text-teal-600 shrink-0" />
+                  <span>
+                    {tr(
+                      'Step 2: Create a 4-Digit PIN / Password so next time you can login directly without OTP.',
+                      'स्टेप 2: अपना 4-अंकों का PIN / पासवर्ड बनाएं ताकि अगली बार बिना OTP सीधे लॉगिन कर सकें।',
+                      'સ્ટેપ 2: તમારો 4-અંકનો PIN / પાસવર્ડ બનાવો જેથી આગલી વખતે OTP વગર સીધા લોગિન કરી શકો.'
                     )}
-                  </div>
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-black text-slate-700 mb-1">
+                    {tr(
+                      'Set 4-Digit PIN or Password',
+                      '4-अंकों का PIN या पासवर्ड सेट करें',
+                      '4-અંકનો PIN અથવા પાસવર્ડ સેટ કરો'
+                    )}
+                  </label>
                   <div className="relative flex items-center">
                     <Lock size={15} className="absolute left-3.5 text-teal-600" />
                     <input
@@ -791,6 +824,76 @@ export default function LoginPromptModal({
                         'Enter 4-digit PIN or Password',
                         '4-अंकों का PIN या पासवर्ड लिखें',
                         '4-અંકનો PIN અથવા પાસવર્ડ લખો'
+                      )}
+                      className="w-full pl-10 pr-10 py-3 rounded-2xl border-2 border-teal-500 focus:border-teal-700 focus:outline-none text-sm font-black text-slate-900 tracking-wider"
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3.5 text-slate-400 hover:text-slate-700"
+                    >
+                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="w-full py-3.5 rounded-2xl bg-teal-600 hover:bg-teal-700 active:translate-y-0.5 border-b-4 border-teal-800 text-white font-black text-sm shadow-lg flex items-center justify-center gap-2 transition-all disabled:opacity-60"
+                >
+                  {isSubmitting ? (
+                    <Loader2 size={18} className="animate-spin" />
+                  ) : (
+                    <CheckCircle2 size={18} />
+                  )}
+                  <span>
+                    {tr(
+                      'Save PIN & Complete Login',
+                      'PIN सेव करें और लॉगिन पूरा करें',
+                      'PIN સેવ કરો અને લોગિન પૂર્ણ કરો'
+                    )}
+                  </span>
+                </button>
+              </form>
+            ) : canLoginDirectlyWithPin ? (
+              /* CASE 2: Returning Verified User with Saved PIN/Password */
+              <form onSubmit={handleReturningPinLogin} className="space-y-3.5">
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-black text-slate-700">
+                      {tr(
+                        '2. Enter Your Saved PIN / Password',
+                        '2. अपना सेव किया हुआ PIN / पासवर्ड डालें',
+                        '2. તમારો સેવ કરેલો PIN / પાસવર્ડ નાખો'
+                      )}
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setForceOtpMode(true);
+                        setErrorMsg(null);
+                      }}
+                      className="text-[11px] font-extrabold text-teal-700 hover:underline"
+                    >
+                      {tr(
+                        'Forgot PIN? Login with OTP',
+                        'PIN भूल गए? OTP से लॉगिन करें',
+                        'PIN ભૂલી ગયા? OTP થી લોગિન કરો'
+                      )}
+                    </button>
+                  </div>
+                  <div className="relative flex items-center">
+                    <Lock size={15} className="absolute left-3.5 text-teal-600" />
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={pinOrPassword}
+                      onChange={(e) => setPinOrPassword(e.target.value)}
+                      placeholder={tr(
+                        'Enter your 4-digit PIN or Password',
+                        'अपना 4-अंकों का PIN या पासवर्ड लिखें',
+                        'તમારો 4-અંકનો PIN અથવા પાસવર્ડ લખો'
                       )}
                       className="w-full pl-10 pr-10 py-3 rounded-2xl border-2 border-slate-200 focus:border-teal-600 focus:outline-none text-sm font-black text-slate-900 tracking-wider"
                     />
@@ -814,59 +917,95 @@ export default function LoginPromptModal({
                   ) : (
                     <ShieldCheck size={18} />
                   )}
-                  <span>
-                    {checkedUser.exists
-                      ? tr('Login Now', 'अभी लॉगिन करें', 'અત્યારે જ લોગિન કરો')
-                      : tr(
-                          'Create Account & Login',
-                          'अकाउंट बनाएं और लॉगिन करें',
-                          'એકાઉન્ટ બનાવો અને લોગિન કરો'
-                        )}
-                  </span>
+                  <span>{tr('Login Now', 'अभी लॉगिन करें', 'અત્યારે જ લોગિન કરો')}</span>
                 </button>
               </form>
             ) : (
-              /* 1-Time OTP Flow */
-              <form onSubmit={handleVerifyOtp} className="space-y-3.5">
-                {!checkedUser.exists && (
+              /* CASE 3: New User OR User without PIN OR Forgot PIN -> Mandatory OTP Verification First */
+              <form onSubmit={handleVerifyOtpStep} className="space-y-3.5">
+                {(!checkedUser.exists || !checkedUser.name) && (
                   <div>
                     <label className="block text-xs font-black text-slate-700 mb-1">
                       {tr('Your Full Name', 'आपका पूरा नाम', 'તમારું પૂરું નામ')}
                     </label>
-                    <input
-                      type="text"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      placeholder={tr(
-                        'Enter your full name',
-                        'अपना पूरा नाम लिखें',
-                        'તમારું પૂરું નામ લખો'
-                      )}
-                      className="w-full px-3.5 py-2.5 rounded-2xl border-2 border-slate-200 focus:border-teal-600 focus:outline-none text-sm font-bold text-slate-900"
-                    />
+                    <div className="relative flex items-center">
+                      <UserIcon size={15} className="absolute left-3.5 text-slate-400" />
+                      <input
+                        type="text"
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        placeholder={tr(
+                          'Enter your full name',
+                          'अपना पूरा नाम लिखें',
+                          'તમારું પૂરું નામ લખો'
+                        )}
+                        className="w-full pl-10 pr-4 py-2.5 rounded-2xl border-2 border-slate-200 focus:border-teal-600 focus:outline-none text-sm font-bold text-slate-900"
+                      />
+                    </div>
                   </div>
                 )}
 
                 {!otpSent ? (
-                  <button
-                    type="button"
-                    onClick={handleSendOtp}
-                    disabled={isSubmitting || cooldown > 0}
-                    className="w-full py-3.5 rounded-2xl bg-teal-600 hover:bg-teal-700 border-b-4 border-teal-800 text-white font-black text-sm shadow-md flex items-center justify-center gap-2 disabled:opacity-60"
-                  >
-                    {isSubmitting ? <Loader2 size={18} className="animate-spin" /> : <KeyRound size={18} />}
-                    <span>
-                      {cooldown > 0
-                        ? tr(`Wait ${cooldown}s`, `${cooldown}s प्रतीक्षा करें`, `${cooldown} સેકન્ડ રાહ જુઓ`)
-                        : tr('Get 6-Digit OTP', '6-अंकों का OTP प्राप्त करें', '6-અંકનો OTP મેળવો')}
-                    </span>
-                  </button>
+                  <div className="space-y-2">
+                    <button
+                      type="button"
+                      onClick={handleSendOtp}
+                      disabled={isSubmitting || cooldown > 0}
+                      className="w-full py-3.5 rounded-2xl bg-teal-600 hover:bg-teal-700 border-b-4 border-teal-800 text-white font-black text-sm shadow-md flex items-center justify-center gap-2 disabled:opacity-60"
+                    >
+                      {isSubmitting ? (
+                        <Loader2 size={18} className="animate-spin" />
+                      ) : (
+                        <KeyRound size={18} />
+                      )}
+                      <span>
+                        {cooldown > 0
+                          ? tr(
+                              `Wait ${cooldown}s`,
+                              `${cooldown}s प्रतीक्षा करें`,
+                              `${cooldown} સેકન્ડ રાહ જુઓ`
+                            )
+                          : isValidEmail
+                          ? tr(
+                              'Send 6-Digit OTP to Email',
+                              'ईमेल पर 6-अंकों का OTP भेजें',
+                              'ઈમેલ પર 6-અંકનો OTP મોકલો'
+                            )
+                          : tr(
+                              'Send 6-Digit OTP to Mobile',
+                              'मोबाइल पर 6-अंकों का OTP भेजें',
+                              'મોબાઇલ પર 6-અંકનો OTP મોકલો'
+                            )}
+                      </span>
+                    </button>
+
+                    {checkedUser.exists && checkedUser.hasPassword && forceOtpMode && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setForceOtpMode(false);
+                          setErrorMsg(null);
+                        }}
+                        className="w-full py-2 text-center text-xs font-extrabold text-teal-700 hover:underline"
+                      >
+                        {tr(
+                          '← Back to Saved PIN / Password Login',
+                          '← सेव किए गए PIN / पासवर्ड लॉगिन पर वापस जाएं',
+                          '← સેવ કરેલા PIN / પાસવર્ડ લોગિન પર પાછા જાઓ'
+                        )}
+                      </button>
+                    )}
+                  </div>
                 ) : (
                   <div className="space-y-3">
                     {devOtpHint && (
                       <div className="rounded-xl bg-teal-50 border border-teal-200 p-2.5 text-center">
                         <span className="text-[11px] font-bold text-teal-800">
-                          {tr('Your Instant Verification OTP:', 'आपका वेरिफिकेशन OTP:', 'તમારો વેરિફિકેશન OTP:')}{' '}
+                          {tr(
+                            'Your Verification OTP:',
+                            'आपका वेरिफिकेशन OTP:',
+                            'તમારો વેરિફિકેશન OTP:'
+                          )}{' '}
                         </span>
                         <span className="text-sm font-black text-teal-950 tracking-widest bg-white px-2 py-0.5 rounded-lg border border-teal-300">
                           {devOtpHint}
@@ -876,7 +1015,17 @@ export default function LoginPromptModal({
 
                     <div>
                       <label className="block text-xs font-black text-slate-700 mb-1">
-                        {tr('Enter 6-Digit OTP', '6-अंकों का OTP डालें', '6-અંકનો OTP નાખો')}
+                        {isValidEmail
+                          ? tr(
+                              'Enter 6-Digit Email OTP',
+                              'ईमेल पर आया 6-अंकों का OTP डालें',
+                              'ઈમેલ પર આવેલો 6-અંકનો OTP નાખો'
+                            )
+                          : tr(
+                              'Enter 6-Digit Mobile OTP',
+                              'मोबाइल पर आया 6-अंकों का OTP डालें',
+                              'મોબાઇલ પર આવેલો 6-અંકનો OTP નાખો'
+                            )}
                       </label>
                       <input
                         type="text"
@@ -886,23 +1035,7 @@ export default function LoginPromptModal({
                         onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                         placeholder="• • • • • •"
                         className="w-full px-4 py-3 rounded-2xl border-2 border-slate-200 focus:border-teal-600 focus:outline-none text-center text-lg font-black tracking-[0.35em] text-slate-900"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-black text-slate-700 mb-1">
-                        {tr(
-                          'Set a 4-Digit PIN for Future Login (Optional)',
-                          'भविष्य के लिए 4-अंकों का PIN सेट करें (वैकल्पिक)',
-                          'ભવિષ્યમાં ડાયરેક્ટ લોગિન માટે 4-અંકનો PIN સેટ કરો'
-                        )}
-                      </label>
-                      <input
-                        type="password"
-                        value={pinOrPassword}
-                        onChange={(e) => setPinOrPassword(e.target.value)}
-                        placeholder={tr('4-digit PIN / Password', '4-अंकों का PIN', '4-અંકનો PIN')}
-                        className="w-full px-3.5 py-2.5 rounded-2xl border-2 border-slate-200 focus:border-teal-600 focus:outline-none text-sm font-bold text-slate-900"
+                        autoFocus
                       />
                     </div>
 
@@ -914,7 +1047,9 @@ export default function LoginPromptModal({
                         className="px-3.5 py-3 rounded-2xl border border-slate-300 text-slate-700 text-xs font-bold flex items-center gap-1 disabled:opacity-50"
                       >
                         <RefreshCw size={13} />
-                        <span>{cooldown > 0 ? `${cooldown}s` : tr('Resend', 'पुनः भेजें', 'ફરી મોકલો')}</span>
+                        <span>
+                          {cooldown > 0 ? `${cooldown}s` : tr('Resend', 'पुनः भेजें', 'ફરી મોકલો')}
+                        </span>
                       </button>
 
                       <button
@@ -922,8 +1057,18 @@ export default function LoginPromptModal({
                         disabled={isSubmitting}
                         className="flex-1 py-3.5 rounded-2xl bg-teal-600 hover:bg-teal-700 border-b-4 border-teal-800 text-white font-black text-sm shadow-md flex items-center justify-center gap-2"
                       >
-                        {isSubmitting ? <Loader2 size={18} className="animate-spin" /> : <CheckCircle2 size={18} />}
-                        <span>{tr('Verify & Login', 'वेरिफाई और लॉगिन करें', 'વેરિફાઈ અને લોગિન કરો')}</span>
+                        {isSubmitting ? (
+                          <Loader2 size={18} className="animate-spin" />
+                        ) : (
+                          <CheckCircle2 size={18} />
+                        )}
+                        <span>
+                          {tr(
+                            'Verify OTP & Continue',
+                            'OTP वेरिफाई करें और आगे बढ़ें',
+                            'OTP વેરિફાઈ કરો અને આગળ વધો'
+                          )}
+                        </span>
                       </button>
                     </div>
                   </div>
@@ -950,3 +1095,4 @@ export default function LoginPromptModal({
     </div>
   );
 }
+

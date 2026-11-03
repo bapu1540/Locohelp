@@ -2806,7 +2806,7 @@ export default function HomeScreen({
         )}
       </AnimatePresence>
 
-      {/* Account Pending Admin Approval Modal (3-Step Lifecycle: Login -> Admin Approval -> Post & Message) */}
+      {/* Account Pending Admin Approval Modal (Single Pure Language: GU, HI, or EN) */}
       <AnimatePresence>
         {isPendingApprovalModalOpen && (
           <div
@@ -2825,20 +2825,17 @@ export default function HomeScreen({
               <div>
                 <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white">
                   {language === 'GU'
-                    ? 'એડમિન અપ્રૂવલ બાકી છે (Pending Approval)'
+                    ? 'એડમિન અપ્રૂવલ બાકી છે'
                     : language === 'HI'
-                    ? 'एडमिन अप्रूवल पेंडिंग है (Pending Approval)'
+                    ? 'एडमिन अप्रूवल बाकी है'
                     : 'Account Pending Admin Approval'}
                 </h3>
-                <p className="text-xs sm:text-sm text-amber-800 dark:text-amber-300 mt-2 font-extrabold bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 rounded-xl px-3 py-2">
-                  Tamaro account Admin approval mate pending chhe. Approval bad tame post ane chat kari shaksho.
-                </p>
-                <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 mt-2 leading-relaxed font-medium">
+                <p className="text-xs sm:text-sm text-amber-900 dark:text-amber-200 mt-3 leading-relaxed font-extrabold bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 rounded-2xl px-4 py-3">
                   {language === 'GU'
                     ? 'તમારું એકાઉન્ટ એડમિન અપ્રૂવલ માટે પેન્ડિંગ છે. અપ્રૂવલ બાદ તમે પોસ્ટ અને ચેટ કરી શકશો. ત્યાં સુધી તમે બધી કેટેગરી અને યાદી જોઈ શકો છો.'
                     : language === 'HI'
                     ? 'आपका अकाउंट एडमिन अप्रूवल के लिए पेंडिंग है। अप्रूवल के बाद आप पोस्ट और चैट कर सकेंगे। तब तक आप सभी कैटेगरी और लिस्टिंग देख सकते हैं।'
-                    : 'Your account is pending Admin approval. After approval, you will be able to create posts and send direct chat messages.'}
+                    : 'Your account is pending Admin approval. After approval, you will be able to create posts and send chat messages. Until then, you can browse all categories and listings.'}
                 </p>
               </div>
               <div className="flex flex-col sm:flex-row gap-2.5 pt-2">
@@ -2852,7 +2849,9 @@ export default function HomeScreen({
                       setCreatedToast(
                         language === 'GU'
                           ? '✅ તમારું એકાઉન્ટ એડમિન દ્વારા અપ્રૂવ થઈ ગયું છે!'
-                          : '✅ आपका अकाउंट एडमिन द्वारा अप्रूव हो गया है!'
+                          : language === 'HI'
+                          ? '✅ आपका अकाउंट एडमिन द्वारा अप्रूव हो गया है!'
+                          : '✅ Your account has been approved by Admin!'
                       );
                       setTimeout(() => setCreatedToast(null), 4000);
                     });
@@ -2861,11 +2860,15 @@ export default function HomeScreen({
                   className="flex-1 py-2.5 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-xs shadow-md transition-all cursor-pointer"
                 >
                   {checkingApprovalState
-                    ? 'Checking...'
+                    ? language === 'GU'
+                      ? 'ચેક થઈ રહ્યું છે...'
+                      : language === 'HI'
+                      ? 'चेक हो रहा है...'
+                      : 'Checking...'
                     : language === 'GU'
                     ? '🔄 સ્ટેટસ ચેક કરો'
                     : language === 'HI'
-                    ? '🔄 अप्रूवल स्टेटस चेक करें'
+                    ? '🔄 स्टेटस चेक करें'
                     : '🔄 Check Approval Status'}
                 </button>
                 <button
@@ -2873,7 +2876,7 @@ export default function HomeScreen({
                   onClick={() => setIsPendingApprovalModalOpen(false)}
                   className="flex-1 py-2.5 px-4 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                 >
-                  {language === 'GU' ? 'સમજી ગયો (OK)' : language === 'HI' ? 'ठीक है (OK)' : 'Got It (OK)'}
+                  {language === 'GU' ? 'સમજી ગયો' : language === 'HI' ? 'ठीक है' : 'Got It'}
                 </button>
               </div>
             </motion.div>

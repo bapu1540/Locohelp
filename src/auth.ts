@@ -907,12 +907,14 @@ export async function smartPhoneAuth(params: {
   password: string;
   name?: string;
   mode?: string;
+  afterOtpVerified?: boolean;
 }): Promise<{
   success: boolean;
   isReturningUser?: boolean;
   isApproved?: boolean;
   approvalStatus?: string;
   needsReset?: boolean;
+  needsOtp?: boolean;
   error?: string;
   user?: AppUser;
 }> {
@@ -922,9 +924,9 @@ export async function smartPhoneAuth(params: {
     return {
       success: false,
       error: trAuth(
-        'Please enter a valid 10-digit Mobile Number.',
-        'कृपया सही 10-अंकों का मोबाइल नंबर दर्ज करें।',
-        'કૃપા કરીને 10-અંકનો સાચો મોબાઇલ નંબર દાખલ કરો.'
+        'Please enter a valid 10-digit Mobile Number or Email ID.',
+        'कृपया सही 10-अंकों का मोबाइल नंबर या ईमेल आईडी दर्ज करें।',
+        'કૃપા કરીને 10-અંકનો સાચો મોબાઇલ નંબર અથવા ઈમેલ આઈડી દાખલ કરો.'
       )
     };
   }
@@ -952,7 +954,8 @@ export async function smartPhoneAuth(params: {
         password: secret,
         pin: secret,
         name: params.name ? sanitizeText(params.name) : undefined,
-        mode: params.mode
+        mode: params.mode,
+        afterOtpVerified: Boolean(params.afterOtpVerified)
       })
     });
     const data = await res.json();
@@ -960,6 +963,7 @@ export async function smartPhoneAuth(params: {
       return {
         success: false,
         needsReset: Boolean(data.needsReset),
+        needsOtp: Boolean(data.needsOtp),
         error: localizeServerAuthError(
           data.error,
           'Incorrect PIN / Password. Please try again.',
@@ -992,6 +996,10 @@ export async function smartPhoneAuth(params: {
     localStorage.setItem('locohelp_last_logged_in_email', resolvedEmail);
     if (isPhone) {
       localStorage.setItem('locohelp_last_logged_in_phone', normalizedIdentifier);
+    } else if (data.user?.phone) {
+      localStorage.setItem('locohelp_last_logged_in_phone', normalizeIndianPhone(data.user.phone));
+    } else {
+      localStorage.removeItem('locohelp_last_logged_in_phone');
     }
     localStorage.setItem('locohelp_last_logged_in_name', userData.displayName);
 
@@ -1104,6 +1112,10 @@ export async function signInWithPassword(identifier: string, password: string): 
     localStorage.setItem('locohelp_last_logged_in_email', resolvedEmail);
     if (isPhone) {
       localStorage.setItem('locohelp_last_logged_in_phone', normalizedIdentifier);
+    } else if (data.user?.phone) {
+      localStorage.setItem('locohelp_last_logged_in_phone', normalizeIndianPhone(data.user.phone));
+    } else {
+      localStorage.removeItem('locohelp_last_logged_in_phone');
     }
     localStorage.setItem('locohelp_last_logged_in_name', userData.displayName);
 
@@ -1330,13 +1342,13 @@ export async function resetUserPassword(
       )
     };
   }
-  if (!newPassword || newPassword.length < 6) {
+  if (!newPassword || newPassword.length < 4) {
     return {
       success: false,
       error: trAuth(
-        'Password must be at least 6 characters.',
-        'पासवर्ड कम से कम 6 अक्षरों का होना चाहिए।',
-        'પાસવર્ડ ઓછામાં ઓછો 6 અક્ષરોનો હોવો જોઈએ.'
+        'PIN / Password must be at least 4 characters.',
+        'PIN / पासवर्ड कम से कम 4 अक्षरों का होना चाहिए।',
+        'PIN / પાસવર્ડ ઓછામાં ઓછો 4 અક્ષરોનો હોવો જોઈએ.'
       )
     };
   }
@@ -1421,7 +1433,12 @@ export async function resetUserPassword(
 /**
  * Verifies 6-Digit Numeric Email OTP Code via Backend Server (with optional password creation)
  */
-export async function verifyEmailOtp(email: string, code: string, newPassword?: string): Promise<{ success: boolean; error?: string; user?: any }> {
+export async function verifyEmailOtp(
+  email: string,
+  code: string,
+  newPassword?: string,
+  name?: string
+): Promise<{ success: boolean; error?: string; user?: any }> {
   const cleanEmail = email.trim().toLowerCase();
   const cleanCode = code.trim();
 
@@ -1450,7 +1467,13 @@ export async function verifyEmailOtp(email: string, code: string, newPassword?: 
     const res = await fetch('/api/auth/verify-otp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ identifier: cleanEmail, code: cleanCode, type: 'email', newPassword })
+      body: JSON.stringify({
+        identifier: cleanEmail,
+        code: cleanCode,
+        type: 'email',
+        newPassword,
+        name: name ? sanitizeText(name) : undefined
+      })
     });
 
     const data = await res.json();
@@ -1468,8 +1491,9 @@ export async function verifyEmailOtp(email: string, code: string, newPassword?: 
 
     const userData: AppUser = {
       uid: ensureValidUUID(data.user?.uid || cleanEmail),
-      displayName: sanitizeText(data.user?.displayName || cleanEmail.split('@')[0]),
+      displayName: sanitizeText(data.user?.displayName || name || cleanEmail.split('@')[0]),
       email: cleanEmail,
+      phone: sanitizeText(data.user?.phone || ''),
       photoURL: 'https://lh3.googleusercontent.com/a/default-user',
       isGuest: false
     };
@@ -1480,6 +1504,11 @@ export async function verifyEmailOtp(email: string, code: string, newPassword?: 
     localStorage.setItem('locohelp_user', JSON.stringify(userData));
     localStorage.setItem('locohelp_logged_in', 'true');
     localStorage.setItem('locohelp_last_logged_in_email', cleanEmail);
+    if (userData.phone) {
+      localStorage.setItem('locohelp_last_logged_in_phone', normalizeIndianPhone(userData.phone));
+    } else {
+      localStorage.removeItem('locohelp_last_logged_in_phone');
+    }
     localStorage.setItem('locohelp_last_logged_in_name', userData.displayName);
 
     try {

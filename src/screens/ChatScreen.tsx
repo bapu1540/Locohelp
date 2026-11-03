@@ -812,8 +812,11 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false, 
         // Remove optimistic message if blocked by Admin Approval check
         setMessages(prev => prev.filter(m => m.id !== messageData.id));
         setReportStatusBanner(
-          sendRes.error ||
-            '⏳ आपका अकाउंट अभी एडमिन अप्रूवल के लिए पेंडिंग है। अप्रूव होने के बाद ही आप मैसेज भेज सकते हैं।'
+          tr(
+            '⏳ Your account is pending Admin approval. After approval, you will be able to send chat messages.',
+            '⏳ आपका अकाउंट अभी एडमिन अप्रूवल के लिए पेंडिंग है। अप्रूवल के बाद आप चैट मैसेज भेज सकेंगे।',
+            '⏳ તમારું એકાઉન્ટ એડમિન અપ્રૂવલ માટે પેન્ડિંગ છે. અપ્રૂવલ બાદ તમે ચેટ મેસેજ મોકલી શકશો.'
+          )
         );
         setTimeout(() => setReportStatusBanner(null), 6000);
       }

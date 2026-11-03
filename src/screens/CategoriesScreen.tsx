@@ -705,7 +705,11 @@ export default function CategoriesScreen({
     );
     if (!res.isApproved) {
       setPendingApprovalNotice(
-        'Tamaro account Admin approval mate pending chhe. Approval bad tame post ane chat kari shaksho.'
+        tr(
+          'Your account is pending Admin approval. After approval, you will be able to create posts and send chat messages.',
+          'आपका अकाउंट एडमिन अप्रूवल के लिए पेंडिंग है। अप्रूवल के बाद आप पोस्ट और चैट कर सकेंगे।',
+          'તમારું એકાઉન્ટ એડમિન અપ્રૂવલ માટે પેન્ડિંગ છે. અપ્રૂવલ બાદ તમે પોસ્ટ અને ચેટ કરી શકશો.'
+        )
       );
       setTimeout(() => setPendingApprovalNotice(null), 6500);
       return;

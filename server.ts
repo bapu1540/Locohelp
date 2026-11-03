@@ -5270,8 +5270,8 @@ async function startServer() {
 
       const existing = await findExistingAccount(rawIdentifier);
 
-      // Returning user with saved password/PIN -> verify directly without OTP
-      if (existing && existing.passwordHash && mode !== "reset") {
+      // Returning user with saved password/PIN -> verify directly without OTP (unless setting new password right after OTP verification)
+      if (existing && existing.passwordHash && mode !== "reset" && mode !== "set_after_otp" && !req.body?.afterOtpVerified) {
         if (!verifyPassword(secret, existing.passwordHash)) {
           return res.status(401).json({
             error: "Incorrect PIN / Password! Please try again or use OTP. / ખોટો PIN કે પાસવર્ડ! ફરી પ્રયાસ કરો અથવા OTP વાપરો.",
@@ -5319,7 +5319,16 @@ async function startServer() {
         });
       }
 
-      // New User OR Existing User who didn't have a password/PIN yet -> create/save permanently in PostgreSQL
+      // SECURITY CHECK: Do NOT allow unverified new Mobile/Email accounts to directly set a PIN/Password without verifying OTP first
+      if (!existing && !req.body?.afterOtpVerified && mode !== "set_after_otp") {
+        return res.status(403).json({
+          success: false,
+          needsOtp: true,
+          error: "Please verify your Mobile Number or Email with 6-digit OTP first before setting a PIN / Password."
+        });
+      }
+
+      // OTP-Verified User (or existing verified user setting/updating PIN/Password) -> save permanently in PostgreSQL
       const uid = existing?.uid || (parsed.isPhone ? `phone_${parsed.tenDigits}` : `email_${parsed.cleanEmail.replace(/[^a-z0-9]/g, "_")}`);
       const accountEmail = existing?.email || parsed.cleanEmail;
       const finalPhone = existing?.phone || parsed.formattedPhone || "";
@@ -5839,13 +5848,13 @@ async function startServer() {
           finalPhone,
           hashPassword(pwdToSave)
         );
-      } else if (existing?.passwordHash) {
+      } else {
         await saveAccountWithPassword(
           accountEmail,
           uid,
           displayName,
           finalPhone,
-          existing.passwordHash
+          existing?.passwordHash || ""
         );
       }
 
@@ -6144,8 +6153,8 @@ async function startServer() {
         return res.status(400).json({ error: "Email and new password are required" });
       }
       const cleanEmail = email.trim().toLowerCase();
-      if (newPassword.length < 6) {
-        return res.status(400).json({ error: "पासवर्ड कम से कम 6 अक्षरों का होना चाहिए (Password must be at least 6 characters)" });
+      if (newPassword.length < 4) {
+        return res.status(400).json({ error: "PIN / पासवर्ड कम से कम 4 अक्षरों का होना चाहिए (PIN / Password must be at least 4 characters)" });
       }
       if (!otpCode || String(otpCode).trim().length < 6) {
         return res.status(400).json({
@@ -12935,24 +12944,36 @@ async function startServer() {
       }
 
       const isEmail = type === 'email' || cleanIdentifier.includes('@');
-      const existingAcc = isEmail ? await findExistingAccount(cleanIdentifier) : null;
+      const existingAcc = await findExistingAccount(cleanIdentifier);
+      const requestedName = req.body.name ? String(req.body.name).trim() : '';
+      const resolvedAccountEmail = isEmail
+        ? cleanIdentifier
+        : existingAcc?.email || `${cleanIdentifier.replace(/\D/g, '')}@phone.locohelp.com`;
       const user = {
         uid: existingAcc?.uid || ((isEmail ? 'email_' : 'phone_') + (isEmail ? cleanIdentifier.replace(/[^a-z0-9]/g, '_') : cleanIdentifier.replace(/\D/g, ''))),
-        displayName: existingAcc?.name || (isEmail ? cleanIdentifier.split('@')[0] : `User +91 ${cleanIdentifier.replace(/\D/g, '')}`),
-        email: isEmail ? cleanIdentifier : '',
+        displayName: requestedName || existingAcc?.name || (isEmail ? cleanIdentifier.split('@')[0] : `User +91 ${cleanIdentifier.replace(/\D/g, '')}`),
+        email: resolvedAccountEmail,
         phone: existingAcc?.phone || (!isEmail ? `+91 ${cleanIdentifier.replace(/\D/g, '')}` : ''),
         verifiedAt: new Date().toISOString()
       };
 
-      // Also support optional password setting right during OTP verification if provided
+      // Also support optional password setting right during OTP verification if provided, or record OTP-verified user
       const otpPassword = req.body.newPassword || req.body.password;
-      if (isEmail && otpPassword && String(otpPassword).length >= 6) {
+      if (otpPassword && String(otpPassword).trim().length >= 4) {
         await saveAccountWithPassword(
-          cleanIdentifier,
+          resolvedAccountEmail,
           user.uid,
           user.displayName,
           user.phone,
-          hashPassword(String(otpPassword))
+          hashPassword(String(otpPassword).trim())
+        );
+      } else {
+        await saveAccountWithPassword(
+          resolvedAccountEmail,
+          user.uid,
+          user.displayName,
+          user.phone,
+          existingAcc?.passwordHash || ''
         );
       }
 
