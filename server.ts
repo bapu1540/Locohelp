@@ -4034,9 +4034,24 @@ async function startServer() {
       const experience = sanitizeServerText(profile.experience !== undefined ? profile.experience : (existingLocalOrDb?.experience || ""), 120);
       const myHelper = profile.my_helper_profile || profile.myHelperProfile || existingLocalOrDb?.my_helper_profile || existingLocalOrDb?.myHelperProfile || null;
 
+      const existingApproval = await getUserApprovalState(uid, email, phone);
+      const isHelperOrCategoryEdit = Boolean(
+        profile.my_helper_profile ||
+        profile.myHelperProfile ||
+        profile.category_id ||
+        profile.category ||
+        profile.skills !== undefined
+      );
+      const preserveExistingApproval = Boolean(existingApproval.isApproved && !isHelperOrCategoryEdit);
+
       const requestedStatus = profile.status === 'deletion_requested'
         ? 'deletion_requested'
-        : (isAdminCaller && profile.adminDirectCreate === true && (profile.status === 'approved' || profile.isVerified === true) ? 'approved' : 'pending');
+        : (
+            (isAdminCaller && profile.adminDirectCreate === true && (profile.status === 'approved' || profile.isVerified === true)) ||
+            preserveExistingApproval
+              ? 'approved'
+              : 'pending'
+          );
       const isApprovedStatus = requestedStatus === 'approved';
       const normalizedHelper = myHelper
         ? {
@@ -4045,6 +4060,8 @@ async function startServer() {
             status: requestedStatus
           }
         : null;
+
+      await unmarkEntitiesDeletedPermanently([uid, email, phone]).catch(() => {});
 
       // 1. PostgreSQL Upsert into users, "user", and profiles tables (with Edit History & Firebase Storage Cleanup)
       if (dbPool && isDbConnected) {
@@ -4123,8 +4140,8 @@ async function startServer() {
           `, [uid, fullName, phone, email]);
 
           await dbPool.query(`
-            INSERT INTO profiles (uid, id, user_id, name, full_name, category_id, category_name, email, phone, whatsapp, city, sector, avatar_url, image_url, skills, address, experience, description, verified, is_verified, status, rating, my_helper_profile, created_at, updated_at)
-            VALUES ($1, $1, $1, $2, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11, $12, $13, $14, $15, $15, $16, 5.0, $17, NOW(), NOW())
+            INSERT INTO profiles (uid, id, user_id, name, full_name, category_id, category_name, email, phone, whatsapp, city, sector, avatar_url, image_url, skills, address, experience, description, verified, is_verified, status, is_deleted, hidden, rating, my_helper_profile, created_at, updated_at)
+            VALUES ($1, $1, $1, $2, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11, $12, $13, $14, $15, $15, $16, false, false, 5.0, $17, NOW(), NOW())
             ON CONFLICT (uid) DO UPDATE SET
               id = COALESCE(profiles.id, EXCLUDED.id),
               user_id = COALESCE(profiles.user_id, EXCLUDED.user_id),
@@ -4146,6 +4163,8 @@ async function startServer() {
               verified = EXCLUDED.verified,
               is_verified = EXCLUDED.is_verified,
               status = EXCLUDED.status,
+              is_deleted = false,
+              hidden = false,
               my_helper_profile = COALESCE(EXCLUDED.my_helper_profile, profiles.my_helper_profile),
               updated_at = NOW()
           `, [uid, fullName, categoryId, categoryName, email, phone, whatsapp, city, sector, avatarUrl, skills, address, experience, description, isApprovedStatus, requestedStatus, normalizedHelper ? JSON.stringify(normalizedHelper) : null]);
@@ -4229,8 +4248,8 @@ async function startServer() {
         let helpersModified = false;
         helpers.forEach(h => {
           if (h && (h.userId === uid || (normalizedHelper?.id && h.id === normalizedHelper.id) || (email && (h.email || '').toLowerCase() === email))) {
-            h.isVerified = false;
-            h.is_verified = false;
+            h.isVerified = isApprovedStatus;
+            h.is_verified = isApprovedStatus;
             h.status = requestedStatus;
             helpersModified = true;
           }
@@ -4896,19 +4915,13 @@ async function startServer() {
     );
 
     await loadDeletedEntitiesFromDbOnce().catch(() => {});
-    if (
-      (uid && isEntityDeleted(uid)) ||
-      (email && isEntityDeleted(email)) ||
-      idCandidates.some((cid) => isEntityDeleted(cid))
-    ) {
-      return { isApproved: false, status: "deleted" };
-    }
 
     let accountFound = false;
+    let explicitlyDeletedInDb = false;
 
     if (dbPool && isDbConnected && (idCandidates.length > 0 || email || phoneDigits)) {
       try {
-        // 1. Check verification_requests table
+        // 1. Check verification_requests table first (Admin approvals here take highest priority)
         const vRes = await dbPool
           .query(
             `SELECT status FROM verification_requests
@@ -4916,17 +4929,23 @@ async function startServer() {
                 OR LOWER(COALESCE(user_id, '')) = ANY($1::text[])
                 OR ($2 <> '' AND LOWER(COALESCE(user_email, '')) = LOWER($2))
                 OR ($3 <> '' AND REGEXP_REPLACE(COALESCE(user_phone, ''), '\\D', '', 'g') LIKE '%' || $3)
-             ORDER BY CASE WHEN LOWER(status) = 'approved' THEN 0 WHEN LOWER(status) = 'rejected' THEN 2 ELSE 1 END, created_at DESC
+             ORDER BY CASE WHEN LOWER(status) = 'approved' THEN 0 WHEN LOWER(status) = 'pending' THEN 1 WHEN LOWER(status) = 'rejected' THEN 2 ELSE 3 END, created_at DESC
              LIMIT 1`,
             [idCandidates, email, phoneDigits]
           )
           .catch(() => ({ rows: [] as any[] }));
         if (vRes.rows.length > 0) {
-          accountFound = true;
           const st = String(vRes.rows[0].status || "pending").toLowerCase();
-          if (st === "deleted") return { isApproved: false, status: "deleted" };
-          if (st === "approved") return { isApproved: true, status: "approved" };
-          if (st === "rejected") return { isApproved: false, status: "rejected" };
+          if (st === "approved") {
+            await unmarkEntitiesDeletedPermanently([uid, email, ...idCandidates]).catch(() => {});
+            return { isApproved: true, status: "approved" };
+          }
+          if (st === "deleted") {
+            explicitlyDeletedInDb = true;
+          } else {
+            accountFound = true;
+            if (st === "rejected") return { isApproved: false, status: "rejected" };
+          }
         }
 
         // 2. Check profiles table (including soft-deleted check)
@@ -4949,14 +4968,16 @@ async function startServer() {
           const row = pRes.rows[0];
           const st = String(row.status || "pending").toLowerCase();
           if (row.is_deleted === true || st === "deleted" || st === "deletion_requested") {
-            return { isApproved: false, status: "deleted" };
-          }
-          accountFound = true;
-          if (row.is_verified === true || row.verified === true || st === "approved") {
-            return { isApproved: true, status: "approved" };
-          }
-          if (st === "rejected") {
-            return { isApproved: false, status: "rejected" };
+            explicitlyDeletedInDb = true;
+          } else {
+            accountFound = true;
+            if (row.is_verified === true || row.verified === true || st === "approved") {
+              await unmarkEntitiesDeletedPermanently([uid, email, ...idCandidates]).catch(() => {});
+              return { isApproved: true, status: "approved" };
+            }
+            if (st === "rejected") {
+              return { isApproved: false, status: "rejected" };
+            }
           }
         }
 
@@ -4979,10 +5000,11 @@ async function startServer() {
           const hRow = hRes.rows[0];
           const hSt = String(hRow.status || "pending").toLowerCase();
           if (hRow.is_deleted === true || hSt === "deleted") {
-            if (!accountFound) return { isApproved: false, status: "deleted" };
+            if (!accountFound) explicitlyDeletedInDb = true;
           } else {
             accountFound = true;
             if (hRow.is_verified === true || hSt === "approved") {
+              await unmarkEntitiesDeletedPermanently([uid, email, ...idCandidates]).catch(() => {});
               return { isApproved: true, status: "approved" };
             }
           }
@@ -5004,9 +5026,10 @@ async function startServer() {
             .catch(() => ({ rows: [] as any[] }));
           if (uRes.rows.length > 0) {
             if (uRes.rows[0].is_deleted === true) {
-              return { isApproved: false, status: "deleted" };
+              explicitlyDeletedInDb = true;
+            } else {
+              accountFound = true;
             }
-            accountFound = true;
           }
         }
       } catch {}
@@ -5055,6 +5078,16 @@ async function startServer() {
         }
       }
     } catch {}
+
+    if (
+      !accountFound &&
+      (explicitlyDeletedInDb ||
+        (uid && isEntityDeleted(uid)) ||
+        (email && isEntityDeleted(email)) ||
+        idCandidates.some((cid) => isEntityDeleted(cid)))
+    ) {
+      return { isApproved: false, status: "deleted" };
+    }
 
     if (!accountFound) {
       return { isApproved: false, status: "not_found" };
@@ -5260,6 +5293,11 @@ async function startServer() {
     hashedPassword: string
   ) => {
     const cleanEmail = String(rawEmail || '').trim().toLowerCase();
+    const phoneDigits = normalizePhoneDigitsServer(phone || '');
+    const syntheticEmailUid = cleanEmail ? `email_${cleanEmail.replace(/[^a-z0-9]/g, '_')}` : '';
+    const syntheticPhoneUid = phoneDigits ? `phone_${phoneDigits}` : '';
+    await unmarkEntitiesDeletedPermanently([uid, cleanEmail, phone, syntheticEmailUid, syntheticPhoneUid]).catch(() => {});
+
     const authUsers = readJsonFile<Record<string, any>>(AUTH_USERS_FILE, {});
     authUsers[cleanEmail] = {
       uid,
@@ -5274,13 +5312,15 @@ async function startServer() {
     if (dbPool && isDbConnected) {
       try {
         await dbPool.query(
-          `INSERT INTO users (id, name, email, password_hash, phone, role, terms_accepted, terms_accepted_at, created_at)
-           VALUES ($1, $2, $3, $4, $5, 'user', true, NOW(), NOW())
+          `INSERT INTO users (id, name, email, password_hash, phone, role, is_deleted, hidden, terms_accepted, terms_accepted_at, created_at)
+           VALUES ($1, $2, $3, $4, $5, 'user', false, false, true, NOW(), NOW())
            ON CONFLICT (email) DO UPDATE SET
              id = COALESCE(NULLIF(users.id, ''), EXCLUDED.id),
              name = COALESCE(NULLIF(EXCLUDED.name, ''), users.name),
              phone = COALESCE(NULLIF(EXCLUDED.phone, ''), users.phone),
-             password_hash = EXCLUDED.password_hash,
+             password_hash = CASE WHEN EXCLUDED.password_hash <> '' THEN EXCLUDED.password_hash ELSE users.password_hash END,
+             is_deleted = false,
+             hidden = false,
              terms_accepted = true,
              terms_accepted_at = COALESCE(users.terms_accepted_at, NOW())`,
           [uid, displayName, cleanEmail, hashedPassword, phone || '']
@@ -5293,30 +5333,35 @@ async function startServer() {
              uid = EXCLUDED.uid,
              name = COALESCE(NULLIF(EXCLUDED.name, ''), user_passwords.name),
              phone = COALESCE(NULLIF(EXCLUDED.phone, ''), user_passwords.phone),
-             password_hash = EXCLUDED.password_hash,
+             password_hash = CASE WHEN EXCLUDED.password_hash <> '' THEN EXCLUDED.password_hash ELSE user_passwords.password_hash END,
              updated_at = NOW()`,
           [cleanEmail, uid, displayName, phone || '', hashedPassword]
         );
 
         await dbPool.query(
-          `INSERT INTO "user" (id, name, phone, email, terms_accepted, terms_accepted_at, created_at)
-           VALUES ($1, $2, $3, $4, true, NOW(), NOW())
+          `INSERT INTO "user" (id, name, phone, email, is_deleted, hidden, terms_accepted, terms_accepted_at, created_at)
+           VALUES ($1, $2, $3, $4, false, false, true, NOW(), NOW())
            ON CONFLICT (id) DO UPDATE SET
              name = COALESCE(NULLIF(EXCLUDED.name, ''), "user".name),
              phone = COALESCE(NULLIF(EXCLUDED.phone, ''), "user".phone),
              email = COALESCE(NULLIF(EXCLUDED.email, ''), "user".email),
+             is_deleted = false,
+             hidden = false,
              terms_accepted = true,
              terms_accepted_at = COALESCE("user".terms_accepted_at, NOW())`,
           [uid, displayName, phone || '', cleanEmail]
         );
 
         await dbPool.query(
-          `INSERT INTO profiles (uid, id, user_id, name, full_name, email, phone, account_type, verified, is_verified, status, terms_accepted, terms_accepted_at, updated_at)
-           VALUES ($1, $1, $1, $2, $2, $3, $4, 'simple_user', false, false, 'pending', true, NOW(), NOW())
+          `INSERT INTO profiles (uid, id, user_id, name, full_name, email, phone, account_type, verified, is_verified, status, is_deleted, hidden, terms_accepted, terms_accepted_at, updated_at)
+           VALUES ($1, $1, $1, $2, $2, $3, $4, 'simple_user', false, false, 'pending', false, false, true, NOW(), NOW())
            ON CONFLICT (uid) DO UPDATE SET
              name = COALESCE(NULLIF(EXCLUDED.name, ''), profiles.name),
              full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), profiles.full_name),
              phone = COALESCE(NULLIF(EXCLUDED.phone, ''), profiles.phone),
+             is_deleted = false,
+             hidden = false,
+             status = CASE WHEN profiles.status IN ('deleted', 'deletion_requested') THEN 'pending' ELSE COALESCE(NULLIF(profiles.status, ''), 'pending') END,
              terms_accepted = true,
              terms_accepted_at = COALESCE(profiles.terms_accepted_at, NOW()),
              updated_at = NOW()`,
@@ -5942,39 +5987,48 @@ async function startServer() {
         );
       }
 
+      await unmarkEntitiesDeletedPermanently([uid, accountEmail, finalPhone]).catch(() => {});
+
       if (dbPool && isDbConnected) {
         try {
           await dbPool.query(
-            `INSERT INTO users (id, name, email, phone, role, terms_accepted, terms_accepted_at, created_at)
-             VALUES ($1, $2, $3, $4, 'user', true, NOW(), NOW())
+            `INSERT INTO users (id, name, email, phone, role, is_deleted, hidden, terms_accepted, terms_accepted_at, created_at)
+             VALUES ($1, $2, $3, $4, 'user', false, false, true, NOW(), NOW())
              ON CONFLICT (email) DO UPDATE SET
                name = COALESCE(NULLIF(EXCLUDED.name, ''), users.name),
                phone = COALESCE(NULLIF(EXCLUDED.phone, ''), users.phone),
+               is_deleted = false,
+               hidden = false,
                terms_accepted = true,
                terms_accepted_at = COALESCE(users.terms_accepted_at, NOW())`,
             [uid, displayName, accountEmail, finalPhone]
           ).catch(() => {});
 
           await dbPool.query(
-            `INSERT INTO "user" (id, name, phone, email, terms_accepted, terms_accepted_at, created_at)
-             VALUES ($1, $2, $3, $4, true, NOW(), NOW())
+            `INSERT INTO "user" (id, name, phone, email, is_deleted, hidden, terms_accepted, terms_accepted_at, created_at)
+             VALUES ($1, $2, $3, $4, false, false, true, NOW(), NOW())
              ON CONFLICT (id) DO UPDATE SET
                name = COALESCE(NULLIF(EXCLUDED.name, ''), "user".name),
                phone = COALESCE(NULLIF(EXCLUDED.phone, ''), "user".phone),
                email = COALESCE(NULLIF(EXCLUDED.email, ''), "user".email),
+               is_deleted = false,
+               hidden = false,
                terms_accepted = true,
                terms_accepted_at = COALESCE("user".terms_accepted_at, NOW())`,
             [uid, displayName, finalPhone, accountEmail]
           ).catch(() => {});
 
           await dbPool.query(
-            `INSERT INTO profiles (uid, id, user_id, name, full_name, email, phone, verified, is_verified, status, terms_accepted, terms_accepted_at, updated_at)
-             VALUES ($1, $1, $1, $2, $2, $3, $4, false, false, 'pending', true, NOW(), NOW())
+            `INSERT INTO profiles (uid, id, user_id, name, full_name, email, phone, verified, is_verified, status, is_deleted, hidden, terms_accepted, terms_accepted_at, updated_at)
+             VALUES ($1, $1, $1, $2, $2, $3, $4, false, false, 'pending', false, false, true, NOW(), NOW())
              ON CONFLICT (uid) DO UPDATE SET
                name = COALESCE(NULLIF(EXCLUDED.name, ''), profiles.name),
                full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), profiles.full_name),
                email = COALESCE(NULLIF(EXCLUDED.email, ''), profiles.email),
                phone = COALESCE(NULLIF(EXCLUDED.phone, ''), profiles.phone),
+               is_deleted = false,
+               hidden = false,
+               status = CASE WHEN profiles.status IN ('deleted', 'deletion_requested') THEN 'pending' ELSE COALESCE(NULLIF(profiles.status, ''), 'pending') END,
                terms_accepted = true,
                terms_accepted_at = COALESCE(profiles.terms_accepted_at, NOW()),
                updated_at = NOW()`,
@@ -6400,6 +6454,33 @@ async function startServer() {
       deletedEntitiesMemorySet.add(clean.toLowerCase());
     }
     if (dbPool && isDbConnected) {
+      try {
+        const arr = Array.from(deletedEntitiesMemorySet).slice(-5000);
+        await dbPool.query(
+          `INSERT INTO app_settings (key, value, updated_at)
+           VALUES ('deleted_entities_v1', $1::jsonb, NOW())
+           ON CONFLICT (key) DO UPDATE SET value = $1::jsonb, updated_at = NOW()`,
+          [JSON.stringify(arr)]
+        );
+      } catch {}
+    }
+  };
+
+  const unmarkEntitiesDeletedPermanently = async (keys: Array<string | undefined | null>) => {
+    await loadDeletedEntitiesFromDbOnce();
+    let changed = false;
+    for (const k of keys) {
+      const clean = String(k || '').trim();
+      if (!clean) continue;
+      const lower = clean.toLowerCase();
+      if (deletedEntitiesMemorySet.delete(clean)) changed = true;
+      if (deletedEntitiesMemorySet.delete(lower)) changed = true;
+      if (lower.includes('@')) {
+        const synth = `email_${lower.replace(/[^a-z0-9]/g, '_')}`;
+        if (deletedEntitiesMemorySet.delete(synth)) changed = true;
+      }
+    }
+    if (changed && dbPool && isDbConnected) {
       try {
         const arr = Array.from(deletedEntitiesMemorySet).slice(-5000);
         await dbPool.query(
@@ -12070,11 +12151,13 @@ async function startServer() {
       });
       if (verifUpdated) writeJsonFile(VERIFICATIONS_FILE, verifs);
 
+      await unmarkEntitiesDeletedPermanently([uid, current.email, current.phone]).catch(() => {});
+
       if (dbPool && isDbConnected) {
         try {
           await dbPool.query(
-            `INSERT INTO profiles (uid, id, user_id, name, full_name, email, phone, address, sector, skills, experience, category_id, avatar_url, image_url, verified, is_verified, status, updated_at)
-             VALUES ($1, $1, $1, $2, $2, $3, $4, $5, $5, $6, $7, $8, $9, $9, $10, $10, $11, NOW())
+            `INSERT INTO profiles (uid, id, user_id, name, full_name, email, phone, address, sector, skills, experience, category_id, avatar_url, image_url, verified, is_verified, status, is_deleted, hidden, updated_at)
+             VALUES ($1, $1, $1, $2, $2, $3, $4, $5, $5, $6, $7, $8, $9, $9, $10, $10, $11, false, false, NOW())
              ON CONFLICT (uid) DO UPDATE SET
                name = COALESCE(NULLIF(EXCLUDED.name, ''), profiles.name),
                full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), profiles.full_name),
@@ -12090,6 +12173,8 @@ async function startServer() {
                verified = EXCLUDED.verified,
                is_verified = EXCLUDED.is_verified,
                status = EXCLUDED.status,
+               is_deleted = false,
+               hidden = false,
                updated_at = NOW()`,
             [
               uid,
@@ -12107,12 +12192,28 @@ async function startServer() {
             ]
           );
 
+          // Also sync any matching profile rows by email (e.g. if client saved a UUID profile row)
+          if (current.email) {
+            await dbPool.query(
+              `UPDATE profiles
+               SET verified = $1, is_verified = $1, status = $2, is_deleted = false, hidden = false, updated_at = NOW()
+               WHERE LOWER(TRIM(COALESCE(email, ''))) = LOWER(TRIM($3))`,
+              [Boolean(current.isVerified), current.status || 'approved', current.email]
+            ).catch(() => {});
+            await dbPool.query(
+              `UPDATE users SET is_deleted = false, hidden = false WHERE LOWER(TRIM(COALESCE(email, ''))) = LOWER(TRIM($1))`,
+              [current.email]
+            ).catch(() => {});
+          }
+
           await dbPool.query(
             `UPDATE helpers
              SET is_verified = $1,
-                 category_id = COALESCE(NULLIF($2, ''), category_id)
-             WHERE id = $3`,
-            [Boolean(current.isVerified), current.category || '', uid]
+                 category_id = COALESCE(NULLIF($2, ''), category_id),
+                 is_deleted = false,
+                 hidden = false
+             WHERE id = $3 OR ($4 <> '' AND LOWER(COALESCE(email, '')) = LOWER($4))`,
+            [Boolean(current.isVerified), current.category || '', uid, current.email || '']
           ).catch(() => {});
 
           if (current.status) {
@@ -12930,17 +13031,24 @@ async function startServer() {
             const row = updateRes.rows[0];
             updatedItem = row;
             const isAppr = status === 'approved';
+            const rowEmail = String(row.user_email || '').trim().toLowerCase();
+            await unmarkEntitiesDeletedPermanently([id, row.entity_id, row.user_id, rowEmail, row.user_phone]).catch(() => {});
+
+            if (rowEmail) {
+              await dbPool.query(`UPDATE verification_requests SET status = $1, reviewed_at = NOW() WHERE LOWER(TRIM(COALESCE(user_email, ''))) = LOWER(TRIM($2)) AND entity_type = 'user_profile'`, [status, rowEmail]).catch(() => {});
+              await dbPool.query(`UPDATE users SET is_deleted = false, hidden = false WHERE LOWER(TRIM(COALESCE(email, ''))) = LOWER(TRIM($1))`, [rowEmail]).catch(() => {});
+            }
 
             if (String(row.entity_id || '').startsWith('ad_')) {
               await dbPool.query("UPDATE ads SET status = $1 WHERE id = $2", [isAppr ? 'active' : 'rejected', row.entity_id]).catch(() => {});
               invalidatePublicCache(['public_ads']);
             } else if (row.entity_type === 'business') {
-              await dbPool.query("UPDATE shops SET is_verified = $1 WHERE id = $2", [isAppr, row.entity_id]).catch(() => {});
-              await dbPool.query("UPDATE businesses SET is_verified = $1, is_approved = $1 WHERE id = $2", [isAppr, row.entity_id]).catch(() => {});
+              await dbPool.query("UPDATE shops SET is_verified = $1, is_deleted = false, hidden = false WHERE id = $2", [isAppr, row.entity_id]).catch(() => {});
+              await dbPool.query("UPDATE businesses SET is_verified = $1, is_approved = $1, is_deleted = false, hidden = false WHERE id = $2", [isAppr, row.entity_id]).catch(() => {});
             } else if (row.entity_type === 'helper' || String(row.id || '').startsWith('verif_hlp_') || String(row.entity_id || '').startsWith('helper_')) {
-              await dbPool.query("UPDATE helpers SET is_verified = $1, status = $2 WHERE id = $3 OR user_id = $4", [isAppr, status, row.entity_id, row.user_id]).catch(() => {});
+              await dbPool.query("UPDATE helpers SET is_verified = $1, status = $2, is_deleted = false, hidden = false WHERE id = $3 OR user_id = $4 OR ($5 <> '' AND LOWER(COALESCE(email, '')) = LOWER($5))", [isAppr, status, row.entity_id, row.user_id, rowEmail]).catch(() => {});
             } else {
-              await dbPool.query("UPDATE profiles SET is_verified = $1, verified = $1, status = $2 WHERE uid = $3 OR id = $3 OR uid = $4", [isAppr, status, row.entity_id, row.user_id]).catch(() => {});
+              await dbPool.query("UPDATE profiles SET is_verified = $1, verified = $1, status = $2, is_deleted = false, hidden = false, updated_at = NOW() WHERE uid = $3 OR id = $3 OR uid = $4 OR ($5 <> '' AND LOWER(TRIM(COALESCE(email, ''))) = LOWER(TRIM($5)))", [isAppr, status, row.entity_id, row.user_id, rowEmail]).catch(() => {});
             }
           }
         } catch (dbErr) {
@@ -13268,40 +13376,49 @@ async function startServer() {
         );
       }
 
+      await unmarkEntitiesDeletedPermanently([user.uid, user.email, user.phone]).catch(() => {});
+
       // Persist user to PostgreSQL primary "users", "user", and "profiles" tables with Legal Consent (terms_accepted)
       if (dbPool && isDbConnected) {
         try {
           if (user.email) {
             await dbPool.query(`
-              INSERT INTO users (id, name, email, phone, role, terms_accepted, terms_accepted_at, created_at)
-              VALUES ($1, $2, $3, $4, 'user', true, NOW(), NOW())
+              INSERT INTO users (id, name, email, phone, role, is_deleted, hidden, terms_accepted, terms_accepted_at, created_at)
+              VALUES ($1, $2, $3, $4, 'user', false, false, true, NOW(), NOW())
               ON CONFLICT (email) DO UPDATE SET
                 name = COALESCE(NULLIF(EXCLUDED.name, ''), users.name),
                 phone = COALESCE(NULLIF(EXCLUDED.phone, ''), users.phone),
+                is_deleted = false,
+                hidden = false,
                 terms_accepted = true,
                 terms_accepted_at = COALESCE(users.terms_accepted_at, NOW())
             `, [user.uid, user.displayName, user.email, user.phone]).catch(() => {});
           }
 
           await dbPool.query(`
-            INSERT INTO "user" (id, name, phone, email, terms_accepted, terms_accepted_at, created_at)
-            VALUES ($1, $2, $3, $4, true, NOW(), NOW())
+            INSERT INTO "user" (id, name, phone, email, is_deleted, hidden, terms_accepted, terms_accepted_at, created_at)
+            VALUES ($1, $2, $3, $4, false, false, true, NOW(), NOW())
             ON CONFLICT (id) DO UPDATE SET
               name = EXCLUDED.name,
               phone = COALESCE(NULLIF(EXCLUDED.phone, ''), "user".phone),
               email = COALESCE(NULLIF(EXCLUDED.email, ''), "user".email),
+              is_deleted = false,
+              hidden = false,
               terms_accepted = true,
               terms_accepted_at = COALESCE("user".terms_accepted_at, NOW())
           `, [user.uid, user.displayName, user.phone, user.email]);
 
           await dbPool.query(`
-            INSERT INTO profiles (uid, id, user_id, name, full_name, email, phone, verified, is_verified, status, terms_accepted, terms_accepted_at, updated_at)
-            VALUES ($1, $1, $1, $2, $2, $3, $4, false, false, 'pending', true, NOW(), NOW())
+            INSERT INTO profiles (uid, id, user_id, name, full_name, email, phone, verified, is_verified, status, is_deleted, hidden, terms_accepted, terms_accepted_at, updated_at)
+            VALUES ($1, $1, $1, $2, $2, $3, $4, false, false, 'pending', false, false, true, NOW(), NOW())
             ON CONFLICT (uid) DO UPDATE SET
               name = EXCLUDED.name,
               full_name = EXCLUDED.full_name,
               email = COALESCE(NULLIF(EXCLUDED.email, ''), profiles.email),
               phone = COALESCE(NULLIF(EXCLUDED.phone, ''), profiles.phone),
+              is_deleted = false,
+              hidden = false,
+              status = CASE WHEN profiles.status IN ('deleted', 'deletion_requested') THEN 'pending' ELSE COALESCE(NULLIF(profiles.status, ''), 'pending') END,
               terms_accepted = true,
               terms_accepted_at = COALESCE(profiles.terms_accepted_at, NOW()),
               updated_at = NOW()

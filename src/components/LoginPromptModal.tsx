@@ -613,7 +613,13 @@ export default function LoginPromptModal({
 
             <button
               type="button"
-              onClick={onClose}
+              onClick={() => {
+                if (otpVerifiedForPinSetup) {
+                  finishSuccess();
+                } else {
+                  onClose();
+                }
+              }}
               className="w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors"
               aria-label="Close"
             >
@@ -855,6 +861,18 @@ export default function LoginPromptModal({
                       'PIN સેવ કરો અને લોગિન પૂર્ણ કરો'
                     )}
                   </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => finishSuccess()}
+                  className="w-full py-2.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 font-extrabold text-xs transition-colors"
+                >
+                  {tr(
+                    'Skip PIN & Continue Directly →',
+                    'बिना PIN सेट किए सीधे आगे बढ़ें →',
+                    'PIN સેટ કર્યા વગર સીધા આગળ વધો →'
+                  )}
                 </button>
               </form>
             ) : canLoginDirectlyWithPin ? (
