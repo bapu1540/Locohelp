@@ -24,12 +24,6 @@ interface MainCatConfig {
   subBg: string;
   subBorder: string;
   subText: string;
-  btnClass: string;
-  headerClass: string;
-  borderClass: string;
-  badgeClass: string;
-  subBtnClass: string;
-  actionBtnClass: string;
   name: [string, string, string]; // [English, Hindi, Gujarati]
   cardLines: [[string, string], [string, string], [string, string]]; // Strict 2-line label for uniform compact box size
   iconPaths: React.ReactNode;
@@ -40,69 +34,45 @@ interface MainCatConfig {
 }
 
 const ROW_THEMES = {
-  // Row 1 (Boxes 1–4): Teal Theme (bg-teal-600 border-b-4 border-teal-800)
+  // Row 1 (Boxes 1–4): Soft Pastel Green with Solid Forest Green Icon Badge
   row1: {
-    ic: '#0f766e',
-    bg: '#0d9488',
-    bd: '#115e59',
-    tx: '#ffffff',
-    subBg: '#f0fdfa',
-    subBorder: '#99f6e4',
-    subText: '#042f2e',
-    btnClass: 'bg-teal-600 hover:bg-teal-500 border-b-4 border-teal-800 text-white',
-    headerClass: 'bg-teal-600 border-b-4 border-teal-800 text-white',
-    borderClass: 'border-teal-700',
-    badgeClass: 'bg-teal-700 text-white border border-teal-800',
-    subBtnClass: 'bg-teal-50 hover:bg-teal-100 border-2 border-teal-600/30 border-b-4 border-b-teal-700 text-teal-950',
-    actionBtnClass: 'bg-teal-600 hover:bg-teal-700 border-b-4 border-teal-800 text-white',
+    ic: '#368F33',
+    bg: '#A8DE96',
+    bd: '#74C365',
+    tx: '#111827',
+    subBg: '#F0FDF4',
+    subBorder: '#86EFAC',
+    subText: '#14532D',
   },
-  // Row 2 (Boxes 5–8): Slate Theme (bg-slate-700 border-b-4 border-slate-900)
+  // Row 2 (Boxes 5–8): Soft Pastel Peach/Coral with Solid Terracotta Icon Badge
   row2: {
-    ic: '#1e293b',
-    bg: '#334155',
-    bd: '#0f172a',
-    tx: '#ffffff',
-    subBg: '#f8fafc',
-    subBorder: '#cbd5e1',
-    subText: '#0f172a',
-    btnClass: 'bg-slate-700 hover:bg-slate-600 border-b-4 border-slate-900 text-white',
-    headerClass: 'bg-slate-700 border-b-4 border-slate-900 text-white',
-    borderClass: 'border-slate-800',
-    badgeClass: 'bg-slate-800 text-white border border-slate-950',
-    subBtnClass: 'bg-slate-50 hover:bg-slate-100 border-2 border-slate-600/30 border-b-4 border-b-slate-800 text-slate-900',
-    actionBtnClass: 'bg-slate-700 hover:bg-slate-800 border-b-4 border-slate-900 text-white',
+    ic: '#C23B1B',
+    bg: '#F9B9A6',
+    bd: '#EE9278',
+    tx: '#111827',
+    subBg: '#FFF7ED',
+    subBorder: '#FDBA74',
+    subText: '#7C2D12',
   },
-  // Row 3 (Boxes 9–12): Rose/Crimson Theme (bg-rose-600 border-b-4 border-rose-800)
+  // Row 3 (Boxes 9–12): Soft Pastel Sky Blue with Solid Royal Navy Icon Badge
   row3: {
-    ic: '#be123c',
-    bg: '#e11d48',
-    bd: '#9f1239',
-    tx: '#ffffff',
-    subBg: '#fff1f2',
-    subBorder: '#fecdd3',
-    subText: '#4c0519',
-    btnClass: 'bg-rose-600 hover:bg-rose-500 border-b-4 border-rose-800 text-white',
-    headerClass: 'bg-rose-600 border-b-4 border-rose-800 text-white',
-    borderClass: 'border-rose-700',
-    badgeClass: 'bg-rose-700 text-white border border-rose-900',
-    subBtnClass: 'bg-rose-50 hover:bg-rose-100 border-2 border-rose-600/30 border-b-4 border-b-rose-700 text-rose-950',
-    actionBtnClass: 'bg-rose-600 hover:bg-rose-700 border-b-4 border-rose-800 text-white',
+    ic: '#1A5F9C',
+    bg: '#9BC8F2',
+    bd: '#6BA9E6',
+    tx: '#111827',
+    subBg: '#EFF6FF',
+    subBorder: '#93C5FD',
+    subText: '#1E3A8A',
   },
-  // Row 4 (Boxes 13–16): Deep Cyan Theme (bg-cyan-700 border-b-4 border-cyan-900)
+  // Row 4 (Boxes 13–16): Soft Pastel Lavender with Solid Vivid Purple Icon Badge
   row4: {
-    ic: '#155e75',
-    bg: '#0e7490',
-    bd: '#164e63',
-    tx: '#ffffff',
-    subBg: '#ecfeff',
-    subBorder: '#a5f3fc',
-    subText: '#083344',
-    btnClass: 'bg-cyan-700 hover:bg-cyan-600 border-b-4 border-cyan-900 text-white',
-    headerClass: 'bg-cyan-700 border-b-4 border-cyan-900 text-white',
-    borderClass: 'border-cyan-800',
-    badgeClass: 'bg-cyan-800 text-white border border-cyan-950',
-    subBtnClass: 'bg-cyan-50 hover:bg-cyan-100 border-2 border-cyan-700/30 border-b-4 border-b-cyan-800 text-cyan-950',
-    actionBtnClass: 'bg-cyan-700 hover:bg-cyan-800 border-b-4 border-cyan-900 text-white',
+    ic: '#7E22CE',
+    bg: '#EADAF8',
+    bd: '#CEB0EC',
+    tx: '#111827',
+    subBg: '#FAF5FF',
+    subBorder: '#D8B4FE',
+    subText: '#581C87',
   },
 };
 
@@ -311,7 +281,7 @@ const MAIN_CATS: MainCatConfig[] = [
   },
 
   // =========================================================================
-  // ROW 3 (9 to 12): Pest Control, Brokers & Agents, Social & Friends, Other Services
+  // ROW 3 (9 to 12): Pest Control, Brokers & Agents, Transport & Shifting, Cab & Travel
   // =========================================================================
   {
     key: 'pest_control_main',
@@ -737,6 +707,18 @@ export default function HomeCategoryGrid({
   };
 
   const handleOpenCategoryPopup = (cat: MainCatConfig) => {
+    // Categories 1 to 9 have a single direct service — open directly without an intermediate popup
+    if (cat.subs.length === 1) {
+      try {
+        sessionStorage.removeItem('locohelp_return_popup_cat');
+      } catch {}
+      setOpenCatKey(null);
+      if (onSelectCategory) {
+        onSelectCategory(cat.subs[0].id);
+      }
+      onNavigate('categories');
+      return;
+    }
     try {
       window.history.pushState(
         { locohelpScreen: 'home', locohelpPopupCat: cat.key },
@@ -748,9 +730,9 @@ export default function HomeCategoryGrid({
 
   return (
     <>
-      {/* 16 Main Categories Grid (4 columns × 4 rows, solid 3D push-buttons) */}
+      {/* 16 Main Categories Grid (4 columns × 4 rows — Original Clean Pastel Card Style) */}
       <section className="py-1" aria-label="Service categories">
-        <div className="loco-cat-grid-4 grid grid-cols-4 auto-rows-[76px] sm:auto-rows-[84px] gap-2.5 w-full">
+        <div className="loco-cat-grid-4 grid grid-cols-4 auto-rows-[86px] sm:auto-rows-[92px] gap-2 sm:gap-2.5 w-full">
           {MAIN_CATS.map((cat) => {
             const [line1, line2] = cat.cardLines[langIdx];
             return (
@@ -760,40 +742,40 @@ export default function HomeCategoryGrid({
                 onClick={() => handleOpenCategoryPopup(cat)}
                 style={{
                   backgroundColor: cat.bg,
-                  borderBottomColor: cat.bd,
-                  borderBottomWidth: '4px',
-                  borderBottomStyle: 'solid',
-                  color: '#ffffff',
+                  borderColor: cat.bd,
+                  borderWidth: '1.5px',
+                  borderStyle: 'solid',
+                  color: cat.tx,
+                  boxShadow: '0 2px 5px rgba(15, 23, 42, 0.06)',
                 }}
-                className={`h-[76px] sm:h-[84px] w-full flex flex-col items-center justify-center gap-1 py-1.5 px-1 sm:px-1.5 rounded-2xl ${cat.btnClass} text-center cursor-pointer transition-all duration-150 active:translate-y-0.5 shadow-md overflow-hidden`}
+                className="h-[86px] sm:h-[92px] w-full flex flex-col items-center justify-center gap-1.5 py-2 px-1 sm:px-1.5 rounded-2xl text-center cursor-pointer transition-transform duration-150 active:scale-95 overflow-hidden"
               >
-                {/* Crisp white SVG icon inside translucent 3D badge */}
+                {/* Solid colored rounded-xl icon badge with crisp white SVG icon */}
                 <span
                   style={{
-                    backgroundColor: 'rgba(255, 255, 255, 0.22)',
-                    borderColor: 'rgba(255, 255, 255, 0.35)',
+                    backgroundColor: cat.ic,
                   }}
-                  className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-white/20 border border-white/30 flex items-center justify-center shrink-0 shadow-xs"
+                  className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center shrink-0 shadow-xs"
                 >
                   <svg
                     viewBox="0 0 24 24"
-                    width="16"
-                    height="16"
+                    width="17"
+                    height="17"
                     stroke="#ffffff"
                     fill="none"
-                    strokeWidth="2.3"
+                    strokeWidth="2.2"
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    className="w-4 h-4 sm:w-[17px] sm:h-[17px] shrink-0"
+                    className="w-[17px] h-[17px] sm:w-[18px] sm:h-[18px] shrink-0"
                   >
                     {cat.iconPaths}
                   </svg>
                 </span>
 
-                {/* Bold white 2-line Category Name */}
+                {/* Bold dark 2-line Category Name */}
                 <span
-                  style={{ color: '#ffffff' }}
-                  className="flex flex-col items-center justify-center text-[9.5px] sm:text-[11px] font-bold text-white leading-[1.15] tracking-tight text-center w-full drop-shadow-2xs"
+                  style={{ color: cat.tx }}
+                  className="flex flex-col items-center justify-center text-[10px] sm:text-[11px] font-extrabold leading-[1.18] tracking-tight text-center w-full"
                 >
                   <span className="block w-full truncate">{line1}</span>
                   <span className="block w-full truncate">{line2}</span>
@@ -804,7 +786,7 @@ export default function HomeCategoryGrid({
         </div>
       </section>
 
-      {/* Dynamic Row-Themed Sub-Categories Popup Modal — rendered via Portal to document.body */}
+      {/* Clean Pastel Sub-Categories Popup Modal — rendered via Portal to document.body */}
       {activeModalCat &&
         typeof document !== 'undefined' &&
         createPortal(
@@ -812,32 +794,26 @@ export default function HomeCategoryGrid({
             onClick={(e) => {
               if (e.target === e.currentTarget) closePopupExplicitly();
             }}
-            className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-slate-950/65 backdrop-blur-xs overscroll-none"
+            className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-slate-950/60 backdrop-blur-xs overscroll-none"
             role="dialog"
             aria-modal="true"
           >
             <div
               onClick={(e) => e.stopPropagation()}
               style={{ borderColor: activeModalCat.bd }}
-              className={`w-full max-w-[520px] sm:max-w-[680px] max-h-[84vh] flex flex-col bg-white rounded-3xl border-2 ${activeModalCat.borderClass} shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150`}
+              className="w-full max-w-[520px] sm:max-w-[680px] max-h-[84vh] flex flex-col bg-white rounded-3xl border-2 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150"
             >
-              {/* Dynamic Solid Row-Themed Modal Header */}
+              {/* Pastel Themed Modal Header */}
               <div
                 style={{
                   backgroundColor: activeModalCat.bg,
-                  borderBottomColor: activeModalCat.bd,
-                  borderBottomWidth: '4px',
-                  borderBottomStyle: 'solid',
-                  color: '#ffffff',
+                  borderBottom: `1.5px solid ${activeModalCat.bd}`,
                 }}
-                className={`flex items-center gap-3 px-4 py-3.5 ${activeModalCat.headerClass} shrink-0`}
+                className="flex items-center gap-3 px-4 py-3.5 shrink-0"
               >
                 <span
-                  style={{
-                    backgroundColor: 'rgba(255, 255, 255, 0.22)',
-                    borderColor: 'rgba(255, 255, 255, 0.35)',
-                  }}
-                  className="w-10 h-10 rounded-2xl bg-white/20 border border-white/30 flex items-center justify-center shrink-0 shadow-xs"
+                  style={{ backgroundColor: activeModalCat.ic }}
+                  className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 shadow-xs"
                 >
                   <svg
                     viewBox="0 0 24 24"
@@ -845,7 +821,7 @@ export default function HomeCategoryGrid({
                     height="22"
                     stroke="#ffffff"
                     fill="none"
-                    strokeWidth="2.3"
+                    strokeWidth="2.2"
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     className="w-[22px] h-[22px] shrink-0"
@@ -856,18 +832,18 @@ export default function HomeCategoryGrid({
 
                 <div className="flex-1 min-w-0">
                   <h2
-                    style={{ color: '#ffffff' }}
-                    className="text-base sm:text-lg font-black text-white leading-snug m-0 truncate"
+                    style={{ color: activeModalCat.tx }}
+                    className="text-base sm:text-lg font-black leading-snug m-0 truncate"
                   >
                     {activeModalCat.name[langIdx]}
                   </h2>
                   <span
                     style={{
-                      backgroundColor: activeModalCat.ic,
-                      borderColor: activeModalCat.bd,
-                      color: '#ffffff',
+                      backgroundColor: '#ffffff',
+                      color: activeModalCat.ic,
+                      border: `1px solid ${activeModalCat.bd}`,
                     }}
-                    className={`inline-flex items-center px-2 py-0.5 mt-0.5 rounded-lg text-[10px] font-extrabold ${activeModalCat.badgeClass}`}
+                    className="inline-flex items-center px-2 py-0.5 mt-0.5 rounded-lg text-[10px] font-extrabold"
                   >
                     {langIdx === 2
                       ? `${activeModalCat.subs.length} સેવા વિકલ્પો`
@@ -882,11 +858,11 @@ export default function HomeCategoryGrid({
                   onClick={closePopupExplicitly}
                   aria-label="Close"
                   style={{
-                    backgroundColor: 'rgba(255, 255, 255, 0.18)',
-                    borderColor: 'rgba(255, 255, 255, 0.35)',
-                    color: '#ffffff',
+                    backgroundColor: '#ffffff',
+                    borderColor: activeModalCat.bd,
+                    color: activeModalCat.tx,
                   }}
-                  className="w-9 h-9 rounded-xl border border-white/30 bg-white/15 hover:bg-white/25 text-white flex items-center justify-center cursor-pointer shrink-0 transition-colors"
+                  className="w-9 h-9 rounded-xl border flex items-center justify-center cursor-pointer shrink-0 hover:bg-slate-50 transition-colors"
                 >
                   <svg
                     viewBox="0 0 24 24"
@@ -916,21 +892,15 @@ export default function HomeCategoryGrid({
                       onClick={() => handleSubCategoryClick(sub.id)}
                       style={{
                         backgroundColor: activeModalCat.subBg,
-                        borderColor: activeModalCat.subBorder,
-                        borderBottomColor: activeModalCat.bd,
-                        borderBottomWidth: '4px',
-                        color: activeModalCat.subText,
+                        border: `1.5px solid ${activeModalCat.bd}`,
+                        color: activeModalCat.tx,
                       }}
-                      className={`flex items-center gap-3 px-3.5 py-3 rounded-2xl ${activeModalCat.subBtnClass} text-[13px] font-extrabold text-left cursor-pointer transition-all duration-150 active:translate-y-0.5 shadow-xs`}
+                      className="flex items-center gap-3 px-3.5 py-3 rounded-2xl text-[13px] font-extrabold text-left cursor-pointer transition-all hover:brightness-95 active:scale-[0.99] shadow-2xs"
                     >
                       {/* Left themed icon badge */}
                       <span
-                        style={{
-                          backgroundColor: activeModalCat.bg,
-                          borderColor: activeModalCat.bd,
-                          color: '#ffffff',
-                        }}
-                        className={`w-8 h-8 rounded-xl ${activeModalCat.badgeClass} flex items-center justify-center shrink-0 shadow-2xs`}
+                        style={{ backgroundColor: activeModalCat.ic }}
+                        className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
                       >
                         <svg
                           viewBox="0 0 24 24"
@@ -956,55 +926,18 @@ export default function HomeCategoryGrid({
                         viewBox="0 0 24 24"
                         width="15"
                         height="15"
-                        stroke="currentColor"
+                        stroke={activeModalCat.ic}
                         fill="none"
                         strokeWidth="2.5"
                         strokeLinecap="round"
                         strokeLinejoin="round"
-                        className="shrink-0 opacity-80"
+                        className="shrink-0"
                       >
                         <path d="m9 18 6-6-6-6" />
                       </svg>
                     </button>
                   );
                 })}
-              </div>
-
-              {/* Matching Row-Themed Footer Action Button */}
-              <div className="px-4 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => handleSubCategoryClick(activeModalCat.subs[0]?.id || activeModalCat.masterId)}
-                  style={{
-                    backgroundColor: activeModalCat.bg,
-                    borderBottomColor: activeModalCat.bd,
-                    borderBottomWidth: '4px',
-                    borderBottomStyle: 'solid',
-                    color: '#ffffff',
-                  }}
-                  className={`w-full py-3 px-4 rounded-2xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md active:translate-y-0.5 transition-all cursor-pointer ${activeModalCat.actionBtnClass}`}
-                >
-                  <span>
-                    {langIdx === 2
-                      ? `${activeModalCat.name[2]} ના તમામ કારીગરો / નિષ્ણાતો જુઓ`
-                      : langIdx === 1
-                      ? `${activeModalCat.name[1]} के सभी एक्सपर्ट देखें`
-                      : `View All Experts in ${activeModalCat.name[0]}`}
-                  </span>
-                  <svg
-                    viewBox="0 0 24 24"
-                    width="16"
-                    height="16"
-                    stroke="currentColor"
-                    fill="none"
-                    strokeWidth="2.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M5 12h14" />
-                    <path d="m12 5 7 7-7 7" />
-                  </svg>
-                </button>
               </div>
             </div>
           </div>,
