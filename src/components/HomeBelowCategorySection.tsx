@@ -23,6 +23,13 @@ import {
 import { Screen } from '../types';
 import { useLanguage } from '../i18n';
 import { getHelpers } from '../auth';
+import {
+  fetchHelperReviews,
+  submitHelperReview,
+  createAdOnServer as saveAdBannerOnServer,
+  HelperReviewItem,
+} from '../api';
+import { getSavedUserLocation, UserManualLocation as UserLocationData } from '../data/panIndiaLocations';
 
 export interface HomeBelowCategorySectionProps {
   onNavigate: (screen: Screen) => void;
@@ -160,8 +167,33 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
 }) => {
   const { language } = useLanguage();
   const [liveHelpers, setLiveHelpers] = useState<any[]>([]);
+  const [userLocation, setUserLocation] = useState<UserLocationData | null>(() =>
+    getSavedUserLocation()
+  );
+  const [filterByMyCity, setFilterByMyCity] = useState<boolean>(true);
   const [selectedProviderProfile, setSelectedProviderProfile] =
     useState<ShowcaseProviderItem | null>(null);
+  const [providerReviews, setProviderReviews] = useState<HelperReviewItem[]>([]);
+  const [reviewRating, setReviewRating] = useState<number>(5);
+  const [reviewComment, setReviewComment] = useState<string>('');
+  const [isSubmittingReview, setIsSubmittingReview] = useState<boolean>(false);
+
+  // Promote Your Business Ad Request Modal State
+  const [showPromoteModal, setShowPromoteModal] = useState<boolean>(false);
+  const [adForm, setAdForm] = useState({
+    businessName: '',
+    contactPerson: '',
+    phone: '',
+    ownerEmail: '',
+    area: '',
+    adPlan: 'Home Top / Middle Banner Ad',
+    durationDays: '30 Days',
+    offerTitle: '',
+    description: '',
+    photoUrl: '',
+  });
+  const [isSubmittingAd, setIsSubmittingAd] = useState<boolean>(false);
+
   const [favoriteIds, setFavoriteIds] = useState<string[]>(() => {
     try {
       return JSON.parse(localStorage.getItem('locohelp_favorite_helpers') || '[]');
@@ -169,6 +201,18 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
       return [];
     }
   });
+
+  useEffect(() => {
+    const syncLoc = () => {
+      setUserLocation(getSavedUserLocation());
+    };
+    window.addEventListener('locohelp_location_changed', syncLoc);
+    window.addEventListener('storage', syncLoc);
+    return () => {
+      window.removeEventListener('locohelp_location_changed', syncLoc);
+      window.removeEventListener('storage', syncLoc);
+    };
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -179,7 +223,7 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
         const approved = list.filter(
           (h: any) => h && h.name && (!h.status || h.status === 'approved')
         );
-        setLiveHelpers(approved.slice(0, 6));
+        setLiveHelpers(approved);
       } catch {
         if (isMounted) setLiveHelpers([]);
       }
@@ -189,6 +233,22 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!selectedProviderProfile) {
+      setProviderReviews([]);
+      setReviewRating(5);
+      setReviewComment('');
+      return;
+    }
+    let active = true;
+    fetchHelperReviews(selectedProviderProfile.id).then((revs) => {
+      if (active) setProviderReviews(revs);
+    });
+    return () => {
+      active = false;
+    };
+  }, [selectedProviderProfile?.id]);
 
   useEffect(() => {
     const syncFavs = () => {
@@ -257,16 +317,31 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
     onNavigate('categories');
   };
 
-  // Build uniform ShowcaseProviderItem list (preferring live approved helpers if >= 3, else default 3)
+  const selectedCityName = (userLocation?.district || userLocation?.area || '').trim();
+  const locationFilteredHelpers = React.useMemo(() => {
+    if (!filterByMyCity || !selectedCityName) return liveHelpers;
+    const normDistrict = (userLocation?.district || '').trim().toLowerCase();
+    const normArea = (userLocation?.area || '').trim().toLowerCase();
+    const matched = liveHelpers.filter((prov: any) => {
+      const pArea = String(prov.area || prov.city || prov.location || '').toLowerCase();
+      if (!pArea) return false;
+      if (normDistrict && pArea.includes(normDistrict)) return true;
+      if (normArea && pArea.includes(normArea)) return true;
+      return false;
+    });
+    return matched;
+  }, [liveHelpers, filterByMyCity, selectedCityName, userLocation]);
+
+  // Build uniform ShowcaseProviderItem list matching selected location (or fallback to showcase defaults if Gandhinagar/All)
   const displayProviders: ShowcaseProviderItem[] =
-    liveHelpers.length >= 3
-      ? liveHelpers.slice(0, 3).map((prov, idx) => {
+    locationFilteredHelpers.length > 0
+      ? locationFilteredHelpers.slice(0, 6).map((prov, idx) => {
           const dist = ['1.2', '2.5', '3.0'][idx % 3];
-          const revCount = prov.reviewCount || [320, 245, 189][idx % 3];
+          const revCount = prov.reviewCount ?? [18, 12, 9][idx % 3];
           const ratingVal =
             prov.rating && prov.rating > 0
               ? Number(prov.rating).toFixed(1)
-              : ['4.8', '4.7', '4.9'][idx % 3];
+              : ['4.9', '4.8', '5.0'][idx % 3];
           const avatar =
             prov.avatar ||
             prov.photoUrl ||
@@ -290,9 +365,9 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
             avatar,
             avatarUrl: avatar,
             phone: prov.phone || '',
-            areaGu: prov.area || 'ગાંધીનગર',
-            areaHi: prov.area || 'गांधीनगर',
-            areaEn: prov.area || 'Local Area',
+            areaGu: prov.area || selectedCityName || 'ગાંધીનગર',
+            areaHi: prov.area || selectedCityName || 'गांधीनगर',
+            areaEn: prov.area || selectedCityName || 'Local Area',
             experienceGu: prov.experience || '5+ વર્ષનો અનુભવ',
             experienceHi: prov.experience || '5+ वर्षों का अनुभव',
             experienceEn: prov.experience || '5+ Years Experience',
@@ -310,7 +385,12 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
               'Verified local service provider offering reliable doorstep service.',
           };
         })
-      : DEFAULT_SHOWCASE_PROVIDERS;
+      : !filterByMyCity ||
+        !selectedCityName ||
+        selectedCityName.toLowerCase().includes('gandhinagar') ||
+        selectedCityName.includes('ગાંધીનગર')
+      ? DEFAULT_SHOWCASE_PROVIDERS
+      : [];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', paddingTop: '4px' }}>
@@ -587,26 +667,94 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
                 : 'Available Service Providers in Your Area'}
             </h3>
           </div>
-          <button
-            type="button"
-            onClick={() => handleOpenCategoryOrHelpers()}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+            {selectedCityName && (
+              <button
+                type="button"
+                onClick={() => setFilterByMyCity((prev) => !prev)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '3px',
+                  padding: '3px 7px',
+                  borderRadius: '9999px',
+                  fontSize: '10px',
+                  fontWeight: 800,
+                  backgroundColor: filterByMyCity ? '#dbeafe' : '#f1f5f9',
+                  color: filterByMyCity ? '#1d4ed8' : '#475569',
+                  border: filterByMyCity ? '1px solid #93c5fd' : '1px solid #cbd5e1',
+                  cursor: 'pointer',
+                }}
+                title="Toggle Location Filter"
+              >
+                <span>📍 {filterByMyCity ? selectedCityName : 'All Areas'}</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => handleOpenCategoryOrHelpers()}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '2px',
+                fontSize: '11px',
+                fontWeight: 800,
+                color: '#1d4ed8',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                flexShrink: 0,
+              }}
+            >
+              {language === 'GU' ? 'વધુ જુઓ' : language === 'HI' ? 'और देखें' : 'View More'}
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {displayProviders.length === 0 ? (
+          <div
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '2px',
-              fontSize: '11px',
-              fontWeight: 800,
-              color: '#1d4ed8',
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              flexShrink: 0,
+              backgroundColor: '#f8fafc',
+              border: '1px dashed #cbd5e1',
+              borderRadius: '12px',
+              padding: '12px',
+              textAlign: 'center',
+              fontSize: '11.5px',
+              color: '#475569',
+              fontWeight: 700,
             }}
           >
-            {language === 'GU' ? 'વધુ જુઓ' : language === 'HI' ? 'और देखें' : 'View More'}
-            <ChevronRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
+            <div>
+              {language === 'GU'
+                ? `📍 ${selectedCityName} વિસ્તારમાં હાલમાં કોઈ સેવા પ્રદાતા મળ્યા નથી.`
+                : language === 'HI'
+                ? `📍 ${selectedCityName} क्षेत्र में अभी कोई सेवा प्रदाता नहीं मिला।`
+                : `📍 No service providers found in ${selectedCityName} yet.`}
+            </div>
+            <button
+              type="button"
+              onClick={() => setFilterByMyCity(false)}
+              style={{
+                marginTop: '6px',
+                padding: '5px 12px',
+                borderRadius: '9999px',
+                backgroundColor: '#2563eb',
+                color: '#ffffff',
+                fontSize: '11px',
+                fontWeight: 800,
+                border: 'none',
+                cursor: 'pointer',
+              }}
+            >
+              {language === 'GU'
+                ? 'બધા વિસ્તારના કારીગરો જુઓ'
+                : language === 'HI'
+                ? 'सभी क्षेत्रों के कारीगर देखें'
+                : 'Show All Areas'}
+            </button>
+          </div>
+        ) : null}
 
         {/* 3 Compact Provider Cards Side-by-Side */}
         <div
@@ -907,9 +1055,16 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
           </div>
         </button>
 
-        {/* Right Green Pill Banner: તમારા વ્યવસાયની જાહેરાત આપો -> Directly opens Admin Email support@locohelp.com */}
-        <a
-          href="mailto:support@locohelp.com?subject=LocoHelp%20Sponsored%20Advertisement%20Inquiry&body=Namaste%20LocoHelp%20Admin,%0A%0AI%20want%20to%20place%20an%20advertisement%20banner%20for%20my%20business%20on%20LocoHelp.%0A%0ABusiness%20Name:%20%0ACity/Area:%20%0APhone%20Number:%20"
+        {/* Right Green Pill Banner: તમારા વ્યવસાયની જાહેરાત આપો -> Opens Interactive Ad Booking Form Modal */}
+        <button
+          type="button"
+          onClick={() => {
+            setAdForm((prev) => ({
+              ...prev,
+              area: prev.area || selectedCityName || 'Gandhinagar',
+            }));
+            setShowPromoteModal(true);
+          }}
           style={{
             display: 'flex',
             flexDirection: 'row',
@@ -923,9 +1078,8 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
             cursor: 'pointer',
             textAlign: 'left',
             width: '100%',
-            textDecoration: 'none',
           }}
-          title="support@locohelp.com"
+          title="Promote Your Business on LocoHelp"
         >
           <div
             style={{
@@ -957,7 +1111,7 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
                 : 'Business Ad →'}
             </div>
           </div>
-        </a>
+        </button>
       </div>
 
       {/* 4. Separate Compact Banners for Shop/Showroom Registration & Free Service Expert Registration */}
@@ -1686,7 +1840,496 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
                     </span>
                   </button>
                 </div>
+
+                {/* Customer Star Rating & Review Section (PostgreSQL Backed) */}
+                <div
+                  style={{
+                    marginTop: '14px',
+                    backgroundColor: '#fffbeb',
+                    border: '1px solid #fde68a',
+                    borderRadius: '12px',
+                    padding: '10px 12px',
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: '11.5px',
+                      fontWeight: 900,
+                      color: '#92400e',
+                      marginBottom: '6px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                    }}
+                  >
+                    <span>
+                      ⭐{' '}
+                      {language === 'GU'
+                        ? 'ગ્રાહક રેટિંગ અને રિવ્યુ આપો'
+                        : language === 'HI'
+                        ? 'ग्राहक रेटिंग और रिव्यू दें'
+                        : 'Rate & Review Service Expert'}
+                    </span>
+                    <span style={{ fontSize: '10.5px', color: '#b45309' }}>
+                      {providerReviews.length > 0
+                        ? `${providerReviews.length} Reviews`
+                        : `${selectedProviderProfile.reviews} Reviews`}
+                    </span>
+                  </div>
+
+                  {/* Interactive 1-5 Star Selector */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <button
+                        key={star}
+                        type="button"
+                        onClick={() => setReviewRating(star)}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          padding: '2px',
+                        }}
+                      >
+                        <Star
+                          className={`w-5 h-5 ${
+                            star <= reviewRating
+                              ? 'text-amber-500 fill-amber-400'
+                              : 'text-slate-300'
+                          }`}
+                        />
+                      </button>
+                    ))}
+                    <span style={{ fontSize: '11px', fontWeight: 800, color: '#78350f' }}>
+                      {reviewRating} / 5 Stars
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <input
+                      type="text"
+                      value={reviewComment}
+                      onChange={(e) => setReviewComment(e.target.value)}
+                      placeholder={
+                        language === 'GU'
+                          ? 'કારીગરના કામ વિશે તમારો અભિપ્રાય લખો...'
+                          : language === 'HI'
+                          ? 'कारीगर के काम के बारे में अपना अनुभव लिखें...'
+                          : 'Write your review about their work...'
+                      }
+                      style={{
+                        flex: 1,
+                        padding: '7px 10px',
+                        borderRadius: '8px',
+                        border: '1px solid #fcd34d',
+                        fontSize: '11.5px',
+                        backgroundColor: '#ffffff',
+                        color: '#0f172a',
+                      }}
+                    />
+                    <button
+                      type="button"
+                      disabled={isSubmittingReview}
+                      onClick={async () => {
+                        if (!selectedProviderProfile) return;
+                        setIsSubmittingReview(true);
+                        const res = await submitHelperReview(selectedProviderProfile.id, {
+                          rating: reviewRating,
+                          comment: reviewComment.trim() || `${reviewRating} Star Service`,
+                          helperName: selectedProviderProfile.nameEn,
+                        });
+                        setIsSubmittingReview(false);
+                        if (res.success) {
+                          setReviewComment('');
+                          if (res.reviews) setProviderReviews(res.reviews);
+                          else if (res.review) setProviderReviews((prev) => [res.review!, ...prev]);
+                          if (res.rating) {
+                            setSelectedProviderProfile((prev) =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    rating: Number(res.rating).toFixed(1),
+                                    reviews: Number(res.reviewCount || prev.reviews + 1),
+                                  }
+                                : null
+                            );
+                          }
+                          if (showToast) {
+                            showToast(
+                              language === 'GU'
+                                ? '⭐ તમારો રિવ્યુ સફળતાપૂર્વક સેવ થઈ ગયો!'
+                                : language === 'HI'
+                                ? '⭐ आपका रिव्यू सफलतापूर्वक सेव हो गया!'
+                                : '⭐ Thank you! Your review has been saved.'
+                            );
+                          }
+                        } else if (showToast) {
+                          showToast(
+                            res.error ||
+                              (language === 'GU'
+                                ? 'રિવ્યુ આપવા માટે પહેલા લોગિન કરો'
+                                : language === 'HI'
+                                ? 'रिव्यू देने के लिए कृपया लॉगिन करें'
+                                : 'Please sign in to submit a review')
+                          );
+                        }
+                      }}
+                      style={{
+                        padding: '7px 12px',
+                        borderRadius: '8px',
+                        backgroundColor: '#d97706',
+                        color: '#ffffff',
+                        fontSize: '11px',
+                        fontWeight: 900,
+                        border: 'none',
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {isSubmittingReview
+                        ? '...'
+                        : language === 'GU'
+                        ? 'રિવ્યુ મોકલો'
+                        : language === 'HI'
+                        ? 'रिव्यू भेजें'
+                        : 'Submit'}
+                    </button>
+                  </div>
+
+                  {providerReviews.length > 0 && (
+                    <div
+                      style={{
+                        marginTop: '8px',
+                        maxHeight: '110px',
+                        overflowY: 'auto',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '5px',
+                      }}
+                    >
+                      {providerReviews.slice(0, 5).map((rev) => (
+                        <div
+                          key={rev.id}
+                          style={{
+                            backgroundColor: '#ffffff',
+                            border: '1px solid #fef3c7',
+                            borderRadius: '8px',
+                            padding: '6px 8px',
+                            fontSize: '11px',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800 }}>
+                            <span style={{ color: '#0f172a' }}>{rev.reviewerName || 'Customer'}</span>
+                            <span style={{ color: '#d97706' }}>{'★'.repeat(Math.round(rev.rating || 5))}</span>
+                          </div>
+                          {rev.comment && (
+                            <div style={{ color: '#475569', marginTop: '2px' }}>{rev.comment}</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {/* Promote Your Business / Advertisement Request Form Modal */}
+      {showPromoteModal &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            onClick={() => setShowPromoteModal(false)}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 99999,
+              backgroundColor: 'rgba(15, 23, 42, 0.65)',
+              backdropFilter: 'blur(4px)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '14px',
+            }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                width: '100%',
+                maxWidth: '430px',
+                maxHeight: '90vh',
+                overflowY: 'auto',
+                backgroundColor: '#ffffff',
+                borderRadius: '20px',
+                border: '1px solid #86efac',
+                boxShadow: '0 20px 35px -5px rgba(0, 0, 0, 0.28)',
+              }}
+            >
+              <div
+                style={{
+                  background: 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)',
+                  padding: '14px 16px',
+                  color: '#ffffff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Megaphone className="w-5 h-5 text-lime-200" />
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 900 }}>
+                      {language === 'GU'
+                        ? 'તમારા વ્યવસાયની જાહેરાત આપો'
+                        : language === 'HI'
+                        ? 'अपने व्यवसाय का विज्ञापन दें'
+                        : 'Promote Your Business Ad'}
+                    </h3>
+                    <p style={{ margin: 0, fontSize: '11px', color: '#dcfce7' }}>
+                      {language === 'GU'
+                        ? 'ફોર્મ ભરો — એડમિન તપાસીને તમારી જાહેરાત લાઈવ કરશે'
+                        : language === 'HI'
+                        ? 'फॉर्म भरें — एडमिन जांच कर आपका विज्ञापन लाइव करेंगे'
+                        : 'Submit ad details — Admin will review & publish your banner'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowPromoteModal(false)}
+                  style={{
+                    width: '28px',
+                    height: '28px',
+                    borderRadius: '9999px',
+                    backgroundColor: 'rgba(255,255,255,0.2)',
+                    border: 'none',
+                    color: '#ffffff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!adForm.businessName.trim() || !adForm.phone.trim()) {
+                    if (showToast) {
+                      showToast(
+                        language === 'GU'
+                          ? 'કૃપા કરી વ્યવસાયનું નામ અને મોબાઇલ નંબર લખો'
+                          : language === 'HI'
+                          ? 'कृपया व्यवसाय का नाम और मोबाइल नंबर लिखें'
+                          : 'Please enter Business Name and Mobile Number'
+                      );
+                    }
+                    return;
+                  }
+                  setIsSubmittingAd(true);
+                  const saved = await saveAdBannerOnServer({
+                    businessName: adForm.businessName.trim(),
+                    contactPerson: adForm.contactPerson.trim(),
+                    phone: adForm.phone.trim(),
+                    ownerEmail: adForm.ownerEmail.trim(),
+                    area: adForm.area.trim() || selectedCityName || 'Gandhinagar',
+                    adPlan: adForm.adPlan,
+                    durationDays: adForm.durationDays,
+                    offerTitle:
+                      adForm.offerTitle.trim() || `${adForm.businessName.trim()} - Special Offer`,
+                    description: adForm.description.trim(),
+                    photoUrl: adForm.photoUrl.trim(),
+                  });
+                  setIsSubmittingAd(false);
+                  if (saved) {
+                    setShowPromoteModal(false);
+                    setAdForm({
+                      businessName: '',
+                      contactPerson: '',
+                      phone: '',
+                      ownerEmail: '',
+                      area: '',
+                      adPlan: 'Home Top / Middle Banner Ad',
+                      durationDays: '30 Days',
+                      offerTitle: '',
+                      description: '',
+                      photoUrl: '',
+                    });
+                    if (showToast) {
+                      showToast(
+                        language === 'GU'
+                          ? '✅ તમારી જાહેરાતની અરજી એડમિન પાસે પહોંચી ગઈ છે!'
+                          : language === 'HI'
+                          ? '✅ आपके विज्ञापन का फॉर्म एडमिन के पास भेज दिया गया है!'
+                          : '✅ Your Business Ad request has been sent to Admin!'
+                      );
+                    }
+                  } else if (showToast) {
+                    showToast('Failed to submit ad request. Please try again.');
+                  }
+                }}
+                style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '10px' }}
+              >
+                <div>
+                  <label style={{ fontSize: '11px', fontWeight: 800, color: '#334155', display: 'block', marginBottom: '3px' }}>
+                    {language === 'GU' ? 'દુકાન / વ્યવસાયનું નામ *' : language === 'HI' ? 'दुकान / व्यवसाय का नाम *' : 'Business / Shop Name *'}
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={adForm.businessName}
+                    onChange={(e) => setAdForm({ ...adForm, businessName: e.target.value })}
+                    placeholder="Ex. Gayatri Electronics & RO Care"
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '12.5px' }}
+                  />
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  <div>
+                    <label style={{ fontSize: '11px', fontWeight: 800, color: '#334155', display: 'block', marginBottom: '3px' }}>
+                      {language === 'GU' ? 'તમારું નામ' : language === 'HI' ? 'आपका नाम' : 'Contact Person Name'}
+                    </label>
+                    <input
+                      type="text"
+                      value={adForm.contactPerson}
+                      onChange={(e) => setAdForm({ ...adForm, contactPerson: e.target.value })}
+                      placeholder="Your Name"
+                      style={{ width: '100%', padding: '8px 10px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '12.5px' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '11px', fontWeight: 800, color: '#334155', display: 'block', marginBottom: '3px' }}>
+                      {language === 'GU' ? 'મોબાઇલ નંબર *' : language === 'HI' ? 'मोबाइल नंबर *' : 'Mobile Number *'}
+                    </label>
+                    <input
+                      type="tel"
+                      required
+                      value={adForm.phone}
+                      onChange={(e) => setAdForm({ ...adForm, phone: e.target.value })}
+                      placeholder="10-digit Mobile"
+                      style={{ width: '100%', padding: '8px 10px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '12.5px' }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  <div>
+                    <label style={{ fontSize: '11px', fontWeight: 800, color: '#334155', display: 'block', marginBottom: '3px' }}>
+                      {language === 'GU' ? 'શહેર / વિસ્તાર *' : language === 'HI' ? 'शहर / क्षेत्र *' : 'City / Area *'}
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={adForm.area}
+                      onChange={(e) => setAdForm({ ...adForm, area: e.target.value })}
+                      placeholder="Ex. Kudasan, Gandhinagar"
+                      style={{ width: '100%', padding: '8px 10px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '12.5px' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '11px', fontWeight: 800, color: '#334155', display: 'block', marginBottom: '3px' }}>
+                      {language === 'GU' ? 'ઈમેલ (Optional)' : language === 'HI' ? 'ईमेल (Optional)' : 'Email ID (Optional)'}
+                    </label>
+                    <input
+                      type="email"
+                      value={adForm.ownerEmail}
+                      onChange={(e) => setAdForm({ ...adForm, ownerEmail: e.target.value })}
+                      placeholder="you@example.com"
+                      style={{ width: '100%', padding: '8px 10px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '12.5px' }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  <div>
+                    <label style={{ fontSize: '11px', fontWeight: 800, color: '#334155', display: 'block', marginBottom: '3px' }}>
+                      {language === 'GU' ? 'જાહેરાતનો પ્રકાર' : language === 'HI' ? 'विज्ञापन का प्रकार' : 'Ad Placement Type'}
+                    </label>
+                    <select
+                      value={adForm.adPlan}
+                      onChange={(e) => setAdForm({ ...adForm, adPlan: e.target.value })}
+                      style={{ width: '100%', padding: '8px 10px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '12px', backgroundColor: '#fff' }}
+                    >
+                      <option value="Home Top / Middle Banner Ad">Home Page Banner Ad</option>
+                      <option value="Category Page Spotlight Ad">Category Spotlight Ad</option>
+                      <option value="Featured Partner Offer Card">Featured Partner Offer</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '11px', fontWeight: 800, color: '#334155', display: 'block', marginBottom: '3px' }}>
+                      {language === 'GU' ? 'કેટલા સમય માટે?' : language === 'HI' ? 'कितने समय के लिए?' : 'Ad Duration'}
+                    </label>
+                    <select
+                      value={adForm.durationDays}
+                      onChange={(e) => setAdForm({ ...adForm, durationDays: e.target.value })}
+                      style={{ width: '100%', padding: '8px 10px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '12px', backgroundColor: '#fff' }}
+                    >
+                      <option value="7 Days">7 Days</option>
+                      <option value="15 Days">15 Days</option>
+                      <option value="30 Days (1 Month)">30 Days (1 Month)</option>
+                      <option value="90 Days (3 Months)">90 Days (3 Months)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ fontSize: '11px', fontWeight: 800, color: '#334155', display: 'block', marginBottom: '3px' }}>
+                    {language === 'GU' ? 'જાહેરાતનું શીર્ષક / ઓફર *' : language === 'HI' ? 'विज्ञापन का शीर्षक / ऑफर *' : 'Ad Offer Title / Headline *'}
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={adForm.offerTitle}
+                    onChange={(e) => setAdForm({ ...adForm, offerTitle: e.target.value })}
+                    placeholder="Ex. Flat 20% Off on AC Servicing & Gas Refill"
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '12.5px' }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ fontSize: '11px', fontWeight: 800, color: '#334155', display: 'block', marginBottom: '3px' }}>
+                    {language === 'GU' ? 'જાહેરાતની સંપૂર્ણ વિગત (કેવી જાહેરાત આપવી છે?)' : language === 'HI' ? 'विज्ञापन का पूरा विवरण (कैसा विज्ञापन देना चाहते हैं?)' : 'Full Ad Details / Requirements'}
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={adForm.description}
+                    onChange={(e) => setAdForm({ ...adForm, description: e.target.value })}
+                    placeholder="Write complete details about your business, offer, and how you want your ad displayed..."
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '12px' }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingAd}
+                    style={{
+                      flex: 1,
+                      padding: '11px',
+                      borderRadius: '12px',
+                      backgroundColor: '#16a34a',
+                      color: '#ffffff',
+                      fontSize: '13px',
+                      fontWeight: 900,
+                      border: 'none',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {isSubmittingAd
+                      ? 'Submitting...'
+                      : language === 'GU'
+                      ? '🚀 જાહેરાત ફોર્મ સબમિટ કરો'
+                      : language === 'HI'
+                      ? '🚀 विज्ञापन फॉर्म सबमिट करें'
+                      : '🚀 Submit Ad Request'}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>,
           document.body
@@ -1696,3 +2339,4 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
 };
 
 export default HomeBelowCategorySection;
+

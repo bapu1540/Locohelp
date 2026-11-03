@@ -2157,4 +2157,136 @@ export function subscribeToRealtimeStream(handlers: {
   };
 }
 
+// ==========================================
+// CUSTOMER RATINGS & REVIEWS API FOR HELPERS
+// ==========================================
+
+export interface HelperReviewItem {
+  id: string;
+  helperId: string;
+  helperName?: string;
+  categoryId?: string;
+  area?: string;
+  helperPhone?: string;
+  reviewerId?: string;
+  reviewerName: string;
+  reviewerEmail?: string;
+  reviewerPhone?: string;
+  rating: number;
+  comment: string;
+  createdAt: string;
+}
+
+export async function fetchHelperReviews(helperId: string): Promise<HelperReviewItem[]> {
+  try {
+    const res = await fetch(`/api/helpers/${encodeURIComponent(helperId)}/reviews?_t=${Date.now()}`, {
+      cache: 'no-store'
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data)) return data;
+    }
+  } catch {}
+  return [];
+}
+
+export async function submitHelperReview(
+  helperId: string,
+  payload: {
+    rating: number;
+    comment: string;
+    helperName?: string;
+    reviewerName?: string;
+    reviewerId?: string;
+    reviewerEmail?: string;
+    reviewerPhone?: string;
+  }
+): Promise<{
+  success: boolean;
+  review?: HelperReviewItem;
+  rating?: number;
+  reviewCount?: number;
+  reviews?: HelperReviewItem[];
+  error?: string;
+}> {
+  try {
+    const res = await fetch(`/api/helpers/${encodeURIComponent(helperId)}/reviews`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders()
+      },
+      body: JSON.stringify({
+        rating: payload.rating,
+        comment: sanitizeText(payload.comment || ''),
+        helperName: payload.helperName ? sanitizeText(payload.helperName) : undefined,
+        reviewerName: payload.reviewerName ? sanitizeText(payload.reviewerName) : undefined,
+        reviewerId: payload.reviewerId,
+        reviewerEmail: payload.reviewerEmail,
+        reviewerPhone: payload.reviewerPhone
+      })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.success) {
+      return {
+        success: true,
+        review: data.review,
+        rating: data.rating,
+        reviewCount: data.reviewCount,
+        reviews: data.reviews
+      };
+    }
+    return { success: false, error: data.error || 'Failed to submit review' };
+  } catch (e: any) {
+    return { success: false, error: e?.message || 'Network error submitting review' };
+  }
+}
+
+export async function fetchAdminHelperReviews(): Promise<HelperReviewItem[]> {
+  try {
+    const res = await fetch(`/api/admin/reviews?_t=${Date.now()}`, {
+      cache: 'no-store',
+      headers: getAuthHeaders()
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data)) return data;
+    }
+  } catch {}
+  return [];
+}
+
+export async function deleteAdminHelperReview(reviewId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/admin/reviews/${encodeURIComponent(reviewId)}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function updateAdStatusOnServer(
+  adId: string,
+  status: 'active' | 'approved' | 'inactive' | 'rejected' | 'pending',
+  isActive?: boolean
+): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/admin/ads/${encodeURIComponent(adId)}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders()
+      },
+      body: JSON.stringify({ status, isActive })
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+
 

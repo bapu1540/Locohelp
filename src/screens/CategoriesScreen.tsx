@@ -92,7 +92,14 @@ import {
   getCachedCategoryImages,
   fetchCategoryImages,
   fetchUserApprovalStatus,
+  fetchHelperReviews,
+  submitHelperReview,
+  HelperReviewItem,
 } from '../api';
+import {
+  getSavedUserLocation,
+  UserManualLocation as UserLocationData,
+} from '../data/panIndiaLocations';
 
 interface CategoriesScreenProps {
   onBack?: () => void;
@@ -674,7 +681,45 @@ export default function CategoriesScreen({
     ? CATEGORIES.filter((cat) => matchesCategorySearch(cat, searchQuery))
     : [];
 
-  // Filter helpers for selected category
+  const [userLocation, setUserLocation] = useState<UserLocationData | null>(() =>
+    getSavedUserLocation()
+  );
+  const [filterByMyCity, setFilterByMyCity] = useState<boolean>(true);
+  const [reviewModalHelper, setReviewModalHelper] = useState<FreeHelperProfile | null>(null);
+  const [helperReviewsList, setHelperReviewsList] = useState<HelperReviewItem[]>([]);
+  const [reviewStarVal, setReviewStarVal] = useState<number>(5);
+  const [reviewTextVal, setReviewTextVal] = useState<string>('');
+  const [submittingReview, setSubmittingReview] = useState<boolean>(false);
+
+  useEffect(() => {
+    const syncLoc = () => setUserLocation(getSavedUserLocation());
+    window.addEventListener('locohelp_location_changed', syncLoc);
+    window.addEventListener('storage', syncLoc);
+    return () => {
+      window.removeEventListener('locohelp_location_changed', syncLoc);
+      window.removeEventListener('storage', syncLoc);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!reviewModalHelper) {
+      setHelperReviewsList([]);
+      setReviewStarVal(5);
+      setReviewTextVal('');
+      return;
+    }
+    let active = true;
+    fetchHelperReviews(reviewModalHelper.id).then((list) => {
+      if (active) setHelperReviewsList(list);
+    });
+    return () => {
+      active = false;
+    };
+  }, [reviewModalHelper?.id]);
+
+  const selectedCityName = (userLocation?.district || userLocation?.area || '').trim();
+
+  // Filter helpers for selected category + optional user city filter
   const filteredHelpers = helpers.filter((h) => {
     const matchesCat =
       activeCategory === 'all' ||
@@ -691,7 +736,19 @@ export default function CategoriesScreen({
       (helperCatObj ? matchesCategorySearch(helperCatObj, q) : false) ||
       (Array.isArray(h.skills) &&
         h.skills.some((s) => String(s || '').toLowerCase().includes(q)));
-    return matchesCat && matchesSearch;
+
+    let matchesCity = true;
+    if (filterByMyCity && selectedCityName && !q) {
+      const hArea = String(h.area || (h as any).city || '').toLowerCase();
+      const normDist = (userLocation?.district || '').trim().toLowerCase();
+      const normArea = (userLocation?.area || '').trim().toLowerCase();
+      matchesCity = Boolean(
+        (normDist && hArea.includes(normDist)) ||
+          (normArea && hArea.includes(normArea))
+      );
+    }
+
+    return matchesCat && matchesSearch && matchesCity;
   });
 
   const [pendingApprovalNotice, setPendingApprovalNotice] = useState<string | null>(null);
@@ -1119,7 +1176,7 @@ export default function CategoriesScreen({
         {/* REGISTERED SERVICE PROVIDERS / HELPERS DIRECTORY LIST                 */}
         {/* ===================================================================== */}
         <div>
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
             <div className="flex items-center gap-2">
               <ShieldCheck className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
               <h3 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white">
@@ -1136,10 +1193,25 @@ export default function CategoriesScreen({
                     )}`}
               </h3>
             </div>
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
-              {filteredHelpers.length}{' '}
-              {tr('Profiles', 'प्रोफाइल', 'પ્રોફાઇલ')}
-            </span>
+            <div className="flex items-center gap-2">
+              {selectedCityName && (
+                <button
+                  type="button"
+                  onClick={() => setFilterByMyCity((prev) => !prev)}
+                  className={`px-2.5 py-1 rounded-full text-xs font-extrabold border cursor-pointer transition-all ${
+                    filterByMyCity
+                      ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800'
+                      : 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
+                  }`}
+                >
+                  📍 {filterByMyCity ? selectedCityName : tr('All Cities', 'सभी शहर', 'બધા શહેરો')}
+                </button>
+              )}
+              <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                {filteredHelpers.length}{' '}
+                {tr('Profiles', 'प्रोफाइल', 'પ્રોફાઇલ')}
+              </span>
+            </div>
           </div>
 
           {filteredHelpers.length === 0 ? (
@@ -1245,10 +1317,18 @@ export default function CategoriesScreen({
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-1 bg-amber-500/10 text-amber-600 dark:text-amber-400 px-2 py-1 rounded-lg text-xs font-extrabold shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setReviewModalHelper(helper)}
+                          title={tr('View & Add Customer Reviews', 'रेटिंग और रिव्यू देखें/दें', 'રેટિંગ અને રિવ્યુ જુઓ/આપો')}
+                          className="flex items-center gap-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 px-2.5 py-1 rounded-lg text-xs font-extrabold shrink-0 cursor-pointer border border-amber-300/50"
+                        >
                           <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
-                          <span>{helper.rating.toFixed(1)}</span>
-                        </div>
+                          <span>{Number(helper.rating || 5.0).toFixed(1)}</span>
+                          <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300">
+                            ({(helper as any).reviewCount || 0})
+                          </span>
+                        </button>
                       </div>
 
                       {/* Skills chips */}
@@ -1403,6 +1483,124 @@ export default function CategoriesScreen({
           reportedUserName={reportTarget.reportedUserName}
         />
       )}
+
+      {/* Customer Rating & Review Modal */}
+      {reviewModalHelper && (
+        <div
+          onClick={() => setReviewModalHelper(null)}
+          className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 w-full max-w-md p-4 shadow-xl space-y-3"
+          >
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-2.5">
+              <div>
+                <h3 className="text-sm font-black text-slate-900 dark:text-white">
+                  ⭐ {reviewModalHelper.name} — {tr('Customer Reviews', 'ग्राहक रिव्यू', 'ગ્રાહક રિવ્યુ')}
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  {tr('Rate their work quality (1 to 5 Stars)', 'काम की क्वालिटी को रेटिंग दें (1 से 5 स्टार)', 'કામની ગુણવત્તાને રેટિંગ આપો (1 થી 5 સ્ટાર)')}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReviewModalHelper(null)}
+                className="w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold text-xs cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {[1, 2, 3, 4, 5].map((st) => (
+                <button
+                  key={st}
+                  type="button"
+                  onClick={() => setReviewStarVal(st)}
+                  className="p-1 cursor-pointer"
+                >
+                  <Star
+                    className={`w-6 h-6 ${
+                      st <= reviewStarVal
+                        ? 'fill-amber-400 text-amber-500'
+                        : 'text-slate-300 dark:text-slate-600'
+                    }`}
+                  />
+                </button>
+              ))}
+              <span className="text-xs font-extrabold text-amber-600 dark:text-amber-400 ml-1">
+                {reviewStarVal} / 5
+              </span>
+            </div>
+
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={reviewTextVal}
+                onChange={(e) => setReviewTextVal(e.target.value)}
+                placeholder={tr(
+                  'Write your review about this service expert...',
+                  'इस सर्विस एक्सपर्ट के काम के बारे में लिखें...',
+                  'આ સર્વિસ એક્સપર્ટના કામ વિશે તમારો રિવ્યુ લખો...'
+                )}
+                className="flex-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs text-slate-900 dark:text-white"
+              />
+              <button
+                type="button"
+                disabled={submittingReview}
+                onClick={async () => {
+                  if (isGuestUser()) {
+                    setReviewModalHelper(null);
+                    setIsLoginPromptOpen(true);
+                    return;
+                  }
+                  setSubmittingReview(true);
+                  const res = await submitHelperReview(reviewModalHelper.id, {
+                    rating: reviewStarVal,
+                    comment: reviewTextVal.trim() || `${reviewStarVal} Star Service`,
+                    helperName: reviewModalHelper.name,
+                  });
+                  setSubmittingReview(false);
+                  if (res.success) {
+                    setReviewTextVal('');
+                    if (res.reviews) setHelperReviewsList(res.reviews);
+                    else if (res.review) setHelperReviewsList((prev) => [res.review!, ...prev]);
+                    loadVerifiedHelpers();
+                  }
+                }}
+                className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-extrabold cursor-pointer shrink-0"
+              >
+                {submittingReview ? '...' : tr('Submit', 'भेजें', 'મોકલો')}
+              </button>
+            </div>
+
+            <div className="max-h-48 overflow-y-auto space-y-2 pt-1">
+              {helperReviewsList.length === 0 ? (
+                <p className="text-xs text-slate-400 text-center py-3">
+                  {tr('No customer reviews yet. Be the first to review!', 'अभी कोई रिव्यू नहीं है। सबसे पहले रिव्यू दें!', 'હજુ સુધી કોઈ રિવ્યુ નથી. સૌથી પહેલા રિવ્યુ આપો!')}
+                </p>
+              ) : (
+                helperReviewsList.map((rev) => (
+                  <div
+                    key={rev.id}
+                    className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/70 border border-slate-200/70 dark:border-slate-700 text-xs"
+                  >
+                    <div className="flex items-center justify-between font-bold">
+                      <span className="text-slate-900 dark:text-white">{rev.reviewerName}</span>
+                      <span className="text-amber-500">{'★'.repeat(Math.round(rev.rating || 5))}</span>
+                    </div>
+                    {rev.comment && (
+                      <p className="text-slate-600 dark:text-slate-300 mt-1">{rev.comment}</p>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+

@@ -2298,7 +2298,27 @@ async function initPostgresTables(pool: pg.Pool): Promise<string[]> {
   await execSafeDDL(pool, `ALTER TABLE helpers ADD COLUMN IF NOT EXISTS email TEXT`, "helpers.email");
   await execSafeDDL(pool, `ALTER TABLE helpers ADD COLUMN IF NOT EXISTS photo_url TEXT`, "helpers.photo_url");
   await execSafeDDL(pool, `ALTER TABLE helpers ADD COLUMN IF NOT EXISTS custom_category_name TEXT`, "helpers.custom_category_name");
+  await execSafeDDL(pool, `ALTER TABLE helpers ADD COLUMN IF NOT EXISTS rating NUMERIC DEFAULT 5.0`, "helpers.rating");
+  await execSafeDDL(pool, `ALTER TABLE helpers ADD COLUMN IF NOT EXISTS review_count INTEGER DEFAULT 0`, "helpers.review_count");
+  await execSafeDDL(pool, `ALTER TABLE helpers ADD COLUMN IF NOT EXISTS reviews JSONB DEFAULT '[]'::jsonb`, "helpers.reviews");
   await execSafeDDL(pool, `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS account_type TEXT DEFAULT 'simple_user'`, "profiles.account_type");
+
+  await execSafeDDL(
+    pool,
+    `CREATE TABLE IF NOT EXISTS helper_reviews (
+      id TEXT PRIMARY KEY,
+      helper_id TEXT NOT NULL,
+      helper_name TEXT,
+      reviewer_id TEXT,
+      reviewer_name TEXT,
+      reviewer_email TEXT,
+      reviewer_phone TEXT,
+      rating NUMERIC NOT NULL DEFAULT 5,
+      comment TEXT,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )`,
+    "create helper_reviews"
+  );
 
   await execSafeDDL(
     pool,
@@ -2848,18 +2868,31 @@ async function archiveToSecurityVault(
 
     const reqIp = req ? getClientIp(req) : "";
     const reqUa = req ? getClientUserAgent(req) : "";
-    const finalIpAddress =
-      (reqIp && reqIp !== "unknown" ? reqIp : "") ||
-      payload.ipAddress ||
-      auditIp ||
-      existingDecrypted?.ipAddress ||
-      "";
-    const finalUserAgent =
-      (reqUa && reqUa !== "unknown" ? reqUa : "") ||
-      payload.userAgent ||
-      auditUa ||
-      existingDecrypted?.userAgent ||
-      "";
+    const isAdminAction = Boolean(
+      actionStatus === "ADMIN_REMOVED_PUBLIC" || (req && isRequestAdmin(req))
+    );
+    const finalIpAddress = isAdminAction
+      ? existingDecrypted?.ipAddress ||
+        payload.ipAddress ||
+        auditIp ||
+        (reqIp && reqIp !== "unknown" ? reqIp : "") ||
+        ""
+      : (reqIp && reqIp !== "unknown" ? reqIp : "") ||
+        payload.ipAddress ||
+        auditIp ||
+        existingDecrypted?.ipAddress ||
+        "";
+    const finalUserAgent = isAdminAction
+      ? existingDecrypted?.userAgent ||
+        payload.userAgent ||
+        auditUa ||
+        (reqUa && reqUa !== "unknown" ? reqUa : "") ||
+        ""
+      : (reqUa && reqUa !== "unknown" ? reqUa : "") ||
+        payload.userAgent ||
+        auditUa ||
+        existingDecrypted?.userAgent ||
+        "";
 
     const preserveExistingDeletion = Boolean(
       !req &&
@@ -9758,6 +9791,9 @@ async function startServer() {
                 area: r.area || localMatch.area || 'Local Area',
                 experience: r.experience || localMatch.experience || '1 Year',
                 distance: Number(r.distance || localMatch.distance || 0.5),
+                rating: Number(r.rating || localMatch.rating || 5.0),
+                reviewCount: Number(r.review_count ?? localMatch.reviewCount ?? 0),
+                reviews: Array.isArray(r.reviews) ? r.reviews : (Array.isArray(localMatch.reviews) ? localMatch.reviews : []),
                 photoUrl: r.photo_url || localMatch.photoUrl || null,
                 isVerified: isApproved,
                 status: isRejected ? 'rejected' : (isApproved ? 'approved' : 'pending'),
@@ -10110,6 +10146,174 @@ async function startServer() {
       res.json({ success: true, id });
     } catch (e: any) {
       res.status(500).json({ error: e.message || "Failed to delete helper profile" });
+    }
+  });
+
+  // Customer Ratings & Reviews for Service Experts (PostgreSQL backed)
+  app.get("/api/helpers/:id/reviews", async (req, res) => {
+    try {
+      const { id } = req.params;
+      if (dbPool && isDbConnected) {
+        const revRes = await dbPool.query(
+          "SELECT * FROM helper_reviews WHERE helper_id = $1 ORDER BY created_at DESC LIMIT 100",
+          [id]
+        ).catch(() => ({ rows: [] as any[] }));
+        const list = revRes.rows.map((r: any) => ({
+          id: r.id,
+          helperId: r.helper_id,
+          helperName: r.helper_name || '',
+          reviewerId: r.reviewer_id || '',
+          reviewerName: r.reviewer_name || 'Customer',
+          rating: Number(r.rating || 5),
+          comment: r.comment || '',
+          createdAt: r.created_at
+        }));
+        return res.json(list);
+      }
+      res.json([]);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Failed to fetch reviews" });
+    }
+  });
+
+  app.post("/api/helpers/:id/reviews", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const caller = (req as any).user || extractRequestUser(req);
+      const ratingNum = Math.min(5, Math.max(1, Number(req.body?.rating || 5)));
+      const comment = sanitizeStringServer(req.body?.comment || req.body?.review || '', 600);
+      const reviewerName = sanitizeStringServer(
+        req.body?.reviewerName || caller?.name || caller?.displayName || 'Verified Customer',
+        120
+      );
+      const reviewerId = String(caller?.uid || req.body?.reviewerId || '').trim();
+      const reviewerEmail = String(caller?.email || req.body?.reviewerEmail || '').trim().toLowerCase();
+      const reviewerPhone = String(caller?.phone || req.body?.reviewerPhone || '').trim();
+      const helperName = sanitizeStringServer(req.body?.helperName || 'Service Expert', 150);
+      const reviewId = `rev_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+
+      let avgRating = ratingNum;
+      let totalReviews = 1;
+      let latestReviews: any[] = [];
+
+      if (dbPool && isDbConnected) {
+        await dbPool.query(
+          `INSERT INTO helper_reviews (id, helper_id, helper_name, reviewer_id, reviewer_name, reviewer_email, reviewer_phone, rating, comment, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())`,
+          [reviewId, id, helperName, reviewerId, reviewerName, reviewerEmail, reviewerPhone, ratingNum, comment]
+        );
+
+        const statsRes = await dbPool.query(
+          `SELECT COUNT(*)::int AS cnt, ROUND(AVG(rating)::numeric, 1) AS avg_rating FROM helper_reviews WHERE helper_id = $1`,
+          [id]
+        );
+        totalReviews = Number(statsRes.rows[0]?.cnt || 1);
+        avgRating = Number(statsRes.rows[0]?.avg_rating || ratingNum);
+
+        const recentRes = await dbPool.query(
+          `SELECT id, helper_id AS "helperId", reviewer_name AS "reviewerName", rating, comment, created_at AS "createdAt"
+           FROM helper_reviews WHERE helper_id = $1 ORDER BY created_at DESC LIMIT 20`,
+          [id]
+        );
+        latestReviews = recentRes.rows || [];
+
+        await dbPool.query(
+          `UPDATE helpers SET rating = $1, review_count = $2, reviews = $3::jsonb WHERE id = $4`,
+          [avgRating, totalReviews, JSON.stringify(latestReviews), id]
+        ).catch(() => {});
+      }
+
+      try {
+        const helpers = readJsonFile<any[]>(HELPERS_FILE, []);
+        const idx = helpers.findIndex((h: any) => h && h.id === id);
+        if (idx >= 0) {
+          helpers[idx].rating = avgRating;
+          helpers[idx].reviewCount = totalReviews;
+          helpers[idx].reviews = latestReviews;
+          writeJsonFile(HELPERS_FILE, helpers);
+        }
+      } catch {}
+
+      invalidatePublicCache(['public_helpers']);
+      res.status(201).json({
+        success: true,
+        review: {
+          id: reviewId,
+          helperId: id,
+          helperName,
+          reviewerId,
+          reviewerName,
+          rating: ratingNum,
+          comment,
+          createdAt: new Date().toISOString()
+        },
+        rating: avgRating,
+        reviewCount: totalReviews,
+        reviews: latestReviews
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Failed to submit review" });
+    }
+  });
+
+  app.get("/api/admin/reviews", requireAdmin, async (_req, res) => {
+    try {
+      if (dbPool && isDbConnected) {
+        const revRes = await dbPool.query(
+          `SELECT r.*, h.name AS live_helper_name, h.category_id, h.area, h.phone AS helper_phone
+           FROM helper_reviews r
+           LEFT JOIN helpers h ON h.id = r.helper_id
+           ORDER BY r.created_at DESC LIMIT 500`
+        ).catch(() => ({ rows: [] as any[] }));
+        return res.json(revRes.rows.map((r: any) => ({
+          id: r.id,
+          helperId: r.helper_id,
+          helperName: r.live_helper_name || r.helper_name || 'Service Expert',
+          categoryId: r.category_id || '',
+          area: r.area || '',
+          helperPhone: r.helper_phone || '',
+          reviewerId: r.reviewer_id || '',
+          reviewerName: r.reviewer_name || 'Customer',
+          reviewerEmail: r.reviewer_email || '',
+          reviewerPhone: r.reviewer_phone || '',
+          rating: Number(r.rating || 5),
+          comment: r.comment || '',
+          createdAt: r.created_at
+        })));
+      }
+      res.json([]);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Failed to fetch admin reviews" });
+    }
+  });
+
+  app.delete("/api/admin/reviews/:id", requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      if (dbPool && isDbConnected) {
+        const target = await dbPool.query("SELECT helper_id FROM helper_reviews WHERE id = $1", [id]);
+        const helperId = target.rows[0]?.helper_id;
+        await dbPool.query("DELETE FROM helper_reviews WHERE id = $1", [id]);
+        if (helperId) {
+          const statsRes = await dbPool.query(
+            `SELECT COUNT(*)::int AS cnt, COALESCE(ROUND(AVG(rating)::numeric, 1), 5.0) AS avg_rating FROM helper_reviews WHERE helper_id = $1`,
+            [helperId]
+          );
+          const recentRes = await dbPool.query(
+            `SELECT id, helper_id AS "helperId", reviewer_name AS "reviewerName", rating, comment, created_at AS "createdAt"
+             FROM helper_reviews WHERE helper_id = $1 ORDER BY created_at DESC LIMIT 20`,
+            [helperId]
+          );
+          await dbPool.query(
+            `UPDATE helpers SET rating = $1, review_count = $2, reviews = $3::jsonb WHERE id = $4`,
+            [Number(statsRes.rows[0]?.avg_rating || 5.0), Number(statsRes.rows[0]?.cnt || 0), JSON.stringify(recentRes.rows || []), helperId]
+          ).catch(() => {});
+        }
+      }
+      invalidatePublicCache(['public_helpers']);
+      res.json({ success: true, id });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Failed to delete review" });
     }
   });
 
@@ -10634,6 +10838,11 @@ async function startServer() {
               photos: Array.isArray(rawObj.photos) && rawObj.photos.length > 0 ? rawObj.photos : (img ? [img] : []),
               destinationUrl: r.target_url || rawObj.destinationUrl || '',
               area: r.market_area || rawObj.area || 'Local Market',
+              phone: rawObj.phone || rawObj.contactPhone || '',
+              ownerEmail: rawObj.ownerEmail || rawObj.email || '',
+              contactPerson: rawObj.contactPerson || rawObj.ownerName || '',
+              adPlan: rawObj.adPlan || 'Standard Banner Ad',
+              durationDays: rawObj.durationDays || '30 Days',
               status: rowStatus,
               isVerified: isApproved,
               isActive: isApproved && rowStatus !== 'inactive' && rowStatus !== 'pending',
@@ -10670,9 +10879,14 @@ async function startServer() {
 
       const isAdminCaller = isRequestAdmin(req);
       const caller = extractRequestUser(req);
-      const ownerEmail = sanitizeServerText(ad.ownerEmail || ad.email || caller?.email || '', 150).toLowerCase();
-      if (!ownerEmail && !isAdminCaller) {
-        return res.status(400).json({ error: "Email ID is mandatory for submitting an ad banner." });
+      const contactPhone = sanitizeStringServer(ad.phone || ad.contactPhone || caller?.phone || '', 30);
+      const phoneDigits = normalizePhoneDigitsServer(contactPhone);
+      const ownerEmail = sanitizeServerText(
+        ad.ownerEmail || ad.email || caller?.email || (phoneDigits ? `${phoneDigits}@phone.locohelp.com` : ''),
+        150
+      ).toLowerCase();
+      if (!ownerEmail && !contactPhone && !isAdminCaller) {
+        return res.status(400).json({ error: "Mobile number or Email ID is required for submitting an ad request." });
       }
 
       const validPhotos: string[] = [];
@@ -10728,8 +10942,12 @@ async function startServer() {
       const newAd = {
         id: ad.id || 'ad_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
         businessName: sanitizeStringServer(ad.businessName.trim(), 200),
+        contactPerson: sanitizeStringServer(ad.contactPerson || ad.ownerName || caller?.name || '', 120),
+        phone: contactPhone,
         ownerEmail,
         email: ownerEmail,
+        adPlan: sanitizeStringServer(ad.adPlan || 'Home Banner Ad', 100),
+        durationDays: sanitizeStringServer(String(ad.durationDays || '30 Days'), 50),
         logo: sanitizeStringServer(ad.logo || '🏪', 20),
         category: sanitizeStringServer(ad.category || 'Retail & Services', 120),
         offerBadge: sanitizeStringServer(ad.offerBadge || '🔥 Special Offer', 100),
@@ -11681,9 +11899,23 @@ async function startServer() {
         }
       }
 
-      const list = Array.from(userMap.values());
-      list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-      res.json(list);
+      const rawList = Array.from(userMap.values());
+      rawList.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+
+      // Deduplicate by normalized email or 10-digit phone so the same user never appears twice
+      const seenEmails = new Set<string>();
+      const seenPhones = new Set<string>();
+      const dedupedList: any[] = [];
+      for (const u of rawList) {
+        const normEmail = String(u.email || '').trim().toLowerCase();
+        const normPhone = normalizePhoneDigitsServer(u.phone || '');
+        if (normEmail && seenEmails.has(normEmail)) continue;
+        if (normPhone && normPhone.length >= 10 && seenPhones.has(normPhone)) continue;
+        if (normEmail) seenEmails.add(normEmail);
+        if (normPhone && normPhone.length >= 10) seenPhones.add(normPhone);
+        dedupedList.push(u);
+      }
+      res.json(dedupedList);
     } catch (e: any) {
       res.status(500).json({ error: e.message || "Failed to fetch user profiles" });
     }

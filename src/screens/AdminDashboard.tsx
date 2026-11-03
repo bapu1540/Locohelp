@@ -41,7 +41,11 @@ import {
   Edit3,
   Mail,
   ChevronRight,
-  Filter
+  Filter,
+  MoreVertical,
+  Calendar,
+  Wrench,
+  Flag
 } from 'lucide-react';
 import { getFreeHelperProfiles, saveFreeHelperProfile, normalizeCategorySlug, CATEGORIES, MASTER_CATEGORIES, getSubCategoriesByMainId } from '../data/categories';
 import { getHelpers, getShops } from '../auth';
@@ -89,7 +93,11 @@ import {
   deletePublicSuggestionOnServer,
   PublicSuggestion,
   fetchAdminSiteLock,
-  updateAdminSiteLock
+  updateAdminSiteLock,
+  fetchAdminHelperReviews,
+  deleteAdminHelperReview,
+  updateAdStatusOnServer,
+  HelperReviewItem
 } from '../api';
 import { validateUploadedFile } from '../lib/security';
 import { compressImageToWebP } from '../lib/imageCompression';
@@ -102,9 +110,11 @@ interface AdminDashboardProps {
 
 type AdminModuleId =
   | 'home'
+  | 'hero_banner'
   | 'approved_list'
   | 'help_posts'
   | 'helpers'
+  | 'helper_reviews'
   | 'simple_users'
   | 'businesses'
   | 'job_seekers'
@@ -196,6 +206,11 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
   // Category Folder / Filter View State for Service Experts & User Profiles in Admin
   const [selectedMainCatFilter, setSelectedMainCatFilter] = useState<string>('all');
   const [selectedSubCatFilter, setSelectedSubCatFilter] = useState<string>('all');
+  const [dateFilter, setDateFilter] = useState<string>('all');
+  const [locationFilter, setLocationFilter] = useState<string>('all');
+  const [isMoreMenuOpen, setIsMoreMenuOpen] = useState<boolean>(false);
+  const [isSiteLockModalOpen, setIsSiteLockModalOpen] = useState<boolean>(false);
+  const [adminReviews, setAdminReviews] = useState<HelperReviewItem[]>([]);
 
   // Encrypted Read-Only Security Vault State (Strictly Non-Deletable)
   const [securityVaultRecords, setSecurityVaultRecords] = useState<SecurityVaultRecord[]>([]);
@@ -452,6 +467,9 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
     setStatusFilter('all');
     setSelectedMainCatFilter('all');
     setSelectedSubCatFilter('all');
+    setDateFilter('all');
+    setLocationFilter('all');
+    setIsMoreMenuOpen(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -807,7 +825,23 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
           }
         });
 
-        setSimpleUsers(Array.from(combinedUsersMap.values()));
+        // Deduplicate simpleUsers by normalized email and 10-digit mobile number so no user appears twice
+        const rawCombinedUsers = Array.from(combinedUsersMap.values()).sort(
+          (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+        );
+        const seenUserEmails = new Set<string>();
+        const seenUserPhones = new Set<string>();
+        const dedupedSimpleUsers: any[] = [];
+        for (const u of rawCombinedUsers) {
+          const eNorm = String(u.email || '').trim().toLowerCase();
+          const pDigits = String(u.phone || '').replace(/\D/g, '').slice(-10);
+          if (eNorm && seenUserEmails.has(eNorm)) continue;
+          if (pDigits.length === 10 && seenUserPhones.has(pDigits)) continue;
+          if (eNorm) seenUserEmails.add(eNorm);
+          if (pDigits.length === 10) seenUserPhones.add(pDigits);
+          dedupedSimpleUsers.push(u);
+        }
+        setSimpleUsers(dedupedSimpleUsers);
       } catch {}
 
       // 5 & 6. Job Seekers & Employer Registrations / Job Postings
@@ -825,13 +859,14 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         }
       } catch {}
 
-      // Bonus: Sponsored Ads, Security Vault, Public Suggestions & Site Lock
-      const [liveAds, liveVault, liveSugs, liveLock, liveCatImgs] = await Promise.all([
+      // Bonus: Sponsored Ads, Security Vault, Public Suggestions, Site Lock & Customer Reviews
+      const [liveAds, liveVault, liveSugs, liveLock, liveCatImgs, liveRevs] = await Promise.all([
         fetchLiveAds(),
         fetchAdminSecurityVault(),
         fetchPublicSuggestions(),
         fetchAdminSiteLock(),
-        fetchCategoryImages()
+        fetchCategoryImages(),
+        fetchAdminHelperReviews()
       ]);
       if (Array.isArray(liveAds)) {
         setAds(liveAds);
@@ -847,6 +882,9 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
       }
       if (liveCatImgs && typeof liveCatImgs === 'object') {
         setCategoryImages(liveCatImgs);
+      }
+      if (Array.isArray(liveRevs)) {
+        setAdminReviews(liveRevs);
       }
     } catch (err) {
       console.warn('Admin load data warning:', err);
@@ -1003,14 +1041,27 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
 
   // Find associated watermarked ID doc from verificationsList if not directly on item
   const getItemIdDoc = (item: any): string | undefined => {
-    if (item?.idDocumentWatermarked) return item.idDocumentWatermarked;
+    const isRealDocUrl = (val: any): boolean => {
+      if (!val || typeof val !== 'string') return false;
+      const s = val.trim();
+      if (!s || s === '__deleted__' || s === 'null' || s === 'undefined') return false;
+      return (
+        s.startsWith('http://') ||
+        s.startsWith('https://') ||
+        s.startsWith('data:image/') ||
+        s.startsWith('data:application/pdf') ||
+        s.startsWith('/uploads/')
+      );
+    };
+    if (isRealDocUrl(item?.idDocumentWatermarked)) return item.idDocumentWatermarked;
+    if (isRealDocUrl(item?.idDocUrl)) return item.idDocUrl;
     const match = verificationsList.find(
       v =>
         v.entityId === item?.id ||
         v.id === item?.verificationId ||
         (item?.email && v.userEmail?.toLowerCase() === item.email.toLowerCase())
     );
-    return match?.idDocumentWatermarked;
+    return isRealDocUrl(match?.idDocumentWatermarked) ? match?.idDocumentWatermarked : undefined;
   };
 
   // ==========================================
@@ -2067,11 +2118,11 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
     else if (activeModule === 'employers') rawList = employersList;
     else if (activeModule === 'feedback_categories') rawList = reports;
 
-    return rawList.filter(item => {
+    const filtered = rawList.filter(item => {
       const normStatus = getNormalizedStatus(item, activeModule);
       if (statusFilter !== 'all' && normStatus !== statusFilter) return false;
 
-      if (activeModule === 'helpers' || activeModule === 'simple_users') {
+      if (activeModule === 'helpers') {
         const catInfo = getItemCategoryInfo(item);
         if (selectedMainCatFilter !== 'all' && catInfo.mainCatId !== selectedMainCatFilter) {
           return false;
@@ -2081,10 +2132,45 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         }
       }
 
+      // Location Filter
+      if (locationFilter !== 'all') {
+        const itemLoc = String(
+          item.area || item.city || item.district || item.jobLocation || item.address || item.locationName || ''
+        ).toLowerCase();
+        if (!itemLoc.includes(locationFilter.toLowerCase())) {
+          return false;
+        }
+      }
+
+      // Date Filter (All, Today, Yesterday, or YYYY-MM-DD)
+      if (dateFilter !== 'all') {
+        const rawTs = item.createdAt || item.created_at || item.submittedAt || item.timestamp;
+        if (!rawTs) return false;
+        const itemDate = new Date(rawTs);
+        if (isNaN(itemDate.getTime())) return false;
+        const yyyyMmDd = itemDate.toISOString().slice(0, 10);
+        const now = new Date();
+        const todayStr = now.toISOString().slice(0, 10);
+        const yest = new Date(now);
+        yest.setDate(now.getDate() - 1);
+        const yesterdayStr = yest.toISOString().slice(0, 10);
+
+        if (dateFilter === 'today' && yyyyMmDd !== todayStr) return false;
+        if (dateFilter === 'yesterday' && yyyyMmDd !== yesterdayStr) return false;
+        if (dateFilter !== 'today' && dateFilter !== 'yesterday' && yyyyMmDd !== dateFilter) return false;
+      }
+
       if (!searchQuery.trim()) return true;
       const q = searchQuery.toLowerCase();
       const hay = JSON.stringify(item).toLowerCase();
       return hay.includes(q);
+    });
+
+    // Sort newest first (Date-wise descending)
+    return filtered.sort((a, b) => {
+      const tsA = new Date(a.createdAt || a.created_at || a.submittedAt || a.timestamp || 0).getTime();
+      const tsB = new Date(b.createdAt || b.created_at || b.submittedAt || b.timestamp || 0).getTime();
+      return (isNaN(tsB) ? 0 : tsB) - (isNaN(tsA) ? 0 : tsA);
     });
   };
 
@@ -2136,106 +2222,16 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
             </div>
           </div>
 
-          {/* Right: Prominent DB Status, Sync & Repair, Backup & Restore, Change Admin Password Button, Refresh & Logout */}
-          <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
-            <span
-              className={`px-2.5 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1.5 border ${
-                dbSyncStatus.connected
-                  ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
-                  : 'bg-amber-500/15 text-amber-300 border-amber-500/40'
-              }`}
-              title={dbSyncStatus.message || 'Railway PostgreSQL Connection Status'}
-            >
-              <span className={`w-2 h-2 rounded-full ${dbSyncStatus.connected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
-              <span>{dbSyncStatus.connected ? 'PostgreSQL Connected' : 'PostgreSQL Standby'}</span>
-            </span>
-
-            <button
-              type="button"
-              disabled={dbSyncStatus.syncing}
-              onClick={() => handleSyncAndRepairPostgres(false)}
-              className="px-3 py-2 rounded-xl bg-purple-600/25 hover:bg-purple-600/35 text-purple-200 border border-purple-500/40 text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-60"
-              title="Create all missing PostgreSQL tables, seed 22 categories, and migrate browser data"
-            >
-              <span>{dbSyncStatus.syncing ? '⏳ Syncing PostgreSQL...' : '🔄 Sync & Repair PostgreSQL Tables'}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={async () => {
-                showToast('⏳ Preparing PostgreSQL DB Backup...');
-                await syncBrowserDataToPostgres();
-                const res = await downloadDatabaseBackupFromServer();
-                if (!res.success || !res.data) {
-                  showToast(`❌ ${res.error || 'Failed to download DB backup'}`);
-                  return;
-                }
-                const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `locohelp-postgres-backup-${new Date().toISOString().slice(0, 10)}.json`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-                showToast('✅ PostgreSQL DB Backup downloaded!');
-              }}
-              className="px-3 py-2 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer"
-              title="Download full PostgreSQL Database Backup as JSON"
-            >
-              <span>📥 Download DB Backup (JSON)</span>
-            </button>
-
-            <label
-              className="px-3 py-2 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/40 text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer"
-              title="Restore PostgreSQL Database from JSON Backup"
-            >
-              <span>📤 Restore DB Backup (JSON)</span>
-              <input
-                type="file"
-                accept="application/json,.json"
-                className="hidden"
-                onChange={async (e) => {
-                  const file = e.target.files?.[0];
-                  e.target.value = '';
-                  if (!file) return;
-                  try {
-                    showToast('⏳ Restoring PostgreSQL DB Backup...');
-                    const text = await file.text();
-                    const parsed = JSON.parse(text);
-                    const res = await restoreDatabaseBackupOnServer(parsed);
-                    if (res.success) {
-                      showToast(`✅ Restored ${res.restoredCount || 0} records to PostgreSQL!`);
-                      await loadAllData();
-                    } else {
-                      showToast(`❌ ${res.error || 'Restore failed'}`);
-                    }
-                  } catch (err: any) {
-                    showToast(`❌ Invalid backup JSON file`);
-                  }
-                }}
-              />
-            </label>
-
+          {/* Right: Clean Top Bar — Refresh, 3-Dot Menu (⋮) for Extra Tools, and Logout */}
+          <div className="flex items-center gap-2 sm:gap-2.5 relative">
             <button
               onClick={loadAllData}
               disabled={isRefreshing}
               className="px-3 py-2 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-200 text-xs font-bold flex items-center gap-1.5 border border-slate-700 transition-all cursor-pointer"
+              title="Refresh All Data from PostgreSQL"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-orange-400' : ''}`} />
               <span className="hidden sm:inline">Refresh</span>
-            </button>
-
-            <button
-              onClick={() => {
-                setIsChangePasswordOpen(!isChangePasswordOpen);
-                setChangePasswordError(null);
-              }}
-              className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white text-xs font-black flex items-center gap-1.5 shadow-md shadow-orange-500/20 transition-all cursor-pointer"
-            >
-              <KeyRound className="w-3.5 h-3.5" />
-              <span>Change Admin Password</span>
             </button>
 
             <button
@@ -2245,20 +2241,206 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
               <LogOut className="w-3.5 h-3.5" />
               <span>Logout</span>
             </button>
+
+            {/* 3-Dot Dropdown Menu (⋮) for Database, Backup, Password & Site Lock */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setIsMoreMenuOpen(prev => !prev)}
+                className="p-2 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all cursor-pointer flex items-center justify-center"
+                title="More Admin Tools & Database Options (⋮)"
+              >
+                <MoreVertical className="w-4 h-4" />
+              </button>
+
+              {isMoreMenuOpen && (
+                <>
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setIsMoreMenuOpen(false)}
+                  />
+                  <div className="absolute right-0 mt-2 w-72 rounded-2xl bg-[#111827] border border-slate-700 shadow-2xl p-2.5 z-50 space-y-1.5">
+                    <div className="px-3 py-2 rounded-xl bg-slate-900/90 border border-slate-800 flex items-center justify-between">
+                      <span className="text-[11px] font-black text-slate-300 flex items-center gap-2">
+                        <span className={`w-2 h-2 rounded-full ${dbSyncStatus.connected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+                        {dbSyncStatus.connected ? 'PostgreSQL Connected' : 'PostgreSQL Standby'}
+                      </span>
+                      <span className="text-[10px] font-bold text-emerald-400">
+                        {dbSyncStatus.tables.length || 33} Tables
+                      </span>
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={dbSyncStatus.syncing}
+                      onClick={() => {
+                        setIsMoreMenuOpen(false);
+                        handleSyncAndRepairPostgres(false);
+                      }}
+                      className="w-full px-3 py-2.5 rounded-xl hover:bg-slate-800 text-left text-xs font-bold text-purple-300 flex items-center gap-2 transition-all cursor-pointer disabled:opacity-60"
+                    >
+                      <span>🔄</span>
+                      <span>{dbSyncStatus.syncing ? 'Syncing PostgreSQL...' : 'Sync & Repair PostgreSQL Tables'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setIsMoreMenuOpen(false);
+                        showToast('⏳ Preparing PostgreSQL DB Backup...');
+                        await syncBrowserDataToPostgres();
+                        const res = await downloadDatabaseBackupFromServer();
+                        if (!res.success || !res.data) {
+                          showToast(`❌ ${res.error || 'Failed to download DB backup'}`);
+                          return;
+                        }
+                        const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `locohelp-postgres-backup-${new Date().toISOString().slice(0, 10)}.json`;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                        showToast('✅ PostgreSQL DB Backup downloaded!');
+                      }}
+                      className="w-full px-3 py-2.5 rounded-xl hover:bg-slate-800 text-left text-xs font-bold text-emerald-300 flex items-center gap-2 transition-all cursor-pointer"
+                    >
+                      <span>📥</span>
+                      <span>Download DB Backup (JSON)</span>
+                    </button>
+
+                    <label className="w-full px-3 py-2.5 rounded-xl hover:bg-slate-800 text-left text-xs font-bold text-blue-300 flex items-center gap-2 transition-all cursor-pointer">
+                      <span>📤</span>
+                      <span>Restore DB Backup (JSON)</span>
+                      <input
+                        type="file"
+                        accept="application/json,.json"
+                        className="hidden"
+                        onChange={async (e) => {
+                          setIsMoreMenuOpen(false);
+                          const file = e.target.files?.[0];
+                          e.target.value = '';
+                          if (!file) return;
+                          try {
+                            showToast('⏳ Restoring PostgreSQL DB Backup...');
+                            const text = await file.text();
+                            const parsed = JSON.parse(text);
+                            const res = await restoreDatabaseBackupOnServer(parsed);
+                            if (res.success) {
+                              showToast(`✅ Restored ${res.restoredCount || 0} records to PostgreSQL!`);
+                              await loadAllData();
+                            } else {
+                              showToast(`❌ ${res.error || 'Restore failed'}`);
+                            }
+                          } catch {
+                            showToast(`❌ Invalid backup JSON file`);
+                          }
+                        }}
+                      />
+                    </label>
+
+                    <div className="border-t border-slate-800 my-1" />
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsMoreMenuOpen(false);
+                        setIsChangePasswordOpen(prev => !prev);
+                        setChangePasswordError(null);
+                      }}
+                      className="w-full px-3 py-2.5 rounded-xl hover:bg-slate-800 text-left text-xs font-bold text-amber-300 flex items-center gap-2 transition-all cursor-pointer"
+                    >
+                      <KeyRound className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Change Admin Password</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsMoreMenuOpen(false);
+                        setIsSiteLockModalOpen(prev => !prev);
+                      }}
+                      className="w-full px-3 py-2.5 rounded-xl hover:bg-slate-800 text-left text-xs font-bold text-slate-200 flex items-center justify-between transition-all cursor-pointer"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Lock className="w-3.5 h-3.5 text-orange-400" />
+                        <span>Private Site PIN Lock</span>
+                      </span>
+                      <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${siteLockState.isLocked ? 'bg-amber-500/20 text-amber-300' : 'bg-emerald-500/20 text-emerald-300'}`}>
+                        {siteLockState.isLocked ? 'ON' : 'OFF'}
+                      </span>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
 
-        {/* Live PostgreSQL Verified Tables Status Banner in Admin Top Bar */}
-        {dbSyncStatus.message && (
-          <div className="max-w-7xl mx-auto mt-2 px-3 py-1.5 rounded-xl bg-slate-900/90 border border-emerald-500/30 flex flex-wrap items-center justify-between gap-2 text-[11px] font-bold text-emerald-300">
-            <span>{dbSyncStatus.message}</span>
-            {dbSyncStatus.tables.length > 0 && (
-              <span className="text-[10px] text-slate-400">
-                Total Tables Verified: {dbSyncStatus.tables.length}
-              </span>
-            )}
-          </div>
-        )}
+        {/* Expandable Site PIN Lock Panel (Opened from 3-Dot Menu) */}
+        <AnimatePresence>
+          {isSiteLockModalOpen && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="max-w-7xl mx-auto overflow-hidden"
+            >
+              <div className="mt-3 p-4 rounded-2xl bg-slate-900/95 border border-amber-500/40 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <Lock className="w-5 h-5 text-amber-400" />
+                  <div>
+                    <h4 className="text-xs sm:text-sm font-black text-white">
+                      Private Access / PIN Lock Gate ({siteLockState.isLocked ? 'ACTIVE - LOCKED' : 'PUBLIC - UNLOCKED'})
+                    </h4>
+                    <p className="text-[11px] text-slate-400">
+                      Restricts site viewing to users who enter the 4-digit Access PIN.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="text"
+                    maxLength={6}
+                    value={siteLockState.accessPin}
+                    onChange={(e) => setSiteLockState(prev => ({ ...prev, accessPin: e.target.value.replace(/\D/g, '') }))}
+                    className="w-24 px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-xl text-center text-xs font-mono font-bold text-amber-300"
+                    placeholder="PIN"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleSaveSiteLock(siteLockState.isLocked, siteLockState.accessPin)}
+                    disabled={isSavingSiteLock}
+                    className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-black cursor-pointer"
+                  >
+                    Save PIN
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSaveSiteLock(!siteLockState.isLocked, siteLockState.accessPin)}
+                    disabled={isSavingSiteLock}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-black cursor-pointer ${
+                      siteLockState.isLocked
+                        ? 'bg-red-500/20 text-red-300 border border-red-500/40'
+                        : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                    }`}
+                  >
+                    {siteLockState.isLocked ? 'Turn Lock OFF' : 'Turn Lock ON'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsSiteLockModalOpen(false)}
+                    className="p-1.5 text-slate-400 hover:text-white cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Inline Expandable Change Admin Password Section right in the Top Bar */}
         <AnimatePresence>
@@ -2351,260 +2533,281 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
       {/* ========================================== */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 pb-20 overflow-y-auto">
         {/* ============================================================ */}
-        {/* VIEW 1: ADMIN HOME DASHBOARD WITH CLICKABLE SMALL BANNERS    */}
+        {/* VIEW 1: ADMIN HOME DASHBOARD (TOP-TO-BOTTOM WEBSITE ORDER)   */}
         {/* ============================================================ */}
-        {activeModule === 'home' && (
-          <div className="space-y-4">
-            {/* Top Bar Quick Actions (Compact) */}
-            <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-900/80 border border-slate-800/80 p-3 rounded-2xl">
-              <div className="flex items-center gap-2">
-                <LayoutGrid className="w-4 h-4 text-orange-400" />
-                <span className="text-xs font-black text-slate-200 uppercase tracking-wider">
-                  Category Management Modules ({ADMIN_MODULES.length + 3})
-                </span>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  onClick={() => openAdminCreateModal('businesses', true)}
-                  className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white text-xs font-black flex items-center gap-1.5 cursor-pointer transition-all shadow-md shadow-emerald-500/20"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>+ Add Entry (Direct Publish)</span>
-                </button>
-                <button
-                  onClick={() => setIsChangePasswordOpen(true)}
-                  className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-300 text-xs font-black flex items-center gap-1.5 cursor-pointer transition-all"
-                >
-                  <KeyRound className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Change Password</span>
-                </button>
-              </div>
-            </div>
+        {activeModule === 'home' && (() => {
+          const todayStr = new Date().toISOString().slice(0, 10);
+          const todayPostsCount = intents.filter(i => {
+            const ts = i.createdAt || i.created_at || i.submittedAt || i.timestamp;
+            return ts && new Date(ts).toISOString().slice(0, 10) === todayStr;
+          }).length;
+          const pendingAdsCount = ads.filter(a => a.status === 'pending' || a.isActive === false).length;
 
-            {/* GRID OF COMPACT CLICKABLE ADMIN BANNERS (CARDS) */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {/* 1. Approved List Card */}
-              <motion.button
-                initial={{ opacity: 0, y: 5 }}
-                animate={{ opacity: 1, y: 0 }}
-                onClick={() => openModule('approved_list')}
-                className="text-left group relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-950/60 via-[#111827] to-[#111827] hover:from-emerald-900/50 border border-emerald-500/40 hover:border-emerald-400 p-3.5 sm:p-4 transition-all duration-200 shadow-md hover:shadow-lg cursor-pointer flex items-center justify-between gap-3"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center shadow-md shrink-0 group-hover:scale-105 transition-transform">
-                    <CheckCircle2 className="w-5 h-5 text-white" />
-                  </div>
-                  <div className="min-w-0">
-                    <h3 className="text-xs sm:text-sm font-black text-white group-hover:text-emerald-300 transition-colors truncate">
-                      ✅ Approved List
-                    </h3>
-                  </div>
+          const topToBottomBanners: Array<{
+            step: string;
+            title: string;
+            subtitle: string;
+            icon: React.ReactNode;
+            gradient: string;
+            border: string;
+            badge1: string;
+            badge2?: string;
+            onClick: () => void;
+          }> = [
+            {
+              step: '0',
+              title: '👤 User Login Accounts (लॉगिन अकाउंट्स)',
+              subtitle: 'मोबाइल या ईमेल OTP से रजिस्टर हुए सभी यूज़र्स की लिस्ट — Approve, Block या Delete करें',
+              icon: <UserCheck className="w-5 h-5 text-white" />,
+              gradient: 'from-sky-500 to-indigo-600',
+              border: 'border-sky-500/40 hover:border-sky-400',
+              badge1: `Total: ${simpleUsers.length}`,
+              badge2: simpleUsers.filter(u => getNormalizedStatus(u, 'simple_users') === 'pending').length > 0
+                ? `Pending: ${simpleUsers.filter(u => getNormalizedStatus(u, 'simple_users') === 'pending').length}`
+                : undefined,
+              onClick: () => openModule('simple_users'),
+            },
+            {
+              step: '1',
+              title: '🖼️ Top Main Hero Photo Banner (मेन फोटो बैनर)',
+              subtitle: 'मेन वेबसाइट के सबसे ऊपर दिखने वाला बड़ा फोटो बैनर बदलें, एडिट करें या हटाएं',
+              icon: <ImageIcon className="w-5 h-5 text-white" />,
+              gradient: 'from-cyan-500 to-blue-600',
+              border: 'border-cyan-500/40 hover:border-cyan-400',
+              badge1: categoryImages['__home_hero_banner__'] === '__deleted__' ? 'Hidden' : 'Live Active',
+              onClick: () => openModule('hero_banner'),
+            },
+            {
+              step: '2',
+              title: '📢 Public Help Posts — Date-Wise (पब्लिक हेल्प पोस्ट)',
+              subtitle: 'आज और तारीख के हिसाब से किस यूज़र ने कौन-सी पोस्ट की — नाम, नंबर और एरिया के साथ कंट्रोल करें',
+              icon: <Megaphone className="w-5 h-5 text-white" />,
+              gradient: 'from-orange-500 to-red-600',
+              border: 'border-orange-500/40 hover:border-orange-400',
+              badge1: `Total: ${intents.length}`,
+              badge2: `Today: ${todayPostsCount}`,
+              onClick: () => openModule('help_posts'),
+            },
+            {
+              step: '3',
+              title: '🛠️ Main Categories & Service Experts (सभी 10 मुख्य केटेगरी और कारीगर)',
+              subtitle: 'मेन वेबसाइट की तरह सभी केटेगरी (Electrician, Plumber आदि) खोलें और हर कारीगर की डिटेल्स Approve/Block करें',
+              icon: <Wrench className="w-5 h-5 text-white" />,
+              gradient: 'from-emerald-500 to-teal-600',
+              border: 'border-emerald-500/40 hover:border-emerald-400',
+              badge1: `Experts: ${helpers.length}`,
+              badge2: helpers.filter(h => getNormalizedStatus(h, 'helpers') === 'pending').length > 0
+                ? `Pending: ${helpers.filter(h => getNormalizedStatus(h, 'helpers') === 'pending').length}`
+                : `${MASTER_CATEGORIES.length} Categories`,
+              onClick: () => openModule('helpers'),
+            },
+            {
+              step: '4',
+              title: '⭐ Customer Ratings & Reviews (ग्राहकों की रेटिंग और रिव्यू)',
+              subtitle: 'किस सर्विस एक्सपर्ट का काम कैसा है — ग्राहकों द्वारा दिए गए स्टार और रिव्यू देखें व स्पैम हटाएं',
+              icon: <Star className="w-5 h-5 text-white" />,
+              gradient: 'from-amber-500 to-yellow-600',
+              border: 'border-amber-500/40 hover:border-amber-400',
+              badge1: `Reviews: ${adminReviews.length}`,
+              onClick: () => openModule('helper_reviews'),
+            },
+            {
+              step: '5',
+              title: '📍 Area-Wise Service Providers (शहर / एरिया के अनुसार सर्विस प्रोवाइडर)',
+              subtitle: 'गांधीनगर, अहमदाबाद, कुडासन आदि लोकेशन के हिसाब से उपलब्ध सर्विस प्रोवाइडर्स की जांच करें',
+              icon: <MapPin className="w-5 h-5 text-white" />,
+              gradient: 'from-teal-500 to-emerald-600',
+              border: 'border-teal-500/40 hover:border-teal-400',
+              badge1: `Filter by City`,
+              onClick: () => {
+                openModule('helpers');
+                setLocationFilter('Gandhinagar');
+              },
+            },
+            {
+              step: '6',
+              title: '📣 Promote Your Business Ads & Requests (विज्ञापन और बुकिंग रिक्वेस्ट)',
+              subtitle: 'यूज़र्स द्वारा भरे गए विज्ञापन फॉर्म देखें, प्रोफाइल जांचें और 1-क्लिक में विज्ञापन Live करें',
+              icon: <Megaphone className="w-5 h-5 text-white" />,
+              gradient: 'from-blue-600 to-indigo-600',
+              border: 'border-blue-500/40 hover:border-blue-400',
+              badge1: `Total Ads: ${ads.length}`,
+              badge2: pendingAdsCount > 0 ? `Pending Requests: ${pendingAdsCount}` : undefined,
+              onClick: () => openModule('ads'),
+            },
+            {
+              step: '7',
+              title: '🏪 Local Shops & Businesses (लोकल दुकानें और बिज़नेस)',
+              subtitle: 'वेबसाइट पर रजिस्टर सभी दुकानों और शोरूम की लिस्ट — वेरीफाई, एडिट या ब्लॉक करें',
+              icon: <Store className="w-5 h-5 text-white" />,
+              gradient: 'from-purple-500 to-indigo-600',
+              border: 'border-purple-500/40 hover:border-purple-400',
+              badge1: `Shops: ${businesses.length}`,
+              badge2: businesses.filter(b => getNormalizedStatus(b, 'businesses') === 'pending').length > 0
+                ? `Pending: ${businesses.filter(b => getNormalizedStatus(b, 'businesses') === 'pending').length}`
+                : undefined,
+              onClick: () => openModule('businesses'),
+            },
+            {
+              step: '8',
+              title: '💼 Job Seekers (नौकरी चाहने वाले उम्मीदवार)',
+              subtitle: 'नौकरी ढूंढ रहे उम्मीदवारों की प्रोफाइल, अनुभव और संपर्क नंबर की जांच करें',
+              icon: <Briefcase className="w-5 h-5 text-white" />,
+              gradient: 'from-blue-500 to-cyan-600',
+              border: 'border-blue-500/40 hover:border-blue-400',
+              badge1: `Seekers: ${jobSeekersList.length}`,
+              badge2: jobSeekersList.filter(j => getNormalizedStatus(j, 'job_seekers') === 'pending').length > 0
+                ? `Pending: ${jobSeekersList.filter(j => getNormalizedStatus(j, 'job_seekers') === 'pending').length}`
+                : undefined,
+              onClick: () => openModule('job_seekers'),
+            },
+            {
+              step: '9',
+              title: '🏢 Employers & Staff Vacancies (नियोक्ता और जॉब वेकेंसी)',
+              subtitle: 'जिन कंपनियों या दुकानों को स्टाफ की ज़रूरत है उनकी वेकेंसी लिस्ट और अप्रूवल',
+              icon: <Building2 className="w-5 h-5 text-white" />,
+              gradient: 'from-amber-500 to-orange-600',
+              border: 'border-amber-500/40 hover:border-amber-400',
+              badge1: `Vacancies: ${employersList.length}`,
+              badge2: employersList.filter(e => getNormalizedStatus(e, 'employers') === 'pending').length > 0
+                ? `Pending: ${employersList.filter(e => getNormalizedStatus(e, 'employers') === 'pending').length}`
+                : undefined,
+              onClick: () => openModule('employers'),
+            },
+            {
+              step: '10',
+              title: '💡 Public Suggestions & User Reports (सुझाव पेटी और शिकायतें)',
+              subtitle: 'पब्लिक सजेशन बॉक्स के सुझाव और यूज़र्स द्वारा की गई शिकायतों (Reports) का समाधान करें',
+              icon: <Flag className="w-5 h-5 text-white" />,
+              gradient: 'from-pink-500 to-rose-600',
+              border: 'border-pink-500/40 hover:border-pink-400',
+              badge1: `Suggestions: ${publicSuggestions.length}`,
+              badge2: `Reports: ${reports.length}`,
+              onClick: () => openModule('feedback_categories'),
+            },
+          ];
+
+          return (
+            <div className="space-y-4">
+              {/* Top Sub-Header Bar */}
+              <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-900/90 border border-slate-800 p-3.5 rounded-2xl">
+                <div>
+                  <h2 className="text-xs sm:text-sm font-black text-white flex items-center gap-2">
+                    <LayoutGrid className="w-4 h-4 text-orange-400" />
+                    <span>Website Start-to-End Admin Control Banners (ऊपर से नीचे वेबसाइट के क्रम में)</span>
+                  </h2>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    किसी भी छोटे बैनर पर क्लिक करें — सारा डेटा सीधे PostgreSQL डेटाबेस से जुड़ा है।
+                  </p>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <span className="px-2.5 py-1 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-[11px] font-black text-emerald-300">
-                    Total: {
-                      helpers.filter(h => getNormalizedStatus(h, 'helpers') === 'approved').length +
-                      businesses.filter(b => getNormalizedStatus(b, 'businesses') === 'approved').length +
-                      simpleUsers.filter(u => getNormalizedStatus(u, 'simple_users') === 'approved').length +
-                      employersList.filter(j => getNormalizedStatus(j, 'employers') === 'approved').length +
-                      jobSeekersList.filter(j => getNormalizedStatus(j, 'job_seekers') === 'approved').length +
-                      intents.filter(i => getNormalizedStatus(i, 'help_posts') === 'approved').length
-                    }
-                  </span>
-                  <ChevronRight className="w-4 h-4 text-emerald-400 group-hover:translate-x-0.5 transition-transform" />
-                </div>
-              </motion.button>
-
-              {/* 2. Admin Modules Banners */}
-              {ADMIN_MODULES.map((mod, idx) => (
-                <motion.button
-                  key={mod.id}
-                  initial={{ opacity: 0, y: 5 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: idx * 0.03 }}
-                  onClick={() => openModule(mod.id)}
-                  className={`text-left group relative overflow-hidden rounded-2xl bg-[#111827] hover:bg-[#162033] border ${mod.border} p-3.5 sm:p-4 transition-all duration-200 shadow-md hover:shadow-lg cursor-pointer flex items-center justify-between gap-3`}
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${mod.gradient} flex items-center justify-center shadow-md shrink-0 group-hover:scale-105 transition-transform`}>
-                      {mod.icon}
-                    </div>
-                    <div className="min-w-0">
-                      <h3 className="text-xs sm:text-sm font-black text-white group-hover:text-orange-300 transition-colors truncate">
-                        {mod.title}
-                      </h3>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <span className="px-2 py-0.5 rounded-lg bg-slate-800/90 border border-slate-700 text-[11px] font-black text-slate-200">
-                      Total: {mod.totalCount}
-                    </span>
-                    {mod.pendingCount > 0 && (
-                      <span className="px-2 py-0.5 rounded-lg text-[11px] font-black border bg-amber-500/20 text-amber-300 border-amber-500/40 animate-pulse">
-                        Pending: {mod.pendingCount}
-                      </span>
-                    )}
-                    <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-orange-400 group-hover:translate-x-0.5 transition-transform" />
-                  </div>
-                </motion.button>
-              ))}
-
-              {/* 3. Advertisements & Banners Card */}
-              <motion.button
-                initial={{ opacity: 0, y: 5 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.25 }}
-                onClick={() => openModule('ads')}
-                className="text-left group relative overflow-hidden rounded-2xl bg-[#111827] hover:bg-[#162033] border border-cyan-500/30 hover:border-cyan-400 p-3.5 sm:p-4 transition-all duration-200 shadow-md hover:shadow-lg cursor-pointer flex items-center justify-between gap-3"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-600 to-blue-600 flex items-center justify-center shadow-md shrink-0 group-hover:scale-105 transition-transform">
-                    <Megaphone className="w-5 h-5 text-white" />
-                  </div>
-                  <div className="min-w-0">
-                    <h3 className="text-xs sm:text-sm font-black text-white group-hover:text-cyan-300 transition-colors truncate">
-                      Advertisements &amp; Banners
-                    </h3>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <span className="px-2.5 py-1 rounded-xl bg-slate-800/90 border border-slate-700 text-[11px] font-black text-slate-200">
-                    Total: {ads.length}
-                  </span>
-                  <ChevronRight className="w-4 h-4 text-cyan-400 group-hover:translate-x-0.5 transition-transform" />
-                </div>
-              </motion.button>
-
-              {/* 4. Encrypted Security Vault Card */}
-              <motion.button
-                initial={{ opacity: 0, y: 5 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3 }}
-                onClick={() => openModule('security_vault')}
-                className="text-left group relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-950/60 via-[#111827] to-[#111827] hover:from-emerald-900/50 border border-emerald-500/40 hover:border-emerald-400 p-3.5 sm:p-4 transition-all duration-200 shadow-md hover:shadow-lg cursor-pointer flex items-center justify-between gap-3"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-md shrink-0 group-hover:scale-105 transition-transform">
-                    <Lock className="w-5 h-5 text-white" />
-                  </div>
-                  <div className="min-w-0">
-                    <h3 className="text-xs sm:text-sm font-black text-white group-hover:text-emerald-300 transition-colors truncate">
-                      🛡️ Encrypted Security Vault
-                    </h3>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <span className="px-2.5 py-1 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-[11px] font-black text-emerald-300">
-                    {securityVaultRecords.length} Encrypted
-                  </span>
-                  <ChevronRight className="w-4 h-4 text-emerald-400 group-hover:translate-x-0.5 transition-transform" />
-                </div>
-              </motion.button>
-            </div>
-
-            {/* 6. Private Access PIN Lock Gate Manager Card */}
-            <motion.div
-              initial={{ opacity: 0, y: 5 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.32 }}
-              className="mt-3 p-4 sm:p-5 rounded-2xl bg-[#111827] border border-amber-500/40 shadow-lg"
-            >
-              <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-500 to-orange-600 flex items-center justify-center shadow-md shrink-0">
-                    <KeyRound className="w-5 h-5 text-white" />
-                  </div>
-                  <div>
-                    <h3 className="text-xs sm:text-sm font-black text-white flex items-center gap-2">
-                      <span>🔒 Private Access / PIN Lock Gate</span>
-                      <span className={`text-[10px] uppercase font-extrabold px-2.5 py-0.5 rounded-full ${siteLockState.isLocked ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'}`}>
-                        {siteLockState.isLocked ? 'ACTIVE (LOCKED)' : 'UNLOCKED (PUBLIC)'}
-                      </span>
-                    </h3>
-                    <p className="text-[11px] text-slate-400 mt-0.5">
-                      Restricts site viewing to authorized testing users who enter the 4-digit Access PIN.
-                    </p>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => handleSaveSiteLock(!siteLockState.isLocked, siteLockState.accessPin)}
-                  disabled={isSavingSiteLock}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer shadow-md ${
-                    siteLockState.isLocked
-                      ? 'bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/40'
-                      : 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40'
-                  }`}
-                >
-                  {isSavingSiteLock ? 'Saving...' : siteLockState.isLocked ? 'Turn Lock OFF (Make Public)' : 'Turn Lock ON (Make Private)'}
-                </button>
-              </div>
-
-              <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-800/80">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-slate-300">Change Access PIN:</span>
-                  <input
-                    type="text"
-                    maxLength={6}
-                    value={siteLockState.accessPin}
-                    onChange={(e) => setSiteLockState(prev => ({ ...prev, accessPin: e.target.value.replace(/\D/g, '') }))}
-                    className="w-24 px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-xl text-center text-sm font-mono font-bold text-amber-300 focus:outline-none focus:border-amber-500"
-                  />
+                <div className="flex flex-wrap items-center gap-2">
                   <button
-                    type="button"
-                    onClick={() => handleSaveSiteLock(siteLockState.isLocked, siteLockState.accessPin)}
-                    disabled={isSavingSiteLock || !siteLockState.accessPin || siteLockState.accessPin.length < 4}
-                    className="px-3.5 py-1.5 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white font-black text-xs rounded-xl shadow-md transition-all cursor-pointer disabled:opacity-50"
+                    onClick={() => openAdminCreateModal('helpers', true)}
+                    className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white text-xs font-black flex items-center gap-1.5 cursor-pointer transition-all shadow-md"
                   >
-                    {isSavingSiteLock ? 'Updating...' : 'Save PIN'}
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>+ Add New Entry</span>
+                  </button>
+                  <button
+                    onClick={() => openModule('approved_list')}
+                    className="px-3 py-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-300 text-xs font-black flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Approved List</span>
+                  </button>
+                  <button
+                    onClick={() => openModule('security_vault')}
+                    className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-emerald-300 text-xs font-black flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Lock className="w-3.5 h-3.5" />
+                    <span>Security Vault ({securityVaultRecords.length})</span>
                   </button>
                 </div>
-
-                <span className="text-[11px] font-medium text-slate-400">
-                  Stored in database table <code className="text-amber-300 font-mono">app_settings</code>
-                </span>
               </div>
-            </motion.div>
 
-            {/* 10. HOME PAGE MAIN BANNER MANAGER (UPLOAD, EDIT, DELETE & RESET) */}
-            <motion.div
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="rounded-3xl bg-gradient-to-br from-blue-950/90 via-[#111827] to-indigo-950/80 border-2 border-cyan-500/40 p-5 sm:p-6 shadow-2xl space-y-4"
-            >
+              {/* Clean Ordered List of Small Clickable Banners */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {topToBottomBanners.map((b, idx) => (
+                  <motion.button
+                    key={b.step}
+                    initial={{ opacity: 0, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: idx * 0.02 }}
+                    onClick={b.onClick}
+                    className={`text-left group relative overflow-hidden rounded-2xl bg-[#111827] hover:bg-[#162033] border ${b.border} p-3.5 sm:p-4 transition-all duration-200 shadow-md hover:shadow-lg cursor-pointer flex items-center justify-between gap-3`}
+                  >
+                    <div className="flex items-start gap-3 min-w-0">
+                      <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${b.gradient} flex items-center justify-center shadow-md shrink-0 group-hover:scale-105 transition-transform`}>
+                        {b.icon}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-slate-800 text-orange-400 border border-slate-700">
+                            #{b.step}
+                          </span>
+                          <h3 className="text-xs sm:text-sm font-black text-white group-hover:text-orange-300 transition-colors truncate">
+                            {b.title}
+                          </h3>
+                        </div>
+                        <p className="text-[11px] text-slate-400 line-clamp-1 mt-1">
+                          {b.subtitle}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row items-end sm:items-center gap-1.5 shrink-0">
+                      <span className="px-2.5 py-1 rounded-xl bg-slate-800/90 border border-slate-700 text-[11px] font-black text-slate-200">
+                        {b.badge1}
+                      </span>
+                      {b.badge2 && (
+                        <span className="px-2.5 py-1 rounded-xl bg-amber-500/20 border border-amber-500/40 text-[11px] font-black text-amber-300">
+                          {b.badge2}
+                        </span>
+                      )}
+                      <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-orange-400 group-hover:translate-x-0.5 transition-transform hidden sm:block" />
+                    </div>
+                  </motion.button>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* ============================================================ */}
+        {/* VIEW 1A: DEDICATED HERO PHOTO BANNER MANAGER                 */}
+        {/* ============================================================ */}
+        {activeModule === 'hero_banner' && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between bg-[#111827] border border-slate-800 p-4 rounded-2xl">
+              <button
+                onClick={() => openModule('home')}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs sm:text-sm font-black border border-slate-700 cursor-pointer"
+              >
+                <ArrowLeft className="w-4 h-4 text-orange-400" />
+                <span>← Back to Admin Dashboard</span>
+              </button>
+              <span className="text-xs font-black text-cyan-300">
+                🖼️ Section #1: Main Website Top Hero Photo Banner
+              </span>
+            </div>
+
+            <div className="rounded-3xl bg-gradient-to-br from-blue-950/90 via-[#111827] to-indigo-950/80 border-2 border-cyan-500/40 p-5 sm:p-6 shadow-2xl space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div className="flex items-center gap-3.5">
                   <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shrink-0">
                     <ImageIcon className="w-6 h-6 text-white" />
                   </div>
                   <div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
-                        🖼️ હોમ પેજ મેઈન બેનર (Live For All Users)
-                      </span>
-                      <span className={`text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full ${
-                        categoryImages['__home_hero_banner__'] === '__deleted__'
-                          ? 'bg-red-500/20 text-red-300 border border-red-500/40'
-                          : 'bg-emerald-500 text-slate-950'
-                      }`}>
-                        {categoryImages['__home_hero_banner__'] === '__deleted__'
-                          ? '🚫 બેનર ડીલીટ (Hidden)'
-                          : '✓ Active on Mobile, Tablet & PC'}
-                      </span>
-                    </div>
-                    <h2 className="text-base sm:text-lg font-black text-white mt-1">
+                    <h2 className="text-base sm:text-lg font-black text-white">
                       હોમ પેજ મેઈન હીરો બેનર (LocoHelp Logo નીચે / સર્ચ બાર ઉપર)
                     </h2>
                     <p className="text-xs text-slate-300 font-medium mt-0.5">
-                      અહીંથી તમે હોમ પેજ પર દેખાતું મેઈન બેનર <strong>અપલોડ (Upload)</strong>, <strong>એડિટ (Edit)</strong> અથવા <strong>ડીલીટ (Delete)</strong> કરી શકો છો.
+                      અહીંથી તમે હોમ પેજ પર દેખાતું મેઈન બેનર અપલોડ (Upload), એડિટ (Edit) અથવા ડીલીટ (Delete) કરી શકો છો.
                     </p>
                   </div>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
-                  {/* 1. Upload Button */}
                   <label className="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white font-black text-xs sm:text-sm shadow-lg transition-all cursor-pointer flex items-center gap-2">
                     <Upload className="w-4 h-4" />
                     <span>{isUploadingHeroBanner ? '⏳ પ્રક્રિયા ચાલુ છે...' : '📸 અપલોડ કરો (Upload)'}</span>
@@ -2617,7 +2820,6 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                     />
                   </label>
 
-                  {/* 2. Edit Button */}
                   <button
                     type="button"
                     onClick={() => {
@@ -2628,32 +2830,30 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                       setIsEditingHeroBanner(prev => !prev);
                     }}
                     disabled={isUploadingHeroBanner}
-                    className="px-3.5 py-2.5 rounded-2xl bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-200 border border-indigo-400/40 font-black text-xs transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                    className="px-3.5 py-2.5 rounded-2xl bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-200 border border-indigo-400/40 font-black text-xs transition-all cursor-pointer flex items-center gap-1.5"
                   >
                     <Edit3 className="w-3.5 h-3.5" />
                     <span>✏️ એડિટ કરો (Edit)</span>
                   </button>
 
-                  {/* 3. Delete Button */}
                   {categoryImages['__home_hero_banner__'] !== '__deleted__' && (
                     <button
                       type="button"
                       onClick={handleDeleteHomeHeroBanner}
                       disabled={isUploadingHeroBanner}
-                      className="px-3.5 py-2.5 rounded-2xl bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/40 font-black text-xs transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                      className="px-3.5 py-2.5 rounded-2xl bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/40 font-black text-xs transition-all cursor-pointer flex items-center gap-1.5"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                       <span>🗑️ ડીલીટ કરો (Delete)</span>
                     </button>
                   )}
 
-                  {/* 4. Restore Default Button */}
                   {categoryImages['__home_hero_banner__'] && (
                     <button
                       type="button"
                       onClick={handleResetHomeHeroBanner}
                       disabled={isUploadingHeroBanner}
-                      className="px-3.5 py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 font-black text-xs transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                      className="px-3.5 py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 font-black text-xs transition-all cursor-pointer flex items-center gap-1.5"
                     >
                       <RefreshCw className="w-3.5 h-3.5" />
                       <span>🔄 ડિફોલ્ટ બેનર રાખો</span>
@@ -2662,80 +2862,147 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                 </div>
               </div>
 
-              {/* Expandable Edit Panel */}
               {isEditingHeroBanner && (
                 <div className="p-4 rounded-2xl bg-slate-900/95 border border-indigo-500/40 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-xs sm:text-sm font-black text-indigo-300 flex items-center gap-2">
-                      <Edit3 className="w-4 h-4" />
-                      <span>બેનર એડિટ કરો (નવો ફોટો પસંદ કરો અથવા ઈમેજ URL બદલો)</span>
-                    </h4>
-                    <button
-                      type="button"
-                      onClick={() => setIsEditingHeroBanner(false)}
-                      className="text-slate-400 hover:text-white cursor-pointer"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
                   <div className="flex flex-col sm:flex-row gap-2.5">
                     <input
                       type="text"
                       value={heroBannerCustomUrlInput}
                       onChange={e => setHeroBannerCustomUrlInput(e.target.value)}
                       placeholder="https://... અથવા /assets/... ઈમેજ લિંક નાખો"
-                      className="flex-1 px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white focus:outline-none focus:border-cyan-400"
+                      className="flex-1 px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white"
                     />
                     <button
                       type="button"
                       onClick={handleSaveHeroBannerCustomUrl}
                       disabled={isUploadingHeroBanner}
-                      className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs cursor-pointer transition-all shrink-0 disabled:opacity-50"
+                      className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs cursor-pointer"
                     >
                       💾 URL સેવ કરો
                     </button>
-                    <label className="px-4 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-black text-xs cursor-pointer transition-all shrink-0 flex items-center justify-center gap-1.5">
-                      <Upload className="w-3.5 h-3.5" />
-                      <span>ગેલેરીમાંથી ફોટો બદલો</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleUploadHomeHeroBanner}
-                        disabled={isUploadingHeroBanner}
-                        className="hidden"
-                      />
-                    </label>
                   </div>
                 </div>
               )}
 
-              <div className="rounded-2xl overflow-hidden border border-slate-700/80 bg-slate-950/70 p-2 max-w-2xl">
-                <p className="text-[11px] font-bold text-cyan-300 mb-1.5 px-1">
-                  👁️ અત્યારે હોમ પેજ પર દેખાતું લાઈવ બેનર (Current Live Banner Status):
+              <div className="rounded-2xl overflow-hidden border border-slate-700/80 bg-slate-950/70 p-3 max-w-2xl">
+                <p className="text-[11px] font-bold text-cyan-300 mb-2">
+                  👁️ અત્યારે હોમ પેજ પર દેખાતું લાઈવ બેનર (Current Live Banner Preview):
                 </p>
                 {categoryImages['__home_hero_banner__'] === '__deleted__' ? (
-                  <div className="p-6 text-center rounded-xl bg-slate-900/90 border border-red-500/30 space-y-2">
-                    <p className="text-sm font-black text-red-300">
-                      🚫 હોમ પેજ પરથી મેઈન બેનર ડીલીટ (દૂર) કરેલ છે.
-                    </p>
-                    <p className="text-xs text-slate-400">
-                      નવું બેનર મૂકવા માટે ઉપર <strong>&ldquo;📸 અપલોડ કરો&rdquo;</strong> અથવા <strong>&ldquo;🔄 ડિફોલ્ટ બેનર રાખો&rdquo;</strong> પર ક્લિક કરો.
-                    </p>
+                  <div className="p-6 text-center rounded-xl bg-slate-900/90 border border-red-500/30">
+                    <p className="text-sm font-black text-red-300">🚫 હોમ પેજ પરથી મેઈન બેનર ડીલીટ (દૂર) કરેલ છે.</p>
                   </div>
                 ) : (
                   <img
                     src={categoryImages['__home_hero_banner__'] || DEFAULT_HOME_HERO_BANNER}
                     alt="Home Page Main Banner Preview"
                     className="w-full h-auto block object-contain rounded-xl"
-                    onError={(e) => {
-                      if (e.currentTarget.src !== window.location.origin + DEFAULT_HOME_HERO_BANNER) {
-                        e.currentTarget.src = DEFAULT_HOME_HERO_BANNER;
-                      }
-                    }}
                   />
                 )}
               </div>
-            </motion.div>
+            </div>
+          </div>
+        )}
+
+        {/* ============================================================ */}
+        {/* VIEW 1C: DEDICATED CUSTOMER RATINGS & REVIEWS MODULE         */}
+        {/* ============================================================ */}
+        {activeModule === 'helper_reviews' && (
+          <div className="space-y-4">
+            <div className="rounded-3xl bg-[#111827] border border-slate-800 p-5 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => openModule('home')}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-black border border-slate-700 cursor-pointer"
+                >
+                  <ArrowLeft className="w-4 h-4 text-orange-400" />
+                  <span>← Back to Admin Dashboard</span>
+                </button>
+                <div>
+                  <h2 className="text-lg sm:text-xl font-black text-white flex items-center gap-2">
+                    <Star className="w-5 h-5 text-amber-400 fill-amber-400" />
+                    <span>Customer Ratings &amp; Reviews ({adminReviews.length})</span>
+                  </h2>
+                  <p className="text-xs text-slate-400">
+                    ग्राहकों द्वारा सर्विस एक्सपर्ट्स को दी गई रेटिंग और रिव्यू देखें — इससे पता चलेगा किस कारीगर का काम कैसा है।
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {adminReviews.length === 0 ? (
+              <div className="rounded-3xl bg-[#111827] border border-slate-800 p-10 text-center space-y-2">
+                <Star className="w-10 h-10 text-amber-400 mx-auto" />
+                <p className="text-sm font-black text-white">अभी तक कोई कस्टमर रिव्यू नहीं आया है</p>
+                <p className="text-xs text-slate-400">
+                  जब ग्राहक मेन वेबसाइट पर किसी सर्विस एक्सपर्ट को 1–5 स्टार और रिव्यू देंगे, तो वह तुरंत यहाँ दिखाई देगा।
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                {adminReviews.map((rev) => {
+                  const matchedHelper = helpers.find(h => String(h.id) === String(rev.helperId));
+                  return (
+                    <div
+                      key={rev.id}
+                      className="rounded-2xl bg-[#111827] border border-slate-800 p-4 flex flex-col justify-between gap-3"
+                    >
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-800">
+                          <div>
+                            <span className="text-[10px] font-black uppercase text-emerald-400 block">
+                              Service Expert (कारीगर):
+                            </span>
+                            <h3 className="text-sm font-black text-white">
+                              {matchedHelper?.name || rev.helperName || `Expert #${rev.helperId}`}
+                              {matchedHelper?.service ? ` (${matchedHelper.service})` : ''}
+                            </h3>
+                          </div>
+                          <div className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-black">
+                            <span>{'⭐'.repeat(Math.max(1, Math.min(5, Number(rev.rating) || 5)))}</span>
+                            <span>({rev.rating}/5)</span>
+                          </div>
+                        </div>
+
+                        <p className="text-xs sm:text-sm text-slate-200 font-medium">
+                          &ldquo;{rev.comment || 'Great service!'}&rdquo;
+                        </p>
+
+                        <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-400 pt-1">
+                          <span className="font-bold text-sky-300">
+                            👤 Customer: {rev.reviewerName}
+                          </span>
+                          {rev.reviewerPhone && (
+                            <span>📞 {rev.reviewerPhone}</span>
+                          )}
+                          {rev.createdAt && (
+                            <span>🕒 {new Date(rev.createdAt).toLocaleString()}</span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end pt-2 border-t border-slate-800/80">
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const ok = await deleteAdminHelperReview(rev.id);
+                            if (ok) {
+                              setAdminReviews(prev => prev.filter(r => r.id !== rev.id));
+                              showToast('🗑️ Review deleted & expert rating recalculated');
+                              loadAllData();
+                            }
+                          }}
+                          className="px-3 py-1.5 rounded-xl bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/30 text-xs font-black flex items-center gap-1 cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Delete Review</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 
@@ -3002,7 +3269,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         {/* ============================================================ */}
         {/* VIEW 2: DEDICATED MANAGEMENT SUB-PAGE FOR SELECTED MODULE    */}
         {/* ============================================================ */}
-        {activeModule !== 'home' && activeModule !== 'approved_list' && activeModule !== 'ads' && activeModule !== 'security_vault' && currentModuleMeta && (
+        {activeModule !== 'home' && activeModule !== 'hero_banner' && activeModule !== 'helper_reviews' && activeModule !== 'approved_list' && activeModule !== 'ads' && activeModule !== 'security_vault' && currentModuleMeta && (
           <div className="space-y-5">
             {/* Top Back Button + Module Header */}
             <div className="rounded-3xl bg-[#111827] border border-slate-800 p-5 sm:p-6">
@@ -3043,67 +3310,122 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                     {currentModuleMeta.title}
                   </h2>
                   <p className="text-xs sm:text-sm text-slate-400 font-medium">
-                    Manage and review entries for {currentModuleMeta.title}
+                    Manage and review entries for {currentModuleMeta.title} (Date-Wise &amp; Location-Wise)
                   </p>
                 </div>
               </div>
 
               {/* Search & Status Filter Bar */}
-              <div className="mt-5 pt-4 border-t border-slate-800/90 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-                <div className="relative flex-1">
-                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder={`Search in ${currentModuleMeta.title} (Name, Phone, Area, Category)...`}
-                    className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-orange-500"
-                  />
+              <div className="mt-5 pt-4 border-t border-slate-800/90 flex flex-col gap-3">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                  <div className="relative flex-1">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder={`Search in ${currentModuleMeta.title} (Name, Phone, Area, Category)...`}
+                      className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-orange-500"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+                    {(['all', 'pending', 'approved', 'rejected'] as const).map(st => {
+                      const baseList =
+                        activeModule === 'helpers'
+                          ? helpers
+                          : activeModule === 'simple_users'
+                          ? simpleUsers
+                          : activeModule === 'businesses'
+                          ? businesses
+                          : activeModule === 'help_posts'
+                          ? intents
+                          : activeModule === 'job_seekers'
+                          ? jobSeekersList
+                          : activeModule === 'employers'
+                          ? employersList
+                          : reports;
+                      const tabCount =
+                        st === 'all'
+                          ? baseList.length
+                          : baseList.filter(x => getNormalizedStatus(x, activeModule) === st).length;
+                      return (
+                        <button
+                          key={st}
+                          onClick={() => setStatusFilter(st)}
+                          className={`px-3 py-2 rounded-xl text-xs font-black capitalize transition-all cursor-pointer shrink-0 ${
+                            statusFilter === st
+                              ? 'bg-orange-500 text-white shadow-md shadow-orange-500/20'
+                              : 'bg-slate-800/80 text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          {st === 'all' ? `All (${tabCount})` : `${st} (${tabCount})`}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
-                  {(['all', 'pending', 'approved', 'rejected'] as const).map(st => {
-                    const baseList =
-                      activeModule === 'helpers'
-                        ? helpers
-                        : activeModule === 'simple_users'
-                        ? simpleUsers
-                        : activeModule === 'businesses'
-                        ? businesses
-                        : activeModule === 'help_posts'
-                        ? intents
-                        : activeModule === 'job_seekers'
-                        ? jobSeekersList
-                        : activeModule === 'employers'
-                        ? employersList
-                        : reports;
-                    const tabCount =
-                      st === 'all'
-                        ? baseList.length
-                        : baseList.filter(x => getNormalizedStatus(x, activeModule) === st).length;
-                    return (
+                {/* Date-Wise & City/Area Filter Bar */}
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800/60">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-[11px] font-black text-slate-400 flex items-center gap-1 mr-1">
+                      <Calendar className="w-3.5 h-3.5 text-orange-400" /> Date Filter:
+                    </span>
+                    {[
+                      { id: 'all', label: 'All Dates' },
+                      { id: 'today', label: 'Today (आज)' },
+                      { id: 'yesterday', label: 'Yesterday (कल)' },
+                    ].map(d => (
                       <button
-                        key={st}
-                        onClick={() => setStatusFilter(st)}
-                        className={`px-3 py-2 rounded-xl text-xs font-black capitalize transition-all cursor-pointer shrink-0 ${
-                          statusFilter === st
-                            ? 'bg-orange-500 text-white shadow-md shadow-orange-500/20'
-                            : 'bg-slate-800/80 text-slate-400 hover:text-white'
+                        key={d.id}
+                        type="button"
+                        onClick={() => setDateFilter(d.id)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-black cursor-pointer transition-all ${
+                          dateFilter === d.id
+                            ? 'bg-amber-500 text-slate-950'
+                            : 'bg-slate-900 text-slate-300 border border-slate-800 hover:bg-slate-800'
                         }`}
                       >
-                        {st === 'all' ? `All (${tabCount})` : `${st} (${tabCount})`}
+                        {d.label}
                       </button>
-                    );
-                  })}
+                    ))}
+                    <input
+                      type="date"
+                      value={dateFilter !== 'all' && dateFilter !== 'today' && dateFilter !== 'yesterday' ? dateFilter : ''}
+                      onChange={(e) => setDateFilter(e.target.value || 'all')}
+                      className="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-xs text-white font-bold"
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-[11px] font-black text-slate-400 flex items-center gap-1">
+                      <MapPin className="w-3.5 h-3.5 text-emerald-400" /> Area / City:
+                    </span>
+                    {['all', 'Gandhinagar', 'Ahmedabad', 'Kudasan', 'Sargasan', 'Sector'].map(loc => (
+                      <button
+                        key={loc}
+                        type="button"
+                        onClick={() => setLocationFilter(loc)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-black cursor-pointer transition-all ${
+                          locationFilter === loc
+                            ? 'bg-emerald-500 text-slate-950'
+                            : 'bg-slate-900 text-slate-300 border border-slate-800 hover:bg-slate-800'
+                        }`}
+                      >
+                        {loc === 'all' ? 'All Areas' : loc}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
 
             {/* ============================================================== */}
-            {/* CATEGORY FOLDER / FILTER VIEW FOR SERVICE EXPERTS & PROFILES   */}
+            {/* CATEGORY FOLDER / FILTER VIEW FOR SERVICE EXPERTS ONLY         */}
             {/* ============================================================== */}
-            {(activeModule === 'helpers' || activeModule === 'simple_users') && (() => {
-              const sourceList = activeModule === 'helpers' ? helpers : simpleUsers;
+            {activeModule === 'helpers' && (() => {
+              const sourceList = helpers;
               const statusFilteredSource = sourceList.filter(item => {
                 const st = getNormalizedStatus(item, activeModule);
                 return statusFilter === 'all' || st === statusFilter;
@@ -3539,36 +3861,58 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                   const idDoc = getItemIdDoc(item);
                   const isBusy = actionLoadingId === item.id;
 
-                  // Extract display fields cleanly across modules
+                  // Extract display fields cleanly across modules (including Help Posts authorName)
                   const title =
                     item.name ||
                     item.fullName ||
                     item.companyOrShopName ||
+                    item.authorName ||
+                    item.author_name ||
+                    item.posterName ||
                     item.userName ||
                     item.user_name ||
                     item.reporterName ||
                     item.reason ||
-                    'Entry #' + String(item.id).slice(-5);
+                    (item.email ? String(item.email).split('@')[0] : '') ||
+                    'User #' + String(item.id).slice(-5);
 
-                  const catMeta = (activeModule === 'helpers' || activeModule === 'simple_users')
+                  const catMeta = activeModule === 'helpers'
                     ? getItemCategoryInfo(item)
                     : null;
-                  const subtitle = catMeta
-                    ? `${catMeta.displaySubName} • ${catMeta.mainCatObj.nameEn}`
-                    : item.customCategoryName ||
-                      item.categoryLabel ||
-                      item.jobRole ||
-                      item.category ||
-                      item.headline ||
-                      item.service ||
-                      item.targetType ||
-                      'General';
+                  const subtitle =
+                    activeModule === 'simple_users'
+                      ? '👤 Registered Login Account (User Profile)'
+                      : catMeta
+                      ? `${catMeta.displaySubName} • ${catMeta.mainCatObj.nameEn}`
+                      : item.customCategoryName ||
+                        item.categoryLabel ||
+                        item.jobRole ||
+                        item.category ||
+                        item.headline ||
+                        item.service ||
+                        item.targetType ||
+                        'General';
 
-                  const phone = item.phone || item.whatsapp || item.userPhone || item.contactPhone || '';
-                  const email = item.email || item.userEmail || '';
+                  const phone =
+                    item.phone ||
+                    item.whatsapp ||
+                    item.authorPhone ||
+                    item.author_phone ||
+                    item.userPhone ||
+                    item.contactPhone ||
+                    '';
+                  const rawEmail =
+                    item.email ||
+                    item.authorEmail ||
+                    item.author_email ||
+                    item.userEmail ||
+                    '';
+                  const email = rawEmail.endsWith('@phone.locohelp.com') ? '' : rawEmail;
                   const area = item.area || item.jobLocation || item.address || item.locationName || '';
                   const desc =
                     item.description ||
+                    item.text ||
+                    item.content ||
                     item.jobDescription ||
                     item.skills ||
                     item.bio ||
@@ -3610,6 +3954,12 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                             >
                               {status === 'approved' ? '✓ Approved' : status === 'rejected' ? '✕ Rejected' : '⏳ Pending Approval'}
                             </span>
+
+                            {activeModule === 'helpers' && (
+                              <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[11px] font-black">
+                                ⭐ {Number(item.rating || 5.0).toFixed(1)} ({item.reviewCount || item.review_count || 0} Reviews)
+                              </span>
+                            )}
 
                             {extraBadge && (
                               <span className="px-2.5 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 text-[11px] font-bold break-words">
@@ -4061,6 +4411,23 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                           {ad.description && (
                             <p className="text-xs text-slate-400 mt-1 line-clamp-2 break-words">{ad.description}</p>
                           )}
+
+                          {/* Submitter Contact Details for "Promote Your Business" Ad Requests */}
+                          {(ad.contactPerson || ad.phone || ad.ownerEmail || ad.adPlan) && (
+                            <div className="mt-2 p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-1 text-[11px]">
+                              <div className="font-black text-cyan-300 uppercase tracking-wider">
+                                📋 Ad Request Submitter Details:
+                              </div>
+                              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-slate-300">
+                                {ad.contactPerson && <span>👤 {ad.contactPerson}</span>}
+                                {ad.phone && <span>📞 {ad.phone}</span>}
+                                {ad.ownerEmail && <span>✉️ {ad.ownerEmail}</span>}
+                                {ad.adPlan && <span className="text-amber-300 font-bold">📦 Plan: {ad.adPlan}</span>}
+                                {ad.durationDays && <span>⏱️ {ad.durationDays} Days</span>}
+                              </div>
+                            </div>
+                          )}
+
                           {ad.destinationUrl && (
                             <p className="text-[11px] text-cyan-400 font-semibold mt-1.5 flex items-center gap-1 break-all">
                               <ExternalLink className="w-3 h-3 shrink-0" />
@@ -4075,22 +4442,23 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                               type="button"
                               onClick={async () => {
                                 const nextActive = !isActive;
-                                const updatedAd = { ...ad, isActive: nextActive };
-                                await createAdOnServer(updatedAd);
+                                const nextStatus = nextActive ? 'approved' : 'pending';
+                                const updatedAd = { ...ad, isActive: nextActive, status: nextStatus };
+                                await updateAdStatusOnServer(ad.id, nextStatus, nextActive);
                                 setAds(prev => prev.map(a => (a.id === ad.id ? updatedAd : a)));
                                 showToast(
                                   nextActive
-                                    ? '✅ Ad Banner activated on Main Website!'
+                                    ? '✅ Ad Request Approved & Published Live on Main Website!'
                                     : '⏸ Ad Banner set to Inactive (Hidden from Main Website).'
                                 );
                               }}
                               className={`px-3 py-1.5 rounded-xl text-xs font-black border cursor-pointer transition-all ${
                                 isActive
                                   ? 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border-amber-500/30'
-                                  : 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-500'
+                                  : 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-500 shadow-md'
                               }`}
                             >
-                              {isActive ? 'Set Inactive' : 'Set Active'}
+                              {isActive ? '⏸ Set Inactive' : '✅ Approve & Publish Live'}
                             </button>
 
                             <label className="px-3 py-1.5 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-xs font-black flex items-center gap-1 cursor-pointer">
