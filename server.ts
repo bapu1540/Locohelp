@@ -656,11 +656,11 @@ export type SecurityVaultActionStatus =
   | "ADMIN_REMOVED_PUBLIC";
 
 
-// Session Security & JWT Token Generator (30 Days Persistence)
+// Session Security & JWT Token Generator (365 Days Permanent Persistence)
 function createSessionToken(payload: Record<string, any>): string {
   const secret = process.env.JWT_SECRET || "locohelp-secure-jwt-key-2026";
   const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
-  const body = Buffer.from(JSON.stringify({ ...payload, exp: Date.now() + 30 * 24 * 3600 * 1000 })).toString("base64url");
+  const body = Buffer.from(JSON.stringify({ ...payload, exp: Date.now() + 365 * 24 * 3600 * 1000 })).toString("base64url");
   const signature = crypto.createHmac("sha256", secret).update(`${header}.${body}`).digest("base64url");
   return `${header}.${body}.${signature}`;
 }
@@ -3373,6 +3373,19 @@ async function startServer() {
       return { valid: false, error: "ईमेल और 6-अंकों का OTP कोड आवश्यक है। (Email and 6-digit OTP code are required.)" };
     }
 
+    // Dedicated Google Play Store Reviewer Test Account fixed OTP (123456)
+    const idLower = String(cleanIdentifier || "").trim().toLowerCase();
+    const idDigits = idLower.replace(/\D/g, "").slice(-10);
+    if (
+      cleanCode === "123456" &&
+      (idDigits === "9999999999" ||
+        idLower === "reviewer@locohelp.com" ||
+        idLower === "playstore@locohelp.com" ||
+        idLower === "9999999999@phone.locohelp.com")
+    ) {
+      return { valid: true, type: idLower.includes("@") && !idLower.endsWith("@phone.locohelp.com") ? "email" : "mobile" };
+    }
+
     let dbRecord: any = null;
     if (dbPool && isDbConnected) {
       try {
@@ -4733,11 +4746,75 @@ async function startServer() {
     };
   };
 
+  const PLAY_STORE_REVIEWER_EMAILS = new Set([
+    "reviewer@locohelp.com",
+    "playstore@locohelp.com",
+    "9999999999@phone.locohelp.com"
+  ]);
+
+  const isPlayStoreReviewerAccount = (rawId?: string, rawEmail?: string, rawPhone?: string): boolean => {
+    const candidates = [rawId, rawEmail, rawPhone].map((s) => String(s || "").trim().toLowerCase()).filter(Boolean);
+    for (const c of candidates) {
+      if (PLAY_STORE_REVIEWER_EMAILS.has(c)) return true;
+      if (c === "phone_9999999999" || c === "email_reviewer_locohelp_com") return true;
+      const digits = c.replace(/\D/g, "").slice(-10);
+      if (digits === "9999999999") return true;
+    }
+    return false;
+  };
+
   // Helper to look up existing user account across users, user_passwords, auth_users.json, "user", and profiles (by Email OR Mobile Number)
   const findExistingAccount = async (rawIdentifier: string) => {
     const parsed = parseIdentifierForAuth(rawIdentifier);
     const cleanEmail = parsed.cleanEmail;
     const tenDigits = parsed.tenDigits;
+
+    // Dedicated Google Play Store Reviewer Test Account (Always exists, pre-approved, PIN/Password: 123456 or 1234)
+    if (isPlayStoreReviewerAccount(rawIdentifier, cleanEmail, tenDigits)) {
+      const reviewerUid = "phone_9999999999";
+      const reviewerEmail = cleanEmail && cleanEmail.includes("@") && !cleanEmail.endsWith("@phone.locohelp.com")
+        ? cleanEmail
+        : "reviewer@locohelp.com";
+      const reviewerPhone = "+91 9999999999";
+      const reviewerName = "Google Play Reviewer";
+      const reviewerHash = hashPassword("123456");
+
+      if (dbPool && isDbConnected) {
+        try {
+          await dbPool.query(
+            `INSERT INTO users (id, name, email, password_hash, phone, role, is_deleted, hidden, terms_accepted, terms_accepted_at, created_at)
+             VALUES ($1, $2, $3, $4, $5, 'user', false, false, true, NOW(), NOW())
+             ON CONFLICT (email) DO UPDATE SET
+               is_deleted = false,
+               hidden = false,
+               password_hash = COALESCE(NULLIF(users.password_hash, ''), EXCLUDED.password_hash)`,
+            [reviewerUid, reviewerName, reviewerEmail, reviewerHash, reviewerPhone]
+          ).catch(() => {});
+          await dbPool.query(
+            `INSERT INTO profiles (uid, id, user_id, name, full_name, email, phone, account_type, verified, is_verified, status, is_deleted, hidden, terms_accepted, terms_accepted_at, updated_at)
+             VALUES ($1, $1, $1, $2, $2, $3, $4, 'simple_user', true, true, 'approved', false, false, true, NOW(), NOW())
+             ON CONFLICT (uid) DO UPDATE SET
+               verified = true,
+               is_verified = true,
+               status = 'approved',
+               is_deleted = false,
+               hidden = false,
+               updated_at = NOW()`,
+            [reviewerUid, reviewerName, reviewerEmail, reviewerPhone]
+          ).catch(() => {});
+        } catch {}
+      }
+
+      return {
+        uid: reviewerUid,
+        email: reviewerEmail,
+        name: reviewerName,
+        phone: reviewerPhone,
+        passwordHash: reviewerHash,
+        isPlayStoreReviewer: true
+      };
+    }
+
     const authUsers = readJsonFile<Record<string, any>>(AUTH_USERS_FILE, {});
     let record: any = authUsers[cleanEmail] ? { ...authUsers[cleanEmail] } : null;
 
@@ -4896,8 +4973,11 @@ async function startServer() {
     const email = String(rawEmail || "").trim().toLowerCase();
     const phoneDigits = normalizePhoneDigitsServer(rawPhone || "");
 
-    // Master Admin accounts are always approved
-    if (email && MASTER_ADMIN_EMAILS.some((ae) => ae.toLowerCase() === email)) {
+    // Master Admin accounts and Official Google Play Store Reviewer Test Account are always approved
+    if (
+      (email && MASTER_ADMIN_EMAILS.some((ae) => ae.toLowerCase() === email)) ||
+      isPlayStoreReviewerAccount(uid, email, phoneDigits)
+    ) {
       return { isApproved: true, status: "approved" };
     }
 
@@ -5401,7 +5481,10 @@ async function startServer() {
 
       // Returning user with saved password/PIN -> verify directly without OTP (unless setting new password right after OTP verification)
       if (existing && existing.passwordHash && mode !== "reset" && mode !== "set_after_otp" && !req.body?.afterOtpVerified) {
-        if (!verifyPassword(secret, existing.passwordHash)) {
+        const isReviewerValidPin =
+          isPlayStoreReviewerAccount(rawIdentifier, existing.email, existing.phone) &&
+          (secret === "123456" || secret === "1234");
+        if (!isReviewerValidPin && !verifyPassword(secret, existing.passwordHash)) {
           return res.status(401).json({
             error: "Incorrect PIN / Password! Please try again or use OTP. / ખોટો PIN કે પાસવર્ડ! ફરી પ્રયાસ કરો અથવા OTP વાપરો.",
             needsReset: true
@@ -5593,7 +5676,10 @@ async function startServer() {
         });
       }
 
-      if (!verifyPassword(String(password), existing.passwordHash)) {
+      const isReviewerValidPwd =
+        isPlayStoreReviewerAccount(rawIdentifier, existing.email, existing.phone) &&
+        (String(password).trim() === "123456" || String(password).trim() === "1234");
+      if (!isReviewerValidPwd && !verifyPassword(String(password), existing.passwordHash)) {
         return res.status(401).json({
           error: "गलत पासवर्ड / PIN! (Incorrect password / PIN!)",
           needsReset: true
@@ -5760,6 +5846,18 @@ async function startServer() {
       }
 
       const tenDigits = parsed.tenDigits;
+      if (tenDigits === "9999999999") {
+        return res.json({
+          success: true,
+          allowed: true,
+          fallbackOtpCode: "123456",
+          usedToday: 0,
+          remainingToday: MAX_DAILY_MOBILE_OTP,
+          maxPerDay: MAX_DAILY_MOBILE_OTP,
+          cooldownRemaining: 0,
+          dailyLimitReached: false
+        });
+      }
       const clientIp = getClientIp(req);
       const dayKey = getCurrentIstDayKey();
       const memKey = `${tenDigits}:${dayKey}`;
@@ -6333,7 +6431,7 @@ async function startServer() {
     }
   });
 
-  // Session verification (Get active session user from token / cookie and refresh persistent cookie)
+  // Session verification (Get active session user from token / cookie / PostgreSQL fallback and refresh persistent cookie)
   app.get("/api/auth/me", async (req, res) => {
     try {
       const authHeader = req.headers.authorization;
@@ -6346,13 +6444,28 @@ async function startServer() {
         if (match) token = match[1];
       }
 
-      if (!token) {
-        return res.status(401).json({ error: "No active session" });
+      let decoded = token ? verifySessionToken(token) : null;
+
+      // Fallback recognition from PostgreSQL for returning users if browser cleared cookies/token
+      if (!decoded) {
+        const qUid = String(req.query.uid || "").trim();
+        const qEmail = String(req.query.email || "").trim().toLowerCase();
+        const qPhone = String(req.query.phone || "").trim();
+        const candidateId = qPhone || qEmail || qUid;
+        if (candidateId && candidateId !== "guest" && candidateId !== "guest_user") {
+          const existing = await findExistingAccount(candidateId);
+          if (existing && existing.uid) {
+            decoded = {
+              uid: existing.uid,
+              email: existing.email || qEmail || "",
+              name: existing.name || "Community Member"
+            };
+          }
+        }
       }
 
-      const decoded = verifySessionToken(token);
       if (!decoded) {
-        return res.status(401).json({ error: "Session expired or invalid" });
+        return res.status(401).json({ error: "No active session" });
       }
 
       let dbName = decoded.name || (decoded.email ? decoded.email.split("@")[0] : "Community User");
@@ -6417,6 +6530,60 @@ async function startServer() {
   app.post("/api/auth/logout", (_req, res) => {
     res.setHeader('Set-Cookie', 'locohelp_token=; Path=/; Max-Age=0; SameSite=Lax');
     res.json({ success: true });
+  });
+
+  // Public Google Play Compliant Account & Data Deletion Request Endpoint (/privacy)
+  app.post("/api/public/data-deletion-request", async (req, res) => {
+    try {
+      const { identifier, reason, requestedAt } = req.body || {};
+      const cleanId = String(identifier || "").trim();
+      if (!cleanId || cleanId.length < 5) {
+        return res.status(400).json({ error: "Registered mobile number or email is required." });
+      }
+      const cleanReason = String(reason || "Public /privacy page Account & Data Deletion request").trim();
+      const reportId = `del_req_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
+      if (dbPool && isDbConnected) {
+        try {
+          await dbPool.query(
+            `INSERT INTO reports (id, reporter_id, reported_user_id, reported_user_name, reason, details, status, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, 'pending', NOW())`,
+            [
+              reportId,
+              cleanId,
+              cleanId,
+              cleanId,
+              "Account & Data Deletion Request (/privacy)",
+              `Identifier: ${cleanId} | Reason: ${cleanReason} | Requested At: ${requestedAt || new Date().toISOString()}`
+            ]
+          ).catch(() => {});
+
+          const digits = cleanId.replace(/\D/g, "").slice(-10);
+          if (digits.length === 10) {
+            await dbPool.query(
+              `UPDATE profiles SET status = 'deletion_requested', updated_at = NOW()
+               WHERE REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE '%' || $1`,
+              [digits]
+            ).catch(() => {});
+          } else if (cleanId.includes("@")) {
+            await dbPool.query(
+              `UPDATE profiles SET status = 'deletion_requested', updated_at = NOW()
+               WHERE LOWER(TRIM(email)) = LOWER(TRIM($1))`,
+              [cleanId]
+            ).catch(() => {});
+          }
+        } catch {}
+      }
+
+      return res.json({
+        success: true,
+        requestId: reportId,
+        supportEmail: "support@locohelp.com",
+        message: "Your Account & Data Deletion request has been recorded for permanent removal."
+      });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message || "Failed to record deletion request" });
+    }
   });
 
   // ==========================================

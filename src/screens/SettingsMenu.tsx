@@ -263,11 +263,11 @@ export default function SettingsMenu({ onNavigate, onBack }: { onNavigate: (s: S
           />
           <div className="h-px bg-[#EAE6DC] dark:bg-slate-700 w-full ml-12"></div>
 
-          {/* 4. Privacy Policy */}
+          {/* 4. Privacy Policy & Data Deletion (/privacy) */}
           <SettingsItem 
             icon={<Shield className="w-5 h-5 text-indigo-500" />} 
-            title={language === 'GU' ? 'ગોપનીયતા નીતિ (Privacy Policy)' : language === 'HI' ? 'गोपनीयता नीति (Privacy Policy)' : 'Privacy Policy'} 
-            onClick={() => setIsPrivacyOpen(true)} 
+            title={language === 'GU' ? 'ગોપનીયતા નીતિ અને ડેટા ડિલીશન (Privacy Policy)' : language === 'HI' ? 'गोपनीयता नीति और डेटा विलोपन (Privacy Policy)' : 'Privacy Policy & Data Deletion'} 
+            onClick={() => onNavigate('privacy')} 
           />
           <div className="h-px bg-[#EAE6DC] dark:bg-slate-700 w-full ml-12"></div>
 

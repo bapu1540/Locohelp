@@ -530,6 +530,8 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false, 
                   senderAvatar: resolvedAvatar,
                   receiverId: m.receiverId || m.receiver_id || existing?.receiverId || undefined,
                   isCollaborator: Boolean(m.isCollaborator || m.is_collaborator || existing?.isCollaborator),
+                  isRead: Boolean(m.isRead || m.is_read || existing?.isRead || existing?.is_read),
+                  is_read: Boolean(m.is_read || m.isRead || existing?.is_read || existing?.isRead),
                   attachmentUrl: m.attachmentUrl || m.attachment_url || existing?.attachmentUrl || undefined,
                   attachmentType: m.attachmentType || m.attachment_type || existing?.attachmentType || undefined,
                   createdAt: m.createdAt || m.created_at || m.sent_at || existing?.createdAt || new Date().toISOString()
@@ -540,6 +542,9 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false, 
             list.sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
             return list;
           });
+          try {
+            window.dispatchEvent(new CustomEvent('locohelp_chat_read_updated'));
+          } catch {}
         }
       } catch (e) {}
     };
@@ -952,9 +957,18 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false, 
 
   const sendPhotoInChat = async () => {
     if (!photoCaptured) return;
-    const imgToSend = photoCaptured;
+    let imgToSend = photoCaptured;
     const captionText = photoCaption.trim() || "📷 फोटो साझा की गई (Photo shared)";
     stopCamera();
+    if (imgToSend.startsWith('data:')) {
+      try {
+        imgToSend = await uploadFileToFirebaseStorage(
+          imgToSend,
+          'chat_attachments',
+          `camera_${Date.now()}.webp`
+        );
+      } catch {}
+    }
     await handleSend(captionText, 'attachment', imgToSend, 'image');
   };
 

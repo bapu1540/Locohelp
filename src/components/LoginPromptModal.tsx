@@ -204,11 +204,10 @@ export default function LoginPromptModal({
   const isValidPhone = !rawInput.includes('@') && /^[6-9]\d{9}$/.test(cleanDigits);
   const isValidEmail = rawInput.includes('@') && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawInput);
 
-  // Returning user who ALREADY has a saved PIN/Password in PostgreSQL can log in directly with PIN/Password
+  // Returning user recognized in PostgreSQL can log in directly with saved PIN/Password (or set PIN if not yet saved) without repeated OTPs
   const canLoginDirectlyWithPin =
     checkedUser.checked &&
     checkedUser.exists &&
-    Boolean(checkedUser.hasPassword) &&
     !forceOtpMode &&
     !otpVerifiedForPinSetup;
 
@@ -765,15 +764,21 @@ export default function LoginPromptModal({
               {/* Smart Recognition Status Badge */}
               {checkedUser.checked && !otpVerifiedForPinSetup && (
                 <div className="mt-2">
-                  {checkedUser.exists && checkedUser.hasPassword ? (
+                  {checkedUser.exists ? (
                     <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-teal-50 border border-teal-200 text-teal-800 text-[11px] font-extrabold">
                       <CheckCircle2 size={13} className="text-teal-600 shrink-0" />
                       <span>
-                        {tr(
-                          `Welcome back, ${checkedUser.name || 'Member'}! Enter your saved PIN/Password below.`,
-                          `स्वागत है, ${checkedUser.name || 'सदस्य'}! नीचे अपना सेव किया हुआ PIN/पासवर्ड डालें।`,
-                          `ફરી સ્વાગત છે, ${checkedUser.name || 'સભ્ય'}! નીચે તમારો સેવ કરેલો PIN/પાસવર્ડ નાખો.`
-                        )}
+                        {checkedUser.hasPassword
+                          ? tr(
+                              `Welcome back, ${checkedUser.name || 'Member'}! Enter your saved PIN/Password below.`,
+                              `स्वागत है, ${checkedUser.name || 'सदस्य'}! नीचे अपना सेव किया हुआ PIN/पासवर्ड डालें।`,
+                              `ફરી સ્વાગત છે, ${checkedUser.name || 'સભ્ય'}! નીચે તમારો સેવ કરેલો PIN/પાસવર્ડ નાખો.`
+                            )
+                          : tr(
+                              `Welcome back, ${checkedUser.name || 'Member'}! Set a 4-digit PIN below to login directly.`,
+                              `स्वागत है, ${checkedUser.name || 'सदस्य'}! सीधे लॉगिन के लिए नीचे 4-अंकों का PIN डालें।`,
+                              `ફરી સ્વાગત છે, ${checkedUser.name || 'સભ્ય'}! સીધા લોગિન માટે નીચે 4-અંકનો PIN નાખો.`
+                            )}
                       </span>
                     </div>
                   ) : (
@@ -876,16 +881,22 @@ export default function LoginPromptModal({
                 </button>
               </form>
             ) : canLoginDirectlyWithPin ? (
-              /* CASE 2: Returning Verified User with Saved PIN/Password */
+              /* CASE 2: Returning Verified User Recognized in PostgreSQL */
               <form onSubmit={handleReturningPinLogin} className="space-y-3.5">
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="text-xs font-black text-slate-700">
-                      {tr(
-                        '2. Enter Your Saved PIN / Password',
-                        '2. अपना सेव किया हुआ PIN / पासवर्ड डालें',
-                        '2. તમારો સેવ કરેલો PIN / પાસવર્ડ નાખો'
-                      )}
+                      {checkedUser.hasPassword
+                        ? tr(
+                            '2. Enter Your Saved PIN / Password',
+                            '2. अपना सेव किया हुआ PIN / पासवर्ड डालें',
+                            '2. તમારો સેવ કરેલો PIN / પાસવર્ડ નાખો'
+                          )
+                        : tr(
+                            '2. Set 4-Digit PIN / Password for Direct Login',
+                            '2. सीधे लॉगिन के लिए 4-अंकों का PIN / पासवर्ड डालें',
+                            '2. સીધા લોગિન માટે 4-અંકનો PIN / પાસવર્ડ નાખો'
+                          )}
                     </label>
                     <button
                       type="button"

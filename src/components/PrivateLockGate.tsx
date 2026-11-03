@@ -9,6 +9,28 @@ interface PrivateLockGateProps {
 }
 
 export default function PrivateLockGate({ children }: PrivateLockGateProps) {
+  const isPublicComplianceRoute = (): boolean => {
+    try {
+      const path = window.location.pathname.toLowerCase().replace(/\/+$/, '');
+      const hash = window.location.hash.toLowerCase().replace(/^#\/?/, '').replace(/\/+$/, '');
+      if (
+        path === '/privacy' ||
+        path === '/privacy-policy' ||
+        path === '/delete-account' ||
+        path === '/data-deletion' ||
+        path === '/terms' ||
+        hash === 'privacy' ||
+        hash === 'privacy-policy' ||
+        hash === 'delete-account' ||
+        hash === 'data-deletion' ||
+        hash === 'terms'
+      ) {
+        return true;
+      }
+    } catch {}
+    return false;
+  };
+
   const [isLockedOnServer, setIsLockedOnServer] = useState<boolean | null>(null);
   const [isSessionUnlocked, setIsSessionUnlocked] = useState<boolean>(() => {
     try {
@@ -146,6 +168,11 @@ export default function PrivateLockGate({ children }: PrivateLockGateProps) {
       }
     }
   };
+
+  // Public legal & Google Play compliance routes (/privacy, /delete-account, /terms) never require PIN or login
+  if (isPublicComplianceRoute()) {
+    return <>{children}</>;
+  }
 
   // If status is still loading from server, show official LocoHelp startup loading screen
   if (isLockedOnServer === null) {

@@ -355,7 +355,29 @@ export async function restoreSessionFromServer(): Promise<AppUser | null> {
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
     }
-    const res = await fetch('/api/auth/me', {
+
+    let fallbackUid = '';
+    let fallbackEmail = (localStorage.getItem('locohelp_last_logged_in_email') || '').trim().toLowerCase();
+    let fallbackPhone = (localStorage.getItem('locohelp_last_logged_in_phone') || '').replace(/\D/g, '').slice(-10);
+    try {
+      const savedRaw = localStorage.getItem('locohelp_user');
+      if (savedRaw) {
+        const parsed = JSON.parse(savedRaw);
+        if (parsed && !parsed.isGuest && parsed.uid && parsed.uid !== 'guest_user' && parsed.uid !== 'guest') {
+          fallbackUid = String(parsed.uid).trim();
+          if (!fallbackEmail && parsed.email) fallbackEmail = String(parsed.email).trim().toLowerCase();
+          if (!fallbackPhone && parsed.phone) fallbackPhone = String(parsed.phone).replace(/\D/g, '').slice(-10);
+        }
+      }
+    } catch {}
+
+    const qs = new URLSearchParams();
+    if (fallbackUid) qs.set('uid', fallbackUid);
+    if (fallbackEmail) qs.set('email', fallbackEmail);
+    if (fallbackPhone) qs.set('phone', fallbackPhone);
+    const meUrl = qs.toString() ? `/api/auth/me?${qs.toString()}` : '/api/auth/me';
+
+    const res = await fetch(meUrl, {
       method: 'GET',
       headers,
       credentials: 'include'
@@ -408,6 +430,12 @@ export async function restoreSessionFromServer(): Promise<AppUser | null> {
     if (userData.email) {
       localStorage.setItem('locohelp_last_logged_in_email', userData.email);
       localStorage.setItem('locohelp_last_logged_in_name', userData.displayName);
+    }
+    if (userData.phone) {
+      const cleanP = String(userData.phone).replace(/\D/g, '').slice(-10);
+      if (cleanP.length === 10) {
+        localStorage.setItem('locohelp_last_logged_in_phone', cleanP);
+      }
     }
     notifyAuthState('SIGNED_IN', userData);
     return userData;
@@ -653,6 +681,20 @@ export async function sendMobileOtp(
     };
   }
 
+  // Dedicated Google Play Store Reviewer Test Account (9999999999 / OTP: 123456)
+  if (norm.tenDigits === '9999999999') {
+    return {
+      success: true,
+      phoneE164: '+919999999999',
+      devCode: '123456',
+      cooldownRemaining: 0,
+      usedToday: 0,
+      remainingToday: MAX_DAILY_MOBILE_OTP,
+      maxPerDay: MAX_DAILY_MOBILE_OTP,
+      dailyLimitReached: false
+    };
+  }
+
   // 1. Check client-side daily 3-OTP limit first
   const localQuota = getDailyMobileOtpStatus(norm.tenDigits);
   if (localQuota.dailyLimitReached) {
@@ -811,7 +853,8 @@ export async function verifyMobileOtp(
   }
 
   const cleanOtp = String(code || '').replace(/\D/g, '').trim();
-  const fbVerify = await verifyFirebasePhoneOtpCode(cleanOtp);
+  const isPlayStoreTestPhone = norm.tenDigits === '9999999999' && cleanOtp === '123456';
+  const fbVerify = isPlayStoreTestPhone ? { success: false, idToken: undefined, error: undefined } : await verifyFirebasePhoneOtpCode(cleanOtp);
 
   try {
     const res = await fetch('/api/auth/verify-firebase-phone', {

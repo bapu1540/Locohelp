@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Screen, Intent } from './types';
 import { LanguageProvider, useLanguage, SUPPORTED_LANGUAGES } from './i18n';
 import { logoutUser, ensureProfileExists, onAuthStateChange, restoreSessionFromServer, getCurrentUser } from './auth';
-import { syncBrowserDataToPostgres, fetchPostConversations } from './api';
+import { syncBrowserDataToPostgres, fetchPostConversations, subscribeToRealtimeStream } from './api';
 import { isGuestUser } from './lib/authUtils';
 import LocoHelpLogo from './components/LocoHelpLogo';
 import PanIndiaLocationModal from './components/PanIndiaLocationModal';
@@ -16,6 +16,7 @@ import NotificationsScreen from './screens/NotificationsScreen';
 import ProScreen from './screens/ProScreen';
 import SettingsMenu from './screens/SettingsMenu';
 import GuidelinesScreen from './screens/GuidelinesScreen';
+import PrivacyPolicyScreen from './screens/PrivacyPolicyScreen';
 import RoadmapScreen from './screens/RoadmapScreen';
 import ReportModal from './screens/ReportModal';
 import SearchDirectoryScreen from './screens/SearchDirectoryScreen';
@@ -85,7 +86,7 @@ function AppContent() {
 
   const currentLangObj = SUPPORTED_LANGUAGES.find(l => l.code === language) || SUPPORTED_LANGUAGES[0];
 
-  // Poll unread messages count for the Top Header Chat Icon badge
+  // Poll + real-time stream for unread messages count in Top Header & Bottom Nav Chat badge
   useEffect(() => {
     let active = true;
     const refreshUnread = async () => {
@@ -112,9 +113,20 @@ function AppContent() {
     };
     refreshUnread();
     const timer = setInterval(refreshUnread, 4000);
+    const unsubStream = subscribeToRealtimeStream({
+      onNewResponse: () => {
+        refreshUnread();
+      }
+    });
+    const handleChatReadUpdated = () => refreshUnread();
+    window.addEventListener('locohelp_chat_read_updated', handleChatReadUpdated);
+    window.addEventListener('storage', handleChatReadUpdated);
     return () => {
       active = false;
       clearInterval(timer);
+      unsubStream();
+      window.removeEventListener('locohelp_chat_read_updated', handleChatReadUpdated);
+      window.removeEventListener('storage', handleChatReadUpdated);
     };
   }, []);
 
@@ -150,11 +162,28 @@ function AppContent() {
         return 'admin';
       }
 
+      // Dedicated Google Play compliant public Privacy Policy & Data Deletion route (/privacy)
+      if (
+        path === '/privacy' ||
+        path === '/privacy-policy' ||
+        path === '/delete-account' ||
+        path === '/data-deletion'
+      ) {
+        return 'privacy';
+      }
+
+      if (path === '/terms' || path === '/guidelines') {
+        return 'guidelines';
+      }
+
       // If root path
       if (!path || path === '') {
         if (hash) {
           const cleanHash = hash.replace(/^#\/?/, '');
-          if (['privacy', 'delete-account', 'about', 'features', 'contact'].includes(cleanHash)) {
+          if (['privacy', 'privacy-policy', 'delete-account', 'data-deletion'].includes(cleanHash)) {
+            return 'privacy';
+          }
+          if (['about', 'features', 'contact'].includes(cleanHash)) {
             return 'settings';
           }
           if (cleanHash === 'terms') {
@@ -162,7 +191,7 @@ function AppContent() {
           }
           const validScreens: Screen[] = [
             'home', 'categories', 'directory', 'chat', 'notifications',
-            'pro', 'settings', 'guidelines', 'roadmap', 'profile',
+            'pro', 'settings', 'guidelines', 'privacy', 'roadmap', 'profile',
             'support', 'mesh', 'leaderboard', 'professionals'
           ];
           if (validScreens.includes(cleanHash as Screen)) {
@@ -238,15 +267,16 @@ function AppContent() {
     syncBrowserDataToPostgres();
   }, []);
 
-  // Listen to URL changes for '/bapu-admin', legal hashes (#terms, #privacy, #delete-account), and invalid routes
+  // Listen to URL changes for '/bapu-admin', '/privacy', legal hashes (#terms, #privacy, #delete-account), and invalid routes
   useEffect(() => {
     const handleRouteChange = () => {
       const targetScreen = getScreenFromRoute();
       const hash = window.location.hash.toLowerCase().replace(/^#\/?/, '');
       if (
         targetScreen === 'admin' ||
+        targetScreen === 'privacy' ||
         targetScreen === 'not_found' ||
-        ['terms', 'privacy', 'delete-account', 'about', 'features', 'contact', 'guidelines', 'settings'].includes(hash)
+        ['terms', 'privacy', 'privacy-policy', 'delete-account', 'data-deletion', 'about', 'features', 'contact', 'guidelines', 'settings'].includes(hash)
       ) {
         setCurrentScreen(targetScreen);
       }
@@ -306,7 +336,7 @@ function AppContent() {
   const historyGuardArmedRef = React.useRef(false);
   useEffect(() => {
     try {
-      const initialScreen = checkAdminRoute() ? 'admin' : 'home';
+      const initialScreen = getScreenFromRoute();
       window.history.replaceState({ locohelpScreen: initialScreen, locohelpBase: true }, '');
       window.history.pushState({ locohelpScreen: initialScreen }, '');
     } catch (e) {}
@@ -315,7 +345,7 @@ function AppContent() {
       if (historyGuardArmedRef.current) return;
       historyGuardArmedRef.current = true;
       try {
-        const activeScr = checkAdminRoute() ? 'admin' : 'home';
+        const activeScr = getScreenFromRoute();
         window.history.pushState({ locohelpScreen: activeScr, userGestureGuard: true }, '');
       } catch (e) {}
     };
@@ -375,7 +405,7 @@ function AppContent() {
         const targetBackScreen: Screen =
           currentScreen === 'chat' && prevScreen === 'profile'
             ? 'profile'
-            : currentScreen === 'guidelines' && prevScreen === 'settings'
+            : (currentScreen === 'guidelines' || currentScreen === 'privacy') && prevScreen === 'settings'
             ? 'settings'
             : 'home';
         if (currentScreen === 'categories') {
@@ -384,7 +414,7 @@ function AppContent() {
         setPrevScreen('home');
         setCurrentScreen(targetBackScreen);
         try {
-          window.history.pushState({ locohelpScreen: targetBackScreen }, '');
+          window.history.pushState({ locohelpScreen: targetBackScreen }, '', targetBackScreen === 'home' ? '/' : undefined);
         } catch (e) {}
         return;
       }
@@ -424,7 +454,13 @@ function AppContent() {
 
     if (screen !== currentScreen) {
       try {
-        window.history.pushState({ locohelpScreen: screen }, '');
+        if (screen === 'privacy') {
+          window.history.pushState({ locohelpScreen: 'privacy' }, '', '/privacy');
+        } else if (currentScreen === 'privacy' || currentScreen === 'admin') {
+          window.history.pushState({ locohelpScreen: screen }, '', '/');
+        } else {
+          window.history.pushState({ locohelpScreen: screen }, '');
+        }
       } catch (e) {}
     }
 
@@ -541,7 +577,7 @@ function AppContent() {
             } catch {}
             window.dispatchEvent(new CustomEvent('locohelp_close_all_modals'));
             handleSelectCategory('all');
-            if (currentScreen === 'admin') {
+            if (currentScreen === 'admin' || currentScreen === 'privacy') {
               try {
                 window.history.pushState({ locohelpScreen: 'home' }, '', '/');
               } catch {}
@@ -615,6 +651,16 @@ function AppContent() {
           <GuidelinesScreen
             onBack={() => navigate(prevScreen === 'settings' ? 'settings' : 'home')}
             onReport={() => setIsReportModalOpen(true)}
+          />
+        )}
+        {currentScreen === 'privacy' && (
+          <PrivacyPolicyScreen
+            onBack={() => {
+              try {
+                window.history.pushState({ locohelpScreen: prevScreen === 'settings' ? 'settings' : 'home' }, '', '/');
+              } catch (e) {}
+              navigate(prevScreen === 'settings' ? 'settings' : 'home');
+            }}
           />
         )}
         {currentScreen === 'roadmap' && <RoadmapScreen onBack={() => navigate('home')} />}
