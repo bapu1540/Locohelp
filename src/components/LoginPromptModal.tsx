@@ -25,6 +25,12 @@ import {
   verifyEmailOtp
 } from '../auth';
 import { useLanguage } from '../i18n';
+import {
+  PAN_INDIA_STATES_DISTRICTS,
+  getTalukasForDistrict,
+  getProfileRegisteredLocation,
+  saveProfileRegisteredLocation
+} from '../data/panIndiaLocations';
 
 export interface LoginPromptModalProps {
   isOpen: boolean;
@@ -55,6 +61,12 @@ export default function LoginPromptModal({
   const [name, setName] = useState('');
   const [pinOrPassword, setPinOrPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+
+  // Registration Location State (Default: Gujarat -> Gandhinagar -> Gandhinagar)
+  const initialRegLoc = getProfileRegisteredLocation();
+  const [regState, setRegState] = useState<string>(initialRegLoc.state || 'Gujarat');
+  const [regDistrict, setRegDistrict] = useState<string>(initialRegLoc.district || 'Gandhinagar');
+  const [regTaluka, setRegTaluka] = useState<string>(initialRegLoc.taluka || 'Gandhinagar');
 
   // PostgreSQL lookup state
   const [isCheckingUser, setIsCheckingUser] = useState(false);
@@ -391,6 +403,15 @@ export default function LoginPromptModal({
         }
       }
 
+      if (!checkedUser.exists || !checkedUser.name) {
+        await saveProfileRegisteredLocation({
+          state: regState || 'Gujarat',
+          district: regDistrict || 'Gandhinagar',
+          taluka: regTaluka || regDistrict || 'Gandhinagar',
+          area: regTaluka || regDistrict || 'Gandhinagar'
+        });
+      }
+
       setIsSubmitting(false);
       setOtpVerifiedForPinSetup(true);
       setPinOrPassword('');
@@ -445,6 +466,15 @@ export default function LoginPromptModal({
             )
         );
         return;
+      }
+
+      if (!checkedUser.exists || !checkedUser.name) {
+        await saveProfileRegisteredLocation({
+          state: regState || 'Gujarat',
+          district: regDistrict || 'Gandhinagar',
+          taluka: regTaluka || regDistrict || 'Gandhinagar',
+          area: regTaluka || regDistrict || 'Gandhinagar'
+        });
       }
 
       setSuccessMsg(
@@ -751,25 +781,104 @@ export default function LoginPromptModal({
             /* CASE 3: New User OR User without PIN OR Forgot PIN -> Mandatory OTP Verification First */
             <form onSubmit={handleVerifyOtpStep} className="space-y-3">
               {(!checkedUser.exists || !checkedUser.name) && (
-                <div>
-                  <label className="block text-xs font-black text-slate-700 mb-1">
-                    {tr('Your Full Name', 'आपका पूरा नाम', 'તમારું પૂરું નામ')}
-                  </label>
-                  <div className="flex items-center rounded-2xl border-2 border-slate-200 focus-within:border-teal-600 bg-white overflow-hidden">
-                    <div className="pl-3 pr-2 py-2.5 text-slate-400 shrink-0">
-                      <UserIcon size={15} />
+                <div className="space-y-2.5">
+                  <div>
+                    <label className="block text-xs font-black text-slate-700 mb-1">
+                      {tr('Your Full Name', 'आपका पूरा नाम', 'તમારું પૂરું નામ')}
+                    </label>
+                    <div className="flex items-center rounded-2xl border-2 border-slate-200 focus-within:border-teal-600 bg-white overflow-hidden">
+                      <div className="pl-3 pr-2 py-2.5 text-slate-400 shrink-0">
+                        <UserIcon size={15} />
+                      </div>
+                      <input
+                        type="text"
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        placeholder={tr(
+                          'Enter your full name',
+                          'अपना पूरा नाम लिखें',
+                          'તમારું પૂરું નામ લખો'
+                        )}
+                        className="flex-1 min-w-0 py-2.5 pr-3 bg-transparent focus:outline-none text-sm font-bold text-slate-900"
+                      />
                     </div>
-                    <input
-                      type="text"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      placeholder={tr(
-                        'Enter your full name',
-                        'अपना पूरा नाम लिखें',
-                        'તમારું પૂરું નામ લખો'
+                  </div>
+
+                  {/* Compact 3-Column Location Selector: State (Default: Gujarat) -> District -> Taluka */}
+                  <div>
+                    <label className="block text-[11px] font-black text-slate-700 mb-1">
+                      {tr(
+                        'Your Location (State • District • Taluka)',
+                        'आपका लोकेशन (राज्य • जिला • तालुका)',
+                        'તમારું લોકેશન (રાજ્ય • જિલ્લો • તાલુકો)'
                       )}
-                      className="flex-1 min-w-0 py-2.5 pr-3 bg-transparent focus:outline-none text-sm font-bold text-slate-900"
-                    />
+                    </label>
+                    <div className="grid grid-cols-3 gap-1.5 bg-slate-50 p-1.5 rounded-xl border border-slate-200">
+                      <div>
+                        <span className="block text-[9px] font-extrabold text-slate-500 uppercase px-0.5 mb-0.5 truncate">
+                          {tr('1. State', '1. राज्य', '1. રાજ્ય')}
+                        </span>
+                        <select
+                          value={regState}
+                          onChange={(e) => {
+                            const nextState = e.target.value;
+                            const nextDistricts = PAN_INDIA_STATES_DISTRICTS[nextState] || [];
+                            const firstDist = nextDistricts[0] || '';
+                            const firstTaluka = getTalukasForDistrict(firstDist)[0] || firstDist;
+                            setRegState(nextState);
+                            setRegDistrict(firstDist);
+                            setRegTaluka(firstTaluka);
+                          }}
+                          className="w-full bg-white border border-slate-200 rounded-lg px-1.5 py-1.5 text-[11px] font-bold text-slate-900 outline-none focus:border-teal-600 cursor-pointer truncate"
+                        >
+                          {Object.keys(PAN_INDIA_STATES_DISTRICTS).map((st) => (
+                            <option key={st} value={st}>
+                              {st}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <span className="block text-[9px] font-extrabold text-slate-500 uppercase px-0.5 mb-0.5 truncate">
+                          {tr('2. District', '2. जिला', '2. જિલ્લો')}
+                        </span>
+                        <select
+                          value={regDistrict}
+                          onChange={(e) => {
+                            const nextDist = e.target.value;
+                            const nextTalukas = getTalukasForDistrict(nextDist);
+                            const firstTaluka = nextTalukas[0] || nextDist;
+                            setRegDistrict(nextDist);
+                            setRegTaluka(firstTaluka);
+                          }}
+                          className="w-full bg-white border border-slate-200 rounded-lg px-1.5 py-1.5 text-[11px] font-bold text-slate-900 outline-none focus:border-teal-600 cursor-pointer truncate"
+                        >
+                          {(PAN_INDIA_STATES_DISTRICTS[regState] || []).map((d) => (
+                            <option key={d} value={d}>
+                              {d}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <span className="block text-[9px] font-extrabold text-slate-500 uppercase px-0.5 mb-0.5 truncate">
+                          {tr('3. Taluka', '3. तालुका', '3. તાલુકો')}
+                        </span>
+                        <select
+                          value={regTaluka}
+                          onChange={(e) => setRegTaluka(e.target.value)}
+                          className="w-full bg-white border border-slate-200 rounded-lg px-1.5 py-1.5 text-[11px] font-bold text-slate-900 outline-none focus:border-teal-600 cursor-pointer truncate"
+                        >
+                          {getTalukasForDistrict(regDistrict).map((tl) => (
+                            <option key={tl} value={tl}>
+                              {tl}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}

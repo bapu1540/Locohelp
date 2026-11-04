@@ -19,6 +19,7 @@ import { validateUploadedFile, sanitizeText } from '../lib/security';
 import { compressImageToWebP } from '../lib/imageCompression';
 import { Screen } from '../types';
 import SmartLocationPicker from '../components/SmartLocationPicker';
+import { getProfileRegisteredLocation, saveProfileRegisteredLocation } from '../data/panIndiaLocations';
 import PhonePrivacyToggle from '../components/PhonePrivacyToggle';
 import ProtectedSelfieCanvas from '../components/ProtectedSelfieCanvas';
 import { LiveSelfieCaptureField, VisitingCardUploadField } from '../components/LiveSelfieCaptureField';
@@ -778,7 +779,27 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
     } catch (e) {}
 
     try {
-      await saveUserProfile(profileData);
+      // Parse "Taluka, District, State" from safeAddress if formatted by SmartLocationPicker
+      const addrParts = safeAddress.split(',').map((s) => s.trim()).filter(Boolean);
+      const currentRegLoc = getProfileRegisteredLocation();
+      const parsedTaluka = addrParts[0] || currentRegLoc.taluka || 'Gandhinagar';
+      const parsedDistrict = addrParts[1] || currentRegLoc.district || 'Gandhinagar';
+      const parsedState = addrParts[2] || currentRegLoc.state || 'Gujarat';
+      await saveProfileRegisteredLocation({
+        state: parsedState,
+        district: parsedDistrict,
+        taluka: parsedTaluka,
+        area: parsedTaluka
+      });
+
+      await saveUserProfile({
+        ...profileData,
+        state: parsedState,
+        district: parsedDistrict,
+        city: parsedDistrict,
+        taluka: parsedTaluka,
+        area: parsedTaluka
+      });
       if (updatedHelper && updatedHelper.id) {
         await saveHelper({ ...updatedHelper, isVerified: false, status: 'pending' }).catch(() => {});
       }
