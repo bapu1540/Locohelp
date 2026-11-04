@@ -3580,52 +3580,36 @@ async function startServer() {
 
   // Digital Asset Links (/.well-known/assetlinks.json) for Google Play TWA Fullscreen Mode (hides top browser URL bar)
   const ASSETLINKS_CONFIG_FILE = path.join(DATA_DIR, "assetlinks_config.json");
+  const OFFICIAL_ASSETLINKS_FINGERPRINTS = [
+    "19:D9:2E:34:C7:64:E5:65:96:79:46:54:22:78:5B:1F:26:A1:10:97:30:48:D7:A3:21:59:7C:E5:16:7F:E1:8E",
+    "07:AD:CF:4F:96:AE:C3:86:0E:1F:20:31:89:AC:EC:D6:13:69:89:5E:03:D7:9E:F3:75:56:75:89:B4:F3:3B:BD"
+  ];
+  const OFFICIAL_ASSETLINKS_PACKAGES = [
+    "com.locohelp.app",
+    "com.locohelp.twa",
+    "app.locohelp.twa"
+  ];
+
   const getAssetLinksJsonList = async (): Promise<any[]> => {
-    const defaultPackages = ["com.locohelp.twa", "com.locohelp.app", "app.locohelp.twa"];
-    let customPackage = process.env.ANDROID_PACKAGE_NAME || "com.locohelp.twa";
-    let customSha256List: string[] = process.env.ANDROID_SHA256_FINGERPRINT
-      ? [process.env.ANDROID_SHA256_FINGERPRINT.trim().toUpperCase()]
-      : [];
-
-    try {
-      const localCfg = readJsonFile<any>(ASSETLINKS_CONFIG_FILE, null);
-      if (localCfg) {
-        if (localCfg.packageName) customPackage = String(localCfg.packageName).trim();
-        if (Array.isArray(localCfg.sha256Fingerprints)) {
-          customSha256List = localCfg.sha256Fingerprints.map((s: string) => String(s).trim().toUpperCase()).filter(Boolean);
-        } else if (localCfg.sha256Fingerprint) {
-          customSha256List = String(localCfg.sha256Fingerprint)
-            .split(/[\s,]+/)
-            .map((s) => s.trim().toUpperCase())
-            .filter(Boolean);
-        }
-      }
-    } catch {}
-
-    if (dbPool && isDbConnected) {
-      try {
-        const r = await dbPool.query("SELECT value FROM app_settings WHERE key = 'android_assetlinks_config' LIMIT 1");
-        if (r.rows.length > 0 && r.rows[0].value) {
-          const val = r.rows[0].value;
-          if (val.packageName) customPackage = String(val.packageName).trim();
-          if (Array.isArray(val.sha256Fingerprints) && val.sha256Fingerprints.length > 0) {
-            customSha256List = val.sha256Fingerprints.map((s: string) => String(s).trim().toUpperCase()).filter(Boolean);
-          } else if (val.sha256Fingerprint) {
-            customSha256List = String(val.sha256Fingerprint)
-              .split(/[\s,]+/)
-              .map((s) => s.trim().toUpperCase())
-              .filter(Boolean);
-          }
-        }
-      } catch {}
+    const customSha256List: string[] = [...OFFICIAL_ASSETLINKS_FINGERPRINTS];
+    if (process.env.ANDROID_SHA256_FINGERPRINT) {
+      process.env.ANDROID_SHA256_FINGERPRINT
+        .split(/[\s,]+/)
+        .map((s) => s.trim().toUpperCase())
+        .filter((s) => Boolean(s) && !s.startsWith("00:00:00"))
+        .forEach((fp) => customSha256List.push(fp));
     }
 
-    const fingerprints =
-      customSha256List.length > 0
-        ? Array.from(new Set(customSha256List))
-        : ["00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00"];
+    const fingerprints = Array.from(new Set(customSha256List));
+    const packages = Array.from(
+      new Set(
+        [
+          ...OFFICIAL_ASSETLINKS_PACKAGES,
+          process.env.ANDROID_PACKAGE_NAME ? process.env.ANDROID_PACKAGE_NAME.trim() : ""
+        ].filter(Boolean)
+      )
+    );
 
-    const packages = Array.from(new Set([customPackage, ...defaultPackages].filter(Boolean)));
     return packages.map((pkg) => ({
       relation: [
         "delegate_permission/common.handle_all_urls",
@@ -3642,9 +3626,9 @@ async function startServer() {
   app.get("/.well-known/assetlinks.json", async (_req, res) => {
     try {
       res.setHeader("Content-Type", "application/json; charset=utf-8");
-      res.setHeader("Cache-Control", "public, max-age=300");
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
       const list = await getAssetLinksJsonList();
-      return res.status(200).json(list);
+      return res.status(200).send(JSON.stringify(list, null, 2));
     } catch {
       return res.status(200).json([]);
     }
@@ -3656,7 +3640,7 @@ async function startServer() {
       const first = list[0]?.target || {};
       return res.json({
         success: true,
-        packageName: first.package_name || "com.locohelp.twa",
+        packageName: first.package_name || "com.locohelp.app",
         sha256Fingerprint: Array.isArray(first.sha256_cert_fingerprints) ? first.sha256_cert_fingerprints.join(", ") : "",
         assetlinks: list
       });
@@ -15093,13 +15077,27 @@ Sitemap: https://locohelp.com/sitemap.xml
           "07:AD:CF:4F:96:AE:C3:86:0E:1F:20:31:89:AC:EC:D6:13:69:89:5E:03:D7:9E:F3:75:56:75:89:B4:F3:3B:BD"
         ]
       }
+    },
+    {
+      relation: [
+        "delegate_permission/common.handle_all_urls",
+        "delegate_permission/common.get_login_creds"
+      ],
+      target: {
+        namespace: "android_app",
+        package_name: "app.locohelp.twa",
+        sha256_cert_fingerprints: [
+          "19:D9:2E:34:C7:64:E5:65:96:79:46:54:22:78:5B:1F:26:A1:10:97:30:48:D7:A3:21:59:7C:E5:16:7F:E1:8E",
+          "07:AD:CF:4F:96:AE:C3:86:0E:1F:20:31:89:AC:EC:D6:13:69:89:5E:03:D7:9E:F3:75:56:75:89:B4:F3:3B:BD"
+        ]
+      }
     }
   ];
 
   app.get("/.well-known/assetlinks.json", (_req, res) => {
     res.setHeader("Content-Type", "application/json; charset=utf-8");
-    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-    return res.status(200).json(ASSETLINKS_JSON_PAYLOAD);
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    return res.status(200).send(JSON.stringify(ASSETLINKS_JSON_PAYLOAD, null, 2));
   });
 
   app.get("/manifest.json", (_req, res) => {

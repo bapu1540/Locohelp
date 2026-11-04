@@ -46,8 +46,10 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
 
-  // Never intercept API calls, Admin routes, Vite source/deps, or JS/TS/CSS module requests
+  // Never intercept Digital Asset Links (/.well-known/assetlinks.json), API calls, Admin routes, Vite source/deps, or JS/TS/CSS module requests
   if (
+    url.pathname.startsWith('/.well-known/') ||
+    url.pathname.includes('assetlinks.json') ||
     url.pathname.startsWith('/api/') ||
     url.pathname.startsWith('/bapu-admin') ||
     url.pathname.startsWith('/src/') ||
