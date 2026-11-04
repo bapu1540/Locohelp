@@ -324,16 +324,7 @@ export async function fetchLiveIntents(): Promise<Intent[]> {
 export async function broadcastIntentToServer(intent: Intent): Promise<Intent> {
   const cleanIntent = sanitizePayload(intent);
 
-  // Always save locally first so user never loses their post
   try {
-    const stored = localStorage.getItem('locohelp_custom_intents');
-    const existing: Intent[] = stored ? JSON.parse(stored) : [];
-    localStorage.setItem('locohelp_custom_intents', JSON.stringify([cleanIntent, ...existing.filter(i => i.id !== cleanIntent.id).slice(0, 50)]));
-
-    const cachedRaw = localStorage.getItem('locohelp_cached_intents');
-    const existingCached: Intent[] = cachedRaw ? JSON.parse(cachedRaw) : [];
-    localStorage.setItem('locohelp_cached_intents', JSON.stringify([cleanIntent, ...existingCached.filter(i => i.id !== cleanIntent.id).slice(0, 50)]));
-
     // Ensure any previous deleted-description entry with the same text does not hide this new post
     const descRaw = localStorage.getItem('locohelp_deleted_descs');
     if (descRaw && cleanIntent.description) {

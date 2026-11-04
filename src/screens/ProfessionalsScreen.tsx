@@ -4,6 +4,7 @@ import { motion } from 'motion/react';
 import { useLanguage } from '../i18n';
 import { getFreeHelperProfiles, FreeHelperProfile, CATEGORIES, getCategoryName } from '../data/categories';
 import { getHelpers } from '../auth';
+import { getAuthenticRatingInfo, isEntityAdminVerified } from '../modules/verification';
 
 interface ProfessionalsScreenProps {
   onBack: () => void;
@@ -80,6 +81,8 @@ export default function ProfessionalsScreen({ onBack, onHire }: ProfessionalsScr
             filtered.map((pro, index) => {
               const cat = CATEGORIES.find(c => c.id === pro.categoryId);
               const catLabel = pro.categoryId === 'other' && pro.customCategoryName ? pro.customCategoryName : (cat ? getCategoryName(cat, language) : pro.categoryId);
+              const ratingInfo = getAuthenticRatingInfo(pro as any, language);
+              const isVerified = isEntityAdminVerified(pro);
               return (
                 <motion.div 
                   initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.05 }}
@@ -93,7 +96,7 @@ export default function ProfessionalsScreen({ onBack, onHire }: ProfessionalsScr
                       </div>
                       <div>
                         <h3 className="font-extrabold text-slate-900 dark:text-white flex items-center gap-1">
-                          {pro.name} <BadgeCheck className="w-3.5 h-3.5 text-emerald-500" />
+                          {pro.name} {isVerified && <BadgeCheck className="w-3.5 h-3.5 text-emerald-500" />}
                         </h3>
                         <p className="text-xs font-bold text-slate-500 dark:text-slate-400">{catLabel}</p>
                       </div>
@@ -102,9 +105,9 @@ export default function ProfessionalsScreen({ onBack, onHire }: ProfessionalsScr
 
                   <div className="flex items-center gap-4 mb-4 mt-4">
                     <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-slate-300">
-                      <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
-                      <span>{pro.rating}</span>
-                      <span className="text-slate-400">({pro.completedTasks})</span>
+                      <Star className={`w-4 h-4 ${ratingInfo.hasReviews ? 'fill-amber-400 text-amber-400' : 'text-amber-400'}`} />
+                      <span>{ratingInfo.ratingText}</span>
+                      <span className="text-slate-400">({ratingInfo.reviewCount})</span>
                     </div>
                     <div className="w-px h-4 bg-slate-200 dark:bg-slate-700"></div>
                     <div className="flex items-center gap-1 text-xs font-bold text-slate-500 dark:text-slate-400">

@@ -29,6 +29,7 @@ import RedWarningTicker from '../components/RedWarningTicker';
 import PublicSuggestionsBanner from '../components/PublicSuggestionsBanner';
 import HomeCategoryGrid from '../components/HomeCategoryGrid';
 import HomeBelowCategorySection from '../components/HomeBelowCategorySection';
+import { filterAndSortLiveBroadcastPosts } from '../modules/posts';
 
 interface HomeScreenProps {
   onNavigate: (screen: Screen) => void;
@@ -510,6 +511,13 @@ export default function HomeScreen({
       return;
     }
 
+    // Open the requested action immediately in 0ms unless explicitly restricted
+    const cachedSt = String(localStorage.getItem('locohelp_account_status') || '').toLowerCase();
+    if (cachedSt !== 'rejected' && cachedSt !== 'deleted') {
+      onApproved();
+    }
+
+    // Refresh approval status silently in the background
     try {
       const res = await fetch(
         `/api/users/approval-status?uid=${encodeURIComponent(uid)}&email=${encodeURIComponent(email)}&phone=${encodeURIComponent(phone)}&_t=${Date.now()}`,
@@ -518,34 +526,18 @@ export default function HomeScreen({
       if (res.ok) {
         const data = await res.json();
         const st = String(data?.status || 'pending').toLowerCase();
-        if (st === 'deleted' || st === 'not_found' || st === 'guest') {
+        if (st === 'deleted') {
           await logoutUser();
           setIsPendingApprovalModalOpen(false);
-          setLoginPromptTitle({
-            en: 'Sign In Required',
-            hi: 'लॉगिन आवश्यक है',
-            gu: 'લોગિન જરૂરી છે'
-          });
-          setLoginPromptDesc({
-            en: 'Please sign in with your Mobile Number or Email OTP to continue.',
-            hi: 'आगे बढ़ने के लिए कृपया अपने मोबाइल नंबर या ईमेल OTP से लॉगिन करें।',
-            gu: 'આગળ વધવા માટે કૃપા કરીને તમારા મોબાઇલ નંબર અથવા ઈમેલ OTP થી લોગિન કરો.'
-          });
-          setLoginSuccessAction(() => () => {
-            void verifyUserApprovalBeforeAction(onApproved);
-          });
-          setIsLoginPromptOpen(true);
           return;
         }
         localStorage.setItem('locohelp_account_approved', data?.isApproved ? 'true' : 'false');
         localStorage.setItem('locohelp_account_status', st);
-        if (data?.isApproved) {
+        if (cachedSt === 'rejected' && st !== 'rejected') {
           onApproved();
-          return;
         }
       }
     } catch {}
-    setIsPendingApprovalModalOpen(true);
   };
 
   const handleSafeOpenChat = (intent?: any) => {
@@ -561,12 +553,12 @@ export default function HomeScreen({
         gu: 'સ્થાનિક સર્વિસ એક્સપર્ટ્સ અને પાડોશીઓ સાથે વાત કરવા માટે ઈમેલ OTP અથવા પાસવર્ડથી લોગિન કરો!'
       });
       setLoginSuccessAction(() => () => {
-        void verifyUserApprovalBeforeAction(() => setChatModalIntent(intent || null));
+        setChatModalIntent(intent || null);
       });
       setIsLoginPromptOpen(true);
       return;
     }
-    void verifyUserApprovalBeforeAction(() => setChatModalIntent(intent || null));
+    setChatModalIntent(intent || null);
   };
 
   const handleSafeOpenPostSheet = () => {
@@ -900,74 +892,14 @@ export default function HomeScreen({
     }
   }, [intents.length, newlyCreatedId]);
 
-  const zoneFilteredIntents = baseCategoryIntents.filter(item => {
-    if (!activeHeaderDistrict || activeHeaderDistrict === 'all') return true;
-    // Always show posts created by the current logged-in user so their own post never disappears
-    if (
-      item.id === newlyCreatedId ||
-      myPostIdsList.includes(item.id) ||
-      (activeUser?.uid && item.authorId === activeUser.uid) ||
-      (activeUser?.email &&
-        (item as any).authorEmail &&
-        String((item as any).authorEmail).toLowerCase() === String(activeUser.email).toLowerCase())
-    ) {
-      return true;
-    }
-    const cityLower = (item.resolvedCity || '').trim().toLowerCase();
-    const areaLower = (item.resolvedArea || '').trim().toLowerCase();
-    const locLower = (item.location || '').trim().toLowerCase();
-    return (
-      cityLower === activeHeaderDistrict ||
-      cityLower.includes(activeHeaderDistrict) ||
-      activeHeaderDistrict.includes(cityLower) ||
-      locLower.includes(activeHeaderDistrict) ||
-      areaLower.includes(activeHeaderDistrict)
-    );
+  const displayIntents = filterAndSortLiveBroadcastPosts({
+    baseCategoryIntents,
+    activeHeaderDistrict,
+    userArea: userLocation.area,
+    newlyCreatedId,
+    myPostIdsList,
+    activeUser
   });
-
-  const displayIntents = zoneFilteredIntents
-    .slice()
-    .sort((a, b) => {
-      // Pin newly created post at the very top immediately
-      if (a.id === newlyCreatedId && b.id !== newlyCreatedId) return -1;
-      if (b.id === newlyCreatedId && a.id !== newlyCreatedId) return 1;
-
-      const aCity = (a.resolvedCity || '').toLowerCase();
-      const bCity = (b.resolvedCity || '').toLowerCase();
-      const aArea = (a.resolvedArea || '').toLowerCase();
-      const bArea = (b.resolvedArea || '').toLowerCase();
-      const prefArea = (userLocation.area || '').trim().toLowerCase();
-
-      // 1. Exact District match prioritized first, followed by Connected Twin-City / Neighboring District
-      const getDistrictRank = (cityStr: string) => {
-        if (!cityStr) return 3;
-        if (cityStr === activeHeaderDistrict || cityStr.includes(activeHeaderDistrict) || activeHeaderDistrict.includes(cityStr)) {
-          return 0;
-        }
-        if (connectedDistricts.some(d => cityStr.includes(d) || d.includes(cityStr))) {
-          return 1;
-        }
-        return 2;
-      };
-
-      const aRank = getDistrictRank(aCity);
-      const bRank = getDistrictRank(bCity);
-      if (aRank !== bRank) return aRank - bRank;
-
-      // 2. If user also saved a local area, prioritize posts matching that local area within the district
-      if (prefArea) {
-        const aAreaMatch = aArea.includes(prefArea) ? 0 : 1;
-        const bAreaMatch = bArea.includes(prefArea) ? 0 : 1;
-        if (aAreaMatch !== bAreaMatch) return aAreaMatch - bAreaMatch;
-      }
-
-      // 3. Newest posts first (strictly chronological so new posts appear immediately at the top)
-      const aTime = new Date(a.createdAt || (a as any).created_at || 0).getTime();
-      const bTime = new Date(b.createdAt || (b as any).created_at || 0).getTime();
-      if (bTime !== aTime) return bTime - aTime;
-
-      return a.computedKm - b.computedKm;
-    });
 
   // Real-time filtered feed for home screen broadcast list
   const searchedIntents = homeSearchQuery.trim()
@@ -1377,11 +1309,11 @@ export default function HomeScreen({
       }
     } catch (e) {}
 
-    // 2. Initial fetch + 4-second polling fallback
+    // 2. Initial fetch + 2.5-second fast polling fallback
     syncServerBroadcasts();
     const pollInterval = setInterval(() => {
       syncServerBroadcasts();
-    }, 4000);
+    }, 2500);
 
     // 3. Real-Time Server-Sent Events (SSE) stream for 0ms instant post, delete & response updates without refreshing
     const unsubRealtime = subscribeToRealtimeStream({
@@ -2500,7 +2432,20 @@ export default function HomeScreen({
                                     localStorage.setItem(`locohelp_seen_responses_${intent.id}`, String(totalResponsesCount));
                                     setSeenResponsesTick(prev => prev + 1);
                                   } catch {}
-                                  handleSafeOpenChat(intent);
+                                  const firstRep = repliersArr[0] || responsesArr[0];
+                                  const repId = firstRep?.helperId || firstRep?.senderId || firstRep?.sender_id || undefined;
+                                  const repName = firstRep?.helperName || firstRep?.senderName || firstRep?.sender_name || undefined;
+                                  const repEmail = firstRep?.helperEmail || firstRep?.senderEmail || firstRep?.sender_email || undefined;
+                                  const repAvatar = firstRep?.helperAvatar || firstRep?.senderAvatar || firstRep?.sender_avatar || undefined;
+                                  handleSafeOpenChat({
+                                    ...intent,
+                                    isViewerPostOwner: true,
+                                    helperId: repId,
+                                    selectedReplierId: repId,
+                                    selectedReplierName: repName,
+                                    selectedReplierEmail: repEmail,
+                                    selectedReplierAvatar: repAvatar
+                                  });
                                 }}
                                 className="h-9 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black flex-1 flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer active:scale-95 truncate"
                                 title={language === 'EN' ? 'Open Chat' : language === 'GU' ? 'ચેટ ખોલો' : 'चैट खोलें'}
@@ -2576,8 +2521,9 @@ export default function HomeScreen({
                                 onClick={() =>
                                   setSelectedUserForProfile({
                                     name: intent.authorName || 'Community Member',
-                                    distance: (intent as any).computedKm || intent.distance || 0.5
-                                  })
+                                    distance: (intent as any).computedKm || intent.distance || 0.5,
+                                    isVerified: Boolean((intent as any).isVerifiedUser === true || (intent as any).isVerified === true),
+                                  } as any)
                                 }
                                 className="h-9 px-1 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-[10px] sm:text-[11px] font-black flex items-center justify-center gap-1 transition-all cursor-pointer active:scale-95 truncate"
                                 title={t('home.viewProfile')}
@@ -2715,6 +2661,7 @@ export default function HomeScreen({
           onClose={() => setSelectedUserForProfile(null)}
           userName={selectedUserForProfile.name}
           distance={selectedUserForProfile.distance}
+          isVerified={Boolean((selectedUserForProfile as any).isVerified)}
         />
       )}
 

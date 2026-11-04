@@ -170,7 +170,23 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
     try {
       const now = new Date();
       const profile = getUserProfile();
-      const activeUid = profile.uid || 'user_' + Math.random().toString(36).substring(2, 8);
+      const activeUserObj = getCurrentUser();
+      const activeUid =
+        (activeUserObj?.uid && activeUserObj.uid !== 'guest_user' ? activeUserObj.uid : '') ||
+        profile.uid ||
+        'user_' + Math.random().toString(36).substring(2, 8);
+      const resolvedEmail =
+        (activeUserObj?.email || profile.email || localStorage.getItem('locohelp_last_logged_in_email') || '')
+          .trim()
+          .toLowerCase();
+      const resolvedPhone =
+        (
+          activeUserObj?.phone ||
+          (profile as any).phone ||
+          localStorage.getItem('locohelp_last_logged_in_phone') ||
+          localStorage.getItem('locohelp_profile_phone') ||
+          ''
+        ).trim();
       const intentId = 'intent_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
 
       const finalState = sanitizeText((selectedState || 'Gujarat').trim(), 100);
@@ -196,8 +212,9 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
         category: selectedCategoryId || undefined,
         tags: finalTags.length > 0 ? finalTags.map(t => sanitizeText(t, 40)) : ['#General'],
         authorId: activeUid,
-        authorName: sanitizeText(profile.displayName || 'Community Member', 100),
-        authorEmail: profile.email || getCurrentUser()?.email || undefined,
+        authorName: sanitizeText(profile.displayName || activeUserObj?.displayName || 'Community Member', 100),
+        authorEmail: resolvedEmail || undefined,
+        authorPhone: resolvedPhone || undefined,
         state: finalState,
         city: finalCity,
         area: finalArea,
@@ -216,20 +233,7 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
         repliers: []
       } as any;
 
-      try {
-        const myIds = JSON.parse(localStorage.getItem('locohelp_my_post_ids') || '[]');
-        if (!myIds.includes(newIntent.id)) {
-          myIds.push(newIntent.id);
-          localStorage.setItem('locohelp_my_post_ids', JSON.stringify(myIds));
-        }
-      } catch (e) {}
-
-      // 1. Optimistically prepend to creator's feed state right away (0ms delay)
-      if (onPostCreated) {
-        onPostCreated(newIntent);
-      }
-
-      // 2. Sync to central Express backend & PostgreSQL
+      // 1. Sync to central Express backend & PostgreSQL first so all phones receive the post
       const serverResp: any = await broadcastIntentToServer(newIntent);
       if (serverResp && serverResp.error) {
         if (serverResp.cooldownRemaining) {
@@ -241,22 +245,40 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
         return;
       }
 
-      // 3. Record cooldown & reconcile server response
+      const finalSavedPost: Intent = {
+        ...newIntent,
+        ...(serverResp && serverResp.id ? serverResp : {}),
+        responseCount: serverResp?.responseCount ?? serverResp?.response_count ?? 0,
+        response_count: serverResp?.response_count ?? serverResp?.responseCount ?? 0
+      };
+
+      try {
+        const myIds = JSON.parse(localStorage.getItem('locohelp_my_post_ids') || '[]');
+        if (!myIds.includes(finalSavedPost.id)) {
+          myIds.push(finalSavedPost.id);
+          localStorage.setItem('locohelp_my_post_ids', JSON.stringify(myIds));
+        }
+      } catch (e) {}
+
+      // 2. Record cooldown & update feed across all phones
       recordPostCreatedTimestamp();
       setCooldownRemaining(30);
 
-      if (serverResp && serverResp.id && onPostCreated) {
-        onPostCreated({
-          ...newIntent,
-          ...serverResp,
-          responseCount: serverResp.responseCount ?? serverResp.response_count ?? 0,
-          response_count: serverResp.response_count ?? serverResp.responseCount ?? 0
-        });
+      if (onPostCreated) {
+        onPostCreated(finalSavedPost);
       }
 
       onClose();
-    } catch (err) {
-      console.error("Broadcast post failed:", err);
+    } catch (err: any) {
+      console.warn("Broadcast post notice:", err);
+      setPostError(
+        err?.message ||
+          (language === 'GU'
+            ? 'પોસ્ટ અપલોડ કરવામાં ભૂલ આવી. કૃપા કરીને ફરી પ્રયાસ કરો.'
+            : language === 'HI'
+            ? 'पोस्ट अपलोड करने में समस्या आई। कृपया पुनः प्रयास करें।'
+            : 'Failed to broadcast post. Please try again.')
+      );
     } finally {
       setIsPosting(false);
       isSubmittingRef.current = false;

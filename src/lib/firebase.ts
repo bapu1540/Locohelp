@@ -620,6 +620,28 @@ export async function sendFirebasePhoneOtp(
 
   try {
     const authInstance = await getFirebaseAuthInstance();
+    const activeApiKey = String(authInstance?.app?.options?.apiKey || '');
+    const currentHost = typeof window !== 'undefined' ? window.location.hostname : '';
+
+    // When Firebase client credentials are not configured (dummy fallback key) or running inside AI Studio preview (*.run.app),
+    // skip browser-side reCAPTCHA/Firebase network call and gracefully use the server 6-digit OTP fallback.
+    if (
+      !activeApiKey ||
+      activeApiKey === 'AIzaSyDummyKeyForLocoHelpAuthInit2026' ||
+      currentHost.endsWith('.run.app')
+    ) {
+      return {
+        success: false,
+        phoneE164: norm.e164,
+        tenDigits: norm.tenDigits,
+        error: trFirebase(
+          'Using instant server OTP verification.',
+          'सर्वर OTP सत्यापन का उपयोग किया जा रहा है।',
+          'સર્વર OTP ચકાસણીનો ઉપયોગ કરવામાં આવી રહ્યો છે.'
+        )
+      };
+    }
+
     const currentLang = (localStorage.getItem('locohelp_language') || 'GU').toLowerCase();
     authInstance.languageCode = currentLang === 'gu' ? 'gu' : currentLang === 'hi' ? 'hi' : 'en';
 
@@ -649,7 +671,7 @@ export async function sendFirebasePhoneOtp(
       tenDigits: norm.tenDigits
     };
   } catch (err: any) {
-    console.error('[Firebase Phone Auth] send OTP error:', err);
+    console.warn('[Firebase Phone Auth] send OTP fallback notice:', err?.code || err?.message || err);
     clearRecaptchaVerifier(containerId);
 
     const code = String(err?.code || '');
@@ -756,7 +778,7 @@ export async function verifyFirebasePhoneOtpCode(otpCode: string): Promise<{
       firebaseUid: user.uid
     };
   } catch (err: any) {
-    console.error('[Firebase Phone Auth] verify OTP error:', err);
+    console.warn('[Firebase Phone Auth] verify OTP notice:', err?.code || err?.message || err);
     const code = String(err?.code || '');
     if (code === 'auth/invalid-verification-code') {
       return {

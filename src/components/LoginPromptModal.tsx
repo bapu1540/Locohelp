@@ -405,18 +405,26 @@ export default function LoginPromptModal({
           return;
         }
         setOtpSent(true);
-        setCooldown(res.cooldownRemaining || 60);
+        setCooldown(res.cooldownRemaining || 15);
         if (res.devCode) {
           setDevOtpHint(res.devCode);
           setOtpCode(res.devCode);
+          setSuccessMsg(
+            tr(
+              `6-digit OTP (${res.devCode}) auto-filled below! Tap Verify OTP to continue.`,
+              `आपका 6-अंकों का OTP (${res.devCode}) नीचे अपने-आप भर गया है! आगे बढ़ने के लिए वेरिफाई दबाएं।`,
+              `તમારો 6-અંકનો OTP (${res.devCode}) નીચે આપમેળે ભરાઈ ગયો છે! આગળ વધવા વેરિફાઈ દબાવો.`
+            )
+          );
+        } else {
+          setSuccessMsg(
+            tr(
+              '6-digit OTP sent to your Mobile Number! Enter it below.',
+              'आपके मोबाइल नंबर पर 6-अंकों का OTP भेजा गया है! नीचे दर्ज करें।',
+              'તમારા મોબાઇલ નંબર પર 6-અંકનો OTP મોકલવામાં આવ્યો છે! નીચે નાખો.'
+            )
+          );
         }
-        setSuccessMsg(
-          tr(
-            '6-digit OTP sent to your Mobile Number! Enter it below.',
-            'आपके मोबाइल नंबर पर 6-अंकों का OTP भेजा गया है! नीचे दर्ज करें।',
-            'તમારા મોબાઇલ નંબર પર 6-અંકનો OTP મોકલવામાં આવ્યો છે! નીચે નાખો.'
-          )
-        );
       }
     } catch {
       setIsSubmitting(false);
@@ -554,21 +562,42 @@ export default function LoginPromptModal({
   };
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/75 backdrop-blur-sm p-3 sm:p-4 overflow-y-auto">
-      <div className="relative w-full max-w-md rounded-3xl bg-white shadow-2xl border border-slate-200 overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-200">
+    <div
+      className="fixed inset-x-0 flex items-start sm:items-center justify-center bg-slate-950/75 backdrop-blur-sm p-3 sm:p-4 overflow-y-auto"
+      style={{
+        position: 'fixed',
+        top: '52px',
+        left: 0,
+        right: 0,
+        bottom: 'calc(62px + env(safe-area-inset-bottom, 0px))',
+        zIndex: 10500,
+        backgroundColor: 'rgba(2, 6, 23, 0.78)',
+        WebkitOverflowScrolling: 'touch',
+      }}
+    >
+      <div
+        className="relative w-full max-w-md rounded-3xl bg-white shadow-2xl border border-slate-200 overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-200"
+        style={{ backgroundColor: '#ffffff', zIndex: 10501 }}
+      >
         {/* Clean Solid Header */}
-        <div className="bg-teal-700 px-5 py-4 text-white flex items-center justify-between">
+        <div
+          className="bg-teal-700 px-5 py-4 text-white flex items-center justify-between"
+          style={{ backgroundColor: '#0f766e', color: '#ffffff' }}
+        >
           <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-2xl bg-white/15 flex items-center justify-center border border-white/25">
-              <ShieldCheck size={22} className="text-white" />
+            <div
+              className="w-10 h-10 rounded-2xl bg-white/15 flex items-center justify-center border border-white/25"
+              style={{ backgroundColor: 'rgba(255, 255, 255, 0.15)', borderColor: 'rgba(255, 255, 255, 0.25)' }}
+            >
+              <ShieldCheck size={22} className="text-white" style={{ color: '#ffffff' }} />
             </div>
             <div>
-              <h2 className="text-base sm:text-lg font-black tracking-tight leading-tight">
+              <h2 className="text-base sm:text-lg font-black tracking-tight leading-tight" style={{ color: '#ffffff' }}>
                 {checkedUser.checked && checkedUser.exists
                   ? tr('Welcome Back!', 'वापसी पर स्वागत है!', 'ફરી સ્વાગત છે!')
                   : tr('LocoHelp Login / Join', 'लॉगिन / नया अकाउंट', 'લોગિન / નવું એકાઉન્ટ')}
               </h2>
-              <p className="text-[11px] text-teal-100 font-semibold">
+              <p className="text-[11px] text-teal-100 font-semibold" style={{ color: '#ccfbf1' }}>
                 {tr(
                   'Mobile or Email • Safe OTP Verification',
                   'मोबाइल या ईमेल • सुरक्षित OTP वेरिफिकेशन',
@@ -580,31 +609,37 @@ export default function LoginPromptModal({
 
           <div className="flex items-center gap-1.5">
             {/* Compact Language Switcher */}
-            <div className="flex items-center bg-teal-900/60 rounded-xl p-0.5 border border-white/15 text-[10px] font-extrabold">
+            <div
+              className="flex items-center bg-teal-900/60 rounded-xl p-0.5 border border-white/15 text-[10px] font-extrabold"
+              style={{ backgroundColor: 'rgba(19, 78, 74, 0.6)', borderColor: 'rgba(255, 255, 255, 0.2)' }}
+            >
               <button
                 type="button"
                 onClick={() => setLanguage('GU')}
-                className={`px-2 py-1 rounded-lg transition-all ${
+                className={`px-2 py-1 rounded-lg transition-all cursor-pointer ${
                   language === 'GU' ? 'bg-white text-teal-900 shadow-xs' : 'text-teal-100'
                 }`}
+                style={language === 'GU' ? { backgroundColor: '#ffffff', color: '#134e4a' } : { color: '#ccfbf1' }}
               >
                 ગુજ
               </button>
               <button
                 type="button"
                 onClick={() => setLanguage('HI')}
-                className={`px-2 py-1 rounded-lg transition-all ${
+                className={`px-2 py-1 rounded-lg transition-all cursor-pointer ${
                   language === 'HI' ? 'bg-white text-teal-900 shadow-xs' : 'text-teal-100'
                 }`}
+                style={language === 'HI' ? { backgroundColor: '#ffffff', color: '#134e4a' } : { color: '#ccfbf1' }}
               >
                 हिंदी
               </button>
               <button
                 type="button"
                 onClick={() => setLanguage('EN')}
-                className={`px-2 py-1 rounded-lg transition-all ${
+                className={`px-2 py-1 rounded-lg transition-all cursor-pointer ${
                   language === 'EN' ? 'bg-white text-teal-900 shadow-xs' : 'text-teal-100'
                 }`}
+                style={language === 'EN' ? { backgroundColor: '#ffffff', color: '#134e4a' } : { color: '#ccfbf1' }}
               >
                 ENG
               </button>
@@ -619,7 +654,8 @@ export default function LoginPromptModal({
                   onClose();
                 }
               }}
-              className="w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors"
+              className="w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors cursor-pointer"
+              style={{ backgroundColor: 'rgba(255, 255, 255, 0.15)', color: '#ffffff' }}
               aria-label="Close"
             >
               <X size={18} />
@@ -722,14 +758,19 @@ export default function LoginPromptModal({
                 )}
               </label>
               <div className="relative flex items-center">
-                <div className="absolute left-3.5 flex items-center gap-1 text-slate-500 font-bold text-xs pointer-events-none">
+                <div
+                  className="absolute left-3.5 flex items-center gap-1 text-slate-500 font-bold text-xs pointer-events-none"
+                  style={{ left: '14px' }}
+                >
                   {isEmailInput ? (
-                    <Mail size={15} className="text-teal-600" />
-                  ) : (
+                    <Mail size={15} className="text-teal-600 shrink-0" />
+                  ) : cleanDigits.length > 0 ? (
                     <>
-                      <Phone size={15} className="text-teal-600" />
+                      <Phone size={15} className="text-teal-600 shrink-0" />
                       <span>+91</span>
                     </>
+                  ) : (
+                    <Phone size={15} className="text-teal-600 shrink-0" />
                   )}
                 </div>
                 <input
@@ -751,9 +792,11 @@ export default function LoginPromptModal({
                     '10 अंकों का मोबाइल नंबर या ईमेल आईडी लिखें',
                     '10 અંકનો મોબાઇલ નંબર અથવા ઈમેલ આઈડી લખો'
                   )}
-                  className={`w-full ${
-                    isEmailInput ? 'pl-10' : 'pl-16'
-                  } pr-10 py-3 rounded-2xl border-2 border-slate-200 focus:border-teal-600 focus:outline-none text-sm font-black text-slate-900 tracking-wide disabled:bg-slate-100`}
+                  className="w-full py-3 rounded-2xl border-2 border-slate-200 focus:border-teal-600 focus:outline-none text-sm font-black text-slate-900 tracking-wide disabled:bg-slate-100"
+                  style={{
+                    paddingLeft: !isEmailInput && cleanDigits.length > 0 ? '64px' : '40px',
+                    paddingRight: '38px',
+                  }}
                   autoFocus
                 />
                 {isCheckingUser && (
@@ -826,7 +869,7 @@ export default function LoginPromptModal({
                     )}
                   </label>
                   <div className="relative flex items-center">
-                    <Lock size={15} className="absolute left-3.5 text-teal-600" />
+                    <Lock size={15} className="absolute left-3.5 text-teal-600 pointer-events-none" style={{ left: '14px' }} />
                     <input
                       type={showPassword ? 'text' : 'password'}
                       value={pinOrPassword}
@@ -836,7 +879,8 @@ export default function LoginPromptModal({
                         '4-अंकों का PIN या पासवर्ड लिखें',
                         '4-અંકનો PIN અથવા પાસવર્ડ લખો'
                       )}
-                      className="w-full pl-10 pr-10 py-3 rounded-2xl border-2 border-teal-500 focus:border-teal-700 focus:outline-none text-sm font-black text-slate-900 tracking-wider"
+                      className="w-full py-3 rounded-2xl border-2 border-teal-500 focus:border-teal-700 focus:outline-none text-sm font-black text-slate-900 tracking-wider"
+                      style={{ paddingLeft: '40px', paddingRight: '40px' }}
                       autoFocus
                     />
                     <button
@@ -914,7 +958,7 @@ export default function LoginPromptModal({
                     </button>
                   </div>
                   <div className="relative flex items-center">
-                    <Lock size={15} className="absolute left-3.5 text-teal-600" />
+                    <Lock size={15} className="absolute left-3.5 text-teal-600 pointer-events-none" style={{ left: '14px' }} />
                     <input
                       type={showPassword ? 'text' : 'password'}
                       value={pinOrPassword}
@@ -924,7 +968,8 @@ export default function LoginPromptModal({
                         'अपना 4-अंकों का PIN या पासवर्ड लिखें',
                         'તમારો 4-અંકનો PIN અથવા પાસવર્ડ લખો'
                       )}
-                      className="w-full pl-10 pr-10 py-3 rounded-2xl border-2 border-slate-200 focus:border-teal-600 focus:outline-none text-sm font-black text-slate-900 tracking-wider"
+                      className="w-full py-3 rounded-2xl border-2 border-slate-200 focus:border-teal-600 focus:outline-none text-sm font-black text-slate-900 tracking-wider"
+                      style={{ paddingLeft: '40px', paddingRight: '40px' }}
                     />
                     <button
                       type="button"
@@ -958,7 +1003,7 @@ export default function LoginPromptModal({
                       {tr('Your Full Name', 'आपका पूरा नाम', 'તમારું પૂરું નામ')}
                     </label>
                     <div className="relative flex items-center">
-                      <UserIcon size={15} className="absolute left-3.5 text-slate-400" />
+                      <UserIcon size={15} className="absolute left-3.5 text-slate-400 pointer-events-none" style={{ left: '14px' }} />
                       <input
                         type="text"
                         value={name}
@@ -968,7 +1013,8 @@ export default function LoginPromptModal({
                           'अपना पूरा नाम लिखें',
                           'તમારું પૂરું નામ લખો'
                         )}
-                        className="w-full pl-10 pr-4 py-2.5 rounded-2xl border-2 border-slate-200 focus:border-teal-600 focus:outline-none text-sm font-bold text-slate-900"
+                        className="w-full py-2.5 rounded-2xl border-2 border-slate-200 focus:border-teal-600 focus:outline-none text-sm font-bold text-slate-900"
+                        style={{ paddingLeft: '40px', paddingRight: '16px' }}
                       />
                     </div>
                   </div>

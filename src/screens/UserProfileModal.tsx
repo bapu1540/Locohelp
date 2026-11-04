@@ -1,7 +1,8 @@
 import React from 'react';
-import { X, CheckCircle2, ShieldCheck, Phone, MapPin, Star, Award, UserCheck, MessageSquare } from 'lucide-react';
+import { X, CheckCircle2, ShieldCheck, MapPin, Star, UserCheck, MessageSquare, Clock } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useLanguage } from '../i18n';
+import { getAuthenticRatingInfo } from '../modules/verification';
 
 interface UserProfileModalProps {
   isOpen: boolean;
@@ -9,6 +10,9 @@ interface UserProfileModalProps {
   userName?: string;
   distance?: number;
   location?: string;
+  isVerified?: boolean;
+  rating?: number;
+  reviewCount?: number;
   onRequestSent?: () => void;
 }
 
@@ -18,18 +22,28 @@ export default function UserProfileModal({
   userName = (() => {
     try {
       return localStorage.getItem('locohelp_profile_name') || 'Community Peer';
-    } catch(e) {
+    } catch (e) {
       return 'Community Peer';
     }
   })(),
   distance = 0.5,
   location,
+  isVerified = false,
+  rating = 0,
+  reviewCount = 0,
 }: UserProfileModalProps) {
-  const { t, tr } = useLanguage();
+  const { language, tr } = useLanguage();
 
-  const cleanLocation = location 
-    ? location.replace(/^,\s*|,\s*$|,+/g, ',').replace(/,\s*,/g, ',').replace(/^,\s*/, '').replace(/,\s*$/, '').trim() 
+  const cleanLocation = location
+    ? location
+        .replace(/^,\s*|,\s*$|,+/g, ',')
+        .replace(/,\s*,/g, ',')
+        .replace(/^,\s*/, '')
+        .replace(/,\s*$/, '')
+        .trim()
     : undefined;
+
+  const ratingInfo = getAuthenticRatingInfo({ rating, reviewCount }, language);
 
   if (!isOpen) return null;
 
@@ -60,7 +74,7 @@ export default function UserProfileModal({
           </button>
         </div>
 
-        {/* Modal Body - Fully Unlocked & Direct */}
+        {/* Modal Body */}
         <div className="p-5 overflow-y-auto max-h-[75vh] space-y-4">
           <div className="flex items-center gap-3.5 pb-2">
             <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-indigo-500 to-purple-600 text-white flex items-center justify-center text-xl font-black shadow-md shrink-0">
@@ -71,43 +85,82 @@ export default function UserProfileModal({
                 <h4 className="font-extrabold text-base text-slate-900 dark:text-white truncate">
                   {userName}
                 </h4>
-                <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                {isVerified && <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />}
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1 mt-0.5">
                 <MapPin className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                <span>{cleanLocation ? cleanLocation : `${distance} km • Verified Community Peer`}</span>
+                <span>
+                  {cleanLocation
+                    ? cleanLocation
+                    : `${distance} km • ${
+                        isVerified
+                          ? tr('Verified Community Peer', 'वेरिफाइड मेंबर', 'વેરિફાઈડ મેમ્બર')
+                          : tr('Community Member', 'लोकल मेंबर', 'લોકલ મેમ્બર')
+                      }`}
+                </span>
               </p>
             </div>
           </div>
 
-          {/* Detailed Verified Community Info Cards */}
+          {/* Detailed Community Info Cards */}
           <div className="bg-slate-50 dark:bg-slate-800/60 rounded-2xl p-4 border border-slate-200 dark:border-slate-700 space-y-3">
             <div className="flex justify-between items-center text-xs">
-              <span className="text-slate-500 font-medium">Direct Connection:</span>
+              <span className="text-slate-500 font-medium">
+                {tr('Direct Connection:', 'सीधा संपर्क:', 'સીધો સંપર્ક:')}
+              </span>
               <span className="text-indigo-600 dark:text-indigo-400 font-extrabold">
-                Active via LocoHelp Chat
+                {tr('Active via LocoHelp Chat', 'लोकोहेल्प चैट पर सक्रिय', 'LocoHelp ચેટ પર સક્રિય')}
               </span>
             </div>
             <div className="flex justify-between items-center text-xs">
-              <span className="text-slate-500 font-medium">Verification Status:</span>
-              <span className="text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1">
-                <CheckCircle2 className="w-3.5 h-3.5" /> Verified Account
+              <span className="text-slate-500 font-medium">
+                {tr('Verification Status:', 'वेरिफिकेशन स्थिति:', 'વેરિફિકેશન સ્થિતિ:')}
+              </span>
+              {isVerified ? (
+                <span className="text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5" />{' '}
+                  {tr('Verified by Admin', 'एडमिन द्वारा वेरिफाइड', 'એડમિન દ્વારા વેરિફાઈડ')}
+                </span>
+              ) : (
+                <span className="text-slate-600 dark:text-slate-300 font-bold flex items-center gap-1">
+                  <Clock className="w-3.5 h-3.5 text-amber-500" />{' '}
+                  {tr('Community Member', 'लोकल कम्युनिटी मेंबर', 'લોકલ કમ્યુનિટી મેમ્બર')}
+                </span>
+              )}
+            </div>
+            <div className="flex justify-between items-center text-xs">
+              <span className="text-slate-500 font-medium">
+                {tr('Safety & Audit:', 'सुरक्षा:', 'સુરક્ષા:')}
+              </span>
+              <span className="font-extrabold text-slate-800 dark:text-slate-200">
+                {tr('Protected by Security Vault', 'सिक्योरिटी वॉल्ट द्वारा सुरक्षित', 'સિક્યોરિટી વોલ્ટ દ્વારા સુરક્ષિત')}
               </span>
             </div>
             <div className="flex justify-between items-center text-xs">
-              <span className="text-slate-500 font-medium">Safety &amp; Audit:</span>
-              <span className="font-extrabold text-slate-800 dark:text-slate-200">Protected by Security Vault</span>
-            </div>
-            <div className="flex justify-between items-center text-xs">
-              <span className="text-slate-500 font-medium">Community Rating:</span>
-              <span className="font-extrabold text-amber-500 flex items-center gap-1">
-                <Star className="w-3.5 h-3.5 fill-amber-500" /> 5.0 / 5.0
+              <span className="text-slate-500 font-medium">
+                {tr('Customer Rating:', 'ग्राहक रेटिंग:', 'ગ્રાહક રેટિંગ:')}
               </span>
+              {ratingInfo.hasReviews ? (
+                <span className="font-extrabold text-amber-500 flex items-center gap-1">
+                  <Star className="w-3.5 h-3.5 fill-amber-500" /> {ratingInfo.ratingText} / 5.0 (
+                  {ratingInfo.reviewCount})
+                </span>
+              ) : (
+                <span className="font-extrabold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                  <Star className="w-3.5 h-3.5 text-amber-500" />{' '}
+                  {tr('New (0 Reviews)', 'नया (0 रिव्यू)', 'નવું (0 રિવ્યૂ)')}
+                </span>
+              )}
             </div>
           </div>
 
           <div className="p-3.5 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900 rounded-2xl text-xs text-indigo-900 dark:text-indigo-200 font-medium leading-relaxed">
-            💬 You are directly connected with this neighbor. Use the chat screen below for inquiries, scheduling, or coordination.
+            💬{' '}
+            {tr(
+              'You are directly connected with this neighbor. Use the chat screen below for inquiries, scheduling, or coordination.',
+              'आप इस लोकल मेंबर से सीधे जुड़े हैं। काम की बात या समय तय करने के लिए नीचे चैट का उपयोग करें।',
+              'તમે આ લોકલ મેમ્બર સાથે સીધા જોડાયેલા છો. કામની વાતચીત માટે નીચે ચેટનો ઉપયોગ કરો.'
+            )}
           </div>
 
           <button
@@ -115,7 +168,7 @@ export default function UserProfileModal({
             className="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-extrabold rounded-2xl text-xs flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/25 transition-all cursor-pointer"
           >
             <MessageSquare className="w-4 h-4" />
-            Back to Chat
+            {tr('Back to Chat', 'वापस जाएं', 'પાછા જાઓ')}
           </button>
         </div>
       </motion.div>

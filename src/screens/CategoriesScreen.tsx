@@ -100,6 +100,7 @@ import {
   getSavedUserLocation,
   UserManualLocation as UserLocationData,
 } from '../data/panIndiaLocations';
+import { getAuthenticRatingInfo, isEntityAdminVerified } from '../modules/verification';
 
 interface CategoriesScreenProps {
   onBack?: () => void;
@@ -1298,6 +1299,8 @@ export default function CategoriesScreen({
                   (c) => c.id === helper.categoryId
                 );
                 const isMine = isEntityOwner(helper, getCurrentUser());
+                const ratingInfo = getAuthenticRatingInfo(helper as any, language);
+                const isAdminVerified = isEntityAdminVerified(helper);
                 return (
                   <motion.div
                     key={helper.id}
@@ -1316,10 +1319,12 @@ export default function CategoriesScreen({
                               <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">
                                 {helper.name}
                               </h4>
-                              <span className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                                <CheckCircle2 className="w-3 h-3" />
-                                {tr('Verified', 'वेरिफाइड', 'વેરિફાઇડ')}
-                              </span>
+                              {isAdminVerified && (
+                                <span className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                                  <CheckCircle2 className="w-3 h-3" />
+                                  {tr('Verified', 'वेरिफाइड', 'વેરિફાઇડ')}
+                                </span>
+                              )}
                             </div>
                             <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                               <span className="font-semibold text-orange-600 dark:text-orange-400">
@@ -1345,10 +1350,10 @@ export default function CategoriesScreen({
                           title={tr('View & Add Customer Reviews', 'रेटिंग और रिव्यू देखें/दें', 'રેટિંગ અને રિવ્યુ જુઓ/આપો')}
                           className="flex items-center gap-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 px-2.5 py-1 rounded-lg text-xs font-extrabold shrink-0 cursor-pointer border border-amber-300/50"
                         >
-                          <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
-                          <span>{Number(helper.rating || 5.0).toFixed(1)}</span>
+                          <Star className={`w-3.5 h-3.5 ${ratingInfo.hasReviews ? 'fill-amber-500 text-amber-500' : 'text-amber-500'}`} />
+                          <span>{ratingInfo.ratingText}</span>
                           <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300">
-                            ({(helper as any).reviewCount || 0})
+                            ({ratingInfo.reviewCount})
                           </span>
                         </button>
                       </div>

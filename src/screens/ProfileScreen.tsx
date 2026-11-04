@@ -1072,7 +1072,13 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
   const isBusinessApproved = Boolean(myBusinessProfile && (myBusinessProfile.isVerified === true || myBusinessProfile.status === 'approved'));
 
   return (
-    <div className="flex flex-col min-h-full bg-[#F8FAFC] dark:bg-slate-900 relative transition-colors">
+    <div
+      className="flex flex-col h-full max-h-full min-h-0 bg-[#F8FAFC] dark:bg-slate-900 relative overflow-y-auto overflow-x-hidden overscroll-y-contain transition-colors"
+      style={{
+        WebkitOverflowScrolling: 'touch',
+        touchAction: 'pan-y',
+      }}
+    >
       
       {/* Top Header Navigation */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-800 sticky top-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl z-20 shadow-xs shrink-0">
@@ -1142,10 +1148,9 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
 
       {/* TAB CONTENT AREA */}
       <div
-        className="flex-1 px-3.5 pt-3.5 pb-40 space-y-4"
+        className="flex-1 px-3.5 pt-3.5 pb-44 space-y-4"
         style={{
-          paddingBottom: 'calc(110px + env(safe-area-inset-bottom, 0px))',
-          WebkitOverflowScrolling: 'touch',
+          paddingBottom: 'calc(130px + env(safe-area-inset-bottom, 0px))',
         }}
       >
 

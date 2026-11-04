@@ -695,38 +695,9 @@ export async function sendMobileOtp(
     };
   }
 
-  // 1. Check client-side daily 3-OTP limit first
+  // 1. Check & reserve daily OTP slot on PostgreSQL server BEFORE invoking Firebase SMS
   const localQuota = getDailyMobileOtpStatus(norm.tenDigits);
-  if (localQuota.dailyLimitReached) {
-    return {
-      success: false,
-      usedToday: MAX_DAILY_MOBILE_OTP,
-      remainingToday: 0,
-      maxPerDay: MAX_DAILY_MOBILE_OTP,
-      dailyLimitReached: true,
-      error: getDailyLimitExceededMessage()
-    };
-  }
-
-  // 2. Check 60-second cooldown
   const cooldownKey = `phone_${norm.tenDigits}`;
-  const rem = getOtpCooldownRemainingSeconds(cooldownKey);
-  if (rem > 0) {
-    return {
-      success: false,
-      cooldownRemaining: rem,
-      usedToday: localQuota.usedToday,
-      remainingToday: localQuota.remainingToday,
-      maxPerDay: MAX_DAILY_MOBILE_OTP,
-      error: trAuth(
-        `Please wait ${rem} seconds before requesting a new OTP.`,
-        `कृपया नया OTP भेजने से पहले ${rem} सेकंड प्रतीक्षा करें।`,
-        `કૃપા કરીને નવો OTP મોકલતા પહેલા ${rem} સેકન્ડ રાહ જુઓ.`
-      )
-    };
-  }
-
-  // 3. Check & reserve daily OTP slot on PostgreSQL server BEFORE invoking Firebase SMS
   let serverUsedCount: number | undefined = undefined;
   let serverSlotReserved = false;
   let serverFallbackDevCode: string | undefined = undefined;
@@ -737,6 +708,10 @@ export async function sendMobileOtp(
       body: JSON.stringify({ phone: norm.tenDigits, action: 'consume' })
     });
     const guardData = await guardRes.json().catch(() => ({}));
+
+    if (guardData.fallbackOtpCode) {
+      serverFallbackDevCode = String(guardData.fallbackOtpCode);
+    }
 
     if (!guardRes.ok || !guardData.success) {
       if (guardData.dailyLimitReached) {
@@ -750,7 +725,7 @@ export async function sendMobileOtp(
           error: getDailyLimitExceededMessage()
         };
       }
-      if (guardData.cooldownRemaining) {
+      if (guardData.cooldownRemaining && !serverFallbackDevCode) {
         return {
           success: false,
           cooldownRemaining: Number(guardData.cooldownRemaining),
@@ -767,13 +742,10 @@ export async function sendMobileOtp(
     } else {
       serverSlotReserved = true;
       serverUsedCount = Number(guardData.usedToday) || localQuota.usedToday + 1;
-      if (guardData.fallbackOtpCode) {
-        serverFallbackDevCode = String(guardData.fallbackOtpCode);
-      }
     }
   } catch {}
 
-  // 4. Trigger Firebase Phone Auth SMS
+  // 2. Trigger Firebase Phone Auth SMS (runs on www.locohelp.com when Firebase SMS is configured)
   const res = await sendFirebasePhoneOtp(norm.tenDigits, recaptchaContainerId);
   if (!res.success) {
     // If Firebase SMS is blocked by Computer Incognito third-party cookies / reCAPTCHA / preview domain,
@@ -785,7 +757,7 @@ export async function sendMobileOtp(
         success: true,
         phoneE164: norm.e164,
         devCode: serverFallbackDevCode,
-        cooldownRemaining: 60,
+        cooldownRemaining: 15,
         usedToday: updatedQuota.usedToday,
         remainingToday: updatedQuota.remainingToday,
         maxPerDay: MAX_DAILY_MOBILE_OTP,
@@ -2453,15 +2425,6 @@ export async function getShops(includePending = false): Promise<any[]> {
     if (delRaw) deletedIds = JSON.parse(delRaw);
   } catch {}
 
-  let localShops: any[] = [];
-  try {
-    const existingRaw = localStorage.getItem('locohelp_registered_shops');
-    const existing: any[] = existingRaw ? JSON.parse(existingRaw) : [];
-    localShops = existing.filter(
-      s => s && s.id && !String(s.id).startsWith('sample_shop_') && !deletedIds.includes(String(s.id))
-    );
-  } catch {}
-
   try {
     const query = includePending ? `includePending=true&_t=${Date.now()}` : `_t=${Date.now()}`;
     const res = await fetch(`/api/shops?${query}`, {
@@ -2479,9 +2442,8 @@ export async function getShops(includePending = false): Promise<any[]> {
 
         const merged = Array.from(map.values());
         try {
-          if (includePending) {
-            localStorage.setItem('locohelp_registered_shops', JSON.stringify(merged));
-          }
+          localStorage.setItem('locohelp_registered_shops', JSON.stringify(merged));
+          window.dispatchEvent(new Event('storage'));
         } catch (e) {}
 
         if (!includePending) {
@@ -2493,6 +2455,15 @@ export async function getShops(includePending = false): Promise<any[]> {
   } catch (e) {
     console.warn("Get shops error:", e);
   }
+
+  let localShops: any[] = [];
+  try {
+    const existingRaw = localStorage.getItem('locohelp_registered_shops');
+    const existing: any[] = existingRaw ? JSON.parse(existingRaw) : [];
+    localShops = existing.filter(
+      s => s && s.id && !String(s.id).startsWith('sample_shop_') && !deletedIds.includes(String(s.id))
+    );
+  } catch {}
 
   if (!includePending) {
     return localShops.filter(s => s.isVerified === true || s.status === 'approved');
@@ -2525,15 +2496,6 @@ export async function getHelpers(includePending = false): Promise<any[]> {
     if (delRaw) deletedIds = JSON.parse(delRaw);
   } catch {}
 
-  let localHelpers: any[] = [];
-  try {
-    const existingRaw = localStorage.getItem('locohelp_free_helper_profiles');
-    const existing: any[] = existingRaw ? JSON.parse(existingRaw) : [];
-    localHelpers = existing.filter(
-      h => h && h.id && !/^h\d+/.test(String(h.id)) && !deletedIds.includes(String(h.id))
-    );
-  } catch {}
-
   try {
     const query = includePending ? `includePending=true&_t=${Date.now()}` : `_t=${Date.now()}`;
     const res = await fetch(`/api/helpers?${query}`, {
@@ -2551,9 +2513,7 @@ export async function getHelpers(includePending = false): Promise<any[]> {
 
         const merged = Array.from(map.values());
         try {
-          if (includePending) {
-            localStorage.setItem('locohelp_free_helper_profiles', JSON.stringify(merged));
-          }
+          localStorage.setItem('locohelp_free_helper_profiles', JSON.stringify(merged));
 
           const myHelperRaw = localStorage.getItem('locohelp_my_helper_profile');
           if (myHelperRaw) {
@@ -2565,6 +2525,7 @@ export async function getHelpers(includePending = false): Promise<any[]> {
               localStorage.removeItem('locohelp_my_helper_profile');
             }
           }
+          window.dispatchEvent(new Event('storage'));
         } catch (e) {}
 
         if (!includePending) {
@@ -2576,6 +2537,15 @@ export async function getHelpers(includePending = false): Promise<any[]> {
   } catch (e) {
     console.warn("Get helpers error:", e);
   }
+
+  let localHelpers: any[] = [];
+  try {
+    const existingRaw = localStorage.getItem('locohelp_free_helper_profiles');
+    const existing: any[] = existingRaw ? JSON.parse(existingRaw) : [];
+    localHelpers = existing.filter(
+      h => h && h.id && !/^h\d+/.test(String(h.id)) && !deletedIds.includes(String(h.id))
+    );
+  } catch {}
 
   if (!includePending) {
     return localHelpers.filter(h => h.isVerified === true || h.status === 'approved');

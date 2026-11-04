@@ -30,6 +30,7 @@ import {
   HelperReviewItem,
 } from '../api';
 import { getSavedUserLocation, UserManualLocation as UserLocationData } from '../data/panIndiaLocations';
+import { getAuthenticRatingInfo, isEntityAdminVerified } from '../modules/verification';
 
 export interface HomeBelowCategorySectionProps {
   onNavigate: (screen: Screen) => void;
@@ -71,6 +72,7 @@ export interface ShowcaseProviderItem {
   aboutEn?: string;
   userId?: string;
   email?: string;
+  isVerified?: boolean;
 }
 
 export const DEFAULT_SHOWCASE_PROVIDERS: ShowcaseProviderItem[] = [
@@ -342,12 +344,10 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
   const displayProviders: ShowcaseProviderItem[] =
     locationFilteredHelpers.length > 0
       ? locationFilteredHelpers.slice(0, 6).map((prov, idx) => {
-          const dist = ['1.2', '2.5', '3.0'][idx % 3];
-          const revCount = prov.reviewCount ?? [18, 12, 9][idx % 3];
-          const ratingVal =
-            prov.rating && prov.rating > 0
-              ? Number(prov.rating).toFixed(1)
-              : ['4.9', '4.8', '5.0'][idx % 3];
+          const dist = String(prov.distance || ['1.2', '2.5', '3.0'][idx % 3]);
+          const ratingInfo = getAuthenticRatingInfo(prov, language);
+          const revCount = ratingInfo.reviewCount;
+          const ratingVal = ratingInfo.ratingText;
           const avatar =
             prov.avatar ||
             prov.photoUrl ||
@@ -357,6 +357,7 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
             id: String(prov.id || `live-prov-${idx}`),
             userId: String(prov.userId || prov.user_id || prov.id || ''),
             email: String(prov.email || ''),
+            isVerified: isEntityAdminVerified(prov),
             nameGu: prov.name,
             nameHi: prov.name,
             nameEn: prov.name,
@@ -837,24 +838,26 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
                   />
                 </button>
 
-                <span
-                  style={{
-                    position: 'absolute',
-                    top: '-6px',
-                    right: '4px',
-                    backgroundColor: '#16a34a',
-                    color: '#ffffff',
-                    fontSize: '7.5px',
-                    fontWeight: 800,
-                    padding: '1px 5px',
-                    borderRadius: '9999px',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '2px',
-                  }}
-                >
-                  ✓ {language === 'GU' ? 'વેરિફાઈડ' : language === 'HI' ? 'वेरिफाइड' : 'Verified'}
-                </span>
+                {item.isVerified !== false && (
+                  <span
+                    style={{
+                      position: 'absolute',
+                      top: '-6px',
+                      right: '4px',
+                      backgroundColor: '#16a34a',
+                      color: '#ffffff',
+                      fontSize: '7.5px',
+                      fontWeight: 800,
+                      padding: '1px 5px',
+                      borderRadius: '9999px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '2px',
+                    }}
+                  >
+                    ✓ {language === 'GU' ? 'વેરિફાઈડ' : language === 'HI' ? 'वेरिफाइड' : 'Verified'}
+                  </span>
+                )}
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '5px', minWidth: 0 }}>
                   <img
@@ -1419,29 +1422,31 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
                       referrerPolicy="no-referrer"
                     />
                     <div>
-                      <div
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                          backgroundColor: '#16a34a',
-                          color: '#ffffff',
-                          fontSize: '10px',
-                          fontWeight: 800,
-                          padding: '2px 8px',
-                          borderRadius: '9999px',
-                          marginBottom: '4px',
-                        }}
-                      >
-                        <CheckCircle2 className="w-3 h-3" />
-                        <span>
-                          {language === 'GU'
-                            ? 'વેરિફાઈડ સેવા પ્રદાતા'
-                            : language === 'HI'
-                            ? 'वेरिफाइड सेवा प्रदाता'
-                            : 'Verified Service Provider'}
-                        </span>
-                      </div>
+                      {selectedProviderProfile.isVerified !== false && (
+                        <div
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            backgroundColor: '#16a34a',
+                            color: '#ffffff',
+                            fontSize: '10px',
+                            fontWeight: 800,
+                            padding: '2px 8px',
+                            borderRadius: '9999px',
+                            marginBottom: '4px',
+                          }}
+                        >
+                          <CheckCircle2 className="w-3 h-3" />
+                          <span>
+                            {language === 'GU'
+                              ? 'વેરિફાઈડ સેવા પ્રદાતા'
+                              : language === 'HI'
+                              ? 'वेरिफाइड सेवा प्रदाता'
+                              : 'Verified Service Provider'}
+                          </span>
+                        </div>
+                      )}
                       <h3 style={{ fontSize: '17px', fontWeight: 900, margin: 0 }}>
                         {language === 'GU'
                           ? selectedProviderProfile.nameGu
@@ -1499,29 +1504,46 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
                     marginBottom: '14px',
                   }}
                 >
-                  <div
-                    style={{
-                      backgroundColor: '#fffbeb',
-                      border: '1px solid #fde68a',
-                      borderRadius: '12px',
-                      padding: '8px',
-                      textAlign: 'center',
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontSize: '13px',
-                        fontWeight: 900,
-                        color: '#b45309',
-                      }}
-                    >
-                      ★ {selectedProviderProfile.rating}
-                    </div>
-                    <div style={{ fontSize: '10px', fontWeight: 700, color: '#78350f' }}>
-                      {selectedProviderProfile.reviews}{' '}
-                      {language === 'GU' ? 'રિવ્યૂ' : language === 'HI' ? 'रिव्यू' : 'Reviews'}
-                    </div>
-                  </div>
+                  {(() => {
+                    const liveAvg =
+                      providerReviews.length > 0
+                        ? providerReviews.reduce((acc, r) => acc + Number(r.rating || 5), 0) /
+                          providerReviews.length
+                        : Number(selectedProviderProfile.rating || 0);
+                    const liveCnt =
+                      providerReviews.length > 0
+                        ? providerReviews.length
+                        : Number(selectedProviderProfile.reviews || 0);
+                    const modalRating = getAuthenticRatingInfo(
+                      { rating: liveAvg, reviewCount: liveCnt },
+                      language
+                    );
+                    return (
+                      <div
+                        style={{
+                          backgroundColor: '#fffbeb',
+                          border: '1px solid #fde68a',
+                          borderRadius: '12px',
+                          padding: '8px',
+                          textAlign: 'center',
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontSize: '13px',
+                            fontWeight: 900,
+                            color: '#b45309',
+                          }}
+                        >
+                          ★ {modalRating.ratingText}
+                        </div>
+                        <div style={{ fontSize: '10px', fontWeight: 700, color: '#78350f' }}>
+                          {modalRating.reviewCount}{' '}
+                          {language === 'GU' ? 'રિવ્યૂ' : language === 'HI' ? 'रिव्यू' : 'Reviews'}
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   <div
                     style={{

@@ -9,7 +9,6 @@ import PanIndiaLocationModal from './components/PanIndiaLocationModal';
 import LoginPromptModal from './components/LoginPromptModal';
 import { getSavedUserLocation, UserManualLocation } from './data/panIndiaLocations';
 import { motion, AnimatePresence } from 'motion/react';
-// import LoginScreen from './screens/LoginScreen';
 import HomeScreen from './screens/HomeScreen';
 import ChatScreen from './screens/ChatScreen';
 import NotificationsScreen from './screens/NotificationsScreen';
@@ -353,8 +352,21 @@ function AppContent() {
     trackSpaPageView(currentScreen, selectedCategory);
   }, [currentScreen, selectedCategory]);
 
-  // Auto-migrate any existing localStorage data and restore persistent JWT/cookie session on startup
+  // One-time cleanup of stale browser cache keys so authoritative PostgreSQL data is never overwritten
   useEffect(() => {
+    try {
+      if (localStorage.getItem('locohelp_cache_cleaned_v1') !== 'true') {
+        [
+          'locohelp_cached_intents',
+          'locohelp_custom_intents',
+          'locohelp_deleted_posts',
+          'locohelp_deleted_descs',
+          'locohelp_deleted_helpers',
+          'locohelp_deleted_shops'
+        ].forEach(k => localStorage.removeItem(k));
+        localStorage.setItem('locohelp_cache_cleaned_v1', 'true');
+      }
+    } catch {}
     restoreSessionFromServer();
     syncBrowserDataToPostgres();
   }, []);

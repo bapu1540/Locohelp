@@ -17,6 +17,7 @@ import LoginPromptModal from '../components/LoginPromptModal';
 import { isGuestUser } from '../lib/authUtils';
 import { getCurrentUser } from '../auth';
 import { isEntityOwner } from '../lib/ownership';
+import { getAuthenticRatingInfo, isEntityAdminVerified } from '../modules/verification';
 
 export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: () => void, onOpenChat: (intent?: any) => void }) {
   const { language, t } = useLanguage();
@@ -111,9 +112,12 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
           customCategoryName: h.customCategoryName,
           skills: h.skills?.length > 0 ? h.skills : [h.customCategoryName || (catObj ? catObj.nameEn : 'Community Helper')],
           trustScore: 99,
-          rating: h.rating || 5.0,
-          completedTasks: h.completedTasks || 1,
-          distance: h.distance || 0.8
+          rating: Number(h.rating || 0),
+          reviewCount: Number((h as any).reviewCount || 0),
+          completedTasks: Number(h.completedTasks || 0),
+          distance: h.distance || 0.8,
+          isVerified: isEntityAdminVerified(h),
+          status: h.status,
         } as any;
       });
       setHelpersList(formattedUserHelpers);
@@ -572,6 +576,8 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
             
             {filteredHelpers.map((provider: any) => {
               const catObj = CATEGORIES.find(c => c.id === provider.categoryId);
+              const ratingInfo = getAuthenticRatingInfo(provider, language);
+              const isVerified = isEntityAdminVerified(provider);
               return (
               <div 
                 key={provider.id} 
@@ -583,7 +589,9 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <h3 className="text-sm font-extrabold text-slate-900 dark:text-white flex items-center gap-1.5">
                         <span>{provider.name}</span>
-                        <ShieldCheck className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                        {isVerified && (
+                          <ShieldCheck className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                        )}
                       </h3>
                       {catObj && (
                         <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20">
@@ -612,14 +620,20 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
                 {/* Middle Stats Bar - Compact */}
                 <div className="flex items-center gap-3 my-2.5 pt-2 border-t border-[#EAE6DC] dark:border-slate-700 text-xs">
                   <div className="flex items-center gap-1">
-                    <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
-                    <span className="font-extrabold text-slate-800 dark:text-slate-200 text-xs">{provider.rating}</span>
-                    <span className="text-[10px] text-slate-400 font-medium">({provider.completedTasks} helps)</span>
+                    <Star className={`w-3.5 h-3.5 ${ratingInfo.hasReviews ? 'text-amber-400 fill-amber-400' : 'text-amber-400'}`} />
+                    <span className="font-extrabold text-slate-800 dark:text-slate-200 text-xs">{ratingInfo.ratingText}</span>
+                    <span className="text-[10px] text-slate-400 font-medium">
+                      ({ratingInfo.reviewCount} {language === 'EN' ? 'reviews' : language === 'GU' ? 'રિવ્યૂ' : 'रिव्यू'})
+                    </span>
                   </div>
-                  <div className="w-px h-3 bg-slate-200 dark:bg-slate-700"></div>
-                  <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
-                    {provider.trustScore}% Trust
-                  </span>
+                  {isVerified && (
+                    <>
+                      <div className="w-px h-3 bg-slate-200 dark:bg-slate-700"></div>
+                      <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+                        ✓ {language === 'EN' ? 'Verified' : language === 'GU' ? 'વેરિફાઈડ' : 'वेरिफाइड'}
+                      </span>
+                    </>
+                  )}
                 </div>
 
                 {/* Action Buttons */}
@@ -681,6 +695,9 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
           onClose={() => setSelectedProvider(null)}
           userName={selectedProvider.name}
           distance={selectedProvider.distance || 1.2}
+          isVerified={isEntityAdminVerified(selectedProvider)}
+          rating={selectedProvider.rating}
+          reviewCount={(selectedProvider as any).reviewCount || 0}
         />
       )}
 

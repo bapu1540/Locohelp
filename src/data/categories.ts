@@ -1334,7 +1334,7 @@ export function saveFreeHelperProfile(
     customCategoryName: profile.customCategoryName || norm.customCategoryName,
     masterCategory: profile.masterCategory || (matched ? matched.masterCategory : 'other_custom'),
     id: profile.id || 'hp_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
-    rating: 5.0,
+    rating: 0,
     completedTasks: 0,
     isVerified: isApproved,
     status: isApproved ? 'approved' : 'pending',
