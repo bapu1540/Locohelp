@@ -643,9 +643,9 @@ export async function fetchMobileOtpDailyQuota(phone: string): Promise<{
 
 function getDailyLimitExceededMessage(): string {
   return trAuth(
-    '⚠️ Daily Mobile OTP limit (3/3) reached! To prevent spam & excess SMS charges, only 3 Mobile OTPs can be sent per day. Please sign in using Password, Fingerprint, or Email OTP, or try again tomorrow.',
-    '⚠️ आज की मोबाइल OTP सीमा (3/3) पूरी हो चुकी है! सुरक्षा और बॉट-स्पैम रोकने के लिए 1 दिन में अधिकतम 3 बार ही मोबाइल OTP भेजा जा सकता है। कृपया ऊपर "पासवर्ड", "फिंगरप्रिंट" या "ईमेल OTP" से लॉगिन करें, या कल प्रयास करें।',
-    '⚠️ આજની મોબાઇલ OTP મર્યાદા (3/3) પૂર્ણ થઈ ગઈ છે! સુરક્ષા અને બોટ-સ્પામ રોકવા માટે 1 દિવસમાં મહત્તમ 3 વાર જ મોબાઇલ OTP મોકલી શકાય છે. કૃપા કરીને ઉપર "પાસવર્ડ", "ફિંગરપ્રિન્ટ" અથવા "ઈમેલ OTP" થી લોગિન કરો, અથવા આવતીકાલે પ્રયાસ કરો.'
+    '⚠️ Daily Mobile OTP limit (3/3) reached! To prevent spam & excess SMS charges, only 3 Mobile OTPs can be sent per day. Please sign in using Password or Email OTP, or try again tomorrow.',
+    '⚠️ आज की मोबाइल OTP सीमा (3/3) पूरी हो चुकी है! सुरक्षा और बॉट-स्पैम रोकने के लिए 1 दिन में अधिकतम 3 बार ही मोबाइल OTP भेजा जा सकता है। कृपया "पासवर्ड" या "ईमेल OTP" से लॉगिन करें, या कल प्रयास करें।',
+    '⚠️ આજની મોબાઇલ OTP મર્યાદા (3/3) પૂર્ણ થઈ ગઈ છે! સુરક્ષા અને બોટ-સ્પામ રોકવા માટે 1 દિવસમાં મહત્તમ 3 વાર જ મોબાઇલ OTP મોકલી શકાય છે. કૃપા કરીને "પાસવર્ડ" અથવા "ઈમેલ OTP" થી લોગિન કરો, અથવા આવતીકાલે પ્રયાસ કરો.'
   );
 }
 
@@ -662,7 +662,6 @@ export async function sendMobileOtp(
   success: boolean;
   error?: string;
   phoneE164?: string;
-  devCode?: string;
   cooldownRemaining?: number;
   usedToday?: number;
   remainingToday?: number;
@@ -681,26 +680,11 @@ export async function sendMobileOtp(
     };
   }
 
-  // Dedicated Google Play Store Reviewer Test Account (9999999999 / OTP: 123456)
-  if (norm.tenDigits === '9999999999') {
-    return {
-      success: true,
-      phoneE164: '+919999999999',
-      devCode: '123456',
-      cooldownRemaining: 0,
-      usedToday: 0,
-      remainingToday: MAX_DAILY_MOBILE_OTP,
-      maxPerDay: MAX_DAILY_MOBILE_OTP,
-      dailyLimitReached: false
-    };
-  }
-
   // 1. Check & reserve daily OTP slot on PostgreSQL server BEFORE invoking Firebase SMS
   const localQuota = getDailyMobileOtpStatus(norm.tenDigits);
   const cooldownKey = `phone_${norm.tenDigits}`;
   let serverUsedCount: number | undefined = undefined;
   let serverSlotReserved = false;
-  let serverFallbackDevCode: string | undefined = undefined;
   try {
     const guardRes = await fetch('/api/auth/mobile-otp-guard', {
       method: 'POST',
@@ -708,10 +692,6 @@ export async function sendMobileOtp(
       body: JSON.stringify({ phone: norm.tenDigits, action: 'consume' })
     });
     const guardData = await guardRes.json().catch(() => ({}));
-
-    if (guardData.fallbackOtpCode) {
-      serverFallbackDevCode = String(guardData.fallbackOtpCode);
-    }
 
     if (!guardRes.ok || !guardData.success) {
       if (guardData.dailyLimitReached) {
@@ -725,7 +705,7 @@ export async function sendMobileOtp(
           error: getDailyLimitExceededMessage()
         };
       }
-      if (guardData.cooldownRemaining && !serverFallbackDevCode) {
+      if (guardData.cooldownRemaining) {
         return {
           success: false,
           cooldownRemaining: Number(guardData.cooldownRemaining),
@@ -745,27 +725,10 @@ export async function sendMobileOtp(
     }
   } catch {}
 
-  // 2. Trigger Firebase Phone Auth SMS (runs on www.locohelp.com when Firebase SMS is configured)
+  // 2. Trigger Firebase Phone Auth SMS
   const res = await sendFirebasePhoneOtp(norm.tenDigits, recaptchaContainerId);
   if (!res.success) {
-    // If Firebase SMS is blocked by Computer Incognito third-party cookies / reCAPTCHA / preview domain,
-    // seamlessly fall back to server-verified 6-digit OTP so the user is never locked out!
-    if (serverFallbackDevCode) {
-      recordOtpSentTimestamp(cooldownKey);
-      const updatedQuota = recordDailyMobileOtpSent(norm.tenDigits, serverUsedCount);
-      return {
-        success: true,
-        phoneE164: norm.e164,
-        devCode: serverFallbackDevCode,
-        cooldownRemaining: 15,
-        usedToday: updatedQuota.usedToday,
-        remainingToday: updatedQuota.remainingToday,
-        maxPerDay: MAX_DAILY_MOBILE_OTP,
-        dailyLimitReached: updatedQuota.dailyLimitReached
-      };
-    }
-
-    // Rollback server slot if Firebase failed and no fallback code was available
+    // Rollback server slot if Firebase failed before sending SMS
     if (serverSlotReserved) {
       fetch('/api/auth/mobile-otp-guard', {
         method: 'POST',
@@ -788,7 +751,7 @@ export async function sendMobileOtp(
     };
   }
 
-  // 5. Record sent timestamp & daily count (max 3/day)
+  // 3. Record sent timestamp & daily count
   recordOtpSentTimestamp(cooldownKey);
   const updatedQuota = recordDailyMobileOtpSent(norm.tenDigits, serverUsedCount);
 
@@ -1297,7 +1260,6 @@ export async function signUpWithPassword(
 export async function sendEmailOtp(email: string): Promise<{
   success: boolean;
   error?: string;
-  devCode?: string;
   provider?: string;
   cooldownRemaining?: number;
 }> {
@@ -1346,7 +1308,7 @@ export async function sendEmailOtp(email: string): Promise<{
       };
     }
     recordOtpSentTimestamp(cleanEmail);
-    return { success: true, devCode: data.devOtp, provider: data.provider, cooldownRemaining: 60 };
+    return { success: true, provider: data.provider, cooldownRemaining: 60 };
   } catch {
     return {
       success: false,
@@ -1575,354 +1537,12 @@ export async function verifyEmailOtp(
 
 export const verifyEmailOtpViaSupabase = verifyEmailOtp;
 
-// ==========================================
-// BIOMETRIC / FINGERPRINT / FACE LOCK (WebAuthn Passkey)
-// Allows returning users to log in with 1 tap and ₹0 SMS OTP cost
-// ==========================================
-const BIOMETRIC_STORAGE_KEY = 'locohelp_biometric_passkey_v1';
-
-export interface SavedBiometricPasskey {
-  credentialId: string;
-  rawIdBase64: string;
-  uid: string;
-  email: string;
-  phone: string;
-  name: string;
-  createdAt: string;
-}
-
-function bufferToBase64Url(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-function base64UrlToUint8Array(base64Url: string): Uint8Array<ArrayBuffer> {
-  const padding = '='.repeat((4 - (base64Url.length % 4)) % 4);
-  const base64 = (base64Url + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const rawData = atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-  for (let i = 0; i < rawData.length; ++i) {
-    outputArray[i] = rawData.charCodeAt(i);
-  }
-  return outputArray;
-}
-
-export async function isBiometricSupported(): Promise<boolean> {
-  try {
-    if (
-      typeof window === 'undefined' ||
-      !window.PublicKeyCredential ||
-      !navigator.credentials ||
-      typeof navigator.credentials.create !== 'function'
-    ) {
-      return false;
-    }
-    if (
-      typeof PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable === 'function'
-    ) {
-      return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
-    }
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export function getSavedBiometricInfo(): SavedBiometricPasskey | null {
-  try {
-    const raw = localStorage.getItem(BIOMETRIC_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (parsed && parsed.credentialId && parsed.uid) {
-      return parsed as SavedBiometricPasskey;
-    }
-  } catch {}
-  return null;
-}
-
-export function clearSavedBiometricPasskey(): void {
-  try {
-    localStorage.removeItem(BIOMETRIC_STORAGE_KEY);
-  } catch {}
-}
-
-export async function registerBiometricPasskey(customUser?: AppUser): Promise<{
-  success: boolean;
-  error?: string;
-}> {
-  try {
-    const supported = await isBiometricSupported();
-    if (!supported) {
-      return {
-        success: false,
-        error: trAuth(
-          'Fingerprint / Face Lock is not supported on this device or browser.',
-          'आपके मोबाइल या ब्राउज़र में फिंगरप्रिंट / फेस लॉक उपलब्ध नहीं है।',
-          'તમારા મોબાઇલ કે બ્રાઉઝરમાં ફિંગરપ્રિન્ટ / ફેસ લોક ઉપલબ્ધ નથી.'
-        )
-      };
-    }
-
-    const activeUser = customUser || getCurrentUser();
-    if (!activeUser || activeUser.isGuest || activeUser.uid === 'guest_user') {
-      return {
-        success: false,
-        error: trAuth(
-          'Please sign in once via OTP or Password before enabling Fingerprint Lock.',
-          'फिंगरप्रिंट सेट करने के लिए पहले OTP या पासवर्ड से लॉगिन करें।',
-          'ફિંગરપ્રિન્ટ સેટ કરવા માટે પહેલા OTP અથવા પાસવર્ડથી લોગિન કરો.'
-        )
-      };
-    }
-
-    const challenge = new Uint8Array(32);
-    crypto.getRandomValues(challenge);
-
-    const userIdBytes = new TextEncoder().encode(activeUser.uid.slice(0, 64));
-    const displayIdentifier =
-      activeUser.phone ||
-      (activeUser.email && !activeUser.email.endsWith('@phone.locohelp.com')
-        ? activeUser.email
-        : activeUser.displayName);
-
-    const credential = (await navigator.credentials.create({
-      publicKey: {
-        challenge,
-        rp: {
-          name: 'LocoHelp Community',
-          id: window.location.hostname
-        },
-        user: {
-          id: userIdBytes,
-          name: displayIdentifier || activeUser.uid,
-          displayName: activeUser.displayName || 'LocoHelp Member'
-        },
-        pubKeyCredParams: [
-          { alg: -7, type: 'public-key' },  // ES256
-          { alg: -257, type: 'public-key' } // RS256
-        ],
-        authenticatorSelection: {
-          authenticatorAttachment: 'platform',
-          userVerification: 'required',
-          residentKey: 'preferred'
-        },
-        timeout: 60000,
-        attestation: 'none'
-      }
-    })) as PublicKeyCredential | null;
-
-    if (!credential) {
-      return {
-        success: false,
-        error: trAuth(
-          'Fingerprint setup was cancelled.',
-          'फिंगरप्रिंट रजिस्ट्रेशन रद्द कर दिया गया।',
-          'ફિંગરપ્રિન્ટ સેટઅપ રદ કરવામાં આવ્યું.'
-        )
-      };
-    }
-
-    const rawIdBase64 = bufferToBase64Url(credential.rawId);
-    const credentialId = credential.id || rawIdBase64;
-
-    const savedObj: SavedBiometricPasskey = {
-      credentialId,
-      rawIdBase64,
-      uid: activeUser.uid,
-      email: activeUser.email || '',
-      phone: activeUser.phone || '',
-      name: activeUser.displayName || 'LocoHelp Member',
-      createdAt: new Date().toISOString()
-    };
-
-    localStorage.setItem(BIOMETRIC_STORAGE_KEY, JSON.stringify(savedObj));
-
-    // Sync with backend PostgreSQL table user_biometric_credentials
-    await fetch('/api/auth/biometric/register', {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify({
-        credentialId,
-        uid: activeUser.uid,
-        email: activeUser.email || '',
-        phone: activeUser.phone || '',
-        name: activeUser.displayName || 'LocoHelp Member',
-        deviceLabel: navigator.userAgent
-      })
-    }).catch(() => {});
-
-    return { success: true };
-  } catch (err: any) {
-    console.warn('[Biometric Register Warning]:', err);
-    if (err?.name === 'NotAllowedError') {
-      return {
-        success: false,
-        error: trAuth(
-          'Fingerprint / Face Lock permission was cancelled.',
-          'आपने फिंगरप्रिंट / फेस लॉक की अनुमति रद्द कर दी।',
-          'તમે ફિંગરપ્રિન્ટ / ફેસ લોકની પરવાનગી રદ કરી.'
-        )
-      };
-    }
-    return {
-      success: false,
-      error: trAuth(
-        'Could not enable Fingerprint / Face Lock on this device.',
-        'फिंगरप्रिंट लॉक चालू करने में समस्या आई।',
-        'આ ફોન પર ફિંગરપ્રિન્ટ લોક ચાલુ કરવામાં સમસ્યા આવી.'
-      )
-    };
-  }
-}
-
-export async function signInWithBiometricPasskey(): Promise<{
-  success: boolean;
-  user?: AppUser;
-  error?: string;
-}> {
-  try {
-    const supported = await isBiometricSupported();
-    if (!supported) {
-      return {
-        success: false,
-        error: trAuth(
-          'Fingerprint / Face Lock is not supported on this device.',
-          'इस डिवाइस पर फिंगरप्रिंट / फेस लॉक उपलब्ध नहीं है।',
-          'આ ડિવાઇસ પર ફિંગરપ્રિન્ટ / ફેસ લોક ઉપલબ્ધ નથી.'
-        )
-      };
-    }
-
-    const saved = getSavedBiometricInfo();
-    if (!saved) {
-      return {
-        success: false,
-        error: trAuth(
-          'Fingerprint Lock is not set up on this phone yet. Please log in once using Mobile OTP or Password first to enable 1-Tap Fingerprint login.',
-          'इस फोन पर अभी फिंगरप्रिंट लॉक सेट नहीं है। कृपया पहले एक बार मोबाइल OTP या पासवर्ड से लॉगिन करें, उसके बाद 1-टैप फिंगरप्रिंट लॉगिन चालू हो जाएगा।',
-          'આ ફોન પર હજુ ફિંગરપ્રિન્ટ લોક સેટ નથી. કૃપા કરીને પહેલા એકવાર મોબાઇલ OTP અથવા પાસવર્ડથી લોગિન કરો, ત્યારબાદ 1-ટેપ ફિંગરપ્રિન્ટ લોગિન ચાલુ થઈ જશે.'
-        )
-      };
-    }
-
-    const challenge = new Uint8Array(32);
-    crypto.getRandomValues(challenge);
-
-    const publicKeyOptions: PublicKeyCredentialRequestOptions = {
-      challenge,
-      rpId: window.location.hostname,
-      userVerification: 'required',
-      timeout: 60000
-    };
-
-    if (saved && saved.rawIdBase64) {
-      publicKeyOptions.allowCredentials = [
-        {
-          id: base64UrlToUint8Array(saved.rawIdBase64),
-          type: 'public-key',
-          transports: ['internal']
-        }
-      ];
-    }
-
-    const assertion = (await navigator.credentials.get({
-      publicKey: publicKeyOptions
-    })) as PublicKeyCredential | null;
-
-    if (!assertion) {
-      return {
-        success: false,
-        error: trAuth(
-          'Fingerprint / Face Lock verification was cancelled.',
-          'फिंगरप्रिंट / फेस लॉक सत्यापन रद्द किया गया।',
-          'ફિંગરપ્રિન્ટ / ફેસ લોક ચકાસણી રદ કરવામાં આવી.'
-        )
-      };
-    }
-
-    const credentialId = assertion.id || bufferToBase64Url(assertion.rawId);
-
-    const res = await fetch('/api/auth/biometric/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        credentialId,
-        uid: saved?.uid || '',
-        email: saved?.email || saved?.phone || ''
-      })
-    });
-
-    const data = await res.json();
-    if (!res.ok || !data.success) {
-      return {
-        success: false,
-        error: localizeServerAuthError(
-          data.error,
-          'Fingerprint login failed. Please sign in once using OTP or Password.',
-          'फिंगरप्रिंट लॉगिन विफल रहा। कृपया एक बार OTP या पासवर्ड से लॉगिन करें।',
-          'ફિંગરપ્રિન્ટ લોગિન નિષ્ફળ રહ્યું. કૃપા કરીને એકવાર OTP અથવા પાસવર્ડથી લોગિન કરો.'
-        )
-      };
-    }
-
-    const userData: AppUser = {
-      uid: ensureValidUUID(data.user?.uid || saved?.uid || 'member'),
-      displayName: sanitizeText(data.user?.displayName || saved?.name || 'Community Member'),
-      email: data.user?.email || saved?.email || '',
-      phone: sanitizeText(data.user?.phone || saved?.phone || ''),
-      photoURL: 'https://lh3.googleusercontent.com/a/default-user',
-      isGuest: false
-    };
-
-    if (data.token) {
-      localStorage.setItem('locohelp_token', data.token);
-    }
-    localStorage.setItem('locohelp_user', JSON.stringify(userData));
-    localStorage.setItem('locohelp_logged_in', 'true');
-    if (userData.email) {
-      localStorage.setItem('locohelp_last_logged_in_email', userData.email);
-    }
-    localStorage.setItem('locohelp_last_logged_in_name', userData.displayName);
-
-    window.dispatchEvent(new Event('storage'));
-    window.postMessage({ type: 'LOCOHELP_AUTH_SUCCESS' }, '*');
-    notifyAuthState('SIGNED_IN', userData);
-
-    return { success: true, user: userData };
-  } catch (err: any) {
-    console.warn('[Biometric Login Warning]:', err);
-    if (err?.name === 'NotAllowedError') {
-      return {
-        success: false,
-        error: trAuth(
-          'Fingerprint / Face Lock verification was cancelled.',
-          'फिंगरप्रिंट / फेस लॉक सत्यापन रद्द किया गया।',
-          'ફિંગરપ્રિન્ટ / ફેસ લોક ચકાસણી રદ કરવામાં આવી.'
-        )
-      };
-    }
-    return {
-      success: false,
-      error: trAuth(
-        'Could not sign in with Fingerprint. Please use Password or OTP.',
-        'फिंगरप्रिंट से लॉगिन नहीं हो सका। कृपया पासवर्ड या OTP का उपयोग करें।',
-        'ફિંગરપ્રિન્ટથી લોગિન થઈ શક્યું નહીં. કૃપા કરીને પાસવર્ડ અથવા OTP નો ઉપયોગ કરો.'
-      )
-    };
-  }
-}
-
 /**
  * Verifies the currently logged-in user's identity against the PostgreSQL database
- * (either via bcrypt Password hash or WebAuthn Biometric Passkey stored in user_biometric_credentials)
- * before allowing sensitive actions like switching their mobile number from Private to Public.
+ * (via bcrypt Password hash) before allowing sensitive actions like switching their mobile number from Private to Public.
  */
 export async function verifyDatabaseReauth(options: {
-  mode: 'password' | 'biometric';
+  mode?: 'password';
   password?: string;
   setNewPassword?: boolean;
 }): Promise<{
@@ -1942,169 +1562,51 @@ export async function verifyDatabaseReauth(options: {
     };
   }
 
-  if (options.mode === 'password') {
-    const cleanPass = String(options.password || '').trim();
-    if (cleanPass.length < 6) {
-      return {
-        success: false,
-        error: trAuth(
-          'Password must be at least 6 characters.',
-          'पासवर्ड कम से कम 6 अक्षरों का होना चाहिए।',
-          'પાસવર્ડ ઓછામાં ઓછો 6 અક્ષરોનો હોવો જોઈએ.'
-        )
-      };
-    }
-    try {
-      const res = await fetch('/api/auth/verify-reauth', {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({
-          mode: 'password',
-          uid: activeUser.uid,
-          email: activeUser.email || '',
-          phone: activeUser.phone || '',
-          password: cleanPass,
-          setNewPassword: Boolean(options.setNewPassword)
-        })
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        return {
-          success: false,
-          noPasswordSet: Boolean(data.noPasswordSet),
-          error: localizeServerAuthError(
-            data.error,
-            'Incorrect password. Please enter your registered LocoHelp password.',
-            'गलत पासवर्ड! कृपया अपना सही LocoHelp पासवर्ड दर्ज करें।',
-            'ખોટો પાસવર્ડ! કૃપા કરીને તમારો સાચો LocoHelp પાસવર્ડ દાખલ કરો.'
-          )
-        };
-      }
-      return { success: true };
-    } catch {
-      return {
-        success: false,
-        error: trAuth(
-          'Network error while verifying password.',
-          'पासवर्ड जांचते समय नेटवर्क समस्या आई।',
-          'પાસવર્ડ તપાસતી વખતે નેટવર્ક સમસ્યા આવી.'
-        )
-      };
-    }
+  const cleanPass = String(options.password || '').trim();
+  if (cleanPass.length < 6) {
+    return {
+      success: false,
+      error: trAuth(
+        'Password must be at least 6 characters.',
+        'पासवर्ड कम से कम 6 अक्षरों का होना चाहिए।',
+        'પાસવર્ડ ઓછામાં ઓછો 6 અક્ષરોનો હોવો જોઈએ.'
+      )
+    };
   }
-
-  // Mode: Biometric Passkey verified against PostgreSQL database
   try {
-    const supported = await isBiometricSupported();
-    if (!supported) {
-      return {
-        success: false,
-        error: trAuth(
-          'Fingerprint / Face Lock is not supported on this device. Please use Password tab.',
-          'इस डिवाइस पर फिंगरप्रिंट उपलब्ध नहीं है। कृपया पासवर्ड टैब का उपयोग करें।',
-          'આ ડિવાઇસ પર ફિંગરપ્રિન્ટ ઉપલબ્ધ નથી. કૃપા કરીને પાસવર્ડ ટેબનો ઉપયોગ કરો.'
-        )
-      };
-    }
-
-    let saved = getSavedBiometricInfo();
-    if (!saved) {
-      // Register passkey for current logged-in user and save to PostgreSQL user_biometric_credentials
-      const regRes = await registerBiometricPasskey(activeUser);
-      if (!regRes.success) {
-        return {
-          success: false,
-          error: regRes.error
-        };
-      }
-      saved = getSavedBiometricInfo();
-    } else {
-      // Prompt hardware biometric assertion
-      const challenge = new Uint8Array(32);
-      crypto.getRandomValues(challenge);
-      const publicKeyOptions: PublicKeyCredentialRequestOptions = {
-        challenge,
-        rpId: window.location.hostname,
-        userVerification: 'required',
-        timeout: 60000
-      };
-      if (saved.rawIdBase64) {
-        publicKeyOptions.allowCredentials = [
-          {
-            id: base64UrlToUint8Array(saved.rawIdBase64),
-            type: 'public-key',
-            transports: ['internal']
-          }
-        ];
-      }
-      const assertion = (await navigator.credentials.get({
-        publicKey: publicKeyOptions
-      })) as PublicKeyCredential | null;
-
-      if (!assertion) {
-        return {
-          success: false,
-          error: trAuth(
-            'Fingerprint verification was cancelled.',
-            'फिंगरप्रिंट सत्यापन रद्द किया गया।',
-            'ફિંગરપ્રિન્ટ ચકાસણી રદ કરવામાં આવી.'
-          )
-        };
-      }
-    }
-
-    if (!saved || !saved.credentialId) {
-      return {
-        success: false,
-        error: trAuth(
-          'Could not verify Fingerprint credential.',
-          'फिंगरप्रिंट क्रेडेंशियल सत्यापित नहीं हो सका।',
-          'ફિંગરપ્રિન્ટ ક્રેડેન્શિયલ ચકાસી શકાયું નહીં.'
-        )
-      };
-    }
-
     const res = await fetch('/api/auth/verify-reauth', {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify({
-        mode: 'biometric',
+        mode: 'password',
         uid: activeUser.uid,
         email: activeUser.email || '',
         phone: activeUser.phone || '',
-        credentialId: saved.credentialId
+        password: cleanPass,
+        setNewPassword: Boolean(options.setNewPassword)
       })
     });
     const data = await res.json();
     if (!res.ok || !data.success) {
       return {
         success: false,
+        noPasswordSet: Boolean(data.noPasswordSet),
         error: localizeServerAuthError(
           data.error,
-          'Biometric credential not verified in database.',
-          'डेटाबेस में फिंगरप्रिंट सत्यापित नहीं हुआ।',
-          'ડેટાબેઝમાં ફિંગરપ્રિન્ટ ચકાસાયું નથી.'
+          'Incorrect password. Please enter your registered LocoHelp password.',
+          'गलत पासवर्ड! कृपया अपना सही LocoHelp पासवर्ड दर्ज करें।',
+          'ખોટો પાસવર્ડ! કૃપા કરીને તમારો સાચો LocoHelp પાસવર્ડ દાખલ કરો.'
         )
       };
     }
     return { success: true };
-  } catch (err: any) {
-    if (err?.name === 'NotAllowedError') {
-      return {
-        success: false,
-        error: trAuth(
-          'Fingerprint / Face Lock verification was cancelled.',
-          'फिंगरप्रिंट / फेस लॉक सत्यापन रद्द किया गया।',
-          'ફિંગરપ્રિન્ટ / ફેસ લોક ચકાસણી રદ કરવામાં આવી.'
-        )
-      };
-    }
+  } catch {
     return {
       success: false,
       error: trAuth(
-        'Biometric verification failed. Please use Password instead.',
-        'फिंगरप्रिंट सत्यापन विफल रहा। कृपया पासवर्ड का उपयोग करें।',
-        'ફિંગરપ્રિન્ટ ચકાસણી નિષ્ફળ રહી. કૃપા કરીને પાસવર્ડનો ઉપયોગ કરો.'
+        'Network error while verifying password.',
+        'पासवर्ड जांचते समय नेटवर्क समस्या आई।',
+        'પાસવર્ડ તપાસતી વખતે નેટવર્ક સમસ્યા આવી.'
       )
     };
   }

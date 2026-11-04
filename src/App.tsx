@@ -815,6 +815,7 @@ function AppContent() {
         {currentScreen === 'chat' && (
           <ChatScreen
             intent={activeIntent}
+            onIntentChange={setActiveIntent}
             onBack={() => navigate(prevScreen === 'profile' ? 'profile' : 'home')}
             onReport={() => setIsReportModalOpen(true)}
           />
@@ -884,7 +885,7 @@ function AppContent() {
       </main>
 
       {/* Fixed Bottom Navigation Bar (હોમ | મારી બુકિંગ | પસંદીદા | સંદેશ | વધુ) */}
-      {currentScreen !== 'admin' && currentScreen !== 'chat' && (
+      {currentScreen !== 'admin' && !(currentScreen === 'chat' && activeIntent) && (
         <FixedBottomNavBar
           currentScreen={currentScreen}
           unreadChatCount={unreadChatCount}

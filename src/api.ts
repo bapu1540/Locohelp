@@ -427,12 +427,14 @@ export async function fetchPostConversations(params: {
   postId?: string;
   userId?: string;
   userEmail?: string;
+  userPhone?: string;
 }): Promise<any[]> {
   try {
     const qs = new URLSearchParams();
     if (params.postId) qs.set('postId', params.postId);
     if (params.userId) qs.set('userId', params.userId);
     if (params.userEmail) qs.set('userEmail', params.userEmail);
+    if (params.userPhone) qs.set('userPhone', params.userPhone);
     qs.set('_t', String(Date.now()));
     const res = await fetch(`/api/chat/conversations?${qs.toString()}`, {
       cache: 'no-store',

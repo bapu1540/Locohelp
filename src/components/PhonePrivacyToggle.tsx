@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Lock, Globe, KeyRound, Fingerprint, ShieldCheck, X, Eye, EyeOff } from 'lucide-react';
+import { Lock, Globe, ShieldCheck, X, Eye, EyeOff } from 'lucide-react';
 import { Language } from '../types';
 import { useLanguage } from '../i18n';
 import { verifyDatabaseReauth } from '../auth';
@@ -20,7 +20,6 @@ export const PhonePrivacyToggle: React.FC<PhonePrivacyToggleProps> = ({
   const { language: ctxLanguage } = useLanguage();
   const language: Language = propLanguage || ctxLanguage || 'GU';
   const [showReauthModal, setShowReauthModal] = useState(false);
-  const [authTab, setAuthTab] = useState<'password' | 'biometric'>('password');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [needsNewPassword, setNeedsNewPassword] = useState(false);
@@ -34,7 +33,7 @@ export const PhonePrivacyToggle: React.FC<PhonePrivacyToggleProps> = ({
       return;
     }
     if (isPhonePublic) return;
-    // Switching from Private -> Public requires Database Password or Biometric verification
+    // Switching from Private -> Public requires Database Password verification
     setErrorMsg('');
     setPassword('');
     setShowReauthModal(true);
@@ -77,29 +76,6 @@ export const PhonePrivacyToggle: React.FC<PhonePrivacyToggleProps> = ({
       onChange(true);
       setShowReauthModal(false);
       setPassword('');
-    } finally {
-      setIsVerifying(false);
-    }
-  };
-
-  const handleVerifyBiometric = async () => {
-    setIsVerifying(true);
-    setErrorMsg('');
-    try {
-      const res = await verifyDatabaseReauth({ mode: 'biometric' });
-      if (!res.success) {
-        setErrorMsg(
-          res.error ||
-            (language === 'HI'
-              ? 'फिंगरप्रिंट सत्यापन विफल रहा।'
-              : language === 'GU'
-              ? 'ફિંગરપ્રिન્ટ ચકાસણી નિષ્ફળ રહી.'
-              : 'Biometric verification failed.')
-        );
-        return;
-      }
-      onChange(true);
-      setShowReauthModal(false);
     } finally {
       setIsVerifying(false);
     }
@@ -213,10 +189,10 @@ export const PhonePrivacyToggle: React.FC<PhonePrivacyToggleProps> = ({
                   </h4>
                   <p className="text-[11px] font-semibold text-slate-500">
                     {language === 'HI'
-                      ? 'नंबर पब्लिक करने के लिए पासवर्ड या फिंगरप्रिंट से पुष्टि करें'
+                      ? 'नंबर पब्लिक करने के लिए पासवर्ड से पुष्टि करें'
                       : language === 'GU'
-                      ? 'નંબર પબ્લિક કરવા માટે પાસવર્ડ અથવા ફિંગરપ્રિન્ટથી પુષ્ટિ કરો'
-                      : 'Verify with your Password or Fingerprint to make number public'}
+                      ? 'નંબર પબ્લિક કરવા માટે પાસવર્ડથી પુષ્ટિ કરો'
+                      : 'Verify with your Password to make number public'}
                   </p>
                 </div>
               </div>
@@ -229,136 +205,70 @@ export const PhonePrivacyToggle: React.FC<PhonePrivacyToggleProps> = ({
               </button>
             </div>
 
-            {/* Method Switcher */}
-            <div className="grid grid-cols-2 gap-1.5 bg-slate-100 p-1 rounded-xl">
-              <button
-                type="button"
-                onClick={() => {
-                  setAuthTab('password');
-                  setErrorMsg('');
-                }}
-                className={`py-2 rounded-lg text-xs font-extrabold flex items-center justify-center gap-1.5 transition-all ${
-                  authTab === 'password' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600'
-                }`}
-              >
-                <KeyRound className="w-3.5 h-3.5" />
-                <span>{language === 'HI' ? 'पासवर्ड' : language === 'GU' ? 'પાસવર્ડ' : 'Password'}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setAuthTab('biometric');
-                  setErrorMsg('');
-                }}
-                className={`py-2 rounded-lg text-xs font-extrabold flex items-center justify-center gap-1.5 transition-all ${
-                  authTab === 'biometric' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-600'
-                }`}
-              >
-                <Fingerprint className="w-3.5 h-3.5" />
-                <span>{language === 'HI' ? 'फिंगरप्रिंट' : language === 'GU' ? 'ફિંગરપ્રિન્ટ' : 'Biometric'}</span>
-              </button>
-            </div>
-
             {errorMsg && (
               <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold">
                 {errorMsg}
               </div>
             )}
 
-            {authTab === 'password' ? (
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    {needsNewPassword
-                      ? language === 'HI'
-                        ? 'नया सुरक्षित पासवर्ड बनाएं (कम से कम 6 अक्षर)'
-                        : language === 'GU'
-                        ? 'નવો સુરક્ષિત પાસવર્ડ બનાવો (ઓછામાં ઓછા 6 અક્ષર)'
-                        : 'Create a Security Password (min 6 chars)'
-                      : language === 'HI'
-                      ? 'अपना LocoHelp पासवर्ड दर्ज करें'
-                      : language === 'GU'
-                      ? 'તમારો LocoHelp પાસવર્ડ દાખલ કરો'
-                      : 'Enter your LocoHelp Password'}
-                  </label>
-                  <div className="relative">
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••"
-                      className="w-full h-11 pl-3.5 pr-10 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 focus:outline-none focus:border-indigo-600"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                    >
-                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  disabled={isVerifying}
-                  onClick={() => handleVerifyPassword()}
-                  className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-extrabold text-xs shadow-md transition-all"
-                >
-                  {isVerifying
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  {needsNewPassword
                     ? language === 'HI'
-                      ? 'जांच हो रही है...'
+                      ? 'नया सुरक्षित पासवर्ड बनाएं (कम से कम 6 अक्षर)'
                       : language === 'GU'
-                      ? 'ચકાસણી થઈ રહી છે...'
-                      : 'Verifying...'
-                    : needsNewPassword
-                    ? language === 'HI'
-                      ? 'पासवर्ड सेव करें और नंबर पब्लिक करें'
-                      : language === 'GU'
-                      ? 'પાસવર્ડ સેવ કરો અને નંબર પબ્લિક કરો'
-                      : 'Save Password & Make Public'
+                      ? 'નવો સુરક્ષિત પાસવર્ડ બનાવો (ઓછામાં ઓછા 6 અક્ષર)'
+                      : 'Create a Security Password (min 6 chars)'
                     : language === 'HI'
-                    ? 'पासवर्ड वेरिफाई करें और पब्लिक करें'
+                    ? 'अपना LocoHelp पासवर्ड दर्ज करें'
                     : language === 'GU'
-                    ? 'પાસવર્ડ વેરિફાય કરો અને પબ્લિક કરો'
-                    : 'Verify Password & Make Public'}
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-3 text-center py-2">
-                <div className="w-14 h-14 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto border border-emerald-200">
-                  <Fingerprint className="w-8 h-8" />
+                    ? 'તમારો LocoHelp પાસવર્ડ દાખલ કરો'
+                    : 'Enter your LocoHelp Password'}
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full h-11 pl-3.5 pr-10 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 focus:outline-none focus:border-indigo-600"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
                 </div>
-                <p className="text-xs font-semibold text-slate-600">
-                  {language === 'HI'
-                    ? 'अपने फोन के फिंगरप्रिंट या फेस लॉक से तुरंत पुष्टि करें'
-                    : language === 'GU'
-                    ? 'તમારા ફોનના ફિંગરપ્રિન્ટ અથવા ફેસ લોકથી તરત પુષ્ટિ કરો'
-                    : 'Confirm instantly using your phone Fingerprint or Face Lock'}
-                </p>
-                <button
-                  type="button"
-                  disabled={isVerifying}
-                  onClick={handleVerifyBiometric}
-                  className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-extrabold text-xs shadow-md transition-all flex items-center justify-center gap-2"
-                >
-                  <Fingerprint className="w-4 h-4" />
-                  <span>
-                    {isVerifying
-                      ? language === 'HI'
-                        ? 'सत्यापन हो रहा है...'
-                        : language === 'GU'
-                        ? 'ચકાસણી થઈ રહી છે...'
-                        : 'Verifying...'
-                      : language === 'HI'
-                      ? 'फिंगरप्रिंट से वेरिफाई करें'
-                      : language === 'GU'
-                      ? 'ફિંગરપ્રિન્ટથી વેરિફાય કરો'
-                      : 'Verify with Fingerprint'}
-                  </span>
-                </button>
               </div>
-            )}
+
+              <button
+                type="button"
+                disabled={isVerifying}
+                onClick={() => handleVerifyPassword()}
+                className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-extrabold text-xs shadow-md transition-all"
+              >
+                {isVerifying
+                  ? language === 'HI'
+                    ? 'जांच हो रही है...'
+                    : language === 'GU'
+                    ? 'ચકાસણી થઈ રહી છે...'
+                    : 'Verifying...'
+                  : needsNewPassword
+                  ? language === 'HI'
+                    ? 'पासवर्ड सेव करें और नंबर पब्लिक करें'
+                    : language === 'GU'
+                    ? 'પાસવર્ડ સેવ કરો અને નંબર પબ્લિક કરો'
+                    : 'Save Password & Make Public'
+                  : language === 'HI'
+                  ? 'पासवर्ड वेरिफाई करें और पब्लिक करें'
+                  : language === 'GU'
+                  ? 'પાસવર્ડ વેરિફાય કરો અને પબ્લિક કરો'
+                  : 'Verify Password & Make Public'}
+              </button>
+            </div>
           </div>
         </div>
       )}

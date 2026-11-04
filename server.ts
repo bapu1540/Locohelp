@@ -5227,21 +5227,40 @@ async function startServer() {
     const emailPhone = email.endsWith("@phone.locohelp.com") ? normalizePhoneDigitsServer(email.split("@")[0]) : "";
     let phoneDigits = normalizePhoneDigitsServer(rawPhone || "") || uidPhone || emailPhone;
 
-    // If only uid was passed (e.g. during chat reply), enrich email & phoneDigits from users/profiles table
-    if (dbPool && isDbConnected && uid && (!email || !phoneDigits)) {
+    // If only uid/email/phone was passed, enrich missing email, phoneDigits, and linked uids from users/profiles/verification_requests
+    const extraLinkedIds: string[] = [];
+    if (dbPool && isDbConnected && (uid || email || phoneDigits)) {
       try {
         const uLookup = await dbPool
           .query(
-            `SELECT email, phone FROM users
-             WHERE LOWER(COALESCE(id, '')) = LOWER($1)
+            `SELECT id::text AS id, email, phone FROM users
+             WHERE ($1 <> '' AND LOWER(COALESCE(id::text, '')) = LOWER($1))
                 OR ($2 <> '' AND LOWER(COALESCE(email, '')) = LOWER($2))
-             LIMIT 1`,
-            [uid, email]
+                OR ($3 <> '' AND REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE '%' || $3)
+             LIMIT 3`,
+            [uid, email, phoneDigits]
           )
           .catch(() => ({ rows: [] as any[] }));
-        if (uLookup.rows.length > 0) {
-          if (!email && uLookup.rows[0].email) email = String(uLookup.rows[0].email).trim().toLowerCase();
-          if (!phoneDigits && uLookup.rows[0].phone) phoneDigits = normalizePhoneDigitsServer(uLookup.rows[0].phone);
+        for (const r of uLookup.rows) {
+          if (r.id) extraLinkedIds.push(String(r.id).trim().toLowerCase());
+          if (!email && r.email) email = String(r.email).trim().toLowerCase();
+          if (!phoneDigits && r.phone) phoneDigits = normalizePhoneDigitsServer(r.phone);
+        }
+        const pLookup = await dbPool
+          .query(
+            `SELECT uid, id, email, phone FROM profiles
+             WHERE ($1 <> '' AND (LOWER(COALESCE(uid, '')) = LOWER($1) OR LOWER(COALESCE(id, '')) = LOWER($1)))
+                OR ($2 <> '' AND LOWER(COALESCE(email, '')) = LOWER($2))
+                OR ($3 <> '' AND REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE '%' || $3)
+             LIMIT 3`,
+            [uid, email, phoneDigits]
+          )
+          .catch(() => ({ rows: [] as any[] }));
+        for (const r of pLookup.rows) {
+          if (r.uid) extraLinkedIds.push(String(r.uid).trim().toLowerCase());
+          if (r.id) extraLinkedIds.push(String(r.id).trim().toLowerCase());
+          if (!email && r.email) email = String(r.email).trim().toLowerCase();
+          if (!phoneDigits && r.phone) phoneDigits = normalizePhoneDigitsServer(r.phone);
         }
       } catch {}
     }
@@ -5265,6 +5284,7 @@ async function startServer() {
       new Set(
         [
           uid,
+          ...extraLinkedIds,
           email,
           email ? `email_${email.replace(/[^a-z0-9]/g, "_")}` : "",
           phoneDigits ? `phone_${phoneDigits}` : "",
@@ -5814,8 +5834,8 @@ async function startServer() {
         });
       }
 
-      // SECURITY CHECK: Do NOT allow unverified new Mobile/Email accounts to directly set a PIN/Password without verifying OTP first
-      if (!existing && !req.body?.afterOtpVerified && mode !== "set_after_otp") {
+      // SECURITY CHECK: Do NOT allow unverified Mobile/Email accounts (or existing accounts without a password) to directly set a PIN/Password without verifying OTP first
+      if ((!existing || !existing.passwordHash) && !req.body?.afterOtpVerified && mode !== "set_after_otp") {
         return res.status(403).json({
           success: false,
           needsOtp: true,
@@ -6133,7 +6153,6 @@ async function startServer() {
         return res.json({
           success: true,
           allowed: true,
-          fallbackOtpCode: "123456",
           usedToday: 0,
           remainingToday: MAX_DAILY_MOBILE_OTP,
           maxPerDay: MAX_DAILY_MOBILE_OTP,
@@ -6178,37 +6197,17 @@ async function startServer() {
         return res.json({ success: usage.allowed, ...usage });
       }
 
-      // Always generate a 6-digit server fallback OTP first so preview / fallback mode is never blocked
-      const fallbackOtpCode = String(Math.floor(100000 + Math.random() * 900000));
-      const expiresAtMs = Date.now() + 10 * 60 * 1000;
-      otpStore.set(tenDigits, { code: fallbackOtpCode, expiresAt: expiresAtMs, attempts: 0, type: 'mobile' });
-      otpStore.set(parsed.syntheticEmail, { code: fallbackOtpCode, expiresAt: expiresAtMs, attempts: 0, type: 'mobile' });
-      if (dbPool && isDbConnected) {
-        void Promise.all([
-          dbPool.query(
-            `INSERT INTO otp_codes (identifier, code, type, attempts, expires_at, created_at)
-             VALUES ($1, $2, 'phone', 0, to_timestamp($3), NOW())`,
-            [tenDigits, fallbackOtpCode, expiresAtMs / 1000]
-          ).catch(() => {}),
-          dbPool.query(
-            `INSERT INTO otp_codes (identifier, code, type, attempts, expires_at, created_at)
-             VALUES ($1, $2, 'phone', 0, to_timestamp($3), NOW())`,
-            [parsed.syntheticEmail, fallbackOtpCode, expiresAtMs / 1000]
-          ).catch(() => {})
-        ]);
-      }
-
       // Enforce anti-spam cooldown between consecutive OTP sends
       if (usage.cooldownRemaining > 0) {
-        return res.json({
-          success: true,
-          allowed: true,
-          fallbackOtpCode,
+        return res.status(429).json({
+          success: false,
+          allowed: false,
           cooldownRemaining: usage.cooldownRemaining,
           usedToday: usage.usedToday,
-          remainingToday: Math.max(1, usage.remainingToday),
+          remainingToday: Math.max(0, usage.remainingToday),
           maxPerDay: MAX_DAILY_MOBILE_OTP,
-          dailyLimitReached: false
+          dailyLimitReached: false,
+          error: `Please wait ${usage.cooldownRemaining} seconds before requesting a new OTP.`
         });
       }
 
@@ -6251,11 +6250,10 @@ async function startServer() {
       return res.json({
         success: true,
         allowed: true,
-        fallbackOtpCode,
         usedToday: newCount,
         remainingToday: Math.max(0, MAX_DAILY_MOBILE_OTP - newCount),
         maxPerDay: MAX_DAILY_MOBILE_OTP,
-        cooldownRemaining: 15,
+        cooldownRemaining: 60,
         dailyLimitReached: newCount >= MAX_DAILY_MOBILE_OTP
       });
     } catch (e: any) {
@@ -7434,9 +7432,12 @@ async function startServer() {
           });
         }
         const approvalState = await getUserApprovalState(checkUid, checkEmail, checkPhone);
-        if (approvalState.status === "deleted" || approvalState.status === "rejected") {
+        if (!approvalState.isApproved) {
           return res.status(403).json({
-            error: "आपका अकाउंट एडमिन द्वारा रोक दिया गया है या हटाया गया है। (Your account is restricted or deleted.)",
+            error:
+              approvalState.status === "deleted" || approvalState.status === "rejected"
+                ? "आपका अकाउंट एडमिन द्वारा रोक दिया गया है या हटाया गया है। (Your account is restricted or deleted.)"
+                : "आपका अकाउंट अभी एडमिन अप्रूवल (Admin Approval) के लिए पेंडिंग है। एडमिन द्वारा अप्रूव होने के बाद ही आप पोस्ट कर सकते हैं। (Your account is pending Admin approval.)",
             code: "ACCOUNT_PENDING_APPROVAL",
             approvalStatus: approvalState.status
           });
@@ -8621,8 +8622,9 @@ async function startServer() {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
       const postId = String(req.params.id || req.query.postId || req.query.post_id || req.query.intentId || "").trim();
       const caller = extractRequestUser(req);
-      const userIdParam = String(req.query.userId || req.query.user_id || req.query.ownerId || req.query.owner_id || caller?.uid || "").trim();
-      const userEmailParam = String(req.query.userEmail || req.query.ownerEmail || req.query.owner_email || caller?.email || "").trim().toLowerCase();
+      const userIdParam = String(req.query.userId || req.query.user_id || req.query.ownerId || req.query.owner_id || req.headers["x-user-id"] || caller?.uid || "").trim();
+      const userEmailParam = String(req.query.userEmail || req.query.ownerEmail || req.query.owner_email || req.headers["x-user-email"] || caller?.email || "").trim().toLowerCase();
+      const userPhoneParam = normalizePhoneDigitsServer(String(req.query.userPhone || req.headers["x-user-phone"] || caller?.phone || ""));
 
       const ownerInfo = postId ? await resolvePostOwnerInfo(postId) : { posterId: "", posterName: "", posterEmail: "", posterAvatar: "", postDescription: "" };
       const ownerIds = await expandIdentitySetFromDb(buildServerIdentitySet(ownerInfo.posterId, ownerInfo.posterEmail));
@@ -8632,7 +8634,13 @@ async function startServer() {
           .map((s) => String(s || "").trim().toLowerCase())
           .filter(Boolean)
       );
-      const viewerIdentitySet = await expandIdentitySetFromDb(buildServerIdentitySet(userIdParam, userEmailParam));
+      const baseViewerSet = buildServerIdentitySet(userIdParam, userEmailParam);
+      if (userPhoneParam) {
+        baseViewerSet.add(userPhoneParam);
+        baseViewerSet.add(`phone_${userPhoneParam}`);
+        baseViewerSet.add(`${userPhoneParam}@phone.locohelp.com`);
+      }
+      const viewerIdentitySet = await expandIdentitySetFromDb(baseViewerSet);
       const viewerIdentityArray = Array.from(viewerIdentitySet);
 
       // Normalized key helper so conversations table and messages table rows for the same (postId, helperId) ALWAYS merge into one thread
@@ -8859,7 +8867,7 @@ async function startServer() {
           } catch {}
         }
 
-        // 3. Enrich BOTH poster and helper names/emails/avatars from users & helpers tables if any are generic
+        // 3. Enrich poster and helper names/emails/avatars + post titles/descriptions from users, profiles, helpers, and posts tables
         try {
           const allUserLookupKeys = Array.from(
             new Set(
@@ -8874,35 +8882,139 @@ async function startServer() {
                 .filter(Boolean)
             )
           );
-          if (allUserLookupKeys.length > 0) {
-            const [uRes, hLookupRes] = await Promise.all([
-              dbPool
-                .query(
-                  "SELECT id::text AS id, name, email, avatar_url FROM users WHERE LOWER(id::text) = ANY($1::text[]) OR LOWER(email) = ANY($1::text[])",
-                  [allUserLookupKeys]
-                )
-                .catch(() => ({ rows: [] as any[] })),
-              dbPool
-                .query(
-                  "SELECT id, user_id, name, email, photo_url FROM helpers WHERE LOWER(id) = ANY($1::text[]) OR LOWER(COALESCE(user_id, '')) = ANY($1::text[])",
-                  [allUserLookupKeys]
-                )
-                .catch(() => ({ rows: [] as any[] }))
+          const allPostIds = Array.from(
+            new Set(
+              Array.from(conversationsMap.values())
+                .map((c) => String(c.postId || "").trim())
+                .filter((id) => id && id !== "general")
+            )
+          );
+          if (allUserLookupKeys.length > 0 || allPostIds.length > 0) {
+            const [uRes, pLookupRes, hLookupRes, postsLookupRes, bPostsLookupRes] = await Promise.all([
+              allUserLookupKeys.length > 0
+                ? dbPool
+                    .query(
+                      "SELECT id::text AS id, name, email, phone, avatar_url FROM users WHERE LOWER(id::text) = ANY($1::text[]) OR LOWER(email) = ANY($1::text[])",
+                      [allUserLookupKeys]
+                    )
+                    .catch(() => ({ rows: [] as any[] }))
+                : Promise.resolve({ rows: [] as any[] }),
+              allUserLookupKeys.length > 0
+                ? dbPool
+                    .query(
+                      "SELECT uid, id, name, full_name, email, phone, avatar_url, image_url FROM profiles WHERE LOWER(COALESCE(uid, '')) = ANY($1::text[]) OR LOWER(COALESCE(id, '')) = ANY($1::text[]) OR LOWER(COALESCE(email, '')) = ANY($1::text[])",
+                      [allUserLookupKeys]
+                    )
+                    .catch(() => ({ rows: [] as any[] }))
+                : Promise.resolve({ rows: [] as any[] }),
+              allUserLookupKeys.length > 0
+                ? dbPool
+                    .query(
+                      "SELECT id, user_id, name, email, photo_url, category_id, address FROM helpers WHERE LOWER(id) = ANY($1::text[]) OR LOWER(COALESCE(user_id, '')) = ANY($1::text[])",
+                      [allUserLookupKeys]
+                    )
+                    .catch(() => ({ rows: [] as any[] }))
+                : Promise.resolve({ rows: [] as any[] }),
+              allPostIds.length > 0
+                ? dbPool
+                    .query(
+                      "SELECT id, user_id, author_name, content, category, city FROM posts WHERE id = ANY($1::text[])",
+                      [allPostIds]
+                    )
+                    .catch(() => ({ rows: [] as any[] }))
+                : Promise.resolve({ rows: [] as any[] }),
+              allPostIds.length > 0
+                ? dbPool
+                    .query(
+                      "SELECT id, author_id, author_name, author_avatar, description, category FROM broadcast_posts WHERE id = ANY($1::text[])",
+                      [allPostIds]
+                    )
+                    .catch(() => ({ rows: [] as any[] }))
+                : Promise.resolve({ rows: [] as any[] })
             ]);
             const uMap = new Map<string, { name?: string; email?: string; avatar?: string }>();
             uRes.rows.forEach((u: any) => {
-              if (u.id) uMap.set(String(u.id).toLowerCase(), { name: u.name, email: u.email, avatar: u.avatar_url });
-              if (u.email) uMap.set(String(u.email).toLowerCase(), { name: u.name, email: u.email, avatar: u.avatar_url });
+              const info = { name: u.name, email: u.email, avatar: u.avatar_url };
+              if (u.id) uMap.set(String(u.id).toLowerCase(), info);
+              if (u.email) uMap.set(String(u.email).toLowerCase(), info);
+              const ph = normalizePhoneDigitsServer(u.phone || "");
+              if (ph) {
+                uMap.set(`phone_${ph}`, info);
+                uMap.set(`${ph}@phone.locohelp.com`, info);
+              }
             });
+            pLookupRes.rows.forEach((p: any) => {
+              const info = { name: p.full_name || p.name, email: p.email, avatar: p.avatar_url || p.image_url };
+              if (p.uid) uMap.set(String(p.uid).toLowerCase(), info);
+              if (p.id) uMap.set(String(p.id).toLowerCase(), info);
+              if (p.email) uMap.set(String(p.email).toLowerCase(), info);
+              const ph = normalizePhoneDigitsServer(p.phone || "");
+              if (ph) {
+                uMap.set(`phone_${ph}`, info);
+                uMap.set(`${ph}@phone.locohelp.com`, info);
+              }
+            });
+            const postInfoMap = new Map<string, { title?: string; authorId?: string; authorName?: string; authorAvatar?: string; location?: string; category?: string }>();
             hLookupRes.rows.forEach((h: any) => {
               const info = { name: h.name, email: h.email, avatar: h.photo_url };
               if (h.id) {
                 uMap.set(String(h.id).toLowerCase(), info);
                 uMap.set(`provider_chat_${String(h.id).toLowerCase()}`, info);
+                postInfoMap.set(`provider_chat_${String(h.id)}`, {
+                  title: h.category_id ? `${h.name} (${h.category_id})` : `${h.name} - Service Inquiry`,
+                  authorId: h.user_id || h.id,
+                  authorName: h.name,
+                  authorAvatar: h.photo_url,
+                  location: h.address || "",
+                  category: h.category_id || "Service"
+                });
               }
               if (h.user_id) uMap.set(String(h.user_id).toLowerCase(), info);
             });
+            bPostsLookupRes.rows.forEach((bp: any) => {
+              if (bp.id) {
+                postInfoMap.set(String(bp.id), {
+                  title: bp.description,
+                  authorId: bp.author_id,
+                  authorName: bp.author_name,
+                  authorAvatar: bp.author_avatar,
+                  category: bp.category
+                });
+              }
+            });
+            postsLookupRes.rows.forEach((p: any) => {
+              if (p.id) {
+                const prev = postInfoMap.get(String(p.id)) || {};
+                postInfoMap.set(String(p.id), {
+                  title: p.content || prev.title,
+                  authorId: p.user_id || prev.authorId,
+                  authorName: p.author_name || prev.authorName,
+                  authorAvatar: prev.authorAvatar,
+                  location: p.city || prev.location,
+                  category: p.category || prev.category
+                });
+              }
+            });
+
             conversationsMap.forEach((c) => {
+              const pMeta = postInfoMap.get(String(c.postId || ""));
+              if (pMeta) {
+                if (!c.postTitle && pMeta.title) c.postTitle = pMeta.title;
+                if (!c.postDescription && pMeta.title) c.postDescription = pMeta.title;
+                if (!c.location && pMeta.location) c.location = pMeta.location;
+                if (!c.category && pMeta.category) c.category = pMeta.category;
+                if ((!c.posterId || c.posterId === "Post Owner") && pMeta.authorId) {
+                  c.posterId = pMeta.authorId;
+                  c.poster_id = pMeta.authorId;
+                }
+                if ((!c.posterName || c.posterName === "Post Owner" || c.posterName === "Community Member") && pMeta.authorName) {
+                  c.posterName = pMeta.authorName;
+                }
+                if (!c.posterAvatar && pMeta.authorAvatar) {
+                  c.posterAvatar = pMeta.authorAvatar;
+                }
+              }
+
               const hInfo = uMap.get(String(c.helperId || "").toLowerCase()) || (c.helperEmail ? uMap.get(String(c.helperEmail).toLowerCase()) : undefined);
               if (hInfo) {
                 if ((!c.helperName || c.helperName === "Community Helper" || c.helperName === "Community Peer") && hInfo.name) {
@@ -9033,6 +9145,59 @@ async function startServer() {
             }
           }
         }
+      } catch {}
+
+      // Final pass: enrich from local INTENTS_FILE if postTitle is still missing, and compute accurate partner fields for the requesting user
+      try {
+        const localIntents = readJsonFile<any[]>(INTENTS_FILE, []);
+        const localIntentMap = new Map<string, any>();
+        localIntents.forEach((it) => {
+          if (it && it.id) localIntentMap.set(String(it.id), it);
+        });
+        conversationsMap.forEach((c) => {
+          const locIt = localIntentMap.get(String(c.postId || ""));
+          if (locIt) {
+            if (!c.postTitle && locIt.description) c.postTitle = locIt.description;
+            if (!c.postDescription && locIt.description) c.postDescription = locIt.description;
+            if (!c.location && locIt.location) c.location = locIt.location;
+            if ((!c.posterName || c.posterName === "Post Owner") && locIt.authorName) c.posterName = locIt.authorName;
+            if (!c.posterId && locIt.authorId) {
+              c.posterId = locIt.authorId;
+              c.poster_id = locIt.authorId;
+            }
+            if (!c.posterAvatar && locIt.authorAvatar) c.posterAvatar = locIt.authorAvatar;
+          }
+          if (!c.postTitle && ownerInfo.postDescription && (!postId || c.postId === postId)) {
+            c.postTitle = ownerInfo.postDescription;
+          }
+          const hIdLow = String(c.helperId || "").trim().toLowerCase();
+          const hEmailLow = String(c.helperEmail || "").trim().toLowerCase();
+          const pIdLow = String(c.posterId || "").trim().toLowerCase();
+          const pEmailLow = String(c.posterEmail || "").trim().toLowerCase();
+          const isViewerHelper = Boolean(
+            (hIdLow && viewerIdentitySet.has(hIdLow)) ||
+            (hEmailLow && viewerIdentitySet.has(hEmailLow))
+          );
+          const isViewerPoster = Boolean(
+            !isViewerHelper &&
+            ((pIdLow && viewerIdentitySet.has(pIdLow)) ||
+             (pEmailLow && viewerIdentitySet.has(pEmailLow)) ||
+             (c.postId && viewerIdentitySet.has(String(c.postId).toLowerCase())))
+          );
+          c.isViewerHelper = isViewerHelper;
+          c.isViewerPoster = isViewerPoster;
+          if (isViewerHelper) {
+            c.partnerId = c.posterId || c.postId;
+            c.partnerName = c.posterName || "Post Owner";
+            c.partnerEmail = c.posterEmail || "";
+            c.partnerAvatar = c.posterAvatar || "";
+          } else {
+            c.partnerId = c.helperId || c.senderId || "";
+            c.partnerName = c.helperName || c.senderName || "Community Helper";
+            c.partnerEmail = c.helperEmail || c.senderEmail || "";
+            c.partnerAvatar = c.helperAvatar || c.senderAvatar || "";
+          }
+        });
       } catch {}
 
       const list = Array.from(conversationsMap.values()).sort(
@@ -9464,7 +9629,7 @@ async function startServer() {
         } catch {}
       }
 
-      // Strict 3-Step Account Lifecycle: Login -> Admin Approval -> Post & Message
+      // Account Check for Messaging: Ensure user is logged in and not blocked/deleted/rejected
       if (!isRequestAdmin(req)) {
         if (!senderIdVal || senderIdVal === "guest" || senderIdVal === "guest_user") {
           return res.status(401).json({
@@ -9473,9 +9638,9 @@ async function startServer() {
           });
         }
         const senderApproval = await getUserApprovalState(senderIdVal, resolvedEmail, resolvedPhone);
-        if (!senderApproval.isApproved) {
+        if (senderApproval.status === "deleted" || senderApproval.status === "rejected") {
           return res.status(403).json({
-            error: "आपका अकाउंट अभी एडमिन अप्रूवल (Admin Approval) के लिए पेंडिंग है। एडमिन द्वारा अप्रूव होने के बाद ही आप किसी को मैसेज या पोस्ट कर सकते हैं। (તમારું એકાઉન્ટ એડમિન અપ્રૂવલ માટે પેન્ડિંગ છે.)",
+            error: "आपका अकाउंट एडमिन द्वारा रोक दिया गया है। (Your account is restricted by Admin.)",
             code: "ACCOUNT_PENDING_APPROVAL",
             approvalStatus: senderApproval.status
           });
@@ -12984,6 +13149,36 @@ async function startServer() {
               isVerified: Boolean(r.verified || r.is_verified || r.status === 'approved')
             };
           }
+          // Also check users and verification_requests tables if email or phone is missing on profiles row
+          if (!current.email || !current.phone || !current.name) {
+            const uRes = await dbPool
+              .query("SELECT * FROM users WHERE id::text = $1 OR LOWER(email) = LOWER($1) LIMIT 1", [uid])
+              .catch(() => ({ rows: [] as any[] }));
+            if (uRes.rows.length > 0) {
+              const u = uRes.rows[0];
+              if (!current.name && u.name) {
+                current.name = u.name;
+                current.full_name = u.name;
+              }
+              if (!current.email && u.email) current.email = String(u.email).trim().toLowerCase();
+              if (!current.phone && u.phone) current.phone = String(u.phone).trim();
+            }
+            const vRes = await dbPool
+              .query(
+                "SELECT * FROM verification_requests WHERE id = $1 OR entity_id = $1 OR user_id = $1 ORDER BY created_at DESC LIMIT 1",
+                [uid]
+              )
+              .catch(() => ({ rows: [] as any[] }));
+            if (vRes.rows.length > 0) {
+              const v = vRes.rows[0];
+              if (!current.name && (v.user_name || v.entity_name)) {
+                current.name = v.user_name || v.entity_name;
+                current.full_name = current.name;
+              }
+              if (!current.email && v.user_email) current.email = String(v.user_email).trim().toLowerCase();
+              if (!current.phone && v.user_phone) current.phone = String(v.user_phone).trim();
+            }
+          }
         } catch {}
       }
 
@@ -12992,8 +13187,8 @@ async function startServer() {
         current.full_name = current.name;
         current.displayName = current.name;
       }
-      if (typeof updates.email === 'string') current.email = sanitizeStringServer(updates.email, 150).toLowerCase();
-      if (typeof updates.phone === 'string') current.phone = sanitizeStringServer(updates.phone, 30);
+      if (typeof updates.email === 'string' && updates.email.trim()) current.email = sanitizeStringServer(updates.email, 150).toLowerCase();
+      if (typeof updates.phone === 'string' && updates.phone.trim()) current.phone = sanitizeStringServer(updates.phone, 30);
       if (typeof (updates.address || updates.area) === 'string') current.address = sanitizeStringServer(updates.address || updates.area, 300);
       if (typeof (updates.skills || updates.bio) === 'string') current.skills = sanitizeStringServer(updates.skills || updates.bio, 500);
       if (typeof updates.experience === 'string') current.experience = sanitizeStringServer(updates.experience, 120);
@@ -13014,9 +13209,17 @@ async function startServer() {
         current.status = normSt;
         current.isVerified = normSt === 'approved';
         current.is_verified = normSt === 'approved';
+      } else if (typeof updates.isVerified === 'boolean' || typeof updates.verified === 'boolean') {
+        const verBool = Boolean(updates.isVerified ?? updates.verified);
+        current.isVerified = verBool;
+        current.is_verified = verBool;
+        current.status = verBool ? 'approved' : 'pending';
       }
       current.updated_at = new Date().toISOString();
-      const phoneDigits = normalizePhoneDigitsServer(current.phone || (uid.startsWith('phone_') ? uid : ''));
+      const emailPhoneDigits = current.email && String(current.email).endsWith('@phone.locohelp.com')
+        ? normalizePhoneDigitsServer(String(current.email).split('@')[0])
+        : '';
+      const phoneDigits = normalizePhoneDigitsServer(current.phone || (uid.startsWith('phone_') ? uid : '') || emailPhoneDigits);
 
       // Sync local files as well (matching by uid, email, or 10-digit phone)
       const profilesFileMap = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
@@ -14005,11 +14208,39 @@ async function startServer() {
             updatedItem = row;
             const isAppr = status === 'approved';
             const rowEmail = String(row.user_email || '').trim().toLowerCase();
-            await unmarkEntitiesDeletedPermanently([id, row.entity_id, row.user_id, rowEmail, row.user_phone]).catch(() => {});
+            const rowPhoneDigits = normalizePhoneDigitsServer(
+              row.user_phone ||
+                (String(row.user_id || '').startsWith('phone_') ? row.user_id : '') ||
+                (rowEmail.endsWith('@phone.locohelp.com') ? rowEmail.split('@')[0] : '')
+            );
+            await unmarkEntitiesDeletedPermanently([
+              id,
+              row.entity_id,
+              row.user_id,
+              rowEmail,
+              row.user_phone,
+              rowPhoneDigits ? `phone_${rowPhoneDigits}` : '',
+              rowPhoneDigits ? `${rowPhoneDigits}@phone.locohelp.com` : ''
+            ]).catch(() => {});
 
-            if (rowEmail) {
-              await dbPool.query(`UPDATE verification_requests SET status = $1, reviewed_at = NOW() WHERE LOWER(TRIM(COALESCE(user_email, ''))) = LOWER(TRIM($2)) AND entity_type = 'user_profile'`, [status, rowEmail]).catch(() => {});
-              await dbPool.query(`UPDATE users SET is_deleted = false, hidden = false WHERE LOWER(TRIM(COALESCE(email, ''))) = LOWER(TRIM($1))`, [rowEmail]).catch(() => {});
+            if (rowEmail || rowPhoneDigits) {
+              await dbPool.query(
+                `UPDATE verification_requests
+                 SET status = $1, reviewed_at = NOW()
+                 WHERE entity_type = 'user_profile'
+                   AND (
+                     ($2 <> '' AND LOWER(TRIM(COALESCE(user_email, ''))) = LOWER(TRIM($2)))
+                     OR ($3 <> '' AND REGEXP_REPLACE(COALESCE(user_phone, ''), '\\D', '', 'g') LIKE '%' || $3)
+                   )`,
+                [status, rowEmail, rowPhoneDigits]
+              ).catch(() => {});
+              await dbPool.query(
+                `UPDATE users
+                 SET is_deleted = false, hidden = false
+                 WHERE ($1 <> '' AND LOWER(TRIM(COALESCE(email, ''))) = LOWER(TRIM($1)))
+                    OR ($2 <> '' AND REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE '%' || $2)`,
+                [rowEmail, rowPhoneDigits]
+              ).catch(() => {});
             }
 
             if (String(row.entity_id || '').startsWith('ad_')) {
@@ -14019,9 +14250,47 @@ async function startServer() {
               await dbPool.query("UPDATE shops SET is_verified = $1, is_deleted = false, hidden = false WHERE id = $2", [isAppr, row.entity_id]).catch(() => {});
               await dbPool.query("UPDATE businesses SET is_verified = $1, is_approved = $1, is_deleted = false, hidden = false WHERE id = $2", [isAppr, row.entity_id]).catch(() => {});
             } else if (row.entity_type === 'helper' || String(row.id || '').startsWith('verif_hlp_') || String(row.entity_id || '').startsWith('helper_')) {
-              await dbPool.query("UPDATE helpers SET is_verified = $1, status = $2, is_deleted = false, hidden = false WHERE id = $3 OR user_id = $4 OR ($5 <> '' AND LOWER(COALESCE(email, '')) = LOWER($5))", [isAppr, status, row.entity_id, row.user_id, rowEmail]).catch(() => {});
+              await dbPool.query(
+                `UPDATE helpers
+                 SET is_verified = $1, status = $2, is_deleted = false, hidden = false
+                 WHERE id = $3
+                    OR user_id = $4
+                    OR ($5 <> '' AND LOWER(COALESCE(email, '')) = LOWER($5))
+                    OR ($6 <> '' AND REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE '%' || $6)`,
+                [isAppr, status, row.entity_id, row.user_id, rowEmail, rowPhoneDigits]
+              ).catch(() => {});
             } else {
-              await dbPool.query("UPDATE profiles SET is_verified = $1, verified = $1, status = $2, is_deleted = false, hidden = false, updated_at = NOW() WHERE uid = $3 OR id = $3 OR uid = $4 OR ($5 <> '' AND LOWER(TRIM(COALESCE(email, ''))) = LOWER(TRIM($5)))", [isAppr, status, row.entity_id, row.user_id, rowEmail]).catch(() => {});
+              const targetUid = String(row.user_id || row.entity_id || id).trim();
+              await dbPool.query(
+                `INSERT INTO profiles (uid, id, user_id, name, full_name, email, phone, verified, is_verified, status, is_deleted, hidden, updated_at)
+                 VALUES ($1, $1, $1, $2, $2, $3, $4, $5, $5, $6, false, false, NOW())
+                 ON CONFLICT (uid) DO UPDATE SET
+                   verified = EXCLUDED.verified,
+                   is_verified = EXCLUDED.is_verified,
+                   status = EXCLUDED.status,
+                   is_deleted = false,
+                   hidden = false,
+                   updated_at = NOW()`,
+                [
+                  targetUid,
+                  row.user_name || row.entity_name || 'Community Member',
+                  rowEmail,
+                  row.user_phone || rowPhoneDigits || '',
+                  isAppr,
+                  status
+                ]
+              ).catch(() => {});
+              await dbPool.query(
+                `UPDATE profiles
+                 SET is_verified = $1, verified = $1, status = $2, is_deleted = false, hidden = false, updated_at = NOW()
+                 WHERE uid = $3
+                    OR id = $3
+                    OR uid = $4
+                    OR id = $4
+                    OR ($5 <> '' AND LOWER(TRIM(COALESCE(email, ''))) = LOWER(TRIM($5)))
+                    OR ($6 <> '' AND REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE '%' || $6)`,
+                [isAppr, status, row.entity_id, row.user_id, rowEmail, rowPhoneDigits]
+              ).catch(() => {});
             }
           }
         } catch (dbErr) {
@@ -14202,14 +14471,18 @@ async function startServer() {
 
         console.log(`[OTP DISPATCH] Generated OTP for email ${cleanIdentifier} (Sent via ${provider}: ${emailSent})`);
 
+        if (!emailSent) {
+          return res.status(500).json({
+            success: false,
+            error: "ईमेल पर OTP भेजने में समस्या आई। कृपया कुछ देर बाद पुनः प्रयास करें। (Failed to send Email OTP. Please try again.)"
+          });
+        }
+
         return res.json({
           success: true,
-          message: emailSent 
-            ? `Verification OTP sent to ${cleanIdentifier} via ${provider}. Please check your Inbox and Spam folder.`
-            : `OTP generated for ${cleanIdentifier}.`,
+          message: `Verification OTP sent to ${cleanIdentifier} via ${provider}. Please check your Inbox and Spam folder.`,
           emailSent,
           provider,
-          devOtp: !emailSent ? code : undefined,
           expiresInSeconds: 300,
           cooldownSeconds: 60
         });
@@ -14217,16 +14490,9 @@ async function startServer() {
         const cleanNumber = cleanIdentifier.replace(/\D/g, '');
         console.log(`[OTP DISPATCH] Generated OTP for mobile +91 ${cleanNumber}`);
 
-        const whatsappMsg = encodeURIComponent(
-          `*LocoHelp Security Verification*\n\nYour One-Time Password (OTP) is: *${code}*\n\nValid for 5 minutes. Do not share this code with anyone.`
-        );
-        const whatsappUrl = `https://api.whatsapp.com/send?phone=91${cleanNumber}&text=${whatsappMsg}`;
-
         return res.json({
           success: true,
           message: `OTP generated for +91 ${cleanNumber}`,
-          whatsappUrl,
-          devOtp: code,
           expiresInSeconds: 300,
           cooldownSeconds: 60
         });

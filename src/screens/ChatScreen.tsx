@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Intent } from '../types';
-import { ArrowLeft, ShieldAlert, CheckCircle2, Send, MapPin, UserCheck, Paperclip, Navigation, Mic, Star, Sparkles, Trash2, Home, ShieldCheck, Check, Camera, Image as ImageIcon, X, Share2, Video, Phone, PhoneOff, MicOff, RefreshCw, AlertTriangle, MessageSquare, MoreVertical } from 'lucide-react';
+import { ArrowLeft, ShieldAlert, CheckCircle2, Send, MapPin, UserCheck, Paperclip, Navigation, Mic, Star, Sparkles, Trash2, Home, ShieldCheck, Check, Camera, Image as ImageIcon, X, Share2, Video, Phone, PhoneOff, MicOff, RefreshCw, AlertTriangle, MessageSquare, MoreVertical, Search } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { getCurrentUser, isMessageSentByUser } from '../auth';
 import { useLanguage, COMPLIANCE_REPORT_REASONS } from '../i18n';
@@ -24,18 +24,24 @@ import { Ban } from 'lucide-react';
 
 interface ChatScreenProps {
   intent: Intent | null;
+  onIntentChange?: (intent: Intent | null) => void;
   onBack: () => void;
   onReport: () => void;
   isModal?: boolean;
   onExpandFullScreen?: () => void;
 }
 
-export default function ChatScreen({ intent, onBack, onReport, isModal = false, onExpandFullScreen }: ChatScreenProps) {
+export default function ChatScreen({ intent, onIntentChange, onBack, onReport, isModal = false, onExpandFullScreen }: ChatScreenProps) {
   const { language, t, tr } = useLanguage();
   const [currentIntent, setCurrentIntent] = useState<Intent | null>(intent);
+  const openedFromListRef = useRef<boolean>(!intent);
+  const [chatSearchQuery, setChatSearchQuery] = useState('');
 
   useEffect(() => {
     setCurrentIntent(intent);
+    if (!intent) {
+      openedFromListRef.current = true;
+    }
   }, [intent]);
 
   const [allUserConversations, setAllUserConversations] = useState<any[]>([]);
@@ -81,56 +87,75 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false, 
     } catch {}
   };
 
-  const loadAllChats = async () => {
+  const loadAllChats = async (silent = false) => {
     const activeUser = getCurrentUser();
     if (!activeUser || isGuestUser()) {
       setAllUserConversations([]);
       return;
     }
-    setIsLoadingAllChats(true);
+    if (!silent) {
+      setIsLoadingAllChats(true);
+    }
     try {
-      const list = await fetchPostConversations({ userId: activeUser.uid, userEmail: activeUser.email });
+      const userPhone = activeUser.phone || localStorage.getItem('locohelp_last_logged_in_phone') || localStorage.getItem('locohelp_profile_phone') || '';
+      const list = await fetchPostConversations({
+        userId: activeUser.uid,
+        userEmail: activeUser.email,
+        userPhone
+      });
       const dedupedMap = new Map<string, any>();
       (Array.isArray(list) ? list : []).forEach((c: any) => {
         if (!c) return;
-        const msgText = String(c.lastMessage || c.last_message || '').trim();
-        if (!msgText) return;
+        const msgText = String(c.lastMessage || c.last_message || '').trim() || 'Sent a message';
         const pId = String(c.postId || c.post_id || 'general').trim().toLowerCase();
         const hId = String(c.helperId || c.helper_id || c.senderId || '').trim().toLowerCase();
         const key = hId ? `${pId}__${hId}` : String(c.id || c.conversationId || Math.random());
+        const normalizedConv = {
+          ...c,
+          lastMessage: msgText,
+          last_message: msgText
+        };
         const existing = dedupedMap.get(key);
         if (!existing) {
-          dedupedMap.set(key, c);
+          dedupedMap.set(key, normalizedConv);
         } else {
           const existingTime = new Date(existing.lastMessageAt || existing.updatedAt || 0).getTime();
-          const newTime = new Date(c.lastMessageAt || c.updatedAt || 0).getTime();
+          const newTime = new Date(normalizedConv.lastMessageAt || normalizedConv.updatedAt || 0).getTime();
           if (newTime >= existingTime) {
             dedupedMap.set(key, {
               ...existing,
-              ...c,
-              unreadCount: Math.max(Number(existing.unreadCount || 0), Number(c.unreadCount || 0))
+              ...normalizedConv,
+              unreadCount: Math.max(Number(existing.unreadCount || 0), Number(normalizedConv.unreadCount || 0))
             });
           }
         }
       });
-      const finalConvs = Array.from(dedupedMap.values());
+      const finalConvs = Array.from(dedupedMap.values()).sort(
+        (a, b) => new Date(b.lastMessageAt || b.updatedAt || 0).getTime() - new Date(a.lastMessageAt || a.updatedAt || 0).getTime()
+      );
       setAllUserConversations(finalConvs);
-      // Automatically clear the bottom-bar unread badge once the user opens My Chats
-      if (finalConvs.some((c: any) => Number(c?.unreadCount || 0) > 0)) {
-        markConversationAsReadOnServer('all', undefined, undefined, true);
-      } else {
-        window.dispatchEvent(new CustomEvent('locohelp_chat_read_updated'));
-      }
+      window.dispatchEvent(new CustomEvent('locohelp_chat_read_updated'));
     } catch {
-      setAllUserConversations([]);
+      if (!silent) setAllUserConversations([]);
     } finally {
-      setIsLoadingAllChats(false);
+      if (!silent) setIsLoadingAllChats(false);
     }
   };
 
   useEffect(() => {
     if (!currentIntent) {
-      loadAllChats();
+      loadAllChats(false);
+      const interval = setInterval(() => {
+        loadAllChats(true);
+      }, 4000);
+      const handleRealtimeMsg = () => {
+        loadAllChats(true);
+      };
+      window.addEventListener('locohelp_realtime_new_response', handleRealtimeMsg);
+      return () => {
+        clearInterval(interval);
+        window.removeEventListener('locohelp_realtime_new_response', handleRealtimeMsg);
+      };
     }
   }, [currentIntent]);
 
@@ -1250,6 +1275,19 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false, 
     return Array.from(map.values());
   }, [inboxConversations, messages, currentUser, currentIntent]);
 
+  // Auto-select the responder when Post Owner has exactly 1 responder so 1-on-1 chat opens immediately ready to type
+  useEffect(() => {
+    if (isPostOwner && !selectedReplierId && distinctRepliers.length === 1) {
+      const onlyRep = distinctRepliers[0];
+      if (onlyRep && onlyRep.id) {
+        setSelectedReplierId(onlyRep.id);
+        setSelectedReplierName(onlyRep.name || 'Community Helper');
+        setSelectedReplierEmail(onlyRep.email || null);
+        setSelectedReplierAvatar(onlyRep.avatar || null);
+      }
+    }
+  }, [isPostOwner, selectedReplierId, distinctRepliers]);
+
   const visibleMessages = React.useMemo(() => {
     if (isPostOwner && !selectedReplierId && messages.length === 0) return [];
     return messages;
@@ -1260,114 +1298,237 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false, 
    * Render the All Conversations List View (WhatsApp-style)
    * ------------------------------------------------------------- */
   if (!currentIntent) {
+    const activeUser = getCurrentUser();
+    const totalUnreadConvs = allUserConversations.reduce((acc, c) => acc + (Number(c?.unreadCount || 0) > 0 ? 1 : 0), 0);
+
+    const resolveConversationPartner = (conv: any) => {
+      const myUid = String(activeUser?.uid || '').trim().toLowerCase();
+      const myEmail = String(activeUser?.email || localStorage.getItem('locohelp_last_logged_in_email') || '').trim().toLowerCase();
+      const convHelperId = String(conv.helperId || conv.helper_id || conv.senderId || '').trim();
+      const convHelperEmail = String(conv.helperEmail || conv.senderEmail || '').trim().toLowerCase();
+      const convPosterId = String(conv.posterId || conv.poster_id || '').trim();
+      const convPosterEmail = String(conv.posterEmail || conv.poster_email || '').trim().toLowerCase();
+
+      let isMyOwnPostId = false;
+      try {
+        const myPostIds: string[] = JSON.parse(localStorage.getItem('locohelp_my_post_ids') || '[]');
+        const cPostId = String(conv.postId || conv.post_id || '').trim();
+        if (cPostId && myPostIds.includes(cPostId)) isMyOwnPostId = true;
+      } catch {}
+
+      const isHelperMeByClient = isMessageSentByUser(
+        { sender_id: convHelperId, sender_email: convHelperEmail },
+        activeUser
+      );
+      const isPosterMeByClient =
+        isMyOwnPostId ||
+        isMessageSentByUser(
+          { sender_id: convPosterId, sender_email: convPosterEmail },
+          activeUser
+        );
+
+      let isOwner = false;
+      if (typeof conv.isViewerHelper === 'boolean' && conv.isViewerHelper) {
+        isOwner = false;
+      } else if (typeof conv.isViewerPoster === 'boolean' && conv.isViewerPoster) {
+        isOwner = true;
+      } else if (isHelperMeByClient && !isPosterMeByClient) {
+        isOwner = false;
+      } else if (isPosterMeByClient) {
+        isOwner = true;
+      } else {
+        isOwner = false;
+      }
+
+      const partnerName = isOwner
+        ? (conv.helperName || conv.senderName || conv.partnerName || 'Community Helper')
+        : (conv.posterName && conv.posterName !== 'Post Owner'
+            ? conv.posterName
+            : conv.partnerName && conv.partnerName !== 'Post Owner'
+            ? conv.partnerName
+            : convPosterEmail
+            ? convPosterEmail.split('@')[0]
+            : 'Post Owner');
+
+      const partnerAvatar = isOwner
+        ? (conv.helperAvatar || conv.senderAvatar || conv.partnerAvatar || '')
+        : (conv.posterAvatar || conv.partnerAvatar || '');
+
+      return {
+        isOwner,
+        partnerName,
+        partnerAvatar,
+        convHelperId,
+        convHelperEmail,
+        convPosterId,
+        convPosterEmail,
+        myUid,
+        myEmail
+      };
+    };
+
+    const formatWhatsAppTime = (isoTime?: string) => {
+      if (!isoTime) return '';
+      const d = new Date(isoTime);
+      if (Number.isNaN(d.getTime())) return '';
+      const now = new Date();
+      const isToday =
+        d.getDate() === now.getDate() &&
+        d.getMonth() === now.getMonth() &&
+        d.getFullYear() === now.getFullYear();
+      if (isToday) {
+        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      }
+      const yesterday = new Date(now);
+      yesterday.setDate(now.getDate() - 1);
+      const isYesterday =
+        d.getDate() === yesterday.getDate() &&
+        d.getMonth() === yesterday.getMonth() &&
+        d.getFullYear() === yesterday.getFullYear();
+      if (isYesterday) {
+        return tr('Yesterday', 'कल', 'ગઈકાલે');
+      }
+      return d.toLocaleDateString([], { day: '2-digit', month: '2-digit', year: '2-digit' });
+    };
+
+    const filteredConversations = allUserConversations.filter((conv) => {
+      if (!chatSearchQuery.trim()) return true;
+      const q = chatSearchQuery.trim().toLowerCase();
+      const { partnerName } = resolveConversationPartner(conv);
+      const postTitle = String(conv.postTitle || conv.postDescription || '').toLowerCase();
+      const lastMsg = String(conv.lastMessage || conv.last_message || '').toLowerCase();
+      return (
+        partnerName.toLowerCase().includes(q) ||
+        postTitle.includes(q) ||
+        lastMsg.includes(q)
+      );
+    });
+
     return (
-      <div className="flex flex-col h-full bg-[#FCFAF5] dark:bg-slate-900 relative overflow-hidden transition-colors">
-        {/* TOP HEADER */}
-        <div className="flex items-center justify-between px-4 py-3 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 shadow-xs z-20 sticky top-0">
-          <div className="flex items-center gap-3">
-            <button 
-              onClick={onBack} 
-              className="p-2 -ml-1 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-full transition-colors active:scale-95 cursor-pointer"
-              title={tr('Back', 'वापस जाएं', 'પાછા જાઓ')}
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </button>
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-black text-xs shadow-xs">
-                <MessageSquare className="w-4 h-4" />
+      <div className="flex flex-col h-full bg-white dark:bg-slate-900 relative overflow-hidden transition-colors pb-16">
+        {/* WHATSAPP-STYLE TOP HEADER */}
+        <div className="px-4 pt-3 pb-2.5 bg-emerald-700 dark:bg-slate-800 text-white shadow-sm z-20 sticky top-0">
+          <div className="flex items-center justify-between gap-2 mb-2.5">
+            <div className="flex items-center gap-2.5">
+              <button
+                onClick={onBack}
+                className="p-1.5 -ml-1 hover:bg-white/10 rounded-full transition-colors active:scale-95 cursor-pointer"
+                title={tr('Back', 'वापस जाएं', 'પાછા જાઓ')}
+              >
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+              <div className="flex items-center gap-2">
+                <h1 className="text-base sm:text-lg font-black tracking-tight">
+                  {tr('Chats', 'चैट्स (बातचीत)', 'ચેટ્સ (વાતચીત)')}
+                </h1>
+                {allUserConversations.length > 0 && (
+                  <span className="px-2 py-0.5 rounded-full bg-white/20 text-white text-[11px] font-black">
+                    {allUserConversations.length}
+                  </span>
+                )}
               </div>
-              <h1 className="text-sm sm:text-base font-black text-slate-900 dark:text-white">
-                {tr('My Chats', 'मेरी बातचीत', 'મારી વાતચીત')}
-              </h1>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              {totalUnreadConvs > 0 && (
+                <button
+                  type="button"
+                  onClick={() => markConversationAsReadOnServer('all', undefined, undefined, true)}
+                  className="px-2.5 py-1 rounded-xl bg-white/15 hover:bg-white/25 text-white text-[10px] font-black transition-colors cursor-pointer"
+                >
+                  ✓✓ {tr('Mark all read', 'सभी पढ़े गए', 'બધા વાંચ્યા')}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => loadAllChats(false)}
+                disabled={isLoadingAllChats}
+                className="p-2 rounded-full hover:bg-white/10 transition-colors cursor-pointer"
+                title={tr('Refresh Chats', 'चैट रिफ्रेश करें', 'ચેટ રિફ્રેશ કરો')}
+              >
+                <RefreshCw className={`w-4 h-4 ${isLoadingAllChats ? 'animate-spin' : ''}`} />
+              </button>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={loadAllChats}
-            disabled={isLoadingAllChats}
-            className="p-2 rounded-xl text-slate-500 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer"
-            title={tr('Refresh Chats', 'चैट रिफ्रेश करें', 'ચેટ રિફ્રેશ કરો')}
-          >
-            <RefreshCw className={`w-4 h-4 ${isLoadingAllChats ? 'animate-spin text-indigo-600' : ''}`} />
-          </button>
+
+          {/* WHATSAPP-STYLE SEARCH BAR */}
+          <div className="relative">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              type="text"
+              value={chatSearchQuery}
+              onChange={(e) => setChatSearchQuery(e.target.value)}
+              placeholder={tr(
+                'Search name, post or message...',
+                'नाम, पोस्ट या संदेश खोजें...',
+                'નામ, પોસ્ટ અથવા સંદેશ શોધો...'
+              )}
+              className="w-full pl-9 pr-8 py-2 rounded-xl bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder:text-slate-400 text-xs font-semibold focus:outline-none shadow-inner"
+            />
+            {chatSearchQuery && (
+              <button
+                type="button"
+                onClick={() => setChatSearchQuery('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
         </div>
 
-        {/* BODY */}
-        <div className="flex-1 overflow-y-auto p-3 sm:p-4">
-          {isLoadingAllChats ? (
+        {/* WHATSAPP-STYLE CONVERSATION LIST BODY */}
+        <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+          {isLoadingAllChats && allUserConversations.length === 0 ? (
             <div className="py-20 text-center text-xs text-slate-400 flex flex-col items-center justify-center gap-2">
-              <RefreshCw className="w-6 h-6 animate-spin text-indigo-600" />
+              <RefreshCw className="w-6 h-6 animate-spin text-emerald-600" />
               <span>{tr('Loading chats...', 'चैट लोड हो रही हैं...', 'વાતચીત લોડ થઈ રહી છે...')}</span>
             </div>
-          ) : allUserConversations.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-24 px-4 text-center">
-              <div className="w-16 h-16 rounded-3xl bg-indigo-50 dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 flex items-center justify-center text-3xl mb-3.5 shadow-inner">
+          ) : filteredConversations.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 px-4 text-center">
+              <div className="w-16 h-16 rounded-full bg-emerald-50 dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 flex items-center justify-center text-3xl mb-3.5 shadow-inner">
                 💬
               </div>
               <h3 className="text-base font-black text-slate-900 dark:text-white mb-1.5">
-                {tr('No chats yet', 'अभी तक कोई बातचीत नहीं है', 'હજુ કોઈ વાતચીત શરૂ થઈ નથી')}
+                {chatSearchQuery.trim()
+                  ? tr('No matching chats found', 'कोई मिलती-जुलती चैट नहीं मिली', 'કોઈ મેચિંગ ચેટ મળી નથી')
+                  : tr('No chats yet', 'अभी तक कोई बातचीत नहीं है', 'હજુ કોઈ વાતચીત શરૂ થઈ નથી')}
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 max-w-xs mb-5 leading-relaxed">
                 {tr(
-                  'When you chat on a live broadcast post or someone replies to you, conversations will appear here.',
-                  'जब आप किसी ब्रॉडकास्ट पोस्ट पर चैट करेंगे या कोई आपको रिप्लाई करेगा, तो बातचीत यहाँ दिखेगी।',
-                  'જ્યારે તમે કોઈ લાઈવ બ્રોડકાસ્ટ પોસ્ટ પર ચેટ કરશો અથવા તમારી પોસ્ટ પર કોઈ રિપ્લાય કરશે, ત્યારે તે વાતચીત અહીં દેખાશે.'
+                  'When you chat on a post or someone replies to your post, all your conversations will appear here like WhatsApp.',
+                  'जब आप किसी पोस्ट के चैट बटन से बात करेंगे या कोई आपको मैसेज करेगा, तो सभी लोगों की चैट लिस्ट यहाँ दिखेगी।',
+                  'જ્યારે તમે કોઈ પોસ્ટ પર ચેટ કરશો અથવા કોઈ તમને મેસેજ કરશે, ત્યારે તમામ વાતચીતની યાદી અહીં દેખાશે.'
                 )}
               </p>
               <button
                 type="button"
                 onClick={onBack}
-                className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black shadow-md cursor-pointer active:scale-95 transition-all"
+                className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black shadow-md cursor-pointer active:scale-95 transition-all"
               >
-                {tr('View Live Broadcasts', 'लाइव ब्रॉडकास्ट देखें', 'લાઈવ બ્રોડકાસ્ટ પોસ્ટ્સ જુઓ')}
+                {tr('View Live Posts', 'लाइव पोस्ट देखें', 'લાઈવ પોસ્ટ્સ જુઓ')}
               </button>
             </div>
           ) : (
-            <div className="space-y-2 max-w-2xl mx-auto">
-              {allUserConversations.map((conv) => {
+            <div className="max-w-3xl mx-auto">
+              {filteredConversations.map((conv) => {
                 const convId = conv.id || conv.conversationId;
-                const activeUser = getCurrentUser();
-                const myUid = String(activeUser?.uid || '').trim().toLowerCase();
-                const myEmail = String(activeUser?.email || '').trim().toLowerCase();
-                const emailDerivedId = myEmail ? `email_${myEmail.replace(/[^a-z0-9]/g, '_')}` : '';
+                const {
+                  isOwner,
+                  partnerName,
+                  partnerAvatar,
+                  convHelperId,
+                  convHelperEmail,
+                  convPosterId,
+                  convPosterEmail,
+                  myEmail
+                } = resolveConversationPartner(conv);
 
-                const convHelperId = String(conv.helperId || conv.helper_id || conv.senderId || '').trim();
-                const convHelperEmail = String(conv.helperEmail || conv.senderEmail || '').trim().toLowerCase();
-                const convPosterId = String(conv.posterId || conv.poster_id || '').trim();
-                const convPosterEmail = String(conv.posterEmail || conv.poster_email || '').trim().toLowerCase();
-
-                let isMyOwnPostId = false;
-                try {
-                  const myPostIds: string[] = JSON.parse(localStorage.getItem('locohelp_my_post_ids') || '[]');
-                  const cPostId = String(conv.postId || conv.post_id || '').trim();
-                  if (cPostId && myPostIds.includes(cPostId)) isMyOwnPostId = true;
-                } catch {}
-
-                const isPosterMe = Boolean(
-                  isMyOwnPostId ||
-                  (myUid && convPosterId && convPosterId.toLowerCase() === myUid) ||
-                  (emailDerivedId && convPosterId && convPosterId.toLowerCase() === emailDerivedId) ||
-                  (myEmail && convPosterEmail && convPosterEmail === myEmail)
-                );
-
-                const isHelperMe = !isPosterMe && Boolean(
-                  (myUid && convHelperId && convHelperId.toLowerCase() === myUid) ||
-                  (emailDerivedId && convHelperId && convHelperId.toLowerCase() === emailDerivedId) ||
-                  (myEmail && convHelperEmail && convHelperEmail === myEmail)
-                );
-                const isOwner = isPosterMe || !isHelperMe;
-
-                const partnerName = isOwner
-                  ? (conv.helperName || conv.senderName || 'Community Helper')
-                  : (conv.posterName && conv.posterName !== 'Post Owner'
-                      ? conv.posterName
-                      : (conv.posterEmail ? conv.posterEmail.split('@')[0] : 'Post Owner'));
-                const partnerAvatar = isOwner
-                  ? (conv.helperAvatar || conv.senderAvatar || '')
-                  : (conv.posterAvatar || '');
                 const lastMsg = conv.lastMessage || conv.last_message || tr('Sent a message', 'संदेश भेजा', 'મેસેજ મોકલ્યો');
                 const lastTime = conv.lastMessageAt || conv.last_message_at || conv.updatedAt;
-                const hasUnread = Number(conv.unreadCount || 0) > 0;
+                const unreadCount = Number(conv.unreadCount || 0);
+                const hasUnread = unreadCount > 0;
+                const postTopic = String(conv.postTitle || conv.postDescription || '').trim();
 
                 return (
                   <div
@@ -1390,13 +1551,13 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false, 
                       setSelectedReplierEmail(isOwner ? resolvedHelperEmail : resolvedAuthorEmail);
                       setSelectedReplierAvatar(partnerAvatar || null);
 
-                      setCurrentIntent({
+                      const nextIntent = {
                         id: targetPostId,
                         authorId: resolvedAuthorId,
                         authorEmail: resolvedAuthorEmail,
                         authorName: isOwner ? (activeUser?.displayName || 'You') : partnerName,
                         location: conv.location || 'Local Area',
-                        description: conv.postTitle || conv.postDescription || lastMsg,
+                        description: postTopic || lastMsg,
                         helperId: resolvedHelperId,
                         selectedReplierId: resolvedHelperId,
                         selectedReplierName: partnerName,
@@ -1409,46 +1570,60 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false, 
                         status: 'open',
                         createdAt: new Date().toISOString(),
                         expiresAt: new Date(Date.now() + 3600000).toISOString()
-                      } as unknown as Intent);
+                      } as unknown as Intent;
+
+                      openedFromListRef.current = true;
+                      setCurrentIntent(nextIntent);
+                      onIntentChange?.(nextIntent);
                     }}
-                    className={`p-3.5 rounded-2xl border transition-all flex items-center justify-between gap-3 cursor-pointer group ${
+                    className={`px-4 py-3.5 transition-colors flex items-center justify-between gap-3.5 cursor-pointer ${
                       hasUnread
-                        ? 'border-rose-300 dark:border-rose-800 bg-rose-50/50 dark:bg-rose-950/20 shadow-xs ring-1 ring-rose-400/30'
-                        : 'border-slate-200 dark:border-slate-700/80 bg-white dark:bg-slate-800/80 hover:bg-indigo-50/50 dark:hover:bg-slate-750 shadow-2xs'
+                        ? 'bg-emerald-50/70 dark:bg-emerald-950/20 hover:bg-emerald-100/60 dark:hover:bg-emerald-950/30'
+                        : 'bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/70'
                     }`}
                   >
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <div className="relative">
-                        <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-indigo-500 to-indigo-700 text-white font-black text-xs flex items-center justify-center shrink-0 border border-indigo-200 dark:border-slate-700 overflow-hidden shadow-2xs">
+                    <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                      <div className="relative shrink-0">
+                        <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-emerald-600 to-teal-500 text-white font-black text-sm flex items-center justify-center overflow-hidden shadow-xs">
                           {partnerAvatar ? (
                             <img src={partnerAvatar} alt={partnerName} className="w-full h-full object-cover" />
                           ) : (
                             partnerName.slice(0, 2).toUpperCase()
                           )}
                         </div>
-                        <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 border-2 border-white dark:border-slate-855 rounded-full" />
+                        <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-white dark:border-slate-900 rounded-full" />
                       </div>
+
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-1 mb-0.5">
-                          <span className="text-xs font-black text-slate-900 dark:text-white truncate">
+                        <div className="flex items-center justify-between gap-2 mb-0.5">
+                          <span className={`text-sm truncate ${hasUnread ? 'font-black text-slate-950 dark:text-white' : 'font-extrabold text-slate-900 dark:text-slate-100'}`}>
                             {partnerName}
                           </span>
                           {lastTime && (
-                            <span className="text-[10px] text-slate-400 dark:text-slate-500 shrink-0">
-                              {new Date(lastTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            <span className={`text-[11px] shrink-0 ${hasUnread ? 'font-black text-emerald-600 dark:text-emerald-400' : 'font-semibold text-slate-400 dark:text-slate-500'}`}>
+                              {formatWhatsAppTime(lastTime)}
                             </span>
                           )}
                         </div>
-                        <p className="text-[11px] text-slate-600 dark:text-slate-300 truncate">
-                          {lastMsg}
-                        </p>
+
+                        {postTopic && postTopic !== lastMsg && (
+                          <p className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 truncate mb-0.5">
+                            📌 {postTopic}
+                          </p>
+                        )}
+
+                        <div className="flex items-center justify-between gap-2">
+                          <p className={`text-xs truncate ${hasUnread ? 'font-bold text-slate-900 dark:text-white' : 'text-slate-500 dark:text-slate-400'}`}>
+                            {lastMsg}
+                          </p>
+                          {hasUnread && (
+                            <span className="min-w-[20px] h-5 px-1.5 rounded-full bg-emerald-500 text-white text-[10px] font-black flex items-center justify-center shrink-0 shadow-2xs">
+                              {unreadCount}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
-                    {hasUnread && (
-                      <span className="text-[9px] bg-rose-500 text-white font-black px-2 py-0.5 rounded-full shadow-2xs animate-pulse shrink-0">
-                        🔴 {tr('New', 'नया', 'નવું')}
-                      </span>
-                    )}
                   </div>
                 );
               })}
@@ -1470,10 +1645,14 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false, 
             onClick={() => {
               if (isPostOwner && selectedReplierId && distinctRepliers.length > 1) {
                 setSelectedReplierId(null);
+              } else if (openedFromListRef.current && !isModal) {
+                setCurrentIntent(null);
+                onIntentChange?.(null);
               } else if (intent) {
                 onBack();
               } else {
                 setCurrentIntent(null);
+                onIntentChange?.(null);
               }
             }} 
             className="p-1.5 -ml-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer shrink-0"

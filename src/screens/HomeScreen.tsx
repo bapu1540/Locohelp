@@ -511,13 +511,13 @@ export default function HomeScreen({
       return;
     }
 
-    // Open the requested action immediately in 0ms unless explicitly restricted
-    const cachedSt = String(localStorage.getItem('locohelp_account_status') || '').toLowerCase();
-    if (cachedSt !== 'rejected' && cachedSt !== 'deleted') {
+    const cachedApproved = localStorage.getItem('locohelp_account_approved') === 'true';
+    if (cachedApproved) {
       onApproved();
+    } else {
+      setCheckingApprovalState(true);
     }
 
-    // Refresh approval status silently in the background
     try {
       const res = await fetch(
         `/api/users/approval-status?uid=${encodeURIComponent(uid)}&email=${encodeURIComponent(email)}&phone=${encodeURIComponent(phone)}&_t=${Date.now()}`,
@@ -531,13 +531,27 @@ export default function HomeScreen({
           setIsPendingApprovalModalOpen(false);
           return;
         }
-        localStorage.setItem('locohelp_account_approved', data?.isApproved ? 'true' : 'false');
+        const isApprovedNow = Boolean(data?.isApproved || st === 'approved');
+        localStorage.setItem('locohelp_account_approved', isApprovedNow ? 'true' : 'false');
         localStorage.setItem('locohelp_account_status', st);
-        if (cachedSt === 'rejected' && st !== 'rejected') {
-          onApproved();
+        if (isApprovedNow) {
+          setIsPendingApprovalModalOpen(false);
+          if (!cachedApproved) {
+            onApproved();
+          }
+        } else {
+          setIsPendingApprovalModalOpen(true);
         }
+      } else if (!cachedApproved) {
+        setIsPendingApprovalModalOpen(true);
       }
-    } catch {}
+    } catch {
+      if (!cachedApproved) {
+        setIsPendingApprovalModalOpen(true);
+      }
+    } finally {
+      setCheckingApprovalState(false);
+    }
   };
 
   const handleSafeOpenChat = (intent?: any) => {
