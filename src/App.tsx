@@ -83,10 +83,28 @@ function AppContent() {
   const [globalUserLocation, setGlobalUserLocation] = useState<UserManualLocation>(() => getSavedUserLocation());
   const [, setAuthTick] = useState(0);
   const [unreadChatCount, setUnreadChatCount] = useState(0);
+  const [globalPushToast, setGlobalPushToast] = useState<{
+    title: string;
+    body: string;
+    intent?: any;
+  } | null>(null);
 
   const currentLangObj = SUPPORTED_LANGUAGES.find(l => l.code === language) || SUPPORTED_LANGUAGES[0];
 
-  // Poll + real-time stream for unread messages count in Top Header & Bottom Nav Chat badge
+  // Automatically request Web Notification permission on first user interaction so Android TWA & Chrome can show system notifications
+  useEffect(() => {
+    const requestNotifPermOnce = () => {
+      try {
+        if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+          Notification.requestPermission().catch(() => {});
+        }
+      } catch {}
+    };
+    window.addEventListener('click', requestNotifPermOnce, { once: true, passive: true });
+    return () => window.removeEventListener('click', requestNotifPermOnce);
+  }, []);
+
+  // Poll + real-time stream for unread messages count & global new post / chat notifications across all screens
   useEffect(() => {
     let active = true;
     const refreshUnread = async () => {
@@ -114,6 +132,80 @@ function AppContent() {
     refreshUnread();
     const timer = setInterval(refreshUnread, 4000);
     const unsubStream = subscribeToRealtimeStream({
+      onNewPost: (payload: any) => {
+        const newPost: any = payload?.post || payload?.intent || payload;
+        if (!newPost || !newPost.id) return;
+        try {
+          const postIdStr = String(newPost.id);
+          const notifiedIds: string[] = JSON.parse(localStorage.getItem('locohelp_notified_post_ids') || '[]');
+          if (notifiedIds.includes(postIdStr)) return;
+
+          const u = getCurrentUser();
+          const myUid = String(u?.uid || '').trim().toLowerCase();
+          const myEmail = String(u?.email || localStorage.getItem('locohelp_last_logged_in_email') || '').trim().toLowerCase();
+          const myEmailUid = myEmail ? 'email_' + myEmail.replace(/[^a-z0-9]/g, '_') : '';
+          const postAuthorId = String(newPost.authorId || newPost.userId || '').trim().toLowerCase();
+          const postAuthorEmail = String(newPost.authorEmail || '').trim().toLowerCase();
+          const myPostIds: string[] = JSON.parse(localStorage.getItem('locohelp_my_post_ids') || '[]');
+
+          const isMyOwn = Boolean(
+            myPostIds.includes(postIdStr) ||
+            (myUid && postAuthorId && myUid === postAuthorId) ||
+            (myEmailUid && postAuthorId && myEmailUid === postAuthorId) ||
+            (myEmail && postAuthorEmail && myEmail === postAuthorEmail)
+          );
+
+          const nextNotified = [postIdStr, ...notifiedIds].slice(0, 150);
+          localStorage.setItem('locohelp_notified_post_ids', JSON.stringify(nextNotified));
+          if (isMyOwn) return;
+
+          const areaLabel = newPost.area || newPost.city || newPost.location || 'Local Area';
+          const catLabel = newPost.category || newPost.title || 'New Request';
+          const descSnippet = String(newPost.description || newPost.title || '').slice(0, 80);
+          const notifTitle = `🔔 New Post in ${areaLabel}`;
+          const notifBody = `${catLabel}: ${descSnippet}`;
+
+          setGlobalPushToast({ title: notifTitle, body: notifBody, intent: newPost });
+          setTimeout(() => setGlobalPushToast(null), 6500);
+
+          try {
+            const existingNotifs = JSON.parse(localStorage.getItem('locohelp_notifications') || '[]');
+            const notifId = `notif_post_${postIdStr}`;
+            if (!existingNotifs.some((n: any) => n && n.id === notifId)) {
+              const updatedNotifs = [
+                {
+                  id: notifId,
+                  type: 'new_post',
+                  title: notifTitle,
+                  body: notifBody,
+                  postId: postIdStr,
+                  post: newPost,
+                  createdAt: new Date().toISOString(),
+                  isRead: false
+                },
+                ...existingNotifs
+              ].slice(0, 50);
+              localStorage.setItem('locohelp_notifications', JSON.stringify(updatedNotifs));
+              window.dispatchEvent(new CustomEvent('locohelp_notifications_updated'));
+            }
+          } catch {}
+
+          if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+            if ('serviceWorker' in navigator) {
+              navigator.serviceWorker.ready
+                .then((reg) => {
+                  reg.showNotification(notifTitle, {
+                    body: notifBody,
+                    icon: '/pwa-192x192.png',
+                    badge: '/pwa-192x192.png',
+                    data: { url: `/?postId=${encodeURIComponent(postIdStr)}` }
+                  });
+                })
+                .catch(() => {});
+            }
+          }
+        } catch {}
+      },
       onNewResponse: () => {
         refreshUnread();
       }
@@ -332,6 +424,13 @@ function AppContent() {
     };
   }, []);
 
+  // Clear unread chat badge immediately when user navigates to ChatScreen
+  useEffect(() => {
+    if (currentScreen === 'chat') {
+      setUnreadChatCount(0);
+    }
+  }, [currentScreen]);
+
   // Initialize base history entry and arm on user gesture so mobile Chrome/Android Back button never exits the website
   const historyGuardArmedRef = React.useRef(false);
   useEffect(() => {
@@ -429,6 +528,7 @@ function AppContent() {
       }
 
       // 5. Keep safety history entry on Home so accidental Back press does not exit the website
+      historyGuardArmedRef.current = false;
       try {
         window.history.pushState({ locohelpScreen: 'home' }, '');
       } catch (e) {}
@@ -644,6 +744,31 @@ function AppContent() {
           })()}
         </div>
       </header>
+
+      {/* Global Live Notification Banner across all screens when someone posts */}
+      {globalPushToast && (
+        <div
+          onClick={() => {
+            const targetIntent = globalPushToast.intent;
+            setGlobalPushToast(null);
+            if (targetIntent) {
+              setActiveIntent(targetIntent);
+              navigate('chat');
+            } else {
+              navigate('notifications');
+            }
+          }}
+          className="fixed top-14 left-1/2 -translate-x-1/2 z-50 w-[92%] max-w-md bg-indigo-950/95 text-white px-4 py-3 rounded-2xl shadow-2xl border border-indigo-400/40 flex items-center justify-between gap-3 cursor-pointer"
+        >
+          <div className="min-w-0 flex-1">
+            <div className="text-xs font-black text-amber-300 truncate">{globalPushToast.title}</div>
+            <div className="text-[11px] font-bold text-slate-100 truncate mt-0.5">{globalPushToast.body}</div>
+          </div>
+          <span className="px-2.5 py-1 rounded-xl bg-emerald-500 text-white text-[10px] font-black shrink-0">
+            {tr('View', 'देखें', 'જુઓ')}
+          </span>
+        </div>
+      )}
 
       {/* Main Page Content Area - Full Page with Safe Bottom Padding for FixedBottomNavBar */}
       <main

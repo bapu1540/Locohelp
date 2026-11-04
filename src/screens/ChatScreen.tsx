@@ -43,6 +43,44 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false, 
 
   const currentUser = getCurrentUser();
 
+  const markConversationAsReadOnServer = async (
+    targetPostId?: string,
+    targetConvId?: string,
+    targetHelperId?: string,
+    markAll = false
+  ) => {
+    try {
+      const activeUser = getCurrentUser();
+      const myUid = activeUser?.uid || '';
+      const myEmail = (activeUser?.email || localStorage.getItem('locohelp_last_logged_in_email') || '').toLowerCase();
+      if (!myUid && !myEmail) return;
+      const postIdToUse = targetPostId || chatId || 'all';
+      await fetch(`/api/intents/${encodeURIComponent(postIdToUse)}/mark-read`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversationId: targetConvId,
+          helperId: targetHelperId,
+          userId: myUid,
+          userEmail: myEmail,
+          markAllForUser: markAll
+        })
+      });
+      if (markAll) {
+        setAllUserConversations(prev => prev.map(c => ({ ...c, unreadCount: 0, unreadPosterCount: 0, unreadHelperCount: 0 })));
+      } else if (targetConvId) {
+        setAllUserConversations(prev =>
+          prev.map(c =>
+            (c.id || c.conversationId) === targetConvId
+              ? { ...c, unreadCount: 0, unreadPosterCount: 0, unreadHelperCount: 0 }
+              : c
+          )
+        );
+      }
+      window.dispatchEvent(new CustomEvent('locohelp_chat_read_updated'));
+    } catch {}
+  };
+
   const loadAllChats = async () => {
     const activeUser = getCurrentUser();
     if (!activeUser || isGuestUser()) {
@@ -75,7 +113,14 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false, 
           }
         }
       });
-      setAllUserConversations(Array.from(dedupedMap.values()));
+      const finalConvs = Array.from(dedupedMap.values());
+      setAllUserConversations(finalConvs);
+      // Automatically clear the bottom-bar unread badge once the user opens My Chats
+      if (finalConvs.some((c: any) => Number(c?.unreadCount || 0) > 0)) {
+        markConversationAsReadOnServer('all', undefined, undefined, true);
+      } else {
+        window.dispatchEvent(new CustomEvent('locohelp_chat_read_updated'));
+      }
     } catch {
       setAllUserConversations([]);
     } finally {
@@ -93,10 +138,45 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false, 
 
   // Determine whether the logged-in user is the Post Owner / Service Provider (User A) or a Customer / Helper (User B)
   const isPostOwner = React.useMemo(() => {
+    if (typeof (currentIntent as any)?.isViewerPostOwner === 'boolean') {
+      return (currentIntent as any).isViewerPostOwner;
+    }
     try {
       const myPostIds: string[] = JSON.parse(localStorage.getItem('locohelp_my_post_ids') || '[]');
       if (chatId && myPostIds.includes(chatId)) return true;
     } catch {}
+    // Check if chatId is a direct Service Expert chat (provider_chat_<helperId>) owned by the logged-in user
+    if (chatId && chatId.startsWith('provider_chat_') && currentUser) {
+      const targetHelperId = chatId.replace(/^provider_chat_/i, '').trim().toLowerCase();
+      const myUid = String(currentUser.uid || '').trim().toLowerCase();
+      const myPhone = String(currentUser.phone || localStorage.getItem('locohelp_last_logged_in_phone') || '')
+        .replace(/\D/g, '')
+        .slice(-10);
+      const myEmail = String(currentUser.email || localStorage.getItem('locohelp_last_logged_in_email') || '')
+        .trim()
+        .toLowerCase();
+      if (myUid && targetHelperId === myUid) return true;
+      try {
+        const cachedHelpers = JSON.parse(localStorage.getItem('locohelp_free_helper_profiles') || '[]');
+        if (Array.isArray(cachedHelpers)) {
+          const matchedHelper = cachedHelpers.find(
+            (h: any) => h && String(h.id || '').trim().toLowerCase() === targetHelperId
+          );
+          if (matchedHelper) {
+            const hUid = String(matchedHelper.userId || matchedHelper.user_id || '').trim().toLowerCase();
+            const hPhone = String(matchedHelper.phone || '').replace(/\D/g, '').slice(-10);
+            const hEmail = String(matchedHelper.email || '').trim().toLowerCase();
+            if (
+              (myUid && hUid && myUid === hUid) ||
+              (myPhone && hPhone && myPhone === hPhone) ||
+              (myEmail && hEmail && myEmail === hEmail)
+            ) {
+              return true;
+            }
+          }
+        }
+      } catch {}
+    }
     if (!currentIntent?.authorId && !(currentIntent as any)?.authorEmail) return false;
     return isMessageSentByUser(
       {
@@ -105,7 +185,7 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false, 
       },
       currentUser
     );
-  }, [chatId, currentIntent?.authorId, (currentIntent as any)?.authorEmail, currentUser]);
+  }, [chatId, currentIntent, currentUser]);
 
   const [selectedReplierId, setSelectedReplierId] = useState<string | null>(() => {
     const rawRep = (currentIntent as any)?.selectedReplierId || (currentIntent as any)?.helperId || null;
@@ -1029,6 +1109,7 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false, 
     setIsTaskDone(true);
     setIsRatingOpen(false);
     setShowSuccessToast(true);
+    markConversationAsReadOnServer(chatId, activeConversationId, activeHelperId, true);
     const completeMsg = {
       id: 'done_' + Date.now(),
       text: `🎉 Task Successfully Completed! Rating: ${'★'.repeat(rating)} (${rating}/5). +10 Karma points awarded!`,
@@ -1292,14 +1373,17 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false, 
                   <div
                     key={convId}
                     onClick={() => {
+                      const targetPostId = conv.postId || conv.post_id || conv.id;
                       const resolvedAuthorId = isOwner
                         ? (convPosterId || activeUser?.uid || '')
-                        : (convPosterId || conv.postId || conv.post_id || conv.id);
+                        : (convPosterId || targetPostId);
                       const resolvedAuthorEmail = isOwner
                         ? (convPosterEmail || myEmail)
                         : convPosterEmail;
                       const resolvedHelperId = convHelperId || (!isOwner ? (activeUser?.uid || '') : '');
                       const resolvedHelperEmail = convHelperEmail || (!isOwner ? myEmail : '');
+
+                      markConversationAsReadOnServer(targetPostId, convId, resolvedHelperId, false);
 
                       setSelectedReplierId(resolvedHelperId || null);
                       setSelectedReplierName(partnerName);
@@ -1307,7 +1391,7 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false, 
                       setSelectedReplierAvatar(partnerAvatar || null);
 
                       setCurrentIntent({
-                        id: conv.postId || conv.post_id || conv.id,
+                        id: targetPostId,
                         authorId: resolvedAuthorId,
                         authorEmail: resolvedAuthorEmail,
                         authorName: isOwner ? (activeUser?.displayName || 'You') : partnerName,
@@ -1319,6 +1403,7 @@ export default function ChatScreen({ intent, onBack, onReport, isModal = false, 
                         selectedReplierEmail: isOwner ? resolvedHelperEmail : resolvedAuthorEmail,
                         selectedReplierAvatar: partnerAvatar,
                         conversationId: convId,
+                        isViewerPostOwner: isOwner,
                         distance: 0.5,
                         tags: ['#General'],
                         status: 'open',

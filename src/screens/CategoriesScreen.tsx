@@ -581,14 +581,6 @@ export default function CategoriesScreen({
             ...prev,
             [found.masterCategory]: true,
           }));
-          try {
-            if (!sessionStorage.getItem('locohelp_return_popup_cat')) {
-              sessionStorage.setItem(
-                'locohelp_return_popup_cat',
-                found.masterCategory
-              );
-            }
-          } catch {}
         }
       }
     }
@@ -602,15 +594,9 @@ export default function CategoriesScreen({
   };
 
   const handleBackNavigation = () => {
-    if (activeCategory && activeCategory !== 'all') {
-      const found = CATEGORIES.find((c) => c.id === activeCategory);
-      const parentKey = found?.masterCategory || activeCategory;
-      try {
-        if (!sessionStorage.getItem('locohelp_return_popup_cat')) {
-          sessionStorage.setItem('locohelp_return_popup_cat', parentKey);
-        }
-      } catch {}
-    }
+    try {
+      sessionStorage.removeItem('locohelp_return_popup_cat');
+    } catch {}
     if (onSelectCategory) {
       onSelectCategory('all');
     }
@@ -717,6 +703,34 @@ export default function CategoriesScreen({
     };
   }, [reviewModalHelper?.id]);
 
+  // Handle hardware Back button inside CategoriesScreen modals & sub-categories
+  useEffect(() => {
+    const handleCloseActiveModal = (e: Event) => {
+      if (reviewModalHelper) {
+        e.preventDefault();
+        setReviewModalHelper(null);
+        return;
+      }
+      if (reportTarget) {
+        e.preventDefault();
+        setReportTarget(null);
+        return;
+      }
+      if (isRegisterModalOpen) {
+        e.preventDefault();
+        setIsRegisterModalOpen(false);
+        return;
+      }
+      if (isLoginPromptOpen) {
+        e.preventDefault();
+        setIsLoginPromptOpen(false);
+        return;
+      }
+    };
+    window.addEventListener('locohelp_close_active_modal', handleCloseActiveModal);
+    return () => window.removeEventListener('locohelp_close_active_modal', handleCloseActiveModal);
+  }, [reviewModalHelper, reportTarget, isRegisterModalOpen, isLoginPromptOpen]);
+
   const selectedCityName = (userLocation?.district || userLocation?.area || '').trim();
 
   // Filter helpers for selected category + optional user city filter
@@ -781,16 +795,24 @@ export default function CategoriesScreen({
     }
     verifyCategoryUserApproval(() => {
       if (onOpenChat) {
+        const currentUser = getCurrentUser();
+        const myUid = currentUser?.uid || '';
         const targetProviderId = helper.userId || helper.id;
-        const targetProviderEmail = (helper as any).email || '';
+        const targetProviderEmail =
+          (helper as any).email ||
+          (helper.phone ? `${String(helper.phone).replace(/\D/g, '').slice(-10)}@phone.locohelp.com` : '');
         onOpenChat({
           id: `provider_chat_${helper.id}`,
           authorId: targetProviderId,
           authorEmail: targetProviderEmail,
+          authorPhone: helper.phone || '',
+          phone: helper.phone || '',
           authorName: helper.name,
           providerHelperId: helper.id,
           receiverId: targetProviderId,
+          helperId: myUid,
           isDirectProviderChat: true,
+          isViewerPostOwner: false,
           description: `${helper.name} (${
             helper.customCategoryName ||
             CATEGORIES.find((c) => c.id === helper.categoryId)?.nameEn ||

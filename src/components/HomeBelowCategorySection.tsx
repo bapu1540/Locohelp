@@ -945,11 +945,14 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
                   onClick={(e) => {
                     e.stopPropagation();
                     const provTargetId = item.userId || item.id;
-                    const provEmail = item.email || '';
+                    const provPhoneDigits = String(item.phone || '').replace(/\D/g, '').slice(-10);
+                    const provEmail = item.email || (provPhoneDigits ? `${provPhoneDigits}@phone.locohelp.com` : '');
                     onOpenDirectChat({
                       id: `provider_chat_${item.id}`,
                       authorId: provTargetId,
                       authorEmail: provEmail,
+                      authorPhone: item.phone || '',
+                      phone: item.phone || '',
                       authorName:
                         language === 'GU'
                           ? item.nameGu
@@ -959,6 +962,7 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
                       providerHelperId: item.id,
                       receiverId: provTargetId,
                       isDirectProviderChat: true,
+                      isViewerPostOwner: false,
                       description:
                         language === 'GU'
                           ? `${item.nameGu} (${item.roleGu}) સાથે સીધી વાતચીત`
@@ -1712,11 +1716,14 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
                       const prov = selectedProviderProfile;
                       setSelectedProviderProfile(null);
                       const provTargetId = prov.userId || prov.id;
-                      const provEmail = prov.email || '';
+                      const provPhoneDigits = String(prov.phone || '').replace(/\D/g, '').slice(-10);
+                      const provEmail = prov.email || (provPhoneDigits ? `${provPhoneDigits}@phone.locohelp.com` : '');
                       onOpenDirectChat({
                         id: `provider_chat_${prov.id}`,
                         authorId: provTargetId,
                         authorEmail: provEmail,
+                        authorPhone: prov.phone || '',
+                        phone: prov.phone || '',
                         authorName:
                           language === 'GU'
                             ? prov.nameGu
@@ -1726,6 +1733,7 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
                         providerHelperId: prov.id,
                         receiverId: provTargetId,
                         isDirectProviderChat: true,
+                        isViewerPostOwner: false,
                         description:
                           language === 'GU'
                             ? `${prov.nameGu} (${prov.roleGu}) સાથે સીધી વાતચીત`

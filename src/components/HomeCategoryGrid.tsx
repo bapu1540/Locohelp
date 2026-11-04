@@ -564,14 +564,7 @@ export default function HomeCategoryGrid({
   onSelectCategory,
 }: HomeCategoryGridProps) {
   const { language } = useLanguage();
-  const [openCatKey, setOpenCatKey] = useState<string | null>(() => {
-    try {
-      const saved = sessionStorage.getItem('locohelp_return_popup_cat');
-      return resolvePopupCatKey(saved);
-    } catch {
-      return null;
-    }
-  });
+  const [openCatKey, setOpenCatKey] = useState<string | null>(null);
   const [, setHelpers] = useState<FreeHelperProfile[]>(() =>
     getFreeHelperProfiles(false)
   );
@@ -580,16 +573,11 @@ export default function HomeCategoryGrid({
   const langIdx: 0 | 1 | 2 =
     language === 'GU' ? 2 : language === 'HI' ? 1 : 0;
 
-  // Clear stored return popup key once restored on Home screen
   useEffect(() => {
-    if (!openCatKey) return;
-    const timer = window.setTimeout(() => {
-      try {
-        sessionStorage.removeItem('locohelp_return_popup_cat');
-      } catch {}
-    }, 250);
-    return () => window.clearTimeout(timer);
-  }, [openCatKey]);
+    try {
+      sessionStorage.removeItem('locohelp_return_popup_cat');
+    } catch {}
+  }, []);
 
   useEffect(() => {
     const syncHelpers = async () => {
@@ -694,11 +682,10 @@ export default function HomeCategoryGrid({
   const activeModalCat = MAIN_CATS.find((c) => c.key === openCatKey) || null;
 
   const handleSubCategoryClick = (subId: string) => {
-    if (openCatKey) {
-      try {
-        sessionStorage.setItem('locohelp_return_popup_cat', openCatKey);
-      } catch {}
-    }
+    try {
+      sessionStorage.removeItem('locohelp_return_popup_cat');
+      window.history.pushState({ locohelpScreen: 'home', locohelpGuard: true }, '');
+    } catch {}
     setOpenCatKey(null);
     if (onSelectCategory) {
       onSelectCategory(subId);
@@ -711,6 +698,7 @@ export default function HomeCategoryGrid({
     if (cat.subs.length === 1) {
       try {
         sessionStorage.removeItem('locohelp_return_popup_cat');
+        window.history.pushState({ locohelpScreen: 'home', locohelpGuard: true }, '');
       } catch {}
       setOpenCatKey(null);
       if (onSelectCategory) {
@@ -720,6 +708,10 @@ export default function HomeCategoryGrid({
       return;
     }
     try {
+      window.history.pushState(
+        { locohelpScreen: 'home', locohelpGuard: true },
+        ''
+      );
       window.history.pushState(
         { locohelpScreen: 'home', locohelpPopupCat: cat.key },
         ''

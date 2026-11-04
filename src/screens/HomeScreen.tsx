@@ -1311,17 +1311,44 @@ export default function HomeScreen({
         if (isInitialFetch) {
           initialLoadRef.current = false;
           try {
-            const existingNotified: string[] = JSON.parse(localStorage.getItem('locohelp_notified_post_ids') || '[]');
-            const seeded = Array.from(new Set([...serverIntents.map((p: any) => String(p?.id || '')).filter(Boolean), ...existingNotified])).slice(0, 150);
-            localStorage.setItem('locohelp_notified_post_ids', JSON.stringify(seeded));
+            const rawExisting = localStorage.getItem('locohelp_notified_post_ids');
+            if (!rawExisting) {
+              // First time on this device: seed current posts except any created in the last 10 minutes
+              const nowMs = Date.now();
+              const recentPosts: any[] = [];
+              const olderIds: string[] = [];
+              for (const p of serverIntents) {
+                if (!p || !p.id) continue;
+                const createdMs = new Date(p.createdAt || (p as any).created_at || 0).getTime();
+                if (createdMs > 0 && nowMs - createdMs <= 10 * 60 * 1000) {
+                  recentPosts.push(p);
+                } else {
+                  olderIds.push(String(p.id));
+                }
+              }
+              localStorage.setItem('locohelp_notified_post_ids', JSON.stringify(olderIds.slice(0, 150)));
+              if (recentPosts.length > 0) {
+                notifyAndRecordNewPost(recentPosts[0]);
+              }
+            } else {
+              // Returning user: check if any post was created within the last 30 minutes while they had the app closed
+              const nowMs = Date.now();
+              for (const item of serverIntents) {
+                if (!item || !item.id) continue;
+                const createdMs = new Date(item.createdAt || (item as any).created_at || 0).getTime();
+                if (createdMs > 0 && nowMs - createdMs <= 30 * 60 * 1000) {
+                  notifyAndRecordNewPost(item);
+                }
+              }
+            }
           } catch {}
         } else {
-          // Notify for any newly discovered post created within the last 3 minutes (polling fallback if SSE was buffered)
+          // Notify for any newly discovered post created within the last 15 minutes (polling fallback if SSE was buffered)
           const nowMs = Date.now();
           for (const item of serverIntents) {
             if (!item || !item.id) continue;
             const createdMs = new Date(item.createdAt || (item as any).created_at || 0).getTime();
-            if (createdMs > 0 && nowMs - createdMs <= 3 * 60 * 1000) {
+            if (createdMs > 0 && nowMs - createdMs <= 15 * 60 * 1000) {
               notifyAndRecordNewPost(item);
             }
           }
