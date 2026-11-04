@@ -484,127 +484,95 @@ export default function LoginPromptModal({
       }}
     >
       <div
-        className="relative w-full max-w-md rounded-3xl bg-white shadow-2xl border border-slate-200 overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-200"
+        className="relative w-full max-w-sm rounded-3xl bg-white shadow-2xl border border-slate-200 overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-200"
         style={{ backgroundColor: '#ffffff', zIndex: 10501 }}
       >
-        {/* Clean Solid Header */}
+        {/* Minimal Top Bar: Language Selector + Close Button Only */}
         <div
-          className="bg-teal-700 px-5 py-4 text-white flex items-center justify-between"
+          className="bg-teal-700 px-4 py-2.5 text-white flex items-center justify-between"
           style={{ backgroundColor: '#0f766e', color: '#ffffff' }}
         >
-          <div className="flex items-center gap-2.5">
-            <div
-              className="w-10 h-10 rounded-2xl bg-white/15 flex items-center justify-center border border-white/25"
-              style={{ backgroundColor: 'rgba(255, 255, 255, 0.15)', borderColor: 'rgba(255, 255, 255, 0.25)' }}
-            >
-              <ShieldCheck size={22} className="text-white" style={{ color: '#ffffff' }} />
-            </div>
-            <div>
-              <h2 className="text-base sm:text-lg font-black tracking-tight leading-tight" style={{ color: '#ffffff' }}>
-                {checkedUser.checked && checkedUser.exists
-                  ? tr('Welcome Back!', 'वापसी पर स्वागत है!', 'ફરી સ્વાગત છે!')
-                  : tr('LocoHelp Login / Join', 'लॉगिन / नया अकाउंट', 'લોગિન / નવું એકાઉન્ટ')}
-              </h2>
-              <p className="text-[11px] text-teal-100 font-semibold" style={{ color: '#ccfbf1' }}>
-                {tr(
-                  'Mobile or Email • Safe OTP Verification',
-                  'मोबाइल या ईमेल • सुरक्षित OTP वेरिफिकेशन',
-                  'મોબાઇલ કે ઈમેલ • સુરક્ષિત OTP વેરિફિકેશન'
-                )}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-1.5">
-            {/* Compact Language Switcher */}
-            <div
-              className="flex items-center bg-teal-900/60 rounded-xl p-0.5 border border-white/15 text-[10px] font-extrabold"
-              style={{ backgroundColor: 'rgba(19, 78, 74, 0.6)', borderColor: 'rgba(255, 255, 255, 0.2)' }}
-            >
-              <button
-                type="button"
-                onClick={() => setLanguage('GU')}
-                className={`px-2 py-1 rounded-lg transition-all cursor-pointer ${
-                  language === 'GU' ? 'bg-white text-teal-900 shadow-xs' : 'text-teal-100'
-                }`}
-                style={language === 'GU' ? { backgroundColor: '#ffffff', color: '#134e4a' } : { color: '#ccfbf1' }}
-              >
-                ગુજ
-              </button>
-              <button
-                type="button"
-                onClick={() => setLanguage('HI')}
-                className={`px-2 py-1 rounded-lg transition-all cursor-pointer ${
-                  language === 'HI' ? 'bg-white text-teal-900 shadow-xs' : 'text-teal-100'
-                }`}
-                style={language === 'HI' ? { backgroundColor: '#ffffff', color: '#134e4a' } : { color: '#ccfbf1' }}
-              >
-                हिंदी
-              </button>
-              <button
-                type="button"
-                onClick={() => setLanguage('EN')}
-                className={`px-2 py-1 rounded-lg transition-all cursor-pointer ${
-                  language === 'EN' ? 'bg-white text-teal-900 shadow-xs' : 'text-teal-100'
-                }`}
-                style={language === 'EN' ? { backgroundColor: '#ffffff', color: '#134e4a' } : { color: '#ccfbf1' }}
-              >
-                ENG
-              </button>
-            </div>
-
+          {/* Language Switcher */}
+          <div
+            className="flex items-center bg-teal-900/60 rounded-xl p-0.5 border border-white/15 text-[11px] font-extrabold"
+            style={{ backgroundColor: 'rgba(19, 78, 74, 0.6)', borderColor: 'rgba(255, 255, 255, 0.2)' }}
+          >
             <button
               type="button"
-              onClick={() => {
-                if (otpVerifiedForPinSetup) {
-                  finishSuccess();
-                } else {
-                  onClose();
-                }
-              }}
-              className="w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors cursor-pointer"
-              style={{ backgroundColor: 'rgba(255, 255, 255, 0.15)', color: '#ffffff' }}
-              aria-label="Close"
+              onClick={() => setLanguage('GU')}
+              className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                language === 'GU' ? 'bg-white text-teal-900 shadow-xs' : 'text-teal-100'
+              }`}
+              style={language === 'GU' ? { backgroundColor: '#ffffff', color: '#134e4a' } : { color: '#ccfbf1' }}
             >
-              <X size={18} />
+              ગુજ
+            </button>
+            <button
+              type="button"
+              onClick={() => setLanguage('HI')}
+              className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                language === 'HI' ? 'bg-white text-teal-900 shadow-xs' : 'text-teal-100'
+              }`}
+              style={language === 'HI' ? { backgroundColor: '#ffffff', color: '#134e4a' } : { color: '#ccfbf1' }}
+            >
+              हिंदी
+            </button>
+            <button
+              type="button"
+              onClick={() => setLanguage('EN')}
+              className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                language === 'EN' ? 'bg-white text-teal-900 shadow-xs' : 'text-teal-100'
+              }`}
+              style={language === 'EN' ? { backgroundColor: '#ffffff', color: '#134e4a' } : { color: '#ccfbf1' }}
+            >
+              ENG
             </button>
           </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              if (otpVerifiedForPinSetup) {
+                finishSuccess();
+              } else {
+                onClose();
+              }
+            }}
+            className="w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors cursor-pointer"
+            style={{ backgroundColor: 'rgba(255, 255, 255, 0.15)', color: '#ffffff' }}
+            aria-label="Close"
+          >
+            <X size={18} />
+          </button>
         </div>
 
-        <div className="p-5 space-y-4">
-          {displayActionBanner && (
-            <div className="rounded-xl bg-amber-50 border border-amber-200 px-3.5 py-2 text-xs font-bold text-amber-900 flex items-center gap-2">
-              <Sparkles size={15} className="text-amber-600 shrink-0" />
-              <span>{displayActionBanner}</span>
-            </div>
-          )}
-
+        <div className="p-4 space-y-3">
           {/* Error / Success Banner */}
           {errorMsg && (
-            <div className="rounded-2xl bg-rose-50 border border-rose-200 p-3 flex items-start gap-2.5 text-rose-800 text-xs font-bold">
-              <AlertCircle size={16} className="text-rose-600 shrink-0 mt-0.5" />
+            <div className="rounded-xl bg-rose-50 border border-rose-200 p-2.5 flex items-start gap-2 text-rose-800 text-xs font-bold">
+              <AlertCircle size={15} className="text-rose-600 shrink-0 mt-0.5" />
               <span>{errorMsg}</span>
             </div>
           )}
 
           {successMsg && (
-            <div className="rounded-2xl bg-emerald-50 border border-emerald-200 p-3 flex items-start gap-2.5 text-emerald-800 text-xs font-bold">
-              <CheckCircle2 size={16} className="text-emerald-600 shrink-0 mt-0.5" />
+            <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-2.5 flex items-start gap-2 text-emerald-800 text-xs font-bold">
+              <CheckCircle2 size={15} className="text-emerald-600 shrink-0 mt-0.5" />
               <span>{successMsg}</span>
             </div>
           )}
 
           {/* Step 1: Mandatory Mobile Number OR Email ID Input */}
           <div>
-            <label className="block text-xs font-black text-slate-700 mb-1.5">
+            <label className="block text-xs font-black text-slate-700 mb-1">
               {tr(
-                '1. Mobile Number or Email ID (Mandatory)',
-                '1. मोबाइल नंबर या ईमेल आईडी (अनिवार्य)',
-                '1. મોબાઇલ નંબર અથવા ઈમેલ આઈડી (ફરજિયાત)'
+                'Mobile Number or Email ID',
+                'मोबाइल नंबर या ईमेल आईडी',
+                'મોબાઇલ નંબર અથવા ઈમેલ આઈડી'
               )}
             </label>
             <div className="flex items-center rounded-2xl border-2 border-slate-200 focus-within:border-teal-600 bg-white overflow-hidden">
-              <div className="pl-3.5 pr-2 py-3 flex items-center gap-1 text-slate-500 font-bold text-xs shrink-0 select-none">
+              <div className="pl-3 pr-2 py-2.5 flex items-center gap-1 text-slate-500 font-bold text-xs shrink-0 select-none">
                 {isEmailInput ? (
                   <Mail size={15} className="text-teal-600 shrink-0" />
                 ) : cleanDigits.length > 0 ? (
@@ -631,70 +599,24 @@ export default function LoginPromptModal({
                   setErrorMsg(null);
                 }}
                 placeholder={tr(
-                  'Enter 10-digit Mobile Number or Email ID',
-                  '10 अंकों का मोबाइल नंबर या ईमेल आईडी लिखें',
-                  '10 અંકનો મોબાઇલ નંબર અથવા ઈમેલ આઈડી લખો'
+                  '10-digit Mobile or Email ID',
+                  '10 अंकों का मोबाइल या ईमेल',
+                  '10 અંકનો મોબાઇલ અથવા ઈમેલ'
                 )}
-                className="flex-1 min-w-0 py-3 pr-3 bg-transparent focus:outline-none text-sm font-black text-slate-900 tracking-wide disabled:bg-slate-100"
+                className="flex-1 min-w-0 py-2.5 pr-3 bg-transparent focus:outline-none text-sm font-black text-slate-900 tracking-wide disabled:bg-slate-100"
                 autoFocus
               />
               {isCheckingUser && (
-                <div className="pr-3.5 shrink-0">
-                  <Loader2 size={16} className="text-teal-600 animate-spin" />
+                <div className="pr-3 shrink-0">
+                  <Loader2 size={15} className="text-teal-600 animate-spin" />
                 </div>
               )}
             </div>
-
-            {/* Smart Recognition Status Badge */}
-            {checkedUser.checked && !otpVerifiedForPinSetup && (
-              <div className="mt-2">
-                {checkedUser.exists && checkedUser.hasPassword ? (
-                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-teal-50 border border-teal-200 text-teal-800 text-[11px] font-extrabold">
-                    <CheckCircle2 size={13} className="text-teal-600 shrink-0" />
-                    <span>
-                      {tr(
-                        `Welcome back, ${checkedUser.name || 'Member'}! Enter your saved PIN/Password below.`,
-                        `स्वागत है, ${checkedUser.name || 'सदस्य'}! नीचे अपना सेव किया हुआ PIN/पासवर्ड डालें।`,
-                        `ફરી સ્વાગત છે, ${checkedUser.name || 'સભ્ય'}! નીચે તમારો સેવ કરેલો PIN/પાસવર્ડ નાખો.`
-                      )}
-                    </span>
-                  </div>
-                ) : (
-                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-blue-50 border border-blue-200 text-blue-800 text-[11px] font-extrabold">
-                    <Sparkles size={13} className="text-blue-600 shrink-0" />
-                    <span>
-                      {isValidEmail
-                        ? tr(
-                            'Verify with 6-digit Email OTP first, then set your PIN/Password.',
-                            'पहले ईमेल OTP से वेरिफाई करें, फिर अपना PIN/पासवर्ड सेट करें।',
-                            'પહેલા ઈમેલ OTP થી વેરિફાઈ કરો, પછી તમારો PIN/પાસવર્ડ સેટ કરો.'
-                          )
-                        : tr(
-                            'Verify with 6-digit Mobile SMS OTP first, then set your PIN/Password.',
-                            'पहले मोबाइल SMS OTP से वेरिफाई करें, फिर अपना PIN/पासवर्ड सेट करें।',
-                            'પહેલા મોબાઇલ SMS OTP થી વેરિફાઈ કરો, પછી તમારો PIN/પાસવર્ડ સેટ કરો.'
-                          )}
-                    </span>
-                  </div>
-                )}
-              </div>
-            )}
           </div>
 
           {/* CASE 1: OTP Just Verified -> Show "Set 4-Digit PIN / Password" Step */}
           {otpVerifiedForPinSetup ? (
-            <form onSubmit={handleSavePinAfterOtp} className="space-y-3.5 pt-1">
-              <div className="rounded-2xl bg-teal-50 border border-teal-200 p-3 text-xs font-extrabold text-teal-900 flex items-center gap-2">
-                <ShieldCheck size={18} className="text-teal-600 shrink-0" />
-                <span>
-                  {tr(
-                    'Step 2: Create a 4-Digit PIN / Password so next time you can login directly without OTP.',
-                    'स्टेप 2: अपना 4-अंकों का PIN / पासवर्ड बनाएं ताकि अगली बार बिना OTP सीधे लॉगिन कर सकें।',
-                    'સ્ટેપ 2: તમારો 4-અંકનો PIN / પાસવર્ડ બનાવો જેથી આગલી વખતે OTP વગર સીધા લોગિન કરી શકો.'
-                  )}
-                </span>
-              </div>
-
+            <form onSubmit={handleSavePinAfterOtp} className="space-y-3 pt-0.5">
               <div>
                 <label className="block text-xs font-black text-slate-700 mb-1">
                   {tr(
@@ -704,7 +626,7 @@ export default function LoginPromptModal({
                   )}
                 </label>
                 <div className="flex items-center rounded-2xl border-2 border-teal-500 focus-within:border-teal-700 bg-white overflow-hidden">
-                  <div className="pl-3.5 pr-2 py-3 text-teal-600 shrink-0">
+                  <div className="pl-3 pr-2 py-2.5 text-teal-600 shrink-0">
                     <Lock size={15} />
                   </div>
                   <input
@@ -716,13 +638,13 @@ export default function LoginPromptModal({
                       '4-अंकों का PIN या पासवर्ड लिखें',
                       '4-અંકનો PIN અથવા પાસવર્ડ લખો'
                     )}
-                    className="flex-1 min-w-0 py-3 bg-transparent focus:outline-none text-sm font-black text-slate-900 tracking-wider"
+                    className="flex-1 min-w-0 py-2.5 bg-transparent focus:outline-none text-sm font-black text-slate-900 tracking-wider"
                     autoFocus
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="px-3.5 py-3 text-slate-400 hover:text-slate-700 shrink-0"
+                    className="px-3 py-2.5 text-slate-400 hover:text-slate-700 shrink-0"
                   >
                     {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
@@ -732,18 +654,18 @@ export default function LoginPromptModal({
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="w-full py-3.5 rounded-2xl bg-teal-600 hover:bg-teal-700 active:translate-y-0.5 border-b-4 border-teal-800 text-white font-black text-sm shadow-lg flex items-center justify-center gap-2 transition-all disabled:opacity-60"
+                className="w-full py-3 rounded-2xl bg-teal-600 hover:bg-teal-700 active:translate-y-0.5 border-b-4 border-teal-800 text-white font-black text-sm shadow-md flex items-center justify-center gap-2 transition-all disabled:opacity-60"
               >
                 {isSubmitting ? (
-                  <Loader2 size={18} className="animate-spin" />
+                  <Loader2 size={17} className="animate-spin" />
                 ) : (
-                  <CheckCircle2 size={18} />
+                  <CheckCircle2 size={17} />
                 )}
                 <span>
                   {tr(
-                    'Save PIN & Complete Login',
-                    'PIN सेव करें और लॉगिन पूरा करें',
-                    'PIN સેવ કરો અને લોગિન પૂર્ણ કરો'
+                    'Save PIN & Login',
+                    'PIN सेव करें और लॉगिन करें',
+                    'PIN સેવ કરો અને લોગિન કરો'
                   )}
                 </span>
               </button>
@@ -751,25 +673,25 @@ export default function LoginPromptModal({
               <button
                 type="button"
                 onClick={() => finishSuccess()}
-                className="w-full py-2.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 font-extrabold text-xs transition-colors"
+                className="w-full py-2 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 font-extrabold text-xs transition-colors"
               >
                 {tr(
-                  'Skip PIN & Continue Directly →',
-                  'बिना PIN सेट किए सीधे आगे बढ़ें →',
-                  'PIN સેટ કર્યા વગર સીધા આગળ વધો →'
+                  'Skip PIN & Continue →',
+                  'बिना PIN सीधे आगे बढ़ें →',
+                  'PIN વગર સીધા આગળ વધો →'
                 )}
               </button>
             </form>
           ) : canLoginDirectlyWithPin ? (
             /* CASE 2: Returning Verified User Recognized in PostgreSQL with Saved Password */
-            <form onSubmit={handleReturningPinLogin} className="space-y-3.5">
+            <form onSubmit={handleReturningPinLogin} className="space-y-3">
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="text-xs font-black text-slate-700">
                     {tr(
-                      '2. Enter Your Saved PIN / Password',
-                      '2. अपना सेव किया हुआ PIN / पासवर्ड डालें',
-                      '2. તમારો સેવ કરેલો PIN / પાસવર્ડ નાખો'
+                      'Enter PIN / Password',
+                      'अपना PIN / पासवर्ड डालें',
+                      'તમારો PIN / પાસવર્ડ નાખો'
                     )}
                   </label>
                   <button
@@ -781,14 +703,14 @@ export default function LoginPromptModal({
                     className="text-[11px] font-extrabold text-teal-700 hover:underline"
                   >
                     {tr(
-                      'Forgot PIN? Login with OTP',
+                      'Forgot PIN? Use OTP',
                       'PIN भूल गए? OTP से लॉगिन करें',
-                      'PIN ભૂલી ગયા? OTP થી લોગિન કરો'
+                      'PIN ભૂલી ગયા? OTP વાપરો'
                     )}
                   </button>
                 </div>
                 <div className="flex items-center rounded-2xl border-2 border-slate-200 focus-within:border-teal-600 bg-white overflow-hidden">
-                  <div className="pl-3.5 pr-2 py-3 text-teal-600 shrink-0">
+                  <div className="pl-3 pr-2 py-2.5 text-teal-600 shrink-0">
                     <Lock size={15} />
                   </div>
                   <input
@@ -796,16 +718,16 @@ export default function LoginPromptModal({
                     value={pinOrPassword}
                     onChange={(e) => setPinOrPassword(e.target.value)}
                     placeholder={tr(
-                      'Enter your 4-digit PIN or Password',
-                      'अपना 4-अंकों का PIN या पासवर्ड लिखें',
-                      'તમારો 4-અંકનો PIN અથવા પાસવર્ડ લખો'
+                      'Enter 4-digit PIN or Password',
+                      '4-अंकों का PIN या पासवर्ड लिखें',
+                      '4-અંકનો PIN અથવા પાસવર્ડ લખો'
                     )}
-                    className="flex-1 min-w-0 py-3 bg-transparent focus:outline-none text-sm font-black text-slate-900 tracking-wider"
+                    className="flex-1 min-w-0 py-2.5 bg-transparent focus:outline-none text-sm font-black text-slate-900 tracking-wider"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="px-3.5 py-3 text-slate-400 hover:text-slate-700 shrink-0"
+                    className="px-3 py-2.5 text-slate-400 hover:text-slate-700 shrink-0"
                   >
                     {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
@@ -815,26 +737,26 @@ export default function LoginPromptModal({
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="w-full py-3.5 rounded-2xl bg-teal-600 hover:bg-teal-700 active:translate-y-0.5 border-b-4 border-teal-800 text-white font-black text-sm shadow-lg flex items-center justify-center gap-2 transition-all disabled:opacity-60"
+                className="w-full py-3 rounded-2xl bg-teal-600 hover:bg-teal-700 active:translate-y-0.5 border-b-4 border-teal-800 text-white font-black text-sm shadow-md flex items-center justify-center gap-2 transition-all disabled:opacity-60"
               >
                 {isSubmitting ? (
-                  <Loader2 size={18} className="animate-spin" />
+                  <Loader2 size={17} className="animate-spin" />
                 ) : (
-                  <ShieldCheck size={18} />
+                  <ShieldCheck size={17} />
                 )}
-                <span>{tr('Login Now', 'अभी लॉगिन करें', 'અત્યારે જ લોગિન કરો')}</span>
+                <span>{tr('Login Now', 'लॉगिन करें', 'લોગિન કરો')}</span>
               </button>
             </form>
           ) : (
             /* CASE 3: New User OR User without PIN OR Forgot PIN -> Mandatory OTP Verification First */
-            <form onSubmit={handleVerifyOtpStep} className="space-y-3.5">
+            <form onSubmit={handleVerifyOtpStep} className="space-y-3">
               {(!checkedUser.exists || !checkedUser.name) && (
                 <div>
                   <label className="block text-xs font-black text-slate-700 mb-1">
                     {tr('Your Full Name', 'आपका पूरा नाम', 'તમારું પૂરું નામ')}
                   </label>
                   <div className="flex items-center rounded-2xl border-2 border-slate-200 focus-within:border-teal-600 bg-white overflow-hidden">
-                    <div className="pl-3.5 pr-2 py-2.5 text-slate-400 shrink-0">
+                    <div className="pl-3 pr-2 py-2.5 text-slate-400 shrink-0">
                       <UserIcon size={15} />
                     </div>
                     <input
@@ -846,7 +768,7 @@ export default function LoginPromptModal({
                         'अपना पूरा नाम लिखें',
                         'તમારું પૂરું નામ લખો'
                       )}
-                      className="flex-1 min-w-0 py-2.5 pr-4 bg-transparent focus:outline-none text-sm font-bold text-slate-900"
+                      className="flex-1 min-w-0 py-2.5 pr-3 bg-transparent focus:outline-none text-sm font-bold text-slate-900"
                     />
                   </div>
                 </div>
@@ -858,12 +780,12 @@ export default function LoginPromptModal({
                     type="button"
                     onClick={handleSendOtp}
                     disabled={isSubmitting || cooldown > 0}
-                    className="w-full py-3.5 rounded-2xl bg-teal-600 hover:bg-teal-700 border-b-4 border-teal-800 text-white font-black text-sm shadow-md flex items-center justify-center gap-2 disabled:opacity-60"
+                    className="w-full py-3 rounded-2xl bg-teal-600 hover:bg-teal-700 border-b-4 border-teal-800 text-white font-black text-sm shadow-md flex items-center justify-center gap-2 disabled:opacity-60"
                   >
                     {isSubmitting ? (
-                      <Loader2 size={18} className="animate-spin" />
+                      <Loader2 size={17} className="animate-spin" />
                     ) : (
-                      <KeyRound size={18} />
+                      <KeyRound size={17} />
                     )}
                     <span>
                       {cooldown > 0
@@ -893,18 +815,18 @@ export default function LoginPromptModal({
                         setForceOtpMode(false);
                         setErrorMsg(null);
                       }}
-                      className="w-full py-2 text-center text-xs font-extrabold text-teal-700 hover:underline"
+                      className="w-full py-1.5 text-center text-xs font-extrabold text-teal-700 hover:underline"
                     >
                       {tr(
-                        '← Back to Saved PIN / Password Login',
-                        '← सेव किए गए PIN / पासवर्ड लॉगिन पर वापस जाएं',
-                        '← સેવ કરેલા PIN / પાસવર્ડ લોગિન પર પાછા જાઓ'
+                        '← Back to PIN / Password Login',
+                        '← PIN / पासवर्ड लॉगिन पर वापस जाएं',
+                        '← PIN / પાસવર્ડ લોગિન પર પાછા જાઓ'
                       )}
                     </button>
                   )}
                 </div>
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-2.5">
                   <div>
                     <label className="block text-xs font-black text-slate-700 mb-1">
                       {isValidEmail
@@ -926,7 +848,7 @@ export default function LoginPromptModal({
                       value={otpCode}
                       onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                       placeholder="• • • • • •"
-                      className="w-full px-4 py-3 rounded-2xl border-2 border-slate-200 focus:border-teal-600 focus:outline-none text-center text-lg font-black tracking-[0.35em] text-slate-900"
+                      className="w-full px-4 py-2.5 rounded-2xl border-2 border-slate-200 focus:border-teal-600 focus:outline-none text-center text-lg font-black tracking-[0.35em] text-slate-900"
                       autoFocus
                     />
                   </div>
@@ -936,7 +858,7 @@ export default function LoginPromptModal({
                       type="button"
                       onClick={handleSendOtp}
                       disabled={cooldown > 0 || isSubmitting}
-                      className="px-3.5 py-3 rounded-2xl border border-slate-300 text-slate-700 text-xs font-bold flex items-center gap-1 disabled:opacity-50"
+                      className="px-3 py-2.5 rounded-2xl border border-slate-300 text-slate-700 text-xs font-bold flex items-center gap-1 disabled:opacity-50"
                     >
                       <RefreshCw size={13} />
                       <span>
@@ -947,18 +869,18 @@ export default function LoginPromptModal({
                     <button
                       type="submit"
                       disabled={isSubmitting}
-                      className="flex-1 py-3.5 rounded-2xl bg-teal-600 hover:bg-teal-700 border-b-4 border-teal-800 text-white font-black text-sm shadow-md flex items-center justify-center gap-2"
+                      className="flex-1 py-3 rounded-2xl bg-teal-600 hover:bg-teal-700 border-b-4 border-teal-800 text-white font-black text-sm shadow-md flex items-center justify-center gap-2"
                     >
                       {isSubmitting ? (
-                        <Loader2 size={18} className="animate-spin" />
+                        <Loader2 size={17} className="animate-spin" />
                       ) : (
-                        <CheckCircle2 size={18} />
+                        <CheckCircle2 size={17} />
                       )}
                       <span>
                         {tr(
-                          'Verify OTP & Continue',
-                          'OTP वेरिफाई करें और आगे बढ़ें',
-                          'OTP વેરિફાઈ કરો અને આગળ વધો'
+                          'Verify OTP',
+                          'OTP वेरिफाई करें',
+                          'OTP વેરિફાઈ કરો'
                         )}
                       </span>
                     </button>
@@ -967,21 +889,7 @@ export default function LoginPromptModal({
               )}
             </form>
           )}
-
-          {/* Clean Admin Approval Note for New Users */}
-          {!checkedUser.exists && (
-            <div className="rounded-2xl bg-slate-50 border border-slate-200 px-3.5 py-2.5 text-[11px] font-semibold text-slate-600 leading-relaxed">
-              {tr(
-                'Note: New accounts are sent for Admin Approval. You can browse everything immediately, and post or chat once approved.',
-                'नोट: नया अकाउंट एडमिन अप्रूवल के लिए जाता है। अप्रूवल के बाद आप पोस्ट और चैट कर सकेंगे।',
-                'નોંધ: નવું એકાઉન્ટ એડમિન અપ્રૂવલ માટે જાય છે. અપ્રૂવલ પછી તમે પોસ્ટ અને ચેટ કરી શકશો.'
-              )}
-            </div>
-          )}
         </div>
-
-        {/* Hidden Firebase reCAPTCHA mount container */}
-        <div id="recaptcha-container" className="hidden" />
       </div>
     </div>
   );

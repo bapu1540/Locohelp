@@ -533,7 +533,9 @@ export async function getFirebaseAuthInstance(): Promise<Auth> {
   return auth;
 }
 
-function clearRecaptchaVerifier(containerId: string) {
+let activeRecaptchaContainerEl: HTMLElement | null = null;
+
+function clearRecaptchaVerifier(containerId?: string) {
   try {
     if (activeRecaptchaVerifier) {
       activeRecaptchaVerifier.clear();
@@ -541,28 +543,33 @@ function clearRecaptchaVerifier(containerId: string) {
     }
   } catch {}
   try {
-    const existingEl = document.getElementById(containerId);
-    if (existingEl) {
-      existingEl.innerHTML = '';
+    if (activeRecaptchaContainerEl && activeRecaptchaContainerEl.parentNode) {
+      activeRecaptchaContainerEl.parentNode.removeChild(activeRecaptchaContainerEl);
     }
+    activeRecaptchaContainerEl = null;
   } catch {}
+  if (containerId) {
+    try {
+      const existingEl = document.getElementById(containerId);
+      if (existingEl && existingEl.parentNode && existingEl.parentNode === document.body) {
+        existingEl.parentNode.removeChild(existingEl);
+      } else if (existingEl) {
+        existingEl.innerHTML = '';
+      }
+    } catch {}
+  }
 }
 
-function ensureRecaptchaContainerElement(containerId: string): HTMLElement {
-  let el = document.getElementById(containerId);
-  if (el && el.parentNode) {
-    const freshEl = document.createElement('div');
-    freshEl.id = containerId;
-    el.parentNode.replaceChild(freshEl, el);
-    return freshEl;
-  }
+function createFreshRecaptchaContainer(): HTMLElement {
+  clearRecaptchaVerifier();
   const newEl = document.createElement('div');
-  newEl.id = containerId;
+  newEl.id = `firebase-recaptcha-container-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   newEl.style.position = 'fixed';
   newEl.style.bottom = '0px';
   newEl.style.right = '0px';
-  newEl.style.zIndex = '9999';
+  newEl.style.zIndex = '2147483647';
   document.body.appendChild(newEl);
+  activeRecaptchaContainerEl = newEl;
   return newEl;
 }
 
@@ -621,23 +628,16 @@ export async function sendFirebasePhoneOtp(
   try {
     const authInstance = await getFirebaseAuthInstance();
     const activeApiKey = String(authInstance?.app?.options?.apiKey || '');
-    const currentHost = typeof window !== 'undefined' ? window.location.hostname : '';
 
-    // When Firebase client credentials are not configured (dummy fallback key) or running inside AI Studio preview (*.run.app),
-    // skip browser-side reCAPTCHA/Firebase network call and gracefully use the server 6-digit OTP fallback.
-    if (
-      !activeApiKey ||
-      activeApiKey === 'AIzaSyDummyKeyForLocoHelpAuthInit2026' ||
-      currentHost.endsWith('.run.app')
-    ) {
+    if (!activeApiKey || activeApiKey === 'AIzaSyDummyKeyForLocoHelpAuthInit2026') {
       return {
         success: false,
         phoneE164: norm.e164,
         tenDigits: norm.tenDigits,
         error: trFirebase(
-          'Using instant server OTP verification.',
-          'सर्वर OTP सत्यापन का उपयोग किया जा रहा है।',
-          'સર્વર OTP ચકાસણીનો ઉપયોગ કરવામાં આવી રહ્યો છે.'
+          'Firebase API Key is not configured on the server.',
+          'सर्वर पर Firebase API Key कॉन्फ़िगर नहीं है।',
+          'સર્વર પર Firebase API Key સેટ નથી.'
         )
       };
     }
@@ -645,22 +645,37 @@ export async function sendFirebasePhoneOtp(
     const currentLang = (localStorage.getItem('locohelp_language') || 'GU').toLowerCase();
     authInstance.languageCode = currentLang === 'gu' ? 'gu' : currentLang === 'hi' ? 'hi' : 'en';
 
-    clearRecaptchaVerifier(containerId);
-    const containerEl = ensureRecaptchaContainerElement(containerId);
+    const attemptPhoneSignIn = async () => {
+      const containerEl = createFreshRecaptchaContainer();
+      activeRecaptchaVerifier = new RecaptchaVerifier(authInstance, containerEl, {
+        size: 'invisible',
+        callback: () => {},
+        'expired-callback': () => {
+          clearRecaptchaVerifier(containerId);
+        }
+      });
+      await activeRecaptchaVerifier.render();
+      return await signInWithPhoneNumber(authInstance, norm.e164, activeRecaptchaVerifier);
+    };
 
-    activeRecaptchaVerifier = new RecaptchaVerifier(authInstance, containerEl, {
-      size: 'invisible',
-      callback: () => {},
-      'expired-callback': () => {
-        clearRecaptchaVerifier(containerId);
+    let confirmationResult: ConfirmationResult;
+    try {
+      confirmationResult = await attemptPhoneSignIn();
+    } catch (firstErr: any) {
+      const firstCode = String(firstErr?.code || '');
+      if (
+        firstCode === 'auth/invalid-phone-number' ||
+        firstCode === 'auth/too-many-requests' ||
+        firstCode === 'auth/quota-exceeded' ||
+        firstCode === 'auth/unauthorized-domain' ||
+        firstCode === 'auth/operation-not-allowed' ||
+        firstCode === 'auth/billing-not-enabled'
+      ) {
+        throw firstErr;
       }
-    });
-
-    const confirmationResult = await signInWithPhoneNumber(
-      authInstance,
-      norm.e164,
-      activeRecaptchaVerifier
-    );
+      // Retry once with a fresh reCAPTCHA container on transient DOM / network error
+      confirmationResult = await attemptPhoneSignIn();
+    }
 
     activeConfirmationResult = confirmationResult;
     (window as any).__locohelpConfirmationResult = confirmationResult;
@@ -698,6 +713,16 @@ export async function sendFirebasePhoneOtp(
         )
       };
     }
+    if (code === 'auth/billing-not-enabled') {
+      return {
+        success: false,
+        error: trFirebase(
+          'Firebase Phone SMS requires Blaze (Pay-as-you-go) plan enabled in Firebase Console, or add this number in Firebase Auth -> Phone -> Phone numbers for testing.',
+          'Firebase SMS OTP के लिए Firebase Console में Blaze प्लान चालू करें या Testing Numbers में नंबर जोड़ें।',
+          'Firebase SMS OTP માટે Firebase Console માં Blaze પ્લાન ચાલુ કરો અથવા Testing Numbers માં નંબર ઉમેરો.'
+        )
+      };
+    }
     if (
       code === 'auth/unauthorized-domain' ||
       code === 'auth/captcha-check-failed' ||
@@ -726,9 +751,9 @@ export async function sendFirebasePhoneOtp(
     return {
       success: false,
       error: trFirebase(
-        'Could not send SMS OTP right now. Please try again or use Email OTP / Password.',
-        'मोबाइल पर OTP भेजने में समस्या आई। कृपया पुनः प्रयास करें या ईमेल OTP / पासवर्ड का उपयोग करें।',
-        'મોબાઇલ પર OTP મોકલવામાં સમસ્યા આવી. કૃપા કરીને ફરી પ્રયાસ કરો અથવા ઈમેલ OTP / પાસવર્ડનો ઉપયોગ કરો.'
+        `Could not send SMS OTP right now${code ? ` (${code})` : ''}. Please try again or use Email OTP / Password.`,
+        `मोबाइल पर OTP भेजने में समस्या आई${code ? ` (${code})` : ''}। कृपया पुनः प्रयास करें या ईमेल OTP / पासवर्ड का उपयोग करें।`,
+        `મોબાઇલ પર OTP મોકલવામાં સમસ્યા આવી${code ? ` (${code})` : ''}. કૃપા કરીને ફરી પ્રયાસ કરો અથવા ઈમેલ OTP / પાસવર્ડનો ઉપયોગ કરો.`
       )
     };
   }
