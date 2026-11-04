@@ -11,6 +11,7 @@ import { compressImageToWebP } from '../lib/imageCompression';
 import { SmartLocationPicker } from './SmartLocationPicker';
 import { PhonePrivacyToggle } from './PhonePrivacyToggle';
 import { ProtectedSelfieCanvas } from './ProtectedSelfieCanvas';
+import { LiveSelfieCaptureField, VisitingCardUploadField } from './LiveSelfieCaptureField';
 
 interface FreeHelperRegisterModalProps {
   isOpen: boolean;
@@ -275,23 +276,32 @@ export default function FreeHelperRegisterModal({
   return (
     <AnimatePresence>
       <div
-        className="fixed inset-x-0 bottom-0 top-[52px] z-50 flex items-center justify-center p-3 sm:p-4"
-        style={{ position: 'fixed', top: '52px', left: 0, right: 0, bottom: 0, zIndex: 5000 }}
+        className="fixed inset-x-0 z-50 flex items-start sm:items-center justify-center p-2.5 sm:p-4 overflow-y-auto"
+        style={{
+          position: 'fixed',
+          top: '52px',
+          left: 0,
+          right: 0,
+          bottom: 'calc(62px + env(safe-area-inset-bottom, 0px))',
+          zIndex: 5000,
+          WebkitOverflowScrolling: 'touch',
+        }}
       >
         <motion.div 
           initial={{ opacity: 0 }} 
           animate={{ opacity: 1 }} 
           exit={{ opacity: 0 }} 
           onClick={onClose}
-          className="absolute inset-0 bg-black/60 backdrop-blur-xs"
+          className="fixed inset-0 bg-black/60 backdrop-blur-xs"
         />
         
         <motion.div 
-          initial={{ opacity: 0, scale: 0.92, y: 12 }} 
+          initial={{ opacity: 0, scale: 0.94, y: 10 }} 
           animate={{ opacity: 1, scale: 1, y: 0 }} 
-          exit={{ opacity: 0, scale: 0.92, y: 12 }}
+          exit={{ opacity: 0, scale: 0.94, y: 10 }}
           transition={{ type: 'spring', damping: 25, stiffness: 220 }}
-          className="relative w-full max-w-md bg-white dark:bg-slate-800 rounded-3xl p-5 sm:p-6 shadow-2xl z-10 max-h-[85vh] overflow-y-auto"
+          className="relative w-full max-w-md bg-white dark:bg-slate-800 rounded-2xl p-4 sm:p-6 shadow-2xl z-10 max-h-full overflow-y-auto my-auto pb-8"
+          style={{ WebkitOverflowScrolling: 'touch' }}
         >
           {/* Header */}
           <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-700 mb-4">
@@ -528,80 +538,24 @@ export default function FreeHelperRegisterModal({
                 phoneDisplay={formPhone ? `+91 ${formPhone}` : undefined}
               />
 
-              {/* 5. Mandatory Live Camera Selfie (Protected against download/screenshot) */}
-              <div className="p-3.5 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/30 border-2 border-emerald-300 dark:border-emerald-800 space-y-2.5">
-                <label className="block text-xs font-black text-emerald-950 dark:text-emerald-200 flex items-center justify-between">
-                  <span className="flex items-center gap-1.5">
-                    <Camera className="w-4 h-4 text-emerald-600" />
-                    <span>{tr('📸 Live Camera Selfie (Mandatory) *', '📸 लाइव कैमरा सेल्फी (अनिवार्य) *', '📸 લાઈવ કેમેરા સેલ્ફી (ફરજિયાત) *')}</span>
-                  </span>
-                  <span className="text-[10px] bg-emerald-600 text-white px-2 py-0.5 rounded-full font-extrabold">
-                    {tr('Anti-Copy Protected', 'चोरी-रोधी सुरक्षा', 'કોપી-પ્રોટેક્ટેડ')}
-                  </span>
-                </label>
-                <p className="text-[11px] text-slate-600 dark:text-slate-300 font-medium leading-relaxed">
-                  {tr(
-                    'Since we do not ask for any Government ID, a live camera selfie is mandatory for genuine Service Expert verification. Your selfie cannot be downloaded or screenshotted.',
-                    'चूंकि हम कोई सरकारी आईडी नहीं मांगते, इसलिए असली सर्विस एक्सपर्ट की पहचान के लिए लाइव सेल्फी अनिवार्य है। आपकी सेल्फी को कोई डाउनलोड या स्क्रीनशॉट नहीं कर सकता।',
-                    'અમે કોઈ સરકારી આઈડી માંગતા નથી, તેથી સાચા સર્વિસ એક્સપર્ટની ઓળખ માટે લાઈવ સેલ્ફી ફરજિયાત છે. તમારી સેલ્ફી કોઈ ડાઉનલોડ કે સ્ક્રીનશોટ કરી શકશે નહીં.'
-                  )}
-                </p>
-
-                <div className="flex items-center gap-3">
-                  {formIdDoc && (
-                    <ProtectedSelfieCanvas
-                      src={formIdDoc}
-                      className="w-20 h-24 rounded-xl shrink-0"
-                      badgeText={tr('Verified', 'सत्यापित', 'વેરિફાઈડ')}
-                    />
-                  )}
-                  <div className="flex-1">
-                    <input 
-                      type="file" 
-                      accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
-                      capture="user"
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0];
-                        setFileError(null);
-                        if (file) {
-                          const check = await validateUploadedFile(file, { allowPdf: false });
-                          if (!check.valid) {
-                            setFileError(tr(check.error || 'Invalid image', check.errorHi || check.error || 'अमान्य फ़ोटो', 'અમાન્ય ફોટો'));
-                            setFormIdDoc(null);
-                            e.target.value = '';
-                            return;
-                          }
-                          try {
-                            const watermarkedDataUrl = await applyIdWatermark(file, {
-                              userName: formName.trim() || 'Service Expert',
-                              customText: 'LOCOHELP VERIFIED LIVE SELFIE • DO NOT COPY'
-                            });
-                            setFormIdDoc(watermarkedDataUrl);
-                          } catch {
-                            const reader = new FileReader();
-                            reader.onloadend = () => {
-                              setFormIdDoc(reader.result as string);
-                            };
-                            reader.readAsDataURL(file);
-                          }
-                        }
-                      }}
-                      className="w-full text-xs text-slate-600 file:mr-2.5 file:py-2 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-extrabold file:bg-emerald-600 file:text-white hover:file:bg-emerald-700 cursor-pointer bg-white dark:bg-slate-900 border border-emerald-200 dark:border-slate-700 rounded-xl px-2 py-1.5"
-                    />
-                  </div>
-                </div>
-
-                {fileError && (
-                  <p className="text-[11px] text-rose-600 dark:text-rose-400 font-bold mt-1 flex items-center gap-1">
-                    <AlertCircle className="w-3.5 h-3.5 shrink-0" /> {fileError}
-                  </p>
+              {/* 5. Mandatory Live Camera Selfie */}
+              <LiveSelfieCaptureField
+                value={formIdDoc || ''}
+                onChange={(url) => {
+                  setFormIdDoc(url);
+                  setFileError(null);
+                }}
+                userName={formName.trim() || 'Service Expert'}
+                entityType="user_profile"
+                required={true}
+                label={tr('📸 Live Camera Selfie (Mandatory) *', '📸 लाइव कैमरा सेल्फी (अनिवार्य) *', '📸 લાઈવ કેમેરા સેલ્ફી (ફરજિયાત) *')}
+                subLabel={tr(
+                  'A live camera selfie is mandatory for genuine Service Expert verification.',
+                  'असली सर्विस एक्सपर्ट की पहचान के लिए लाइव सेल्फी अनिवार्य है।',
+                  'સાચા સર્વિસ એક્સપર્ટની ઓળખ માટે લાઈવ સેલ્ફી ફરજિયાત છે.'
                 )}
-                {formIdDoc && !fileError && (
-                  <p className="text-[10px] text-emerald-700 dark:text-emerald-400 font-bold flex items-center gap-1">
-                    <CheckCircle2 className="w-3.5 h-3.5" /> {tr('Live Selfie captured & watermark-protected!', 'लाइव सेल्फी सुरक्षित रूप से जुड़ गई!', 'લાઈવ સેલ્ફી સુરક્ષિત રીતે જોડાઈ ગઈ!')}
-                  </p>
-                )}
-              </div>
+                onError={(msg) => setFileError(msg)}
+              />
 
               {/* Optional Experience & Skills */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -637,50 +591,27 @@ export default function FreeHelperRegisterModal({
                 </div>
               </div>
 
-              {/* Optional Work Photo */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1 flex items-center justify-between">
-                  <span>{tr('Work / Shop Photo (Optional)', 'काम / औज़ार की फोटो (वैकल्पिक)', 'કામનો ફોટો (વૈકલ્પિક)')}</span>
-                </label>
-                <div className="flex items-center gap-3">
-                  {formPhotoUrl && (
-                    <img
-                      src={formPhotoUrl}
-                      alt="Helper Preview"
-                      loading="lazy"
-                      decoding="async"
-                      className="w-12 h-12 rounded-xl object-cover border border-emerald-400 shrink-0"
-                    />
-                  )}
-                  <input
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
-                    onChange={async (e) => {
-                      const file = e.target.files?.[0];
-                      setFileError(null);
-                      if (file) {
-                        const check = await validateUploadedFile(file, { allowPdf: false });
-                        if (!check.valid) {
-                          setFileError(tr(check.error || 'Invalid image (Max 2MB)', check.errorHi || check.error || 'अमान्य फोटो (अधिकतम 2MB)', 'અમાન્ય ફોટો (મહત્તમ 2MB)'));
-                          e.target.value = '';
-                          return;
-                        }
-                        try {
-                          const compressed = await compressImageToWebP(file, { maxWidth: 1200, quality: 0.75 });
-                          setFormPhotoUrl(compressed);
-                        } catch {
-                          const reader = new FileReader();
-                          reader.onloadend = () => {
-                            setFormPhotoUrl(reader.result as string);
-                          };
-                          reader.readAsDataURL(file);
-                        }
-                      }
-                    }}
-                    className="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200 cursor-pointer bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-2 py-1.5"
-                  />
-                </div>
-              </div>
+              {/* 6. Optional Visiting Card / Work Photo */}
+              <VisitingCardUploadField
+                value={formPhotoUrl || ''}
+                onChange={(url) => {
+                  setFormPhotoUrl(url || null);
+                  setFileError(null);
+                }}
+                label={tr('🪪 Visiting Card / Work Photo (Optional)', '🪪 विजिटिंग कार्ड / काम की फोटो (वैकल्पिक)', '🪪 વિઝિટિંગ કાર્ડ / કામનો ફોટો (વૈકલ્પિક)')}
+                subLabel={tr(
+                  'Upload your Visiting Card or Work Photo if available (Optional)',
+                  'यदि आपके पास विजिटिंग कार्ड या काम की फोटो है तो अपलोड करें (पूरी तरह वैकल्पिक)',
+                  'જો તમારી પાસે વિઝિટિંગ કાર્ડ અથવા કામનો ફોટો હોય તો અપલોડ કરો (વૈકલ્પિક)'
+                )}
+                onError={(msg) => setFileError(msg)}
+              />
+
+              {fileError && (
+                <p className="text-[11px] text-rose-600 dark:text-rose-400 font-bold mt-1 flex items-center gap-1">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" /> {fileError}
+                </p>
+              )}
 
               {/* Action Buttons */}
               <div className="flex gap-2 pt-2">

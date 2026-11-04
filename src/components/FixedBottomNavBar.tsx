@@ -712,7 +712,7 @@ export default function FixedBottomNavBar({
           left: 0,
           right: 0,
           width: '100%',
-          zIndex: 9400,
+          zIndex: 40,
           backgroundColor: '#ffffff',
           borderTop: '2px solid #cbd5e1',
           boxShadow: '0 -4px 20px rgba(15, 23, 42, 0.12)',

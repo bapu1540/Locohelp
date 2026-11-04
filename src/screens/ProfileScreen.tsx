@@ -21,6 +21,7 @@ import { Screen } from '../types';
 import SmartLocationPicker from '../components/SmartLocationPicker';
 import PhonePrivacyToggle from '../components/PhonePrivacyToggle';
 import ProtectedSelfieCanvas from '../components/ProtectedSelfieCanvas';
+import { LiveSelfieCaptureField, VisitingCardUploadField } from '../components/LiveSelfieCaptureField';
 
 interface ProfileScreenProps {
   onBack: () => void;
@@ -39,6 +40,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
   // TAB 1: SIMPLE USER PROFILE STATES
   // -------------------------------------------------------------
   const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
+  const [userVisitingCard, setUserVisitingCard] = useState<string>('');
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState(() => {
     try {
@@ -483,12 +485,15 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
           if (typeof data.isPhonePublic === 'boolean' || typeof data.is_phone_public === 'boolean') {
             setIsUserPhonePublic(Boolean(data.isPhonePublic ?? data.is_phone_public));
           }
-          const remotePhoto = data.avatar_url || data.profilePhoto || '';
+          const remotePhoto = data.liveSelfieUrl || data.idDocumentWatermarked || data.avatar_url || data.profilePhoto || '';
           if (remotePhoto && remotePhoto !== 'https://lh3.googleusercontent.com/a/default-user') {
             setProfilePhoto(remotePhoto);
             try {
               localStorage.setItem('locohelp_profile_photo', remotePhoto);
             } catch {}
+          }
+          if (data.visitingCardUrl || data.visiting_card_url) {
+            setUserVisitingCard(data.visitingCardUrl || data.visiting_card_url);
           }
           if (data.myHelperProfile) {
             setMyHelperProfile(data.myHelperProfile);
@@ -689,9 +694,26 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
 
   const handleSaveSimpleProfile = async (e: React.FormEvent) => {
     e.preventDefault();
+    setUploadErrorMsg(null);
     const activeUser = getCurrentUser();
     const cleanPhone = (userPhone || activeUser?.phone || localStorage.getItem('locohelp_last_logged_in_phone') || '').replace(/\D/g, '').slice(-10);
     const userKey = activeUser?.uid || (cleanPhone ? `phone_${cleanPhone}` : 'guest');
+
+    const finalSelfie =
+      profilePhoto && profilePhoto !== 'https://lh3.googleusercontent.com/a/default-user'
+        ? profilePhoto
+        : '';
+
+    if (!finalSelfie) {
+      setUploadErrorMsg(
+        tr(
+          '📸 Mandatory Verification: Please take a Live Selfie before saving your profile.',
+          '📸 अनिवार्य सत्यापन: प्रोफ़ाइल सेव करने के लिए अपनी लाइव सेल्फी (Live Selfie) लेना अनिवार्य है।',
+          '📸 ફરજિયાત ચકાસણી: પ્રોફાઈલ સેવ કરવા માટે તમારી લાઈવ સેલ્ફી લેવી ફરજિયાત છે.'
+        )
+      );
+      return;
+    }
 
     const safeName = sanitizeText(userName, 120);
     const safeSkills = sanitizeText(userSkills, 500);
@@ -714,7 +736,11 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
       skills: safeSkills,
       address: safeAddress,
       experience: safeExp,
-      avatar_url: profilePhoto,
+      avatar_url: finalSelfie,
+      liveSelfieUrl: finalSelfie,
+      idDocumentWatermarked: finalSelfie,
+      visitingCardUrl: userVisitingCard || '',
+      visiting_card_url: userVisitingCard || '',
       myHelperProfile: updatedHelper,
       status: newStatus,
       isVerified: newIsVerified,
@@ -733,7 +759,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
       localStorage.setItem('locohelp_profile_address', safeAddress);
       localStorage.setItem('locohelp_profile_exp', safeExp);
       if (profileData.email) localStorage.setItem('locohelp_last_logged_in_email', profileData.email);
-      if (profilePhoto) localStorage.setItem('locohelp_profile_photo', profilePhoto);
+      if (finalSelfie) localStorage.setItem('locohelp_profile_photo', finalSelfie);
       if (updatedHelper) {
         localStorage.setItem('locohelp_my_helper_profile', JSON.stringify(updatedHelper));
       }
@@ -744,7 +770,8 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
         uid: userKey,
         displayName: safeName || current?.displayName,
         email: profileData.email || current?.email,
-        phone: cleanPhone || userPhone || current?.phone
+        phone: cleanPhone || userPhone || current?.phone,
+        photoURL: finalSelfie
       }));
       window.dispatchEvent(new Event('locohelp_profile_updated'));
       window.dispatchEvent(new Event('storage'));
@@ -762,9 +789,10 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
         userName: profileData.full_name,
         userEmail: profileData.email || undefined,
         userPhone: profileData.phone,
-        title: `Simple User Profile - ${safeAddress || 'Local Area'} (Re-approval Request)`,
-        idDocumentWatermarked: profilePhoto || ''
-      }).catch(() => {});
+        title: `Simple User Profile - ${safeAddress || 'Local Area'}`,
+        idDocumentWatermarked: finalSelfie,
+        visitingCardUrl: userVisitingCard || ''
+      } as any).catch(() => {});
       setVerificationStatus('pending');
     } catch (err) {}
 
@@ -1044,10 +1072,10 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
   const isBusinessApproved = Boolean(myBusinessProfile && (myBusinessProfile.isVerified === true || myBusinessProfile.status === 'approved'));
 
   return (
-    <div className="flex flex-col h-full bg-[#F8FAFC] dark:bg-slate-900 relative overflow-hidden transition-colors">
+    <div className="flex flex-col min-h-full bg-[#F8FAFC] dark:bg-slate-900 relative transition-colors">
       
       {/* Top Header Navigation */}
-      <div className="flex items-center justify-between px-4 py-3.5 pt-4 border-b border-slate-200 dark:border-slate-800 sticky top-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl z-20 shadow-xs">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-800 sticky top-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl z-20 shadow-xs shrink-0">
         <div className="flex items-center gap-2">
           <button 
             onClick={onBack} 
@@ -1072,7 +1100,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
       </div>
 
       {/* 3 CORE TABS SELECTOR STRIP */}
-      <div className="bg-white dark:bg-slate-850 border-b border-slate-200 dark:border-slate-800 px-3 py-2 sticky top-0 z-10 shadow-xs" style={{ top: 0 }}>
+      <div className="bg-white dark:bg-slate-850 border-b border-slate-200 dark:border-slate-800 px-3 py-2 sticky top-[53px] z-10 shadow-xs shrink-0">
         <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100 dark:bg-slate-900 rounded-2xl">
           <button
             onClick={() => setActiveTab('user')}
@@ -1113,7 +1141,13 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
       </div>
 
       {/* TAB CONTENT AREA */}
-      <div className="flex-1 overflow-y-auto scrollbar-hide px-4 pt-4 pb-32 space-y-4" style={{ paddingBottom: 'calc(7.5rem + env(safe-area-inset-bottom, 0px))' }}>
+      <div
+        className="flex-1 px-3.5 pt-3.5 pb-40 space-y-4"
+        style={{
+          paddingBottom: 'calc(110px + env(safe-area-inset-bottom, 0px))',
+          WebkitOverflowScrolling: 'touch',
+        }}
+      >
 
         {/* ============================================================== */}
         {/* TAB 1: SIMPLE USER PROFILE                                     */}
@@ -1390,6 +1424,52 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   accentColor="indigo"
                 />
 
+                {/* Optional Skills / Work Description */}
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                    {tr('Work / Skills / Occupation (Optional)', 'आपका काम / व्यवसाय (वैकल्पिक)', 'તમારું કામ / વ્યવસાય (વૈકલ્પિક)')}
+                  </label>
+                  <input
+                    type="text"
+                    value={userSkills}
+                    onChange={(e) => setUserSkills(e.target.value)}
+                    placeholder={tr('e.g. Teacher, Shopkeeper, Electrician, Student', 'उदा. टीचर, दुकानदार, इलेक्ट्रीशियन, स्टूडेंट', 'દા.ત. શિક્ષક, દુકાનદાર, ઇલેક્ટ્રિશિયન')}
+                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 dark:text-white outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                {/* Mandatory Live Selfie Capture */}
+                <LiveSelfieCaptureField
+                  value={profilePhoto && profilePhoto !== 'https://lh3.googleusercontent.com/a/default-user' ? profilePhoto : ''}
+                  onChange={(url) => {
+                    setProfilePhoto(url);
+                    setUploadErrorMsg(null);
+                  }}
+                  userName={userName || 'Community Member'}
+                  entityType="user_profile"
+                  required={true}
+                  label={tr('📸 Live Selfie (Mandatory / अनिवार्य *)', '📸 लाइव सेल्फी (अनिवार्य *)', '📸 લાઈવ સેલ્ફી (ફરજિયાત *)')}
+                  subLabel={tr(
+                    'Live Selfie is mandatory to save your profile and get Admin approval.',
+                    'प्रोफ़ाइल सेव करने और एडमिन अप्रूवल के लिए आपकी लाइव सेल्फी अनिवार्य है।',
+                    'પ્રોફાઈલ સેવ કરવા અને એડમિન મંજૂરી માટે તમારી લાઈવ સેલ્ફી ફરજિયાત છે.'
+                  )}
+                  onError={(msg) => setUploadErrorMsg(msg)}
+                />
+
+                {/* Optional Visiting Card Upload */}
+                <VisitingCardUploadField
+                  value={userVisitingCard}
+                  onChange={(url) => setUserVisitingCard(url)}
+                  label={tr('🪪 Visiting Card / Work Photo (Optional)', '🪪 विजिटिंग कार्ड / काम की फोटो (वैकल्पिक)', '🪪 વિઝિટિંગ કાર્ડ / કામનો ફોટો (વૈકલ્પિક)')}
+                  subLabel={tr(
+                    'Upload your Visiting Card if you have one (Optional)',
+                    'यदि आपके पास विजिटिंग कार्ड है तो अपलोड करें (पूरी तरह वैकल्पिक)',
+                    'જો તમારી પાસે વિઝિટિંગ કાર્ડ હોય તો અપલોડ કરો (વૈકલ્પિક)'
+                  )}
+                  onError={(msg) => setUploadErrorMsg(msg)}
+                />
+
                 {/* Phone Privacy Toggle (Private by Default + DB Re-Auth to Make Public) */}
                 <PhonePrivacyToggle
                   isPhonePublic={isUserPhonePublic}
@@ -1397,15 +1477,22 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   phoneDisplay={userPhone || getCurrentUser()?.phone || ''}
                 />
 
+                {uploadErrorMsg && (
+                  <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-extrabold flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                    <span>{uploadErrorMsg}</span>
+                  </div>
+                )}
+
                 <button 
                   type="submit" 
-                  className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold py-3 rounded-xl transition-all shadow-md flex items-center justify-center gap-2 text-xs cursor-pointer mt-2"
+                  className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold py-3.5 rounded-xl transition-all shadow-md flex items-center justify-center gap-2 text-xs cursor-pointer mt-2"
                 >
                   <CheckCircle2 className="w-4 h-4" />
                   <span>
                     {isSavedNotice
                       ? tr('Profile Saved Successfully!', 'प्रोफाइल सफलतापूर्वक सेव हो गई!', 'પ્રોફાઈલ સફળતાપૂર્વક સેવ થઈ ગઈ!')
-                      : tr('Save Personal Details', 'व्यक्तिगत विवरण सेव करें', 'વ્યક્તિગત વિગતો સેવ કરો')}
+                      : tr('Save Personal Profile', 'प्रोफाइल सेव करें', 'પ્રોફાઈલ સેવ કરો')}
                   </span>
                 </button>
               </form>
@@ -1659,124 +1746,48 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   />
                 </div>
 
-                {/* Profile / Work Photo Upload for Local Helper (Optional) */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {tr('Work Photo (Optional • JPG, PNG, WebP Max 2MB)', 'काम की फ़ोटो (वैकल्पिक • Max 2MB)', 'કામનો ફોટો (વૈકલ્પિક • Max 2MB)')}
-                  </label>
-                  <input
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
-                    onChange={async (e) => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        setUploadErrorMsg(null);
-                        const check = await validateUploadedFile(file, { allowPdf: false });
-                        if (!check.valid) {
-                          setUploadErrorMsg(check.error || 'Only safe JPG, PNG, or WEBP images up to 2MB are allowed.');
-                          e.target.value = '';
-                          return;
-                        }
-                        try {
-                          const compressed = await compressImageToWebP(file, { maxWidth: 1200, quality: 0.75 });
-                          setHelperWorkPhoto(compressed);
-                        } catch {
-                          const reader = new FileReader();
-                          reader.onloadend = () => {
-                            setHelperWorkPhoto(reader.result as string);
-                          };
-                          reader.readAsDataURL(file);
-                        }
-                      }
-                    }}
-                    className="w-full text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-emerald-50 file:text-emerald-700 dark:file:bg-emerald-950 dark:file:text-emerald-300 cursor-pointer bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-2 py-1.5"
-                  />
-                  {helperWorkPhoto && (
-                    <div className="mt-2 relative w-20 h-20 rounded-xl overflow-hidden border-2 border-emerald-400">
-                      <img src={helperWorkPhoto} alt="Work Preview" loading="lazy" decoding="async" className="w-full h-full object-cover" />
-                      <button
-                        type="button"
-                        onClick={() => setHelperWorkPhoto(null)}
-                        className="absolute top-1 right-1 bg-black/70 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold cursor-pointer"
-                      >
-                        ✕
-                      </button>
-                    </div>
+                {/* 7. Mandatory Live Camera Selfie Verification */}
+                <LiveSelfieCaptureField
+                  value={helperIdFrontDoc || myHelperProfile?.idDocUrl || ''}
+                  onChange={(url) => {
+                    setHelperIdFrontDoc(url);
+                    setUploadErrorMsg(null);
+                    setHelperErrorMsg(null);
+                  }}
+                  userName={helperName.trim() || userName || 'Service Expert'}
+                  entityType="user_profile"
+                  required={true}
+                  label={tr('📸 Live Camera Selfie (Mandatory *)', '📸 लाइव कैमरा सेल्फी (अनिवार्य *)', '📸 લાઈવ કેમેરા સેલ્ફી (ફરજિયાત *)')}
+                  subLabel={tr(
+                    'Take your clear Live Selfie for genuine Service Expert verification.',
+                    'फर्जी प्रोफाइल रोकने और एडमिन वेरिफिकेशन के लिए अपनी लाइव सेल्फी लें (अनिवार्य)।',
+                    'બોગસ પ્રોફાઈલ રોકવા અને એડમિન વેરિફિકેશન માટે તમારી લાઈવ સેલ્ફી લો (ફરજિયાત).'
                   )}
-                </div>
+                  onError={(msg) => setUploadErrorMsg(msg)}
+                />
 
-                {/* 7. Mandatory Live Camera Selfie Verification (Anti-Download & Anti-Screenshot Protected) */}
-                <div className="space-y-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
-                  <label className="block text-xs font-extrabold text-emerald-900 dark:text-emerald-300">
-                    {tr('📸 Mandatory Live Camera Selfie * (Anti-Download & Anti-Screenshot Protected)', '📸 अपनी लाइव कैमरा सेल्फी लें * (वेरिफिकेशन के लिए अनिवार्य)', '📸 તમારી લાઈવ કેમેરા સેલ્ફી લો * (ચકાસણી માટે ફરજિયાત)')}
-                  </label>
-                  <p className="text-[10px] text-slate-500 font-medium -mt-1">
-                    {tr('Take your clear Live Selfie for genuine Service Expert verification. Protected on Canvas so nobody can download or copy it.', 'फर्जी प्रोफाइल रोकने के लिए अपनी साफ लाइव सेल्फी लें। यह फोटो सुरक्षित है और कोई इसे डाउनलोड या कॉपी नहीं कर सकता।', 'બોગસ પ્રોફાઈલ રોકવા માટે તમારી લાઈવ સેલ્ફી લો. આ ફોટો સુરક્ષિત છે અને કોઈ તેને ડાઉનલોડ કરી શકતું નથી.')}
-                  </p>
+                {/* 8. Visiting Card / Work Photo (Optional) */}
+                <VisitingCardUploadField
+                  value={helperWorkPhoto || myHelperProfile?.photoUrl || ''}
+                  onChange={(url) => {
+                    setHelperWorkPhoto(url || null);
+                    setUploadErrorMsg(null);
+                  }}
+                  label={tr('🪪 Visiting Card / Work Photo (Optional)', '🪪 विजिटिंग कार्ड / काम की फोटो (वैकल्पिक)', '🪪 વિઝિટિંગ કાર્ડ / કામનો ફોટો (વૈકલ્પિક)')}
+                  subLabel={tr(
+                    'Upload your Visiting Card or Work Photo if available (Optional)',
+                    'यदि आपके पास विजिटिंग कार्ड या काम की फोटो है तो अपलोड करें (पूरी तरह वैकल्पिक)',
+                    'જો તમારી પાસે વિઝિટિંગ કાર્ડ અથવા કામનો ફોટો હોય તો અપલોડ કરો (વૈકલ્પિક)'
+                  )}
+                  onError={(msg) => setUploadErrorMsg(msg)}
+                />
 
-                  <div className="bg-emerald-50/60 dark:bg-slate-900 p-3 rounded-xl border-2 border-emerald-300 dark:border-emerald-700 space-y-2">
-                    <input 
-                      type="file" 
-                      accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
-                      capture="user"
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
-                          setUploadErrorMsg(null);
-                          setHelperErrorMsg(null);
-                          const check = await validateUploadedFile(file, { allowPdf: false });
-                          if (!check.valid) {
-                            setUploadErrorMsg(check.error || 'Invalid image uploaded.');
-                            e.target.value = '';
-                            return;
-                          }
-                          setHelperIdFrontName(file.name);
-                          try {
-                            const watermarked = await applyIdWatermark(file, {
-                              userName: helperName.trim() || userName || 'Service Expert',
-                              customText: 'LOCOHELP VERIFIED EXPERT • LIVE SELFIE • DO NOT COPY'
-                            });
-                            setHelperIdFrontDoc(watermarked);
-                          } catch {
-                            const reader = new FileReader();
-                            reader.onloadend = () => {
-                              setHelperIdFrontDoc(reader.result as string);
-                            };
-                            reader.readAsDataURL(file);
-                          }
-                        }
-                      }}
-                      className="w-full text-[11px] text-slate-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-black file:bg-emerald-600 file:text-white cursor-pointer"
-                    />
-                    {(helperIdFrontDoc || myHelperProfile?.idDocUrl) && (
-                      <div className="flex items-center gap-3 pt-1">
-                        <ProtectedSelfieCanvas
-                          src={helperIdFrontDoc || myHelperProfile?.idDocUrl}
-                          alt="Verified Expert Live Selfie"
-                          width={88}
-                          height={88}
-                          className="rounded-xl border-2 border-emerald-500 shadow-xs shrink-0"
-                        />
-                        <div className="text-left space-y-0.5">
-                          <p className="text-[11px] text-emerald-700 dark:text-emerald-300 font-black flex items-center gap-1">
-                            <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                            {tr('Live Selfie Protected & Attached', 'लाइव सेल्फी सुरक्षित और संलग्न है', 'લાઈવ સેલ્ફી સુરક્ષિત અને જોડાયેલ છે')}
-                          </p>
-                          <p className="text-[10px] text-slate-500 font-semibold">
-                            🔒 {tr('Anti-Download & Watermark Active', 'एंटी-डाउनलोड और वॉटरमार्क सक्रिय', 'એન્ટી-ડાઉનલોડ અને વોટરમાર્ક સક્રિય')}
-                          </p>
-                        </div>
-                      </div>
-                    )}
+                {uploadErrorMsg && (
+                  <div className="p-2 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-[11px] font-bold text-rose-700 dark:text-rose-300 flex items-center gap-1.5">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    <span>{uploadErrorMsg}</span>
                   </div>
-
-                  {uploadErrorMsg && (
-                    <div className="p-2 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-[11px] font-bold text-rose-700 dark:text-rose-300 flex items-center gap-1.5">
-                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                      <span>{uploadErrorMsg}</span>
-                    </div>
-                  )}
-                </div>
+                )}
 
                 <button 
                   type="submit" 
@@ -2254,15 +2265,25 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
           </button>
         </div>
 
+        {/* Extra Bottom Spacer so form buttons never hide behind fixed 62px bottom navigation bar */}
+        <div className="h-20 shrink-0" />
+
       </div>
 
       {/* Helper Profile Approval Confirmation Notice Popup Modal */}
       {showApprovalNoticeModal && (
         <div
-          className="fixed inset-x-0 bottom-0 top-[52px] z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs"
-          style={{ position: 'fixed', top: '52px', left: 0, right: 0, bottom: 0, zIndex: 5000 }}
+          className="fixed inset-x-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs overflow-y-auto"
+          style={{
+            position: 'fixed',
+            top: '52px',
+            left: 0,
+            right: 0,
+            bottom: 'calc(62px + env(safe-area-inset-bottom, 0px))',
+            zIndex: 5000,
+          }}
         >
-          <div className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl border border-emerald-200 dark:border-emerald-800 text-center space-y-4 relative z-50">
+          <div className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl border border-emerald-200 dark:border-emerald-800 text-center space-y-4 relative z-50 my-auto">
             <div className="w-14 h-14 rounded-2xl bg-emerald-100 dark:bg-emerald-950/80 text-emerald-600 dark:text-emerald-400 mx-auto flex items-center justify-center text-3xl shadow-inner">
               ⏳
             </div>
@@ -2276,9 +2297,9 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
               </h3>
               <p className="text-xs text-slate-600 dark:text-slate-300 mt-2 leading-relaxed font-medium">
                 {tr(
-                  'Your Service Expert Profile has been recorded successfully. For community trust & verification, your details have been sent to Admin for approval. Once approved, your profile will be live with the Verified Badge (🛡️) on the main page under your category.',
-                  'आपकी सर्विस एक्सपर्ट प्रोफाइल सफलतापूर्वक दर्ज हो गई है। सुरक्षा और वेरिफिकेशन के लिए आपकी प्रोफाइल एडमिन के पास अप्रूवल के लिए भेज दी गई है। एडमिन द्वारा अप्रूव करते ही आपकी प्रोफाइल Verified Badge (🛡️) के साथ मेन पेज पर आपकी केटेगरी के अंदर लाइव हो जाएगी।',
-                  'તમારી સર્વિસ એક્સપર્ટ પ્રોફાઈલ સફળતાપૂર્વક નોંધાઈ ગઈ છે. સુરક્ષા અને ચકાસણી માટે તમારી વિગતો એડમિન પાસે મોકલવામાં આવી છે. એડમિન દ્વારા મંજૂર થતાં જ તમારી પ્રોફાઈલ વેરિફાઈડ બેજ (🛡️) સાથે મુખ્ય પેજ પર તમારી કેટેગરીમાં લાઈવ થઈ જશે.'
+                  'Your Profile & Live Selfie have been recorded successfully and sent to Admin for verification. Once approved, your profile will be active with the Verified Badge (🛡️).',
+                  'आपकी प्रोफाइल और लाइव सेल्फी सफलतापूर्वक सेव हो गई है और एडमिन के पास अप्रूवल के लिए भेज दी गई है। एडमिन द्वारा अप्रूव करते ही आपकी प्रोफाइल एक्टिव हो जाएगी।',
+                  'તમારી પ્રોફાઈલ અને લાઈવ સેલ્ફી સફળતાપૂર્વક સેવ થઈ ગઈ છે અને એડમિન પાસે મંજૂરી માટે મોકલવામાં આવી છે.'
                 )}
               </p>
             </div>
@@ -2300,8 +2321,10 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
         entityType="user_profile"
         entityId={getCurrentUser().uid}
         entityName={userName}
-        onVerificationSubmitted={() => {
+        onVerificationSubmitted={(_status, liveSelfieUrl, visitingCardUrl) => {
           setVerificationStatus('pending');
+          if (liveSelfieUrl) setProfilePhoto(liveSelfieUrl);
+          if (visitingCardUrl) setUserVisitingCard(visitingCardUrl);
         }}
       />
 

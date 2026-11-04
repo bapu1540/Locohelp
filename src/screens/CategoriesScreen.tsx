@@ -684,7 +684,7 @@ export default function CategoriesScreen({
   const [userLocation, setUserLocation] = useState<UserLocationData | null>(() =>
     getSavedUserLocation()
   );
-  const [filterByMyCity, setFilterByMyCity] = useState<boolean>(true);
+  const [filterByMyCity, setFilterByMyCity] = useState<boolean>(false);
   const [reviewModalHelper, setReviewModalHelper] = useState<FreeHelperProfile | null>(null);
   const [helperReviewsList, setHelperReviewsList] = useState<HelperReviewItem[]>([]);
   const [reviewStarVal, setReviewStarVal] = useState<number>(5);
@@ -806,9 +806,9 @@ export default function CategoriesScreen({
   };
 
   return (
-    <div className="flex flex-col h-full min-h-0 bg-[#F8FAFC] dark:bg-slate-900 overflow-y-auto pb-28">
+    <div className="flex flex-col h-full min-h-0 bg-[#F8FAFC] dark:bg-slate-900 overflow-y-auto pb-10">
       {/* Top Sticky Header */}
-      <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 sticky top-0 z-10 flex items-center justify-between gap-3">
+      <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 sticky top-0 z-20 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2.5 min-w-0">
           {onBack && (
             <button

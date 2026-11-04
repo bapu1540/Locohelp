@@ -53,6 +53,9 @@ export function getAuthHeaders(): Record<string, string> {
         if (parsedUser && parsedUser.email) {
           headers['x-user-email'] = String(parsedUser.email).toLowerCase();
         }
+        if (parsedUser && parsedUser.phone) {
+          headers['x-user-phone'] = String(parsedUser.phone).trim();
+        }
       } catch {}
     }
     if (!headers['x-user-email']) {
@@ -64,11 +67,23 @@ export function getAuthHeaders(): Record<string, string> {
         }
       }
     }
+    if (!headers['x-user-phone']) {
+      const lastPhone =
+        localStorage.getItem('locohelp_last_logged_in_phone') ||
+        localStorage.getItem('locohelp_profile_phone');
+      if (lastPhone) {
+        headers['x-user-phone'] = String(lastPhone).trim();
+      }
+    }
 
     const adminToken = sessionStorage.getItem('locohelp_admin_token') || localStorage.getItem('locohelp_admin_token');
     const isAdminLoggedIn =
       sessionStorage.getItem('locohelp_admin_logged_in') === 'true' ||
       localStorage.getItem('locohelp_admin_logged_in') === 'true';
+    const savedAdminEmail =
+      sessionStorage.getItem('locohelp_admin_email') ||
+      localStorage.getItem('locohelp_admin_email') ||
+      'baalvarta@gmail.com';
     if (adminToken) {
       headers['x-admin-token'] = adminToken;
       if (!headers['Authorization']) {
@@ -76,12 +91,12 @@ export function getAuthHeaders(): Record<string, string> {
       }
     }
     if (isAdminLoggedIn || adminToken) {
-      headers['x-admin-email'] = 'baalvarta@gmail.com';
+      headers['x-admin-email'] = savedAdminEmail;
       if (!headers['x-user-id']) {
         headers['x-user-id'] = 'master_admin';
       }
       if (!headers['x-user-email']) {
-        headers['x-user-email'] = 'baalvarta@gmail.com';
+        headers['x-user-email'] = savedAdminEmail;
       }
     }
   } catch (e) {}
@@ -89,11 +104,12 @@ export function getAuthHeaders(): Record<string, string> {
 }
 
 /**
- * Authenticates Admin with backend using Strict 2-Step Security (Step 1: Password -> Step 2: 6-Digit Email OTP sent to baalvarta@gmail.com)
+ * Authenticates Admin with backend using Strict 2-Step Security (Step 1: Password -> Step 2: 6-Digit Email OTP sent to selected authorized admin email)
  */
 export async function loginAdminOnServer(
   password: string,
-  otpCode?: string
+  otpCode?: string,
+  adminEmail = 'baalvarta@gmail.com'
 ): Promise<{
   success: boolean;
   token?: string;
@@ -107,20 +123,22 @@ export async function loginAdminOnServer(
     const res = await fetch('/api/admin/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password, otpCode })
+      body: JSON.stringify({ password, otpCode, adminEmail })
     });
     const data = await res.json();
     if (res.ok && data.success && data.token) {
       try {
         sessionStorage.setItem('locohelp_admin_token', data.token);
         localStorage.setItem('locohelp_admin_token', data.token);
+        sessionStorage.setItem('locohelp_admin_email', data.adminEmail || adminEmail);
+        localStorage.setItem('locohelp_admin_email', data.adminEmail || adminEmail);
       } catch (e) {}
-      return { success: true, token: data.token };
+      return { success: true, token: data.token, adminEmail: data.adminEmail || adminEmail };
     }
     return {
       success: false,
       requiresOtp: Boolean(data.requiresOtp),
-      adminEmail: data.adminEmail || 'baalvarta@gmail.com',
+      adminEmail: data.adminEmail || adminEmail,
       devOtp: data.devOtp,
       message: data.message,
       error: data.error || 'Admin authentication failed'
@@ -133,9 +151,11 @@ export async function loginAdminOnServer(
 export const authenticateAdminOnServer = loginAdminOnServer;
 
 /**
- * Sends a 6-digit Forgot Admin Password OTP strictly to baalvarta@gmail.com
+ * Sends a 6-digit Forgot Admin Password OTP strictly to the selected authorized admin email
  */
-export async function sendAdminForgotPasswordOtpOnServer(): Promise<{
+export async function sendAdminForgotPasswordOtpOnServer(
+  adminEmail = 'baalvarta@gmail.com'
+): Promise<{
   success: boolean;
   adminEmail?: string;
   devOtp?: string;
@@ -145,13 +165,14 @@ export async function sendAdminForgotPasswordOtpOnServer(): Promise<{
   try {
     const res = await fetch('/api/admin/forgot-password/send-otp', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ adminEmail })
     });
     const data = await res.json();
     if (res.ok && data.success) {
       return {
         success: true,
-        adminEmail: data.adminEmail || 'baalvarta@gmail.com',
+        adminEmail: data.adminEmail || adminEmail,
         devOtp: data.devOtp,
         message: data.message
       };
@@ -163,11 +184,12 @@ export async function sendAdminForgotPasswordOtpOnServer(): Promise<{
 }
 
 /**
- * Verifies the 6-digit OTP sent to baalvarta@gmail.com and resets the Master Admin Password
+ * Verifies the 6-digit OTP sent to the selected authorized admin email and resets the Master Admin Password
  */
 export async function resetAdminPasswordWithOtpOnServer(
   otpCode: string,
-  newPassword: string
+  newPassword: string,
+  adminEmail = 'baalvarta@gmail.com'
 ): Promise<{
   success: boolean;
   token?: string;
@@ -178,13 +200,15 @@ export async function resetAdminPasswordWithOtpOnServer(
     const res = await fetch('/api/admin/forgot-password/reset', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ otpCode, newPassword })
+      body: JSON.stringify({ otpCode, newPassword, adminEmail })
     });
     const data = await res.json();
     if (res.ok && data.success && data.token) {
       try {
         sessionStorage.setItem('locohelp_admin_token', data.token);
         localStorage.setItem('locohelp_admin_token', data.token);
+        sessionStorage.setItem('locohelp_admin_email', data.adminEmail || adminEmail);
+        localStorage.setItem('locohelp_admin_email', data.adminEmail || adminEmail);
       } catch (e) {}
       return { success: true, token: data.token, message: data.message };
     }

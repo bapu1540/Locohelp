@@ -656,6 +656,24 @@ export type SecurityVaultActionStatus =
   | "ADMIN_REMOVED_PUBLIC";
 
 
+// Dedicated Google Play Store Reviewer Test Account Constants & Helper
+const PLAY_STORE_REVIEWER_EMAILS = new Set([
+  "reviewer@locohelp.com",
+  "playstore@locohelp.com",
+  "9999999999@phone.locohelp.com"
+]);
+
+function isPlayStoreReviewerAccount(rawId?: string, rawEmail?: string, rawPhone?: string): boolean {
+  const candidates = [rawId, rawEmail, rawPhone].map((s) => String(s || "").trim().toLowerCase()).filter(Boolean);
+  for (const c of candidates) {
+    if (PLAY_STORE_REVIEWER_EMAILS.has(c)) return true;
+    if (c === "phone_9999999999" || c === "email_reviewer_locohelp_com") return true;
+    const digits = c.replace(/\D/g, "").slice(-10);
+    if (digits === "9999999999") return true;
+  }
+  return false;
+}
+
 // Session Security & JWT Token Generator (365 Days Permanent Persistence)
 function createSessionToken(payload: Record<string, any>): string {
   const secret = process.env.JWT_SECRET || "locohelp-secure-jwt-key-2026";
@@ -1163,14 +1181,27 @@ const chatMessageLimiter = createRateLimiter({
 });
 
 // ==========================================
-// 4. STRICT ADMIN & USER AUTHORIZATION
+// 4. STRICT ADMIN & USER AUTHORIZATION (3 Official Selectable Admin Emails)
 // ==========================================
 const OFFICIAL_ADMIN_EMAIL = "baalvarta@gmail.com";
+const ALLOWED_ADMIN_OTP_EMAILS = [
+  "baalvarta@gmail.com",
+  "malimahesh1991@gmail.com",
+  "vijaybhalaiya26@gmail.com"
+];
 const AUTHORIZED_ADMIN_EMAILS = new Set([
-  OFFICIAL_ADMIN_EMAIL,
+  ...ALLOWED_ADMIN_OTP_EMAILS,
   "chauhansanjay932@gmail.com",
   ...(process.env.ADMIN_EMAIL ? [process.env.ADMIN_EMAIL.trim().toLowerCase()] : [])
 ]);
+
+function resolveSelectedAdminEmail(rawEmail?: string): string {
+  const clean = String(rawEmail || "").trim().toLowerCase();
+  if (clean && ALLOWED_ADMIN_OTP_EMAILS.includes(clean)) {
+    return clean;
+  }
+  return OFFICIAL_ADMIN_EMAIL;
+}
 
 const DEFAULT_MASTER_ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "Bapu@1540";
 let cachedMasterAdminPassword = DEFAULT_MASTER_ADMIN_PASSWORD;
@@ -3109,16 +3140,23 @@ async function initDb(poolToUse?: pg.Pool): Promise<string[]> {
 }
 
 async function connectRailwayPostgres(): Promise<boolean> {
+  const isAiStudioContainer = fs.existsSync("/app/control-plane-api") || process.env.DISABLE_HMR === "true";
   const connectionString =
+    cleanConnectionString(process.env.DATABASE_PUBLIC_URL) ||
     cleanConnectionString(process.env.DATABASE_URL) ||
-    cleanConnectionString(process.env.DATABASE_PRIVATE_URL) ||
     cleanConnectionString(process.env.DB_URL) ||
-    cleanConnectionString(process.env.DB_PRIVATE_URL) ||
+    cleanConnectionString(process.env.DATABASE_PRIVATE_URL) ||
     getPrimaryConnectionString();
 
-  const candidateUrls = getCandidateDatabaseUrls();
+  let candidateUrls = getCandidateDatabaseUrls();
   if (connectionString && !candidateUrls.includes(connectionString)) {
     candidateUrls.unshift(connectionString);
+  }
+  if (isAiStudioContainer) {
+    const publicOnly = candidateUrls.filter((u) => !u.includes(".railway.internal"));
+    if (publicOnly.length > 0) {
+      candidateUrls = publicOnly;
+    }
   }
 
   // Only fallback to local files if NO database URL environment variable is present at all
@@ -3143,8 +3181,8 @@ async function connectRailwayPostgres(): Promise<boolean> {
     }
   }
 
-  // Retry across candidate URLs and SSL settings with 10s connection timeout
-  const maxRetries = 4;
+  // Retry across candidate URLs and SSL settings with fast 4.5s connection timeout
+  const maxRetries = 2;
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     for (const connStr of candidateUrls) {
       const sslAttempts: any[] = [{ rejectUnauthorized: false }, false];
@@ -3154,7 +3192,7 @@ async function connectRailwayPostgres(): Promise<boolean> {
           const candidatePool = new Pool({
             connectionString: connStr,
             ssl: sslSetting,
-            connectionTimeoutMillis: 10000,
+            connectionTimeoutMillis: 4500,
             max: 15,
             idleTimeoutMillis: 30000
           });
@@ -3178,16 +3216,17 @@ async function connectRailwayPostgres(): Promise<boolean> {
     }
 
     if (attempt < maxRetries) {
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
     }
   }
 
   // Keep dbPool alive if connectionString is present so subsequent requests can still query/retry
-  if (!dbPool && connectionString) {
+  const fallbackPublicConn = candidateUrls[0] || connectionString;
+  if (!dbPool && fallbackPublicConn && (!isAiStudioContainer || !fallbackPublicConn.includes(".railway.internal"))) {
     dbPool = new Pool({
-      connectionString,
+      connectionString: fallbackPublicConn,
       ssl: { rejectUnauthorized: false },
-      connectionTimeoutMillis: 10000
+      connectionTimeoutMillis: 4500
     });
     dbPool.on("error", (err) => {
       console.warn("[PostgreSQL Pool Notice]", err.message);
@@ -3242,16 +3281,20 @@ async function startServer() {
   const isAiStudioEnv = fs.existsSync("/app/control-plane-api") || process.env.DISABLE_HMR === "true";
   const PORT = isAiStudioEnv ? 3000 : (process.env.PORT ? parseInt(process.env.PORT, 10) : 3000);
 
-  // Verify PostgreSQL connection (await pool.query('SELECT 1')) and create all tables BEFORE starting server routes
+  // Initialize PostgreSQL connection and tables in background so Express & Vite bind to port 3000 immediately
   const startupConnStr =
+    cleanConnectionString(process.env.DATABASE_PUBLIC_URL) ||
     cleanConnectionString(process.env.DATABASE_URL) ||
     cleanConnectionString(process.env.DATABASE_PRIVATE_URL) ||
     getPrimaryConnectionString();
 
   if (startupConnStr) {
-    await ensureTablesExist(true);
+    ensureTablesExist(true)
+      .then(() => syncExistingRecordsToSecurityVault().catch(() => {}))
+      .catch(() => {});
+  } else {
+    syncExistingRecordsToSecurityVault().catch(() => {});
   }
-  syncExistingRecordsToSecurityVault().catch(() => {});
 
   // ==========================================
   // 5. DATA PRIVACY & CORS PROTECTION + SECURITY HEADERS
@@ -3290,12 +3333,10 @@ async function startServer() {
   app.use(express.json({ limit: "35mb", type: ["application/json", "text/plain"] }));
   app.use(express.urlencoded({ extended: true, limit: "35mb" }));
 
-  // Auto-Trigger Table Creation Middleware on /api requests if tables haven't been verified yet
-  app.use("/api", async (_req, _res, next) => {
+  // Auto-Trigger Table Creation Middleware on /api requests in background if tables haven't been verified yet
+  app.use("/api", (_req, _res, next) => {
     if (!tablesVerified || !isDbConnected) {
-      try {
-        await ensureTablesExist(false);
-      } catch (_e) {}
+      ensureTablesExist(false).catch(() => {});
     }
     next();
   });
@@ -3458,9 +3499,12 @@ async function startServer() {
     return { valid: true, type: record.type };
   };
 
-  // Helper to dispatch 6-digit Admin verification OTP strictly to baalvarta@gmail.com
-  const dispatchAdminOtpToOfficialEmail = async (purposeLabel: string): Promise<{ emailSent: boolean; provider: string; devOtp?: string }> => {
-    const targetEmail = OFFICIAL_ADMIN_EMAIL;
+  // Helper to dispatch 6-digit Admin verification OTP strictly to one of the 3 official admin emails
+  const dispatchAdminOtpToOfficialEmail = async (
+    purposeLabel: string,
+    requestedAdminEmail?: string
+  ): Promise<{ emailSent: boolean; provider: string; targetEmail: string; devOtp?: string }> => {
+    const targetEmail = resolveSelectedAdminEmail(requestedAdminEmail);
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = Date.now() + 5 * 60 * 1000;
 
@@ -3531,13 +3575,154 @@ async function startServer() {
     }
 
     console.log(`[ADMIN OTP DISPATCH] Sent 6-digit OTP to ${targetEmail} via ${provider} (emailSent=${emailSent})`);
-    return { emailSent, provider, devOtp: !emailSent ? code : undefined };
+    return { emailSent, provider, targetEmail, devOtp: !emailSent ? code : undefined };
   };
 
-  // Strict 2-Step Admin Login (Step 1: Verify Admin Password -> Step 2: Automatically send & verify 6-digit OTP to baalvarta@gmail.com)
+  // Digital Asset Links (/.well-known/assetlinks.json) for Google Play TWA Fullscreen Mode (hides top browser URL bar)
+  const ASSETLINKS_CONFIG_FILE = path.join(DATA_DIR, "assetlinks_config.json");
+  const getAssetLinksJsonList = async (): Promise<any[]> => {
+    const defaultPackages = ["com.locohelp.twa", "com.locohelp.app", "app.locohelp.twa"];
+    let customPackage = process.env.ANDROID_PACKAGE_NAME || "com.locohelp.twa";
+    let customSha256List: string[] = process.env.ANDROID_SHA256_FINGERPRINT
+      ? [process.env.ANDROID_SHA256_FINGERPRINT.trim().toUpperCase()]
+      : [];
+
+    try {
+      const localCfg = readJsonFile<any>(ASSETLINKS_CONFIG_FILE, null);
+      if (localCfg) {
+        if (localCfg.packageName) customPackage = String(localCfg.packageName).trim();
+        if (Array.isArray(localCfg.sha256Fingerprints)) {
+          customSha256List = localCfg.sha256Fingerprints.map((s: string) => String(s).trim().toUpperCase()).filter(Boolean);
+        } else if (localCfg.sha256Fingerprint) {
+          customSha256List = String(localCfg.sha256Fingerprint)
+            .split(/[\s,]+/)
+            .map((s) => s.trim().toUpperCase())
+            .filter(Boolean);
+        }
+      }
+    } catch {}
+
+    if (dbPool && isDbConnected) {
+      try {
+        const r = await dbPool.query("SELECT value FROM app_settings WHERE key = 'android_assetlinks_config' LIMIT 1");
+        if (r.rows.length > 0 && r.rows[0].value) {
+          const val = r.rows[0].value;
+          if (val.packageName) customPackage = String(val.packageName).trim();
+          if (Array.isArray(val.sha256Fingerprints) && val.sha256Fingerprints.length > 0) {
+            customSha256List = val.sha256Fingerprints.map((s: string) => String(s).trim().toUpperCase()).filter(Boolean);
+          } else if (val.sha256Fingerprint) {
+            customSha256List = String(val.sha256Fingerprint)
+              .split(/[\s,]+/)
+              .map((s) => s.trim().toUpperCase())
+              .filter(Boolean);
+          }
+        }
+      } catch {}
+    }
+
+    const fingerprints =
+      customSha256List.length > 0
+        ? Array.from(new Set(customSha256List))
+        : ["00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00"];
+
+    const packages = Array.from(new Set([customPackage, ...defaultPackages].filter(Boolean)));
+    return packages.map((pkg) => ({
+      relation: [
+        "delegate_permission/common.handle_all_urls",
+        "delegate_permission/common.get_login_creds"
+      ],
+      target: {
+        namespace: "android_app",
+        package_name: pkg,
+        sha256_cert_fingerprints: fingerprints
+      }
+    }));
+  };
+
+  app.get("/.well-known/assetlinks.json", async (_req, res) => {
+    try {
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.setHeader("Cache-Control", "public, max-age=300");
+      const list = await getAssetLinksJsonList();
+      return res.status(200).json(list);
+    } catch {
+      return res.status(200).json([]);
+    }
+  });
+
+  app.get("/api/admin/assetlinks-config", requireAdmin, async (_req, res) => {
+    try {
+      const list = await getAssetLinksJsonList();
+      const first = list[0]?.target || {};
+      return res.json({
+        success: true,
+        packageName: first.package_name || "com.locohelp.twa",
+        sha256Fingerprint: Array.isArray(first.sha256_cert_fingerprints) ? first.sha256_cert_fingerprints.join(", ") : "",
+        assetlinks: list
+      });
+    } catch (e: any) {
+      return res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  app.post("/api/admin/assetlinks-config", requireAdmin, async (req, res) => {
+    try {
+      const packageName = String(req.body?.packageName || "com.locohelp.twa").trim();
+      const rawFp = String(req.body?.sha256Fingerprint || "").trim().toUpperCase();
+      const sha256Fingerprints = rawFp
+        .split(/[\s,]+/)
+        .map((s) => s.trim().toUpperCase())
+        .filter(Boolean);
+
+      const cfg = {
+        packageName,
+        sha256Fingerprint: sha256Fingerprints.join(", "),
+        sha256Fingerprints,
+        updatedAt: new Date().toISOString()
+      };
+      writeJsonFile(ASSETLINKS_CONFIG_FILE, cfg);
+
+      if (dbPool && isDbConnected) {
+        try {
+          await dbPool.query(
+            `INSERT INTO app_settings (key, value, updated_at)
+             VALUES ('android_assetlinks_config', $1, NOW())
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+            [JSON.stringify(cfg)]
+          );
+        } catch {}
+      }
+
+      const list = await getAssetLinksJsonList();
+      try {
+        const publicWellKnownDir = path.join(process.cwd(), "public", ".well-known");
+        if (!fs.existsSync(publicWellKnownDir)) fs.mkdirSync(publicWellKnownDir, { recursive: true });
+        fs.writeFileSync(path.join(publicWellKnownDir, "assetlinks.json"), JSON.stringify(list, null, 2), "utf-8");
+      } catch {}
+
+      return res.json({
+        success: true,
+        packageName,
+        sha256Fingerprint: cfg.sha256Fingerprint,
+        assetlinks: list
+      });
+    } catch (e: any) {
+      return res.status(500).json({ success: false, error: e.message || "Failed to save AssetLinks config" });
+    }
+  });
+
+  // Strict 2-Step Admin Login (Step 1: Verify Admin Password -> Step 2: Send & verify 6-digit OTP to selected authorized admin email)
   app.post("/api/admin/login", authLoginLimiter, async (req, res) => {
     try {
-      const { password, otpCode } = req.body || {};
+      const { password, otpCode, adminEmail } = req.body || {};
+      const requestedClean = String(adminEmail || "").trim().toLowerCase();
+      if (requestedClean && !ALLOWED_ADMIN_OTP_EMAILS.includes(requestedClean)) {
+        return res.status(403).json({
+          success: false,
+          error: "अनधिकृत एडमिन ईमेल! केवल अधिकृत 3 एडमिन ईमेल ही मान्य हैं।"
+        });
+      }
+      const selectedEmail = resolveSelectedAdminEmail(requestedClean);
       const currentMasterPwd = await getMasterAdminPassword();
 
       if (!password || String(password).trim() !== currentMasterPwd) {
@@ -3547,63 +3732,73 @@ async function startServer() {
         });
       }
 
-      // STEP 1 PASSED: If otpCode is not provided yet, automatically dispatch 6-digit OTP strictly to baalvarta@gmail.com
+      // STEP 1 PASSED: If otpCode is not provided yet, automatically dispatch 6-digit OTP strictly to selectedEmail
       if (!otpCode || String(otpCode).trim().length === 0) {
-        const otpInfo = await dispatchAdminOtpToOfficialEmail("2-Step Admin Portal Login");
+        const otpInfo = await dispatchAdminOtpToOfficialEmail("2-Step Admin Portal Login", selectedEmail);
         return res.status(200).json({
           success: false,
           requiresOtp: true,
-          adminEmail: OFFICIAL_ADMIN_EMAIL,
+          adminEmail: selectedEmail,
           devOtp: otpInfo.devOtp,
-          message: `पासवर्ड सही है! अब सुरक्षा के लिए ${OFFICIAL_ADMIN_EMAIL} पर भेजा गया 6-अंकों का OTP कोड दर्ज करें।`
+          message: `पासवर्ड सही है! अब सुरक्षा के लिए ${selectedEmail} पर भेजा गया 6-अंकों का OTP कोड दर्ज करें।`
         });
       }
 
-      // STEP 2: Verify 6-digit OTP sent to baalvarta@gmail.com
-      const otpCheck = await verifyAndConsumeOtp(OFFICIAL_ADMIN_EMAIL, String(otpCode).trim());
+      // STEP 2: Verify 6-digit OTP sent to selectedEmail
+      const otpCheck = await verifyAndConsumeOtp(selectedEmail, String(otpCode).trim());
       if (!otpCheck.valid) {
         return res.status(401).json({
           success: false,
           requiresOtp: true,
+          adminEmail: selectedEmail,
           error: otpCheck.error || "गलत एडमिन OTP कोड!"
         });
       }
 
       const token = createSessionToken({
         uid: "master_admin",
-        email: OFFICIAL_ADMIN_EMAIL,
-        name: "Admin Sanjay Chauhan",
+        email: selectedEmail,
+        name: "LocoHelp Admin",
         role: "admin"
       });
-      return res.json({ success: true, token });
+      return res.json({ success: true, token, adminEmail: selectedEmail });
     } catch (e: any) {
       return res.status(500).json({ success: false, error: "Admin authentication failed." });
     }
   });
 
-  // Forgot Admin Password - Step 1: Send 6-Digit Reset OTP exclusively to baalvarta@gmail.com
-  app.post("/api/admin/forgot-password/send-otp", otpRateLimiter, async (_req, res) => {
+  // Forgot Admin Password - Step 1: Send 6-Digit Reset OTP exclusively to selected authorized admin email
+  app.post("/api/admin/forgot-password/send-otp", otpRateLimiter, async (req, res) => {
     try {
-      const otpInfo = await dispatchAdminOtpToOfficialEmail("Forgot Admin Password Reset");
+      const requestedClean = String(req.body?.adminEmail || "").trim().toLowerCase();
+      if (requestedClean && !ALLOWED_ADMIN_OTP_EMAILS.includes(requestedClean)) {
+        return res.status(403).json({
+          success: false,
+          error: "अनधिकृत एडमिन ईमेल! केवल अधिकृत 3 एडमिन ईमेल ही मान्य हैं।"
+        });
+      }
+      const selectedEmail = resolveSelectedAdminEmail(requestedClean);
+      const otpInfo = await dispatchAdminOtpToOfficialEmail("Forgot Admin Password Reset", selectedEmail);
       return res.json({
         success: true,
-        adminEmail: OFFICIAL_ADMIN_EMAIL,
+        adminEmail: selectedEmail,
         devOtp: otpInfo.devOtp,
-        message: `पासवर्ड रीसेट के लिए ${OFFICIAL_ADMIN_EMAIL} पर 6-अंकों का OTP भेज दिया गया है।`
+        message: `पासवर्ड रीसेट के लिए ${selectedEmail} पर 6-अंकों का OTP भेज दिया गया है।`
       });
     } catch (e: any) {
       return res.status(500).json({ success: false, error: "Failed to send Admin reset OTP." });
     }
   });
 
-  // Forgot Admin Password - Step 2: Verify OTP sent to baalvarta@gmail.com & Save New Admin Password
+  // Forgot Admin Password - Step 2: Verify OTP sent to selected authorized admin email & Save New Admin Password
   app.post("/api/admin/forgot-password/reset", authLoginLimiter, async (req, res) => {
     try {
-      const { otpCode, newPassword } = req.body || {};
+      const { otpCode, newPassword, adminEmail } = req.body || {};
+      const selectedEmail = resolveSelectedAdminEmail(adminEmail);
       if (!otpCode || String(otpCode).trim().length < 6) {
         return res.status(400).json({
           success: false,
-          error: `कृपया ${OFFICIAL_ADMIN_EMAIL} पर भेजा गया 6-अंकों का OTP दर्ज करें।`
+          error: `कृपया ${selectedEmail} पर भेजा गया 6-अंकों का OTP दर्ज करें।`
         });
       }
       if (!newPassword || String(newPassword).trim().length < 6) {
@@ -3613,7 +3808,7 @@ async function startServer() {
         });
       }
 
-      const otpCheck = await verifyAndConsumeOtp(OFFICIAL_ADMIN_EMAIL, String(otpCode).trim());
+      const otpCheck = await verifyAndConsumeOtp(selectedEmail, String(otpCode).trim());
       if (!otpCheck.valid) {
         return res.status(401).json({
           success: false,
@@ -3625,13 +3820,14 @@ async function startServer() {
 
       const token = createSessionToken({
         uid: "master_admin",
-        email: OFFICIAL_ADMIN_EMAIL,
-        name: "Admin Sanjay Chauhan",
+        email: selectedEmail,
+        name: "LocoHelp Admin",
         role: "admin"
       });
       return res.json({
         success: true,
         token,
+        adminEmail: selectedEmail,
         message: "एडमिन पासवर्ड सफलतापूर्वक बदल दिया गया है!"
       });
     } catch (e: any) {
@@ -3901,6 +4097,11 @@ async function startServer() {
             const row = result.rows[0];
             const cleanAvatar = row.avatar_url && row.avatar_url !== "https://lh3.googleusercontent.com/a/default-user" ? row.avatar_url : "";
             const rawJsonObj = typeof row.raw_json === 'object' && row.raw_json ? row.raw_json : {};
+            const cleanVisitingCard =
+              rawJsonObj.visitingCardUrl ||
+              (row.image_url && row.image_url !== row.avatar_url && row.image_url !== "https://lh3.googleusercontent.com/a/default-user"
+                ? row.image_url
+                : "");
             return formatResponse({
               uid: row.uid,
               id: row.uid,
@@ -3911,6 +4112,9 @@ async function startServer() {
               isPhonePublic: Boolean(rawJsonObj.isPhonePublic === true),
               avatar_url: cleanAvatar,
               photoURL: cleanAvatar,
+              liveSelfieUrl: cleanAvatar,
+              idDocumentWatermarked: cleanAvatar,
+              visitingCardUrl: cleanVisitingCard,
               skills: row.skills,
               address: row.address,
               experience: row.experience,
@@ -3992,8 +4196,14 @@ async function startServer() {
         });
       }
 
-      // Validate uploaded profile avatar (image only <= 2MB) and upload directly to Firebase Storage (`locohelp/profiles/`)
-      const rawAvatar = profile.image_url || profile.avatar_url || profile.profilePhoto || profile.photoURL;
+      // Validate uploaded profile Live Selfie and optional Visiting Card, and upload to Firebase Storage (`locohelp/profiles/`)
+      const rawAvatar =
+        profile.liveSelfieUrl ||
+        profile.idDocumentWatermarked ||
+        profile.avatar_url ||
+        profile.profilePhoto ||
+        profile.photoURL ||
+        profile.image_url;
       if (rawAvatar) {
         const avatarCheck = validateServerUploadedData(rawAvatar, { allowPdf: false });
         if (!avatarCheck.valid) {
@@ -4002,6 +4212,17 @@ async function startServer() {
       }
       const uploadedAvatar = rawAvatar
         ? await uploadDataToFirebaseServer(rawAvatar, "profiles")
+        : "";
+
+      const rawVisitingCard = profile.visitingCardUrl || profile.visiting_card_url || "";
+      if (rawVisitingCard) {
+        const cardCheck = validateServerUploadedData(rawVisitingCard, { allowPdf: false });
+        if (!cardCheck.valid) {
+          return res.status(400).json({ error: cardCheck.error });
+        }
+      }
+      const uploadedVisitingCard = rawVisitingCard
+        ? await uploadDataToFirebaseServer(rawVisitingCard, "profiles")
         : "";
 
       const callerUser = extractRequestUser(req);
@@ -4037,6 +4258,19 @@ async function startServer() {
           ? existingLocalOrDb.avatar_url
           : "";
       const avatarUrl = uploadedAvatar || prevCleanAvatar || "";
+      const prevVisitingCard =
+        existingLocalOrDb?.visitingCardUrl ||
+        existingLocalOrDb?.raw_json?.visitingCardUrl ||
+        (existingLocalOrDb?.image_url &&
+        existingLocalOrDb.image_url !== existingLocalOrDb.avatar_url &&
+        existingLocalOrDb.image_url !== "https://lh3.googleusercontent.com/a/default-user"
+          ? existingLocalOrDb.image_url
+          : "");
+      const visitingCardUrl =
+        profile.visitingCardUrl === ""
+          ? ""
+          : uploadedVisitingCard || prevVisitingCard || "";
+      const profileImageUrl = visitingCardUrl || avatarUrl || "";
       const skills = sanitizeServerText(profile.skills !== undefined ? profile.skills : (existingLocalOrDb?.skills || ""), 500);
       const address = sanitizeServerText(profile.address !== undefined ? (profile.address || profile.sector) : (existingLocalOrDb?.address || ""), 300);
       const city = sanitizeServerText(profile.city || existingLocalOrDb?.city || "Gandhinagar", 120);
@@ -4048,14 +4282,8 @@ async function startServer() {
       const myHelper = profile.my_helper_profile || profile.myHelperProfile || existingLocalOrDb?.my_helper_profile || existingLocalOrDb?.myHelperProfile || null;
 
       const existingApproval = await getUserApprovalState(uid, email, phone);
-      const isHelperOrCategoryEdit = Boolean(
-        profile.my_helper_profile ||
-        profile.myHelperProfile ||
-        profile.category_id ||
-        profile.category ||
-        profile.skills !== undefined
-      );
-      const preserveExistingApproval = Boolean(existingApproval.isApproved && !isHelperOrCategoryEdit);
+      // Once an account is Approved by Admin, never downgrade it back to pending when syncing or updating profile
+      const preserveExistingApproval = Boolean(existingApproval.isApproved);
 
       const requestedStatus = profile.status === 'deletion_requested'
         ? 'deletion_requested'
@@ -4153,8 +4381,8 @@ async function startServer() {
           `, [uid, fullName, phone, email]);
 
           await dbPool.query(`
-            INSERT INTO profiles (uid, id, user_id, name, full_name, category_id, category_name, email, phone, whatsapp, city, sector, avatar_url, image_url, skills, address, experience, description, verified, is_verified, status, is_deleted, hidden, rating, my_helper_profile, created_at, updated_at)
-            VALUES ($1, $1, $1, $2, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11, $12, $13, $14, $15, $15, $16, false, false, 5.0, $17, NOW(), NOW())
+            INSERT INTO profiles (uid, id, user_id, name, full_name, category_id, category_name, email, phone, whatsapp, city, sector, avatar_url, image_url, skills, address, experience, description, verified, is_verified, status, is_deleted, hidden, rating, my_helper_profile, raw_json, created_at, updated_at)
+            VALUES ($1, $1, $1, $2, $2, $3, $4, $5, $6, $7, $8, $9, $10, $18, $11, $12, $13, $14, $15, $15, $16, false, false, 5.0, $17, $19, NOW(), NOW())
             ON CONFLICT (uid) DO UPDATE SET
               id = COALESCE(profiles.id, EXCLUDED.id),
               user_id = COALESCE(profiles.user_id, EXCLUDED.user_id),
@@ -4179,8 +4407,33 @@ async function startServer() {
               is_deleted = false,
               hidden = false,
               my_helper_profile = COALESCE(EXCLUDED.my_helper_profile, profiles.my_helper_profile),
+              raw_json = EXCLUDED.raw_json,
               updated_at = NOW()
-          `, [uid, fullName, categoryId, categoryName, email, phone, whatsapp, city, sector, avatarUrl, skills, address, experience, description, isApprovedStatus, requestedStatus, normalizedHelper ? JSON.stringify(normalizedHelper) : null]);
+          `, [
+            uid,
+            fullName,
+            categoryId,
+            categoryName,
+            email,
+            phone,
+            whatsapp,
+            city,
+            sector,
+            avatarUrl,
+            skills,
+            address,
+            experience,
+            description,
+            isApprovedStatus,
+            requestedStatus,
+            normalizedHelper ? JSON.stringify(normalizedHelper) : null,
+            profileImageUrl,
+            JSON.stringify({
+              isPhonePublic,
+              liveSelfieUrl: avatarUrl,
+              visitingCardUrl
+            })
+          ]);
 
           if (categoryId) {
             await dbPool.query(
@@ -4194,28 +4447,53 @@ async function startServer() {
               "UPDATE helpers SET is_verified = false WHERE id = $1 OR phone = $2",
               [normalizedHelper?.id || uid, phone]
             ).catch(() => {});
-            const verifId = 'verif_usr_' + (normalizedHelper?.id || uid);
-            const verifTitle = `User Profile (${categoryName || categoryId || 'Member'}) - ${sector || city || 'Local Area'}`;
+          }
+
+          // Always upsert verification_requests so Admin sees the latest Live Selfie, Name, Phone, Area & Category
+          const verifId = 'verif_usr_' + (normalizedHelper?.id || uid);
+          const verifTitle = `User Profile (${categoryName || categoryId || skills || 'Member'}) - ${sector || address || city || 'Local Area'}`;
+          const finalVerifStatus =
+            requestedStatus === 'deletion_requested'
+              ? 'deletion_requested'
+              : isApprovedStatus
+              ? 'approved'
+              : 'pending';
+          await dbPool.query(
+            `INSERT INTO verification_requests (id, entity_type, entity_id, user_id, user_name, user_email, user_phone, title, id_document_watermarked, status, created_at)
+             VALUES ($1, 'user_profile', $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+             ON CONFLICT (id) DO UPDATE SET
+               status = EXCLUDED.status,
+               user_name = EXCLUDED.user_name,
+               user_email = COALESCE(NULLIF(EXCLUDED.user_email, ''), verification_requests.user_email),
+               user_phone = COALESCE(NULLIF(EXCLUDED.user_phone, ''), verification_requests.user_phone),
+               id_document_watermarked = COALESCE(NULLIF(EXCLUDED.id_document_watermarked, ''), verification_requests.id_document_watermarked),
+               title = EXCLUDED.title`,
+            [
+              verifId,
+              normalizedHelper?.id || uid,
+              uid,
+              fullName,
+              email,
+              phone,
+              verifTitle,
+              avatarUrl || '',
+              finalVerifStatus
+            ]
+          ).catch(() => {});
+
+          if (avatarUrl) {
+            const normPh = normalizePhoneDigitsServer(phone || '');
             await dbPool.query(
-              `INSERT INTO verification_requests (id, entity_type, entity_id, user_id, user_name, user_email, user_phone, title, id_document_watermarked, status, created_at)
-               VALUES ($1, 'user_profile', $2, $3, $4, $5, $6, $7, $8, $9, NOW())
-               ON CONFLICT (id) DO UPDATE SET
-                 status = EXCLUDED.status,
-                 user_name = EXCLUDED.user_name,
-                 user_email = COALESCE(NULLIF(EXCLUDED.user_email, ''), verification_requests.user_email),
-                 user_phone = COALESCE(NULLIF(EXCLUDED.user_phone, ''), verification_requests.user_phone),
-                 title = EXCLUDED.title`,
-              [
-                verifId,
-                normalizedHelper?.id || uid,
-                uid,
-                fullName,
-                email,
-                phone,
-                verifTitle,
-                avatarUrl || '',
-                requestedStatus === 'deletion_requested' ? 'deletion_requested' : 'pending'
-              ]
+              `UPDATE verification_requests
+               SET id_document_watermarked = $1,
+                   user_name = COALESCE(NULLIF($2, ''), user_name),
+                   user_phone = COALESCE(NULLIF($3, ''), user_phone),
+                   user_email = COALESCE(NULLIF($4, ''), user_email)
+               WHERE entity_id = $5
+                  OR user_id = $5
+                  OR ($4 <> '' AND LOWER(user_email) = LOWER($4))
+                  OR ($6 <> '' AND RIGHT(REGEXP_REPLACE(COALESCE(user_phone, ''), '\\D', '', 'g'), 10) = $6)`,
+              [avatarUrl, fullName, phone, email, uid, normPh]
             ).catch(() => {});
           }
         } catch (dbErr) {
@@ -4241,7 +4519,10 @@ async function startServer() {
         city,
         sector,
         avatar_url: avatarUrl,
-        image_url: avatarUrl,
+        liveSelfieUrl: avatarUrl,
+        idDocumentWatermarked: avatarUrl,
+        visitingCardUrl,
+        image_url: profileImageUrl,
         photoURL: avatarUrl,
         skills,
         address,
@@ -4746,23 +5027,6 @@ async function startServer() {
     };
   };
 
-  const PLAY_STORE_REVIEWER_EMAILS = new Set([
-    "reviewer@locohelp.com",
-    "playstore@locohelp.com",
-    "9999999999@phone.locohelp.com"
-  ]);
-
-  const isPlayStoreReviewerAccount = (rawId?: string, rawEmail?: string, rawPhone?: string): boolean => {
-    const candidates = [rawId, rawEmail, rawPhone].map((s) => String(s || "").trim().toLowerCase()).filter(Boolean);
-    for (const c of candidates) {
-      if (PLAY_STORE_REVIEWER_EMAILS.has(c)) return true;
-      if (c === "phone_9999999999" || c === "email_reviewer_locohelp_com") return true;
-      const digits = c.replace(/\D/g, "").slice(-10);
-      if (digits === "9999999999") return true;
-    }
-    return false;
-  };
-
   // Helper to look up existing user account across users, user_passwords, auth_users.json, "user", and profiles (by Email OR Mobile Number)
   const findExistingAccount = async (rawIdentifier: string) => {
     const parsed = parseIdentifierForAuth(rawIdentifier);
@@ -4961,7 +5225,11 @@ async function startServer() {
     return record;
   };
 
-  const MASTER_ADMIN_EMAILS = ["sanjaysinhchauhan1540@gmail.com", "admin@locohelp.com"];
+  const MASTER_ADMIN_EMAILS = [
+    "sanjaysinhchauhan1540@gmail.com",
+    "admin@locohelp.com",
+    ...ALLOWED_ADMIN_OTP_EMAILS
+  ];
 
   // Helper: Check if a user account is approved by Admin (from profiles, verification_requests, helpers, or admin emails)
   const getUserApprovalState = async (
@@ -4970,8 +5238,36 @@ async function startServer() {
     rawPhone?: string
   ): Promise<{ isApproved: boolean; status: string }> => {
     const uid = String(rawUid || "").trim();
-    const email = String(rawEmail || "").trim().toLowerCase();
-    const phoneDigits = normalizePhoneDigitsServer(rawPhone || "");
+    let email = String(rawEmail || "").trim().toLowerCase();
+    const uidPhone = uid.toLowerCase().startsWith("phone_") ? normalizePhoneDigitsServer(uid) : "";
+    const emailPhone = email.endsWith("@phone.locohelp.com") ? normalizePhoneDigitsServer(email.split("@")[0]) : "";
+    let phoneDigits = normalizePhoneDigitsServer(rawPhone || "") || uidPhone || emailPhone;
+
+    // If only uid was passed (e.g. during chat reply), enrich email & phoneDigits from users/profiles table
+    if (dbPool && isDbConnected && uid && (!email || !phoneDigits)) {
+      try {
+        const uLookup = await dbPool
+          .query(
+            `SELECT email, phone FROM users
+             WHERE LOWER(COALESCE(id, '')) = LOWER($1)
+                OR ($2 <> '' AND LOWER(COALESCE(email, '')) = LOWER($2))
+             LIMIT 1`,
+            [uid, email]
+          )
+          .catch(() => ({ rows: [] as any[] }));
+        if (uLookup.rows.length > 0) {
+          if (!email && uLookup.rows[0].email) email = String(uLookup.rows[0].email).trim().toLowerCase();
+          if (!phoneDigits && uLookup.rows[0].phone) phoneDigits = normalizePhoneDigitsServer(uLookup.rows[0].phone);
+        }
+      } catch {}
+    }
+
+    if (!phoneDigits && email.endsWith("@phone.locohelp.com")) {
+      phoneDigits = normalizePhoneDigitsServer(email.split("@")[0]);
+    }
+    if (!email && phoneDigits.length === 10) {
+      email = `${phoneDigits}@phone.locohelp.com`;
+    }
 
     // Master Admin accounts and Official Google Play Store Reviewer Test Account are always approved
     if (
@@ -4987,7 +5283,10 @@ async function startServer() {
           uid,
           email,
           email ? `email_${email.replace(/[^a-z0-9]/g, "_")}` : "",
-          phoneDigits ? `phone_${phoneDigits}` : ""
+          phoneDigits ? `phone_${phoneDigits}` : "",
+          phoneDigits ? `${phoneDigits}@phone.locohelp.com` : "",
+          phoneDigits ? `email_${phoneDigits}_phone_locohelp_com` : "",
+          phoneDigits ? `verif_usr_phone_${phoneDigits}` : ""
         ]
           .map((s) => String(s || "").trim().toLowerCase())
           .filter(Boolean)
@@ -8907,17 +9206,23 @@ async function startServer() {
         500
       );
 
-      if (dbPool && isDbConnected && (!resolvedName || resolvedName === "Community Peer" || !resolvedEmail)) {
+      let resolvedPhone = sanitizeServerText(
+        message.sender_phone || message.senderPhone || caller?.phone || String(req.headers["x-user-phone"] || ""),
+        30
+      );
+
+      if (dbPool && isDbConnected && (!resolvedName || resolvedName === "Community Peer" || !resolvedEmail || !resolvedPhone)) {
         try {
           const uLookup = await dbPool
             .query(
-              "SELECT name, email, avatar_url FROM users WHERE id::text = $1 OR LOWER(email) = LOWER($2) LIMIT 1",
+              "SELECT name, email, phone, avatar_url FROM users WHERE id::text = $1 OR LOWER(email) = LOWER($2) LIMIT 1",
               [senderIdVal, resolvedEmail || senderIdVal]
             )
             .catch(() => ({ rows: [] as any[] }));
           if (uLookup.rows.length > 0) {
             if (!resolvedName || resolvedName === "Community Peer") resolvedName = uLookup.rows[0].name || resolvedName;
             if (!resolvedEmail && uLookup.rows[0].email) resolvedEmail = String(uLookup.rows[0].email).toLowerCase();
+            if (!resolvedPhone && uLookup.rows[0].phone) resolvedPhone = String(uLookup.rows[0].phone).trim();
             if (!resolvedAvatar && uLookup.rows[0].avatar_url) resolvedAvatar = uLookup.rows[0].avatar_url;
           }
         } catch {}
@@ -8931,7 +9236,7 @@ async function startServer() {
             code: "LOGIN_REQUIRED"
           });
         }
-        const senderApproval = await getUserApprovalState(senderIdVal, resolvedEmail, caller?.phone || "");
+        const senderApproval = await getUserApprovalState(senderIdVal, resolvedEmail, resolvedPhone);
         if (!senderApproval.isApproved) {
           return res.status(403).json({
             error: "आपका अकाउंट अभी एडमिन अप्रूवल (Admin Approval) के लिए पेंडिंग है। एडमिन द्वारा अप्रूव होने के बाद ही आप किसी को मैसेज या पोस्ट कर सकते हैं। (તમારું એકાઉન્ટ એડમિન અપ્રૂવલ માટે પેન્ડિંગ છે.)",
@@ -10110,6 +10415,58 @@ async function startServer() {
               });
             });
           }
+
+          // Also merge Approved Profiles from the profiles table that have a real name & category/skills so approved user profiles show up in the app
+          const profRes = await dbPool
+            .query(
+              `SELECT * FROM profiles
+               WHERE COALESCE(is_deleted, false) = false
+                 AND COALESCE(hidden, false) = false
+                 AND (COALESCE(is_verified, false) = true OR COALESCE(verified, false) = true OR LOWER(COALESCE(status, '')) = 'approved')
+               ORDER BY updated_at DESC`
+            )
+            .catch(() => ({ rows: [] as any[] }));
+          const seenHelperPhones = new Set<string>();
+          mergedMap.forEach((val) => {
+            const pDig = normalizePhoneDigitsServer(val.phone || "");
+            if (pDig) seenHelperPhones.add(pDig);
+          });
+          profRes.rows.forEach((p: any) => {
+            const pid = String(p.uid || p.id || "").trim();
+            if (!pid || mergedMap.has(pid) || isEntityDeleted(pid) || isEntityDeleted(p.email)) return;
+            if (isPlayStoreReviewerAccount(pid, p.email, p.phone)) return;
+            const pName = String(p.full_name || p.name || "").trim();
+            if (!pName || ["community member", "user", "guest user", "google play reviewer"].includes(pName.toLowerCase())) return;
+            const pCat = String(p.category_id || p.category_name || "").trim();
+            const pSkillsStr = String(p.skills || "").trim();
+            if (!pCat && !pSkillsStr) return;
+            const pPhoneDig = normalizePhoneDigitsServer(p.phone || "");
+            if (pPhoneDig && seenHelperPhones.has(pPhoneDig)) return;
+            if (pPhoneDig) seenHelperPhones.add(pPhoneDig);
+
+            mergedMap.set(pid, {
+              id: pid,
+              userId: pid,
+              email: p.email || "",
+              name: pName,
+              categoryId: pCat || "other",
+              customCategoryName: p.category_name || "",
+              phone: p.phone || "",
+              skills: pSkillsStr ? pSkillsStr.split(",").map((s: string) => s.trim()).filter(Boolean) : [pCat || "Service"],
+              area: p.sector || p.address || p.city || "Local Area",
+              experience: p.experience || "1+ Year",
+              distance: 0.8,
+              rating: Number(p.rating || 5.0),
+              reviewCount: 0,
+              reviews: [],
+              photoUrl: p.avatar_url || p.image_url || null,
+              isVerified: true,
+              status: "approved",
+              govtIdUploaded: true,
+              idDocUrl: null,
+              createdAt: p.updated_at || p.created_at || new Date().toISOString()
+            });
+          });
         } catch (e) {}
       } else {
         const localHelpers = readJsonFile<any[]>(HELPERS_FILE, []);
@@ -10131,6 +10488,41 @@ async function startServer() {
             customCategoryName: h.customCategoryName || existing.customCategoryName || '',
             isVerified: isApproved,
             status: isApproved ? 'approved' : (h.status || 'pending')
+          });
+        });
+
+        const localProfiles = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
+        Object.entries(localProfiles).forEach(([pid, p]: [string, any]) => {
+          if (!p || mergedMap.has(pid) || isEntityDeleted(pid) || isEntityDeleted(p.email)) return;
+          if (isPlayStoreReviewerAccount(pid, p.email, p.phone)) return;
+          const isApproved = Boolean(p.isVerified === true || p.is_verified === true || p.verified === true || String(p.status || "").toLowerCase() === "approved");
+          if (!isApproved) return;
+          const pName = String(p.full_name || p.name || "").trim();
+          if (!pName || ["community member", "user", "guest user", "google play reviewer"].includes(pName.toLowerCase())) return;
+          const pCat = String(p.categoryId || p.category_id || p.category || "").trim();
+          const pSkillsStr = String(p.skills || "").trim();
+          if (!pCat && !pSkillsStr) return;
+          mergedMap.set(pid, {
+            id: pid,
+            userId: pid,
+            email: p.email || "",
+            name: pName,
+            categoryId: pCat || "other",
+            customCategoryName: p.customCategoryName || "",
+            phone: p.phone || "",
+            skills: pSkillsStr ? pSkillsStr.split(",").map((s: string) => s.trim()).filter(Boolean) : [pCat || "Service"],
+            area: p.area || p.address || p.sector || "Local Area",
+            experience: p.experience || "1+ Year",
+            distance: 0.8,
+            rating: 5.0,
+            reviewCount: 0,
+            reviews: [],
+            photoUrl: p.avatarUrl || p.avatar_url || null,
+            isVerified: true,
+            status: "approved",
+            govtIdUploaded: true,
+            idDocUrl: null,
+            createdAt: p.updated_at || p.createdAt || new Date().toISOString()
           });
         });
       }
@@ -11929,14 +12321,32 @@ async function startServer() {
             ]
           );
 
-          // Also sync verification_requests table in PostgreSQL so status never reverts to pending!
+          // Also sync verification_requests and profiles tables in PostgreSQL by id, userId, email, and 10-digit phone so status never reverts to pending!
+          const helperPhoneDigits = normalizePhoneDigitsServer(helper.phone || "");
+          const helperUid = String(helper.userId || id || "").trim();
+          const finalHelperStatus = helper.status || (helper.isVerified ? 'approved' : 'pending');
+          const finalHelperVerified = Boolean(helper.isVerified || finalHelperStatus === 'approved');
+
           await dbPool.query(
             `UPDATE verification_requests
              SET status = $1, reviewed_at = NOW()
              WHERE entity_id = $2
                 OR user_id = $2
-                OR ($3 <> '' AND LOWER(user_email) = LOWER($3))`,
-            [helper.status || 'approved', id, helper.email || '']
+                OR ($3 <> '' AND (entity_id = $3 OR user_id = $3))
+                OR ($4 <> '' AND LOWER(user_email) = LOWER($4))
+                OR ($5 <> '' AND RIGHT(REGEXP_REPLACE(COALESCE(user_phone, ''), '\\D', '', 'g'), 10) = $5)`,
+            [finalHelperStatus, id, helperUid, helper.email || '', helperPhoneDigits]
+          ).catch(() => {});
+
+          await dbPool.query(
+            `UPDATE profiles
+             SET status = $1, is_verified = $2, verified = $2, updated_at = NOW()
+             WHERE id = $3
+                OR uid = $3
+                OR ($4 <> '' AND (id = $4 OR uid = $4))
+                OR ($5 <> '' AND LOWER(email) = LOWER($5))
+                OR ($6 <> '' AND RIGHT(REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g'), 10) = $6)`,
+            [finalHelperStatus, finalHelperVerified, id, helperUid, helper.email || '', helperPhoneDigits]
           ).catch(() => {});
 
           await dbPool.query(`
@@ -12134,6 +12544,8 @@ async function startServer() {
             if (mappedV.userId) userVerifMap.set(String(mappedV.userId), mappedV);
             if (mappedV.entityId) userVerifMap.set(String(mappedV.entityId), mappedV);
             if (mappedV.userEmail) userVerifMap.set(String(mappedV.userEmail).toLowerCase(), mappedV);
+            const vPh = normalizePhoneDigitsServer(mappedV.userPhone || '');
+            if (vPh) userVerifMap.set(`phone_${vPh}`, mappedV);
           });
 
           const uRes = await dbPool.query("SELECT * FROM users WHERE COALESCE(is_deleted, false) = false ORDER BY created_at DESC").catch(() => ({ rows: [] as any[] }));
@@ -12141,8 +12553,17 @@ async function startServer() {
             const uid = String(u.id || u.email || '');
             if (!uid || isEntityDeleted(uid) || isEntityDeleted(u.email)) return;
             if (uid.startsWith('helper_') || helperIdsSet.has(uid.toLowerCase())) return;
-            const matchedVerif = userVerifMap.get(uid) || userVerifMap.get(String(u.email || '').toLowerCase());
+            const uPh = normalizePhoneDigitsServer(u.phone || '');
+            const matchedVerif =
+              userVerifMap.get(uid) ||
+              userVerifMap.get(String(u.email || '').toLowerCase()) ||
+              (uPh ? userVerifMap.get(`phone_${uPh}`) : undefined);
             const status = String(matchedVerif?.status || 'pending').toLowerCase();
+            const cleanAvatar =
+              u.avatar_url && u.avatar_url !== "https://lh3.googleusercontent.com/a/default-user"
+                ? u.avatar_url
+                : "";
+            const liveSelfie = matchedVerif?.idDocumentWatermarked || cleanAvatar || "";
             userMap.set(uid, {
               uid,
               id: uid,
@@ -12155,10 +12576,12 @@ async function startServer() {
               experience: '',
               category: '',
               categoryId: '',
-              avatarUrl: u.avatar_url || '',
+              avatarUrl: cleanAvatar,
+              liveSelfieUrl: liveSelfie,
+              visitingCardUrl: '',
               status,
               isVerified: status === 'approved',
-              idDocumentWatermarked: matchedVerif?.idDocumentWatermarked || '',
+              idDocumentWatermarked: liveSelfie,
               createdAt: u.created_at || new Date().toISOString()
             });
           });
@@ -12169,7 +12592,11 @@ async function startServer() {
             if (!uid || isEntityDeleted(uid) || isEntityDeleted(p.email)) return;
             if (uid.startsWith('helper_') || helperIdsSet.has(uid.toLowerCase())) return;
             const existing = userMap.get(uid) || {};
-            const matchedVerif = userVerifMap.get(uid) || userVerifMap.get(String(p.email || '').toLowerCase());
+            const pPh = normalizePhoneDigitsServer(p.phone || existing.phone || '');
+            const matchedVerif =
+              userVerifMap.get(uid) ||
+              userVerifMap.get(String(p.email || '').toLowerCase()) ||
+              (pPh ? userVerifMap.get(`phone_${pPh}`) : undefined);
             const pStatusLower = String(p.status || '').toLowerCase();
             const vStatusLower = String(matchedVerif?.status || '').toLowerCase();
             const isRejected = pStatusLower === 'rejected' || vStatusLower === 'rejected';
@@ -12177,9 +12604,32 @@ async function startServer() {
               p.verified === true ||
               p.is_verified === true ||
               pStatusLower === 'approved' ||
-              vStatusLower === 'approved'
+              vStatusLower === 'approved' ||
+              existing.isVerified === true ||
+              existing.status === 'approved'
             );
             const status = isRejected ? 'rejected' : (isVerif ? 'approved' : (pStatusLower || vStatusLower || 'pending'));
+            const rawJsonObj = typeof p.raw_json === 'object' && p.raw_json ? p.raw_json : {};
+            const cleanPAvatar =
+              p.avatar_url && p.avatar_url !== "https://lh3.googleusercontent.com/a/default-user"
+                ? p.avatar_url
+                : "";
+            const liveSelfie =
+              matchedVerif?.idDocumentWatermarked ||
+              rawJsonObj.liveSelfieUrl ||
+              cleanPAvatar ||
+              existing.idDocumentWatermarked ||
+              existing.avatarUrl ||
+              "";
+            const visitingCard =
+              rawJsonObj.visitingCardUrl ||
+              (p.image_url &&
+              p.image_url !== p.avatar_url &&
+              p.image_url !== "https://lh3.googleusercontent.com/a/default-user"
+                ? p.image_url
+                : "") ||
+              existing.visitingCardUrl ||
+              "";
             userMap.set(uid, {
               ...existing,
               uid,
@@ -12187,6 +12637,7 @@ async function startServer() {
               name: p.full_name || p.name || existing.name || 'Community Member',
               email: p.email || existing.email || '',
               phone: p.phone || existing.phone || matchedVerif?.userPhone || '',
+              isPhonePublic: Boolean(rawJsonObj.isPhonePublic === true),
               address: p.address || p.sector || existing.address || '',
               area: p.sector || p.address || existing.area || '',
               skills: p.skills || existing.skills || '',
@@ -12194,10 +12645,13 @@ async function startServer() {
               category: p.category_id || p.category_name || existing.category || '',
               categoryId: p.category_id || existing.categoryId || '',
               customCategoryName: p.category_name || existing.customCategoryName || '',
-              avatarUrl: p.avatar_url || p.image_url || existing.avatarUrl || '',
+              avatarUrl: liveSelfie || cleanPAvatar || existing.avatarUrl || '',
+              liveSelfieUrl: liveSelfie,
+              visitingCardUrl: visitingCard,
+              photoUrl: visitingCard || '',
               status,
               isVerified: status === 'approved',
-              idDocumentWatermarked: matchedVerif?.idDocumentWatermarked || existing.idDocumentWatermarked || '',
+              idDocumentWatermarked: liveSelfie,
               createdAt: p.updated_at || p.created_at || existing.createdAt || new Date().toISOString()
             });
           });
@@ -12207,20 +12661,57 @@ async function startServer() {
       }
 
       const rawList = Array.from(userMap.values());
-      rawList.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+      // Sort approved profiles first so deduplication always preserves approved status
+      rawList.sort((a, b) => {
+        const aAppr = a.status === 'approved' || a.isVerified === true ? 1 : 0;
+        const bAppr = b.status === 'approved' || b.isVerified === true ? 1 : 0;
+        if (bAppr !== aAppr) return bAppr - aAppr;
+        return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+      });
 
-      // Deduplicate by normalized email or 10-digit phone so the same user never appears twice
-      const seenEmails = new Set<string>();
-      const seenPhones = new Set<string>();
+      // Deduplicate by normalized email or 10-digit phone while merging approved status & fields
+      const byEmailIdx = new Map<string, number>();
+      const byPhoneIdx = new Map<string, number>();
       const dedupedList: any[] = [];
       for (const u of rawList) {
         const normEmail = String(u.email || '').trim().toLowerCase();
         const normPhone = normalizePhoneDigitsServer(u.phone || '');
-        if (normEmail && seenEmails.has(normEmail)) continue;
-        if (normPhone && normPhone.length >= 10 && seenPhones.has(normPhone)) continue;
-        if (normEmail) seenEmails.add(normEmail);
-        if (normPhone && normPhone.length >= 10) seenPhones.add(normPhone);
+        const existingIdx =
+          (normEmail && byEmailIdx.has(normEmail) ? byEmailIdx.get(normEmail) : undefined) ??
+          (normPhone && normPhone.length >= 10 && byPhoneIdx.has(normPhone) ? byPhoneIdx.get(normPhone) : undefined);
+
+        if (existingIdx !== undefined) {
+          const prev = dedupedList[existingIdx];
+          const isMergedApproved =
+            prev.status === 'approved' || u.status === 'approved' || prev.isVerified === true || u.isVerified === true;
+          const mergedSelfie = prev.idDocumentWatermarked || u.idDocumentWatermarked || prev.liveSelfieUrl || u.liveSelfieUrl || prev.avatarUrl || u.avatarUrl || '';
+          const mergedVisitingCard = prev.visitingCardUrl || u.visitingCardUrl || prev.photoUrl || u.photoUrl || '';
+          dedupedList[existingIdx] = {
+            ...u,
+            ...prev,
+            name: prev.name && prev.name !== 'Community Member' && prev.name !== 'User' ? prev.name : (u.name || prev.name),
+            phone: prev.phone || u.phone || '',
+            email: prev.email || u.email || '',
+            area: prev.area || u.area || '',
+            address: prev.address || u.address || '',
+            skills: prev.skills || u.skills || '',
+            experience: prev.experience || u.experience || '',
+            category: prev.category || u.category || '',
+            categoryId: prev.categoryId || u.categoryId || '',
+            avatarUrl: mergedSelfie,
+            liveSelfieUrl: mergedSelfie,
+            idDocumentWatermarked: mergedSelfie,
+            visitingCardUrl: mergedVisitingCard,
+            photoUrl: mergedVisitingCard,
+            status: isMergedApproved ? 'approved' : (prev.status || u.status || 'pending'),
+            isVerified: isMergedApproved
+          };
+          continue;
+        }
+        const newIdx = dedupedList.length;
         dedupedList.push(u);
+        if (normEmail) byEmailIdx.set(normEmail, newIdx);
+        if (normPhone && normPhone.length >= 10) byPhoneIdx.set(normPhone, newIdx);
       }
       res.json(dedupedList);
     } catch (e: any) {
@@ -12288,17 +12779,41 @@ async function startServer() {
         current.is_verified = normSt === 'approved';
       }
       current.updated_at = new Date().toISOString();
+      const phoneDigits = normalizePhoneDigitsServer(current.phone || (uid.startsWith('phone_') ? uid : ''));
 
-      // Sync local files as well
+      // Sync local files as well (matching by uid, email, or 10-digit phone)
       const profilesFileMap = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
-      if (profilesFileMap[uid]) {
-        profilesFileMap[uid] = { ...profilesFileMap[uid], ...current };
-        writeJsonFile(PROFILES_FILE, profilesFileMap);
-      }
+      profilesFileMap[uid] = { ...(profilesFileMap[uid] || {}), ...current };
+      Object.keys(profilesFileMap).forEach((pKey) => {
+        const p = profilesFileMap[pKey];
+        if (!p) return;
+        const pPh = normalizePhoneDigitsServer(p.phone || '');
+        if (
+          pKey === uid ||
+          (current.email && String(p.email || '').toLowerCase() === current.email.toLowerCase()) ||
+          (phoneDigits && pPh === phoneDigits)
+        ) {
+          profilesFileMap[pKey] = {
+            ...p,
+            status: current.status,
+            isVerified: Boolean(current.isVerified),
+            is_verified: Boolean(current.isVerified)
+          };
+        }
+      });
+      writeJsonFile(PROFILES_FILE, profilesFileMap);
+
       const helpersFileList = readJsonFile<any[]>(HELPERS_FILE, []);
       let helperUpdated = false;
       helpersFileList.forEach(h => {
-        if (h && (h.id === uid || h.userId === uid)) {
+        const hPh = normalizePhoneDigitsServer(h?.phone || '');
+        if (
+          h &&
+          (h.id === uid ||
+            h.userId === uid ||
+            (current.email && String(h.email || '').toLowerCase() === current.email.toLowerCase()) ||
+            (phoneDigits && hPh === phoneDigits))
+        ) {
           h.status = current.status;
           h.isVerified = Boolean(current.isVerified);
           h.is_verified = Boolean(current.isVerified);
@@ -12311,14 +12826,28 @@ async function startServer() {
       const verifs = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
       let verifUpdated = false;
       verifs.forEach(v => {
-        if (v && (v.entityId === uid || v.userId === uid || v.id === uid || (current.email && v.userEmail && v.userEmail.toLowerCase() === current.email.toLowerCase()))) {
+        const vPh = normalizePhoneDigitsServer(v?.userPhone || '');
+        if (
+          v &&
+          (v.entityId === uid ||
+            v.userId === uid ||
+            v.id === uid ||
+            (current.email && v.userEmail && v.userEmail.toLowerCase() === current.email.toLowerCase()) ||
+            (phoneDigits && vPh === phoneDigits))
+        ) {
           v.status = current.status;
           verifUpdated = true;
         }
       });
       if (verifUpdated) writeJsonFile(VERIFICATIONS_FILE, verifs);
 
-      await unmarkEntitiesDeletedPermanently([uid, current.email, current.phone]).catch(() => {});
+      await unmarkEntitiesDeletedPermanently([
+        uid,
+        current.email,
+        current.phone,
+        phoneDigits ? `phone_${phoneDigits}` : '',
+        phoneDigits ? `${phoneDigits}@phone.locohelp.com` : ''
+      ]).catch(() => {});
 
       if (dbPool && isDbConnected) {
         try {
@@ -12359,28 +12888,39 @@ async function startServer() {
             ]
           );
 
-          // Also sync any matching profile rows by email (e.g. if client saved a UUID profile row)
-          if (current.email) {
-            await dbPool.query(
-              `UPDATE profiles
-               SET verified = $1, is_verified = $1, status = $2, is_deleted = false, hidden = false, updated_at = NOW()
-               WHERE LOWER(TRIM(COALESCE(email, ''))) = LOWER(TRIM($3))`,
-              [Boolean(current.isVerified), current.status || 'approved', current.email]
-            ).catch(() => {});
-            await dbPool.query(
-              `UPDATE users SET is_deleted = false, hidden = false WHERE LOWER(TRIM(COALESCE(email, ''))) = LOWER(TRIM($1))`,
-              [current.email]
-            ).catch(() => {});
-          }
+          // Also sync any matching profile rows by email or 10-digit mobile number
+          await dbPool.query(
+            `UPDATE profiles
+             SET verified = $1, is_verified = $1, status = $2, is_deleted = false, hidden = false, updated_at = NOW()
+             WHERE uid = $3
+                OR id = $3
+                OR user_id = $3
+                OR ($4 <> '' AND LOWER(TRIM(COALESCE(email, ''))) = LOWER(TRIM($4)))
+                OR ($5 <> '' AND REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE '%' || $5)`,
+            [Boolean(current.isVerified), current.status || 'approved', uid, current.email || '', phoneDigits]
+          ).catch(() => {});
+
+          await dbPool.query(
+            `UPDATE users
+             SET is_deleted = false, hidden = false
+             WHERE id = $1
+                OR ($2 <> '' AND LOWER(TRIM(COALESCE(email, ''))) = LOWER(TRIM($2)))
+                OR ($3 <> '' AND REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE '%' || $3)`,
+            [uid, current.email || '', phoneDigits]
+          ).catch(() => {});
 
           await dbPool.query(
             `UPDATE helpers
              SET is_verified = $1,
-                 category_id = COALESCE(NULLIF($2, ''), category_id),
+                 status = $2,
+                 category_id = COALESCE(NULLIF($3, ''), category_id),
                  is_deleted = false,
                  hidden = false
-             WHERE id = $3 OR ($4 <> '' AND LOWER(COALESCE(email, '')) = LOWER($4))`,
-            [Boolean(current.isVerified), current.category || '', uid, current.email || '']
+             WHERE id = $4
+                OR user_id = $4
+                OR ($5 <> '' AND LOWER(COALESCE(email, '')) = LOWER($5))
+                OR ($6 <> '' AND REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE '%' || $6)`,
+            [Boolean(current.isVerified), current.status || 'approved', current.category || '', uid, current.email || '', phoneDigits]
           ).catch(() => {});
 
           if (current.status) {
@@ -12390,8 +12930,9 @@ async function startServer() {
                WHERE user_id = $2
                   OR entity_id = $2
                   OR id = $2
-                  OR ($3 <> '' AND LOWER(user_email) = LOWER($3))`,
-              [current.status, uid, current.email || '']
+                  OR ($3 <> '' AND LOWER(COALESCE(user_email, '')) = LOWER($3))
+                  OR ($4 <> '' AND REGEXP_REPLACE(COALESCE(user_phone, ''), '\\D', '', 'g') LIKE '%' || $4)`,
+              [current.status, uid, current.email || '', phoneDigits]
             ).catch(() => {});
           }
         } catch (e) {}
@@ -12888,8 +13429,11 @@ async function startServer() {
               id, entity_type, entity_id, user_id, user_name, user_email, user_phone, title, id_document_watermarked, status, created_at
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending', NOW())
             ON CONFLICT (id) DO UPDATE SET
-              id_document_watermarked = EXCLUDED.id_document_watermarked,
-              status = 'pending',
+              id_document_watermarked = COALESCE(NULLIF(EXCLUDED.id_document_watermarked, ''), verification_requests.id_document_watermarked),
+              user_name = COALESCE(NULLIF(EXCLUDED.user_name, ''), verification_requests.user_name),
+              user_email = COALESCE(NULLIF(EXCLUDED.user_email, ''), verification_requests.user_email),
+              user_phone = COALESCE(NULLIF(EXCLUDED.user_phone, ''), verification_requests.user_phone),
+              title = EXCLUDED.title,
               created_at = NOW()
           `, [
             reqId,
@@ -12902,6 +13446,31 @@ async function startServer() {
             docTitle,
             safeDoc
           ]);
+
+          if (safeDoc) {
+            const normPh = normalizePhoneDigitsServer(userPhone || '');
+            const cleanEmail = sanitizeStringServer(userEmail || '', 150).toLowerCase();
+            await dbPool.query(
+              `UPDATE verification_requests
+               SET id_document_watermarked = $1
+               WHERE entity_id = $2
+                  OR user_id = $3
+                  OR ($4 <> '' AND LOWER(user_email) = $4)
+                  OR ($5 <> '' AND RIGHT(REGEXP_REPLACE(COALESCE(user_phone, ''), '\\D', '', 'g'), 10) = $5)`,
+              [safeDoc, targetEntityId, targetUserId, cleanEmail, normPh]
+            ).catch(() => {});
+
+            await dbPool.query(
+              `UPDATE profiles
+               SET avatar_url = COALESCE(NULLIF($1, ''), avatar_url), updated_at = NOW()
+               WHERE uid = $2
+                  OR id = $2
+                  OR uid = $3
+                  OR ($4 <> '' AND LOWER(email) = $4)
+                  OR ($5 <> '' AND RIGHT(REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g'), 10) = $5)`,
+              [safeDoc, targetUserId, targetEntityId, cleanEmail, normPh]
+            ).catch(() => {});
+          }
         } catch (dbErr) {
           console.warn("[PostgreSQL] Verification save note:", dbErr);
         }

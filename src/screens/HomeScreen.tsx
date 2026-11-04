@@ -2163,16 +2163,19 @@ export default function HomeScreen({
 
                   <AnimatePresence>
                     {isHomeCategoryDropdownOpen && (
-                      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/60 backdrop-blur-xs">
+                      <div
+                        className="fixed inset-0 z-[10000] flex items-center justify-center px-3 pt-14 pb-20 sm:p-4 bg-slate-900/60 backdrop-blur-xs"
+                        style={{ zIndex: 10000 }}
+                      >
                         <div
                           className="fixed inset-0"
                           onClick={() => setIsHomeCategoryDropdownOpen(false)}
                         />
                         <motion.div
-                          initial={{ opacity: 0, y: 30 }}
+                          initial={{ opacity: 0, y: 20 }}
                           animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: 30 }}
-                          className="relative w-full sm:max-w-md bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 max-h-[82vh] flex flex-col z-50 overflow-hidden"
+                          exit={{ opacity: 0, y: 20 }}
+                          className="relative w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 max-h-[calc(100dvh-140px)] sm:max-h-[82vh] flex flex-col z-50 overflow-hidden"
                         >
                           {/* Modal Header */}
                           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
@@ -2963,19 +2966,26 @@ export default function HomeScreen({
         )}
       </AnimatePresence>
 
-      {/* Live Broadcast Post In-Place Chat Modal Popup (zIndex 10000 so FixedBottomNavBar never hides the message input bar) */}
+      {/* Live Broadcast Post In-Place Chat Modal Popup (Bounded between 52px Top Header & 62px FixedBottomNavBar so neither hides chat header or input bar) */}
       <AnimatePresence>
         {chatModalIntent && (
           <div
-            className="fixed inset-0 z-[10000] flex items-center justify-center bg-slate-950/75 backdrop-blur-xs p-0 sm:p-4"
-            style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 10000 }}
+            className="fixed left-0 right-0 z-[10020] flex items-center justify-center bg-slate-950/75 backdrop-blur-xs p-0 sm:p-4"
+            style={{
+              position: 'fixed',
+              top: '52px',
+              left: 0,
+              right: 0,
+              bottom: 'calc(62px + env(safe-area-inset-bottom, 0px))',
+              zIndex: 10020,
+            }}
           >
             <motion.div
-              initial={{ opacity: 0, y: 30, scale: 0.98 }}
+              initial={{ opacity: 0, y: 20, scale: 0.98 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 30, scale: 0.98 }}
+              exit={{ opacity: 0, y: 20, scale: 0.98 }}
               transition={{ duration: 0.2 }}
-              className="w-full max-w-2xl h-[100dvh] sm:h-[92vh] sm:max-h-[820px] bg-white dark:bg-slate-900 sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-slate-200 dark:border-slate-800"
+              className="w-full max-w-2xl h-full sm:h-[85vh] sm:max-h-[780px] bg-white dark:bg-slate-900 sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-slate-200 dark:border-slate-800"
             >
               {/* Chat Screen Component Container (Single Unified Header inside ChatScreen) */}
               <div className="flex-1 min-h-0 relative overflow-hidden flex flex-col">

@@ -329,7 +329,13 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
       if (normArea && pArea.includes(normArea)) return true;
       return false;
     });
-    return matched;
+    // Prioritize matching city helpers first, then include remaining approved liveHelpers so newly approved profiles are always visible
+    if (matched.length > 0 && matched.length < 6) {
+      const matchedIds = new Set(matched.map((m: any) => m.id));
+      const others = liveHelpers.filter((p: any) => p && !matchedIds.has(p.id));
+      return [...matched, ...others];
+    }
+    return matched.length > 0 ? matched : liveHelpers;
   }, [liveHelpers, filterByMyCity, selectedCityName, userLocation]);
 
   // Build uniform ShowcaseProviderItem list matching selected location (or fallback to showcase defaults if Gandhinagar/All)

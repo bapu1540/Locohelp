@@ -494,10 +494,10 @@ function AppContent() {
           : 'h-dvh w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-sans antialiased flex flex-col overflow-hidden overflow-x-hidden'
       }
     >
-      {/* GLOBAL FIXED TOP HEADER BANNER: Always visible across all screens, modals, popups, and Admin Panel */}
+      {/* GLOBAL FIXED TOP HEADER BANNER: Always visible across all screens */}
       <header
-        className="loco-header-bar sticky top-0 z-50 shrink-0 min-h-[50px] backdrop-blur-md shadow-xs px-1.5 sm:px-3 md:px-5 py-1.5 flex items-center justify-between gap-1 sm:gap-2 md:gap-3 w-full max-w-full box-border"
-        style={{ position: 'sticky', top: 0, zIndex: 9999, overflow: 'visible' }}
+        className="loco-header-bar sticky top-0 z-40 shrink-0 min-h-[50px] backdrop-blur-md shadow-xs px-1.5 sm:px-3 md:px-5 py-1.5 flex items-center justify-between gap-1 sm:gap-2 md:gap-3 w-full max-w-full box-border"
+        style={{ position: 'sticky', top: 0, zIndex: 40, overflow: 'visible' }}
       >
         {/* Left Side: Language Selector Dropdown (ગુજરાતી / हिन्दी / English) */}
         <div className="flex items-center justify-start flex-1 sm:flex-initial min-w-[70px] sm:min-w-[100px]" style={{ overflow: 'visible' }}>
@@ -526,7 +526,7 @@ function AppContent() {
                 <>
                   <div
                     className="fixed inset-0 z-50"
-                    style={{ position: 'fixed', inset: 0, zIndex: 10000 }}
+                    style={{ position: 'fixed', inset: 0, zIndex: 10050 }}
                     onClick={() => setIsGlobalLangOpen(false)}
                   />
                   <motion.div
@@ -535,7 +535,7 @@ function AppContent() {
                     exit={{ opacity: 0, y: -6, scale: 0.96 }}
                     transition={{ duration: 0.15 }}
                     className="w-44 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 p-1.5 z-50 space-y-1"
-                    style={{ position: 'fixed', top: '56px', left: '8px', zIndex: 10005 }}
+                    style={{ position: 'fixed', top: '56px', left: '8px', zIndex: 10055 }}
                   >
                     {SUPPORTED_LANGUAGES.map((langItem) => {
                       const isSelected = language === langItem.code;
@@ -590,26 +590,72 @@ function AppContent() {
           <LocoHelpLogo size={24} showText={true} textSize="sm" className="flex-shrink-0" />
         </div>
 
-        {/* Right Side: Single-line Tagline Box */}
-        <div className="flex items-center justify-end flex-1 sm:flex-initial min-w-[70px] sm:min-w-[100px]" style={{ overflow: 'visible' }}>
-          <div className="loco-tagline-singleline-box">
-            <span className="loco-tagline-singleline-text">
-              {tr(
-                'Find local helpers Near You',
-                'आस-पास के लोकल मददगार खोजें',
-                'નજીકના લોકલ મદદગારો શોધો'
-              )}
-            </span>
-          </div>
+        {/* Right Side: Logged-in User Profile Chip OR Tagline/Login Button */}
+        <div className="flex items-center justify-end flex-1 sm:flex-initial min-w-[70px] sm:min-w-[100px] gap-1.5" style={{ overflow: 'visible' }}>
+          {(() => {
+            const activeUser = !isGuestUser() ? getCurrentUser() : null;
+            const savedName =
+              activeUser?.displayName ||
+              localStorage.getItem('locohelp_profile_name') ||
+              localStorage.getItem('locohelp_last_logged_in_name') ||
+              '';
+            const cleanDisplayName =
+              savedName && !['guest', 'guest user', 'community member'].includes(savedName.trim().toLowerCase())
+                ? savedName.trim()
+                : activeUser?.phone
+                ? `+91 ${String(activeUser.phone).slice(-10)}`
+                : activeUser?.email && !activeUser.email.endsWith('@phone.locohelp.com')
+                ? activeUser.email.split('@')[0]
+                : '';
+
+            if (activeUser && cleanDisplayName) {
+              return (
+                <button
+                  type="button"
+                  onClick={handleGlobalProfileClick}
+                  className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/80 border border-emerald-300 dark:border-emerald-700 text-emerald-900 dark:text-emerald-200 hover:bg-emerald-100 transition-all cursor-pointer shadow-2xs max-w-[135px] sm:max-w-[180px]"
+                  title={tr('My Profile', 'मेरी प्रोफाइल', 'મારી પ્રોફાઈલ')}
+                >
+                  <span className="w-5 h-5 rounded-full bg-emerald-600 text-white text-[10px] font-black flex items-center justify-center shrink-0">
+                    {cleanDisplayName.slice(0, 1).toUpperCase()}
+                  </span>
+                  <span className="text-[10px] sm:text-xs font-extrabold truncate">
+                    {cleanDisplayName}
+                  </span>
+                </button>
+              );
+            }
+
+            return (
+              <div
+                onClick={handleGlobalProfileClick}
+                className="loco-tagline-singleline-box cursor-pointer"
+                title={tr('Login / My Profile', 'लॉगिन / मेरी प्रोफाइल', 'લોગિન / મારી પ્રોફાઈલ')}
+              >
+                <span className="loco-tagline-singleline-text">
+                  {tr(
+                    'Find local helpers Near You',
+                    'आस-पास के लोकल मददगार खोजें',
+                    'નજીકના લોકલ મદદગારો શોધો'
+                  )}
+                </span>
+              </div>
+            );
+          })()}
         </div>
       </header>
 
-      {/* Main Page Content Area - Full Page */}
+      {/* Main Page Content Area - Full Page with Safe Bottom Padding for FixedBottomNavBar */}
       <main
         className={
           currentScreen === 'admin'
             ? 'flex-1 w-full min-h-screen relative flex flex-col overflow-y-auto overflow-x-hidden'
             : 'flex-1 w-full h-full min-h-0 relative flex flex-col overflow-hidden overflow-x-hidden'
+        }
+        style={
+          currentScreen !== 'admin' && currentScreen !== 'chat'
+            ? { paddingBottom: 'calc(62px + env(safe-area-inset-bottom, 0px))' }
+            : undefined
         }
       >
         {currentScreen === 'home' && (

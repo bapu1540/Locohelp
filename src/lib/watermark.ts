@@ -39,7 +39,9 @@ export async function applyIdWatermark(
 
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.crossOrigin = 'anonymous';
+    if (typeof imageSource === 'string' && imageSource.startsWith('http')) {
+      img.crossOrigin = 'anonymous';
+    }
 
     const handleImageLoaded = () => {
       try {
@@ -51,9 +53,9 @@ export async function applyIdWatermark(
         }
 
         // Maintain resolution with reasonable maximum dimensions to guarantee < 2MB output
-        const maxDim = 1400;
-        let width = img.naturalWidth || img.width;
-        let height = img.naturalHeight || img.height;
+        const maxDim = 1100;
+        let width = img.naturalWidth || img.width || 800;
+        let height = img.naturalHeight || img.height || 800;
 
         if (width > maxDim || height > maxDim) {
           if (width > height) {
@@ -157,33 +159,53 @@ export async function applyIdWatermark(
         ctx.restore();
 
         // Export as JPEG and ensure byte size is strictly <= 2MB
-        let quality = 0.85;
+        let quality = 0.82;
         let watermarkedDataUrl = canvas.toDataURL('image/jpeg', quality);
-        while (watermarkedDataUrl.length > 2.6 * 1024 * 1024 && quality > 0.45) {
+        while (watermarkedDataUrl.length > 1.8 * 1024 * 1024 && quality > 0.45) {
           quality -= 0.15;
           watermarkedDataUrl = canvas.toDataURL('image/jpeg', quality);
         }
 
-        // Upload watermarked document directly to Firebase Storage inside locohelp/verifications/
-        uploadFileToFirebaseStorage(watermarkedDataUrl, 'verifications')
-          .then((permanentUrl) => resolve(permanentUrl || watermarkedDataUrl))
-          .catch(() => resolve(watermarkedDataUrl));
+        // Upload watermarked document to Firebase Storage with a 6s timeout fallback so mobile UI never hangs
+        const timeoutPromise = new Promise<string>((res) =>
+          setTimeout(() => res(watermarkedDataUrl), 6000)
+        );
+        Promise.race([
+          uploadFileToFirebaseStorage(watermarkedDataUrl, 'verifications')
+            .then((permanentUrl) => permanentUrl || watermarkedDataUrl)
+            .catch(() => watermarkedDataUrl),
+          timeoutPromise,
+        ]).then((finalUrl) => resolve(finalUrl || watermarkedDataUrl));
       } catch (err) {
         reject(err);
       }
     };
 
+    img.onload = handleImageLoaded;
     img.onerror = () => reject(new Error('Failed to load image for watermarking'));
 
     if (typeof imageSource === 'string') {
       img.src = imageSource;
     } else {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        img.src = e.target?.result as string;
+      const objectUrl = URL.createObjectURL(imageSource);
+      const origOnLoad = img.onload;
+      img.onload = (ev) => {
+        URL.revokeObjectURL(objectUrl);
+        if (origOnLoad) origOnLoad.call(img, ev);
       };
-      reader.onerror = () => reject(new Error('Failed to read image file'));
-      reader.readAsDataURL(imageSource);
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        // Fallback to FileReader if URL.createObjectURL fails
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          img.onload = handleImageLoaded;
+          img.onerror = () => reject(new Error('Failed to load image for watermarking'));
+          img.src = e.target?.result as string;
+        };
+        reader.onerror = () => reject(new Error('Failed to read image file'));
+        reader.readAsDataURL(imageSource);
+      };
+      img.src = objectUrl;
     }
   });
 }

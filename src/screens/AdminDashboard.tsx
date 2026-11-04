@@ -138,8 +138,20 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
   const processCategoryImageFileTo16x9 = async (file: File): Promise<string> => {
     return compressImageToWebP(file, { maxWidth: 1280, quality: 0.82, folder: 'banners' });
   };
-  // Authentication State (Strictly 2-Step: Password -> OTP to baalvarta@gmail.com)
-  const OFFICIAL_ADMIN_EMAIL = 'baalvarta@gmail.com';
+  // Authentication State (Strictly 2-Step: Password -> OTP to one of the 3 Authorized Admin Emails)
+  const ALLOWED_ADMIN_EMAILS = [
+    'baalvarta@gmail.com',
+    'malimahesh1991@gmail.com',
+    'vijaybhalaiya26@gmail.com'
+  ];
+  const [selectedAdminEmail, setSelectedAdminEmail] = useState<string>(() => {
+    try {
+      const saved = sessionStorage.getItem('locohelp_admin_email') || localStorage.getItem('locohelp_admin_email');
+      if (saved && ALLOWED_ADMIN_EMAILS.includes(saved.toLowerCase())) return saved.toLowerCase();
+    } catch {}
+    return 'baalvarta@gmail.com';
+  });
+  const OFFICIAL_ADMIN_EMAIL = selectedAdminEmail;
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() => {
     try {
       return (
@@ -172,6 +184,12 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
   const [changeConfirmPassword, setChangeConfirmPassword] = useState('');
   const [changePasswordError, setChangePasswordError] = useState<string | null>(null);
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+
+  // Play Store TWA Fullscreen (Digital Asset Links SHA-256) Modal State in 3-Dot Menu
+  const [isAssetLinksModalOpen, setIsAssetLinksModalOpen] = useState(false);
+  const [assetLinksPackage, setAssetLinksPackage] = useState('com.locohelp.twa');
+  const [assetLinksSha256, setAssetLinksSha256] = useState('');
+  const [isSavingAssetLinks, setIsSavingAssetLinks] = useState(false);
 
   // Active Dedicated Sub-Page Module
   const [activeModule, setActiveModule] = useState<AdminModuleId>('home');
@@ -519,18 +537,20 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
     }
     setLoginError(null);
     setIsSendingAdminOtp(true);
-    const res = await loginAdminOnServer(adminPasswordInput.trim());
+    const res = await loginAdminOnServer(adminPasswordInput.trim(), undefined, selectedAdminEmail);
     setIsSendingAdminOtp(false);
 
     if (res.requiresOtp) {
       setAdminOtpInput('');
       setAdminAuthStep('otp');
-      showToast(`📧 6-अंकों का वेरिफिकेशन OTP ${OFFICIAL_ADMIN_EMAIL} पर भेज दिया गया है!`);
+      showToast(`📧 6-अंकों का वेरिफिकेशन OTP ${selectedAdminEmail} पर भेज दिया गया है!`);
     } else if (res.success && res.token) {
       setIsAdminAuthenticated(true);
       setAdminPasswordInput('');
       try {
         sessionStorage.setItem('locohelp_admin_logged_in', 'true');
+        sessionStorage.setItem('locohelp_admin_email', selectedAdminEmail);
+        localStorage.setItem('locohelp_admin_email', selectedAdminEmail);
       } catch {}
       showToast('🔓 Welcome to LocoHelp Admin Dashboard!');
     } else {
@@ -541,12 +561,12 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
   const handleOtpStepSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!adminOtpInput || adminOtpInput.trim().length < 6) {
-      setLoginError(`कृपया ${OFFICIAL_ADMIN_EMAIL} पर भेजा गया 6-अंकों का OTP दर्ज करें।`);
+      setLoginError(`कृपया ${selectedAdminEmail} पर भेजा गया 6-अंकों का OTP दर्ज करें।`);
       return;
     }
     setLoginError(null);
     setIsSendingAdminOtp(true);
-    const res = await loginAdminOnServer(adminPasswordInput.trim(), adminOtpInput.trim());
+    const res = await loginAdminOnServer(adminPasswordInput.trim(), adminOtpInput.trim(), selectedAdminEmail);
     setIsSendingAdminOtp(false);
 
     if (res.success && res.token) {
@@ -556,6 +576,8 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
       setAdminAuthStep('password');
       try {
         sessionStorage.setItem('locohelp_admin_logged_in', 'true');
+        sessionStorage.setItem('locohelp_admin_email', selectedAdminEmail);
+        localStorage.setItem('locohelp_admin_email', selectedAdminEmail);
       } catch {}
       showToast('🔓 2-Step Verification सफल! एडमिन डैशबोर्ड में आपका स्वागत है।');
     } else {
@@ -566,22 +588,22 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
   const handleRequestForgotPasswordOtp = async () => {
     setLoginError(null);
     setIsSendingAdminOtp(true);
-    const res = await sendAdminForgotPasswordOtpOnServer();
+    const res = await sendAdminForgotPasswordOtpOnServer(selectedAdminEmail);
     setIsSendingAdminOtp(false);
 
     if (res.success) {
       setForgotOtpSent(true);
       setAdminAuthStep('forgot_password');
-      showToast(`📧 पासवर्ड रीसेट OTP ${OFFICIAL_ADMIN_EMAIL} पर भेज दिया गया है!`);
+      showToast(`📧 पासवर्ड रीसेट OTP ${selectedAdminEmail} पर भेज दिया गया है!`);
     } else {
-      setLoginError(res.error || `${OFFICIAL_ADMIN_EMAIL} पर OTP भेजने में समस्या आई।`);
+      setLoginError(res.error || `${selectedAdminEmail} पर OTP भेजने में समस्या आई।`);
     }
   };
 
   const handleForgotPasswordResetSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!forgotOtpInput || forgotOtpInput.trim().length < 6) {
-      setLoginError(`कृपया ${OFFICIAL_ADMIN_EMAIL} पर आया 6-अंकों का OTP दर्ज करें।`);
+      setLoginError(`कृपया ${selectedAdminEmail} पर आया 6-अंकों का OTP दर्ज करें।`);
       return;
     }
     if (!forgotNewPasswordInput || forgotNewPasswordInput.trim().length < 6) {
@@ -595,7 +617,11 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
 
     setLoginError(null);
     setIsSendingAdminOtp(true);
-    const res = await resetAdminPasswordWithOtpOnServer(forgotOtpInput.trim(), forgotNewPasswordInput.trim());
+    const res = await resetAdminPasswordWithOtpOnServer(
+      forgotOtpInput.trim(),
+      forgotNewPasswordInput.trim(),
+      selectedAdminEmail
+    );
     setIsSendingAdminOtp(false);
 
     if (res.success && res.token) {
@@ -860,21 +886,44 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
           }
         });
 
-        // Deduplicate simpleUsers by normalized email and 10-digit mobile number so no user appears twice
-        const rawCombinedUsers = Array.from(combinedUsersMap.values()).sort(
-          (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
-        );
-        const seenUserEmails = new Set<string>();
-        const seenUserPhones = new Set<string>();
+        // Deduplicate simpleUsers by normalized email and 10-digit mobile number while preserving approved status
+        const rawCombinedUsers = Array.from(combinedUsersMap.values()).sort((a, b) => {
+          const aAppr = a.status === 'approved' || a.isVerified === true ? 1 : 0;
+          const bAppr = b.status === 'approved' || b.isVerified === true ? 1 : 0;
+          if (bAppr !== aAppr) return bAppr - aAppr;
+          return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+        });
+        const byEmailIdx = new Map<string, number>();
+        const byPhoneIdx = new Map<string, number>();
         const dedupedSimpleUsers: any[] = [];
         for (const u of rawCombinedUsers) {
           const eNorm = String(u.email || '').trim().toLowerCase();
           const pDigits = String(u.phone || '').replace(/\D/g, '').slice(-10);
-          if (eNorm && seenUserEmails.has(eNorm)) continue;
-          if (pDigits.length === 10 && seenUserPhones.has(pDigits)) continue;
-          if (eNorm) seenUserEmails.add(eNorm);
-          if (pDigits.length === 10) seenUserPhones.add(pDigits);
+          const existingIdx =
+            (eNorm && byEmailIdx.has(eNorm) ? byEmailIdx.get(eNorm) : undefined) ??
+            (pDigits.length === 10 && byPhoneIdx.has(pDigits) ? byPhoneIdx.get(pDigits) : undefined);
+
+          if (existingIdx !== undefined) {
+            const prev = dedupedSimpleUsers[existingIdx];
+            const isMergedApproved =
+              prev.status === 'approved' || u.status === 'approved' || prev.isVerified === true || u.isVerified === true;
+            dedupedSimpleUsers[existingIdx] = {
+              ...u,
+              ...prev,
+              name: prev.name && prev.name !== 'Community Member' ? prev.name : (u.name || prev.name),
+              phone: prev.phone || u.phone || '',
+              email: prev.email || u.email || '',
+              area: prev.area || u.area || '',
+              skills: prev.skills || u.skills || '',
+              status: isMergedApproved ? 'approved' : (prev.status || u.status || 'pending'),
+              isVerified: isMergedApproved
+            };
+            continue;
+          }
+          const idx = dedupedSimpleUsers.length;
           dedupedSimpleUsers.push(u);
+          if (eNorm) byEmailIdx.set(eNorm, idx);
+          if (pDigits.length === 10) byPhoneIdx.set(pDigits, idx);
         }
         setSimpleUsers(dedupedSimpleUsers);
       } catch {}
@@ -1074,12 +1123,20 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
     };
   };
 
-  // Find associated watermarked ID doc from verificationsList if not directly on item
+  // Find associated watermarked Live Selfie / ID doc from item or verificationsList
   const getItemIdDoc = (item: any): string | undefined => {
     const isRealDocUrl = (val: any): boolean => {
       if (!val || typeof val !== 'string') return false;
       const s = val.trim();
-      if (!s || s === '__deleted__' || s === 'null' || s === 'undefined') return false;
+      if (
+        !s ||
+        s === '__deleted__' ||
+        s === 'null' ||
+        s === 'undefined' ||
+        s === 'https://lh3.googleusercontent.com/a/default-user'
+      ) {
+        return false;
+      }
       return (
         s.startsWith('http://') ||
         s.startsWith('https://') ||
@@ -1089,14 +1146,51 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
       );
     };
     if (isRealDocUrl(item?.idDocumentWatermarked)) return item.idDocumentWatermarked;
+    if (isRealDocUrl(item?.liveSelfieUrl)) return item.liveSelfieUrl;
     if (isRealDocUrl(item?.idDocUrl)) return item.idDocUrl;
-    const match = verificationsList.find(
-      v =>
-        v.entityId === item?.id ||
-        v.id === item?.verificationId ||
-        (item?.email && v.userEmail?.toLowerCase() === item.email.toLowerCase())
-    );
-    return isRealDocUrl(match?.idDocumentWatermarked) ? match?.idDocumentWatermarked : undefined;
+    if (isRealDocUrl(item?.avatarUrl)) return item.avatarUrl;
+    if (isRealDocUrl(item?.avatar_url)) return item.avatar_url;
+    if (isRealDocUrl(item?.profilePhoto)) return item.profilePhoto;
+
+    const itemPhoneDigits = String(item?.phone || item?.userPhone || '').replace(/\D/g, '').slice(-10);
+    const match = verificationsList.find(v => {
+      if (!isRealDocUrl(v?.idDocumentWatermarked)) return false;
+      if (v.entityId && (v.entityId === item?.id || v.entityId === item?.uid)) return true;
+      if (v.userId && (v.userId === item?.id || v.userId === item?.uid || v.userId === item?.userId)) return true;
+      if (item?.verificationId && v.id === item.verificationId) return true;
+      if (item?.email && v.userEmail && v.userEmail.toLowerCase() === String(item.email).toLowerCase()) return true;
+      if (itemPhoneDigits.length === 10) {
+        const vPh = String(v.userPhone || '').replace(/\D/g, '').slice(-10);
+        if (vPh === itemPhoneDigits) return true;
+      }
+      return false;
+    });
+    if (isRealDocUrl(match?.idDocumentWatermarked)) return match?.idDocumentWatermarked;
+    if ((activeModule === 'simple_users' || activeModule === 'helpers') && isRealDocUrl(item?.photoUrl)) {
+      return item.photoUrl;
+    }
+    return undefined;
+  };
+
+  // Find optional Visiting Card / Work Photo URL if uploaded
+  const getItemVisitingCard = (item: any, liveSelfie?: string): string | undefined => {
+    const candidates = [
+      item?.visitingCardUrl,
+      item?.visiting_card_url,
+      item?.workPhotoUrl,
+      item?.photoUrl,
+      item?.image_url
+    ];
+    for (const c of candidates) {
+      if (typeof c === 'string' && c.trim() && c !== '__deleted__' && c !== 'https://lh3.googleusercontent.com/a/default-user') {
+        if (!liveSelfie || c.trim() !== liveSelfie.trim()) {
+          if (c.startsWith('http://') || c.startsWith('https://') || c.startsWith('data:image/') || c.startsWith('/uploads/')) {
+            return c.trim();
+          }
+        }
+      }
+    }
+    return undefined;
   };
 
   // ==========================================
@@ -1141,7 +1235,41 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         const res = await updateAdminHelperOnServer(id, fullUpdates);
         if (res.success) {
           const updatedHelper = { ...item, ...(res.item || {}), ...fullUpdates };
-          setHelpers(prev => prev.map(h => (h.id === id ? updatedHelper : h)));
+          setHelpers(prev =>
+            prev.map(h => {
+              const hEm = String(h.email || '').trim().toLowerCase();
+              const hPh = String(h.phone || '').replace(/\D/g, '').slice(-10);
+              const targetEm = String(item.email || '').trim().toLowerCase();
+              const targetPh = String(item.phone || '').replace(/\D/g, '').slice(-10);
+              if (
+                h.id === id ||
+                (item.userId && h.userId === item.userId) ||
+                (targetEm && hEm === targetEm) ||
+                (targetPh.length === 10 && hPh === targetPh)
+              ) {
+                return { ...h, ...updatedHelper };
+              }
+              return h;
+            })
+          );
+          setSimpleUsers(prev =>
+            prev.map(u => {
+              const uEm = String(u.email || '').trim().toLowerCase();
+              const uPh = String(u.phone || '').replace(/\D/g, '').slice(-10);
+              const targetEm = String(item.email || '').trim().toLowerCase();
+              const targetPh = String(item.phone || '').replace(/\D/g, '').slice(-10);
+              if (
+                u.id === id ||
+                u.uid === id ||
+                (item.userId && (u.id === item.userId || u.uid === item.userId)) ||
+                (targetEm && uEm === targetEm) ||
+                (targetPh.length === 10 && uPh === targetPh)
+              ) {
+                return { ...u, status: newStatus, isVerified: isApproved };
+              }
+              return u;
+            })
+          );
           setVerificationsList(prev =>
             prev.map(v =>
               v.entityId === id || v.userId === id || (item.email && v.userEmail?.toLowerCase() === item.email.toLowerCase())
@@ -1183,16 +1311,56 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
           is_approved: isApproved
         };
         const res = await updateAdminUserOnServer(id, userUpdates);
+        const itemEmailLow = String(item.email || '').trim().toLowerCase();
+        const itemPhoneDig = String(item.phone || '').replace(/\D/g, '').slice(-10);
         if (res.success || item.verificationId) {
-          setSimpleUsers(prev => prev.map(u => (u.id === id ? { ...u, ...userUpdates } : u)));
-          setVerificationsList(prev =>
-            prev.map(v =>
-              v.id === item.verificationId || v.entityId === id || v.userId === id
-                ? { ...v, status: newStatus }
-                : v
-            )
+          setSimpleUsers(prev =>
+            prev.map(u => {
+              const uEm = String(u.email || '').trim().toLowerCase();
+              const uPh = String(u.phone || '').replace(/\D/g, '').slice(-10);
+              if (
+                u.id === id ||
+                u.uid === id ||
+                (itemEmailLow && uEm === itemEmailLow) ||
+                (itemPhoneDig.length === 10 && uPh === itemPhoneDig)
+              ) {
+                return { ...u, ...userUpdates };
+              }
+              return u;
+            })
           );
-          showToast(isApproved ? '✅ Simple User Account Approved! User can now Post & Message.' : '❌ Simple User Account Rejected.');
+          setHelpers(prev =>
+            prev.map(h => {
+              const hEm = String(h.email || '').trim().toLowerCase();
+              const hPh = String(h.phone || '').replace(/\D/g, '').slice(-10);
+              if (
+                h.id === id ||
+                h.userId === id ||
+                (itemEmailLow && hEm === itemEmailLow) ||
+                (itemPhoneDig.length === 10 && hPh === itemPhoneDig)
+              ) {
+                return { ...h, status: newStatus, isVerified: isApproved, is_verified: isApproved };
+              }
+              return h;
+            })
+          );
+          setVerificationsList(prev =>
+            prev.map(v => {
+              const vEm = String(v.userEmail || '').trim().toLowerCase();
+              const vPh = String(v.userPhone || '').replace(/\D/g, '').slice(-10);
+              if (
+                v.id === item.verificationId ||
+                v.entityId === id ||
+                v.userId === id ||
+                (itemEmailLow && vEm === itemEmailLow) ||
+                (itemPhoneDig.length === 10 && vPh === itemPhoneDig)
+              ) {
+                return { ...v, status: newStatus };
+              }
+              return v;
+            })
+          );
+          showToast(isApproved ? '✅ User Account & Profile Approved! User can now Post & Chat.' : '❌ User Account Rejected.');
         } else {
           showToast(res.error || 'Failed to update User Profile');
         }
@@ -1948,12 +2116,47 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
             </div>
           )}
 
-          {/* STEP 1: ADMIN PASSWORD */}
+          {/* STEP 1: ADMIN PASSWORD + 3 SELECTABLE OFFICIAL EMAILS */}
           {adminAuthStep === 'password' && (
             <form onSubmit={handlePasswordStepSubmit} className="space-y-4">
               <div className="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800/80 text-xs text-slate-300 leading-relaxed">
-                <span className="font-black text-orange-400 block mb-0.5">🔒 Step 1 of 2: Enter Admin Password</span>
-                सही पासवर्ड वेरीफाई होने के बाद ही 6-अंकों का सुरक्षा OTP सीधे आधिकारिक एडमिन ईमेल पर भेजा जाएगा।
+                <span className="font-black text-orange-400 block mb-0.5">🔒 Step 1 of 2: Select Admin Email &amp; Enter Password</span>
+                नीचे दिए गए 3 अधिकृत एडमिन ईमेल में से अपना ईमेल चुनें और पासवर्ड डालें। 6-अंकों का OTP केवल आपके चुने हुए ईमेल पर जाएगा।
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
+                  Select Official Admin Email for OTP
+                </label>
+                <div className="space-y-2">
+                  {ALLOWED_ADMIN_EMAILS.map((emailOpt) => {
+                    const isSelected = selectedAdminEmail === emailOpt;
+                    return (
+                      <button
+                        key={emailOpt}
+                        type="button"
+                        onClick={() => setSelectedAdminEmail(emailOpt)}
+                        className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-orange-500/20 border-orange-500 text-white shadow-sm'
+                            : 'bg-slate-950/80 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                        }`}
+                      >
+                        <span className="flex items-center gap-2.5 truncate">
+                          <Mail className={`w-4 h-4 shrink-0 ${isSelected ? 'text-orange-400' : 'text-slate-500'}`} />
+                          <span className="truncate">{emailOpt}</span>
+                        </span>
+                        <span
+                          className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${
+                            isSelected ? 'border-orange-400 bg-orange-500 text-white' : 'border-slate-600'
+                          }`}
+                        >
+                          {isSelected && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               <div>
@@ -1985,7 +2188,9 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                 disabled={isSendingAdminOtp}
                 className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white font-black text-sm shadow-lg shadow-orange-500/25 transition-all cursor-pointer disabled:opacity-50"
               >
-                {isSendingAdminOtp ? 'Verifying Password & Sending OTP...' : 'Verify Password & Send OTP →'}
+                {isSendingAdminOtp
+                  ? `Sending OTP to ${selectedAdminEmail}...`
+                  : `Verify Password & Send OTP to ${selectedAdminEmail} →`}
               </button>
 
               <div className="pt-2 text-center">
@@ -1995,7 +2200,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                   disabled={isSendingAdminOtp}
                   className="text-xs font-bold text-amber-400 hover:text-amber-300 underline underline-offset-4 cursor-pointer"
                 >
-                  Forgot Admin Password? Reset via Email OTP
+                  Forgot Admin Password? Reset via Email OTP ({selectedAdminEmail})
                 </button>
               </div>
             </form>
@@ -2043,7 +2248,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                   }}
                   className="text-slate-400 hover:text-white font-bold cursor-pointer"
                 >
-                  ← Back to Password
+                  ← Back to Password &amp; Email Selection
                 </button>
                 <button
                   type="button"
@@ -2407,12 +2612,121 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                         {siteLockState.isLocked ? 'ON' : 'OFF'}
                       </span>
                     </button>
+
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setIsMoreMenuOpen(false);
+                        setIsAssetLinksModalOpen(prev => !prev);
+                        try {
+                          const r = await fetch('/api/admin/assetlinks-config', { headers: getAuthHeaders() });
+                          if (r.ok) {
+                            const d = await r.json();
+                            if (d.packageName) setAssetLinksPackage(d.packageName);
+                            if (d.sha256Fingerprint) setAssetLinksSha256(d.sha256Fingerprint);
+                          }
+                        } catch {}
+                      }}
+                      className="w-full px-3 py-2.5 rounded-xl hover:bg-slate-800 text-left text-xs font-bold text-cyan-300 flex items-center gap-2 transition-all cursor-pointer"
+                    >
+                      <span>📱</span>
+                      <span>Play Store Fullscreen (AssetLinks SHA-256)</span>
+                    </button>
                   </div>
                 </>
               )}
             </div>
           </div>
         </div>
+
+        {/* Expandable Play Store TWA Fullscreen (AssetLinks SHA-256) Panel */}
+        <AnimatePresence>
+          {isAssetLinksModalOpen && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="max-w-7xl mx-auto overflow-hidden"
+            >
+              <div className="mt-3 p-4 rounded-2xl bg-slate-900/95 border border-cyan-500/40 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h4 className="text-xs sm:text-sm font-black text-white">
+                      📱 Play Store App Fullscreen Setup (`/.well-known/assetlinks.json`)
+                    </h4>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Google Play Console &rarr; Setup &rarr; App signing से अपना <strong>SHA-256 certificate fingerprint</strong> और <strong>Package Name</strong> यहाँ सेव करें ताकि ऐप में ऊपर वेबसाइट की लिंक पट्टी (URL Bar) न दिखे।
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsAssetLinksModalOpen(false)}
+                    className="p-1.5 rounded-lg bg-slate-800 text-slate-400 hover:text-white cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
+                      Android Package Name
+                    </label>
+                    <input
+                      type="text"
+                      value={assetLinksPackage}
+                      onChange={(e) => setAssetLinksPackage(e.target.value)}
+                      placeholder="e.g. com.locohelp.twa"
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white font-mono"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
+                      SHA-256 Certificate Fingerprint (Play Console App Signing)
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={assetLinksSha256}
+                        onChange={(e) => setAssetLinksSha256(e.target.value)}
+                        placeholder="AA:BB:CC:DD:EE:FF:00:11:22:33:..."
+                        className="flex-1 px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-cyan-300 font-mono"
+                      />
+                      <button
+                        type="button"
+                        disabled={isSavingAssetLinks}
+                        onClick={async () => {
+                          setIsSavingAssetLinks(true);
+                          try {
+                            const r = await fetch('/api/admin/assetlinks-config', {
+                              method: 'POST',
+                              headers: getAuthHeaders(),
+                              body: JSON.stringify({
+                                packageName: assetLinksPackage.trim(),
+                                sha256Fingerprint: assetLinksSha256.trim()
+                              })
+                            });
+                            if (r.ok) {
+                              showToast('✅ Play Store AssetLinks SHA-256 Saved! App will open Fullscreen.');
+                              setIsAssetLinksModalOpen(false);
+                            } else {
+                              showToast('❌ Failed to save AssetLinks config');
+                            }
+                          } catch {
+                            showToast('❌ Error saving AssetLinks config');
+                          }
+                          setIsSavingAssetLinks(false);
+                        }}
+                        className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-black shrink-0 cursor-pointer"
+                      >
+                        {isSavingAssetLinks ? 'Saving...' : 'Save SHA-256'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Expandable Site PIN Lock Panel (Opened from 3-Dot Menu) */}
         <AnimatePresence>
@@ -3918,6 +4232,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                 {filteredModuleItems.map((item) => {
                   const status = getNormalizedStatus(item, activeModule);
                   const idDoc = getItemIdDoc(item);
+                  const visitingCardDoc = getItemVisitingCard(item, idDoc);
                   const isBusy = actionLoadingId === item.id;
 
                   // Extract display fields cleanly across modules (including Help Posts authorName)
@@ -3940,7 +4255,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                     : null;
                   const subtitle =
                     activeModule === 'simple_users'
-                      ? '👤 Registered Login Account (User Profile)'
+                      ? `👤 User Profile${item.category || item.customCategoryName ? ` • ${item.customCategoryName || item.category}` : ''}`
                       : catMeta
                       ? `${catMeta.displaySubName} • ${catMeta.mainCatObj.nameEn}`
                       : item.customCategoryName ||
@@ -3968,15 +4283,17 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                     '';
                   const email = rawEmail.endsWith('@phone.locohelp.com') ? '' : rawEmail;
                   const area = item.area || item.jobLocation || item.address || item.locationName || '';
+                  const skillsStr = Array.isArray(item.skills) ? item.skills.join(', ') : (item.skills || '');
+                  const experienceStr = item.experience || '';
                   const desc =
                     item.description ||
                     item.text ||
                     item.content ||
                     item.jobDescription ||
-                    item.skills ||
+                    skillsStr ||
                     item.bio ||
                     item.details ||
-                    item.experience ||
+                    experienceStr ||
                     '';
                   const extraBadge =
                     item.salaryOffer ||
@@ -3992,7 +4309,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                       className="rounded-2xl bg-[#111827] border border-slate-800/90 hover:border-slate-700 p-4 sm:p-5 transition-all flex flex-col lg:flex-row lg:items-center justify-between gap-4"
                     >
                       {/* Left Content */}
-                      <div className="space-y-2 flex-1 min-w-0">
+                      <div className="space-y-2.5 flex-1 min-w-0">
                         {/* Top Row: Full Category Name & Status Badges */}
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-900/70 border border-slate-800/80">
                           <div className="w-full sm:w-auto min-w-0">
@@ -4032,9 +4349,21 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                               </span>
                             )}
 
-                            {idDoc && (
+                            {idDoc ? (
+                              <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-[10px] font-black">
+                                📸 Live Selfie Attached
+                              </span>
+                            ) : (
+                              (activeModule === 'simple_users' || activeModule === 'helpers') && (
+                                <span className="px-2.5 py-0.5 rounded-full bg-rose-500/15 text-rose-300 border border-rose-500/30 text-[10px] font-black">
+                                  ⚠️ No Live Selfie Yet
+                                </span>
+                              )
+                            )}
+
+                            {visitingCardDoc && (
                               <span className="px-2.5 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 text-[10px] font-black">
-                                🪪 ID Document Attached
+                                🪪 Visiting Card Attached
                               </span>
                             )}
 
@@ -4052,55 +4381,141 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                           </div>
                         </div>
 
-                        <h3 className="text-base sm:text-lg font-black text-white leading-snug break-words">
-                          {title}
-                          {item.reportedUserName && (
-                            <span className="ml-2 text-xs font-extrabold text-rose-400">
-                              (Reported User: {item.reportedUserName})
-                            </span>
+                        {/* Main Profile Row with Live Selfie Preview & Full Details */}
+                        <div className="flex flex-col sm:flex-row items-start gap-3.5 pt-1">
+                          {(idDoc || visitingCardDoc) && (
+                            <div className="flex items-center gap-2.5 shrink-0">
+                              {idDoc && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setViewingItem({
+                                      module: activeModule,
+                                      data: { ...item, idDocumentWatermarked: idDoc, visitingCardUrl: visitingCardDoc }
+                                    })
+                                  }
+                                  className="group relative w-20 h-20 sm:w-24 sm:h-24 rounded-xl overflow-hidden border-2 border-emerald-500/60 bg-slate-950 shadow-md shrink-0 cursor-pointer"
+                                  title="Click to view full Live Selfie & Profile Details"
+                                >
+                                  <img
+                                    src={idDoc}
+                                    alt="User Live Selfie"
+                                    loading="lazy"
+                                    className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                                  />
+                                  <span className="absolute bottom-0 inset-x-0 bg-emerald-950/90 text-emerald-300 text-[9px] font-black text-center py-0.5 uppercase tracking-wider">
+                                    📸 Live Selfie
+                                  </span>
+                                </button>
+                              )}
+                              {visitingCardDoc && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setViewingItem({
+                                      module: activeModule,
+                                      data: { ...item, idDocumentWatermarked: idDoc, visitingCardUrl: visitingCardDoc }
+                                    })
+                                  }
+                                  className="group relative w-20 h-20 sm:w-24 sm:h-24 rounded-xl overflow-hidden border-2 border-cyan-500/50 bg-slate-950 shadow-md shrink-0 cursor-pointer"
+                                  title="Click to view Visiting Card / Work Photo"
+                                >
+                                  <img
+                                    src={visitingCardDoc}
+                                    alt="Visiting Card"
+                                    loading="lazy"
+                                    className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                                  />
+                                  <span className="absolute bottom-0 inset-x-0 bg-cyan-950/90 text-cyan-300 text-[9px] font-black text-center py-0.5 uppercase tracking-wider">
+                                    🪪 Card/Photo
+                                  </span>
+                                </button>
+                              )}
+                            </div>
                           )}
-                        </h3>
 
-                        {desc && (
-                          <p className="text-xs sm:text-sm text-slate-300 leading-relaxed break-words">
-                            {desc}
-                          </p>
-                        )}
+                          <div className="space-y-1.5 flex-1 min-w-0">
+                            <h3 className="text-base sm:text-lg font-black text-white leading-snug break-words">
+                              {title}
+                              {item.reportedUserName && (
+                                <span className="ml-2 text-xs font-extrabold text-rose-400">
+                                  (Reported User: {item.reportedUserName})
+                                </span>
+                              )}
+                            </h3>
 
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-400 pt-1">
-                          {phone && (
-                            <span className="inline-flex items-center gap-1 text-slate-300 font-semibold">
-                              <Phone className="w-3.5 h-3.5 text-emerald-400" /> {phone}
-                            </span>
-                          )}
-                          {email && (
-                            <span className="inline-flex items-center gap-1 text-slate-300">
-                              <Mail className="w-3.5 h-3.5 text-sky-400" /> {email}
-                            </span>
-                          )}
-                          {area && (
-                            <span className="inline-flex items-center gap-1">
-                              <MapPin className="w-3.5 h-3.5 text-orange-400" /> {area}
-                            </span>
-                          )}
-                          {(item.createdAt || item.submittedAt || item.timestamp) && (
-                            <span className="inline-flex items-center gap-1 text-slate-500">
-                              <Clock className="w-3.5 h-3.5" />
-                              {new Date(item.createdAt || item.submittedAt || item.timestamp).toLocaleString()}
-                            </span>
-                          )}
+                            {desc && (
+                              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed break-words">
+                                {desc}
+                              </p>
+                            )}
+
+                            {/* Structured Profile Details Pills (Skills, Experience, Category, Privacy) */}
+                            {(skillsStr || experienceStr || item.category || item.isPhonePublic !== undefined) && (
+                              <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                                {skillsStr && (
+                                  <span className="px-2 py-0.5 rounded-lg bg-slate-800/90 border border-slate-700 text-[11px] font-semibold text-slate-200">
+                                    🛠️ Skills: {skillsStr}
+                                  </span>
+                                )}
+                                {experienceStr && (
+                                  <span className="px-2 py-0.5 rounded-lg bg-slate-800/90 border border-slate-700 text-[11px] font-semibold text-amber-300">
+                                    ⏳ Exp: {experienceStr}
+                                  </span>
+                                )}
+                                {item.isPhonePublic !== undefined && (
+                                  <span className="px-2 py-0.5 rounded-lg bg-slate-800/90 border border-slate-700 text-[11px] font-semibold text-cyan-300">
+                                    {item.isPhonePublic ? '🌐 Phone: Public' : '🔒 Phone: Admin Only'}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-400 pt-1">
+                              {phone && (
+                                <span className="inline-flex items-center gap-1 text-slate-200 font-bold">
+                                  <Phone className="w-3.5 h-3.5 text-emerald-400" /> {phone}
+                                </span>
+                              )}
+                              {email && (
+                                <span className="inline-flex items-center gap-1 text-slate-300">
+                                  <Mail className="w-3.5 h-3.5 text-sky-400" /> {email}
+                                </span>
+                              )}
+                              {area && (
+                                <span className="inline-flex items-center gap-1 text-slate-200 font-medium">
+                                  <MapPin className="w-3.5 h-3.5 text-orange-400" /> {area}
+                                </span>
+                              )}
+                              {(item.createdAt || item.submittedAt || item.timestamp) && (
+                                <span className="inline-flex items-center gap-1 text-slate-500">
+                                  <Clock className="w-3.5 h-3.5" />
+                                  {new Date(item.createdAt || item.submittedAt || item.timestamp).toLocaleString()}
+                                </span>
+                              )}
+                            </div>
+                          </div>
                         </div>
                       </div>
 
                       {/* Right Actions: View Details, Approve, Reject, Edit, Delete */}
                       <div className="flex flex-wrap items-center gap-2 shrink-0 pt-3 lg:pt-0 border-t lg:border-t-0 border-slate-800/80">
                         <button
-                          onClick={() => setViewingItem({ module: activeModule, data: { ...item, idDocumentWatermarked: idDoc } })}
+                          onClick={() =>
+                            setViewingItem({
+                              module: activeModule,
+                              data: {
+                                ...item,
+                                idDocumentWatermarked: idDoc,
+                                visitingCardUrl: visitingCardDoc
+                              }
+                            })
+                          }
                           className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold flex items-center gap-1.5 border border-slate-700 cursor-pointer"
-                          title="View All Details & Documents"
+                          title="View All Details, Live Selfie & Visiting Card"
                         >
                           <Eye className="w-3.5 h-3.5 text-cyan-400" />
-                          <span>{Array.isArray(item.chatSnapshot) && item.chatSnapshot.length > 0 ? 'View Chat & Details' : 'View'}</span>
+                          <span>{Array.isArray(item.chatSnapshot) && item.chatSnapshot.length > 0 ? 'View Chat & Details' : 'View Profile & Selfie'}</span>
                         </button>
 
                         {status !== 'approved' && (
@@ -4926,28 +5341,140 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                   </div>
                 )}
 
-                {/* Preserved Post / Profile / Work Photo Evidence */}
-                {(viewingItem.data.photoUrl || viewingItem.data.workPhotoUrl) && (
-                  <div className="p-3 rounded-2xl bg-slate-950 border border-amber-500/30 space-y-2">
-                    <p className="text-xs font-black text-amber-300">
-                      📸 Preserved Photo / Post Attachment Evidence (Kept in Firebase Storage):
+                {/* Dedicated User / Service Expert Profile Summary Card */}
+                <div className="p-4 rounded-2xl bg-slate-900/95 border border-emerald-500/35 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
+                    <p className="text-xs sm:text-sm font-black text-emerald-400 flex items-center gap-1.5">
+                      👤 Complete User Profile Details (प्रोफ़ाइल की पूरी जानकारी):
+                    </p>
+                    <span
+                      className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase border ${
+                        viewingItem.data.status === 'approved' || viewingItem.data.isVerified
+                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                          : viewingItem.data.status === 'rejected'
+                          ? 'bg-red-500/20 text-red-300 border-red-500/40'
+                          : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                      }`}
+                    >
+                      {viewingItem.data.status || (viewingItem.data.isVerified ? 'approved' : 'pending')}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                    <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+                      <span className="text-[10px] font-black uppercase text-slate-400 block">Full Name (पूरा नाम)</span>
+                      <span className="text-sm font-black text-white break-words">
+                        {viewingItem.data.name || viewingItem.data.fullName || viewingItem.data.authorName || 'N/A'}
+                      </span>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+                      <span className="text-[10px] font-black uppercase text-slate-400 block">Mobile Number (मोबाइल नंबर)</span>
+                      <span className="text-sm font-black text-emerald-400 break-words">
+                        {viewingItem.data.phone || viewingItem.data.whatsapp || viewingItem.data.userPhone || 'Not Provided'}
+                      </span>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+                      <span className="text-[10px] font-black uppercase text-slate-400 block">Email ID (ईमेल)</span>
+                      <span className="font-bold text-cyan-300 break-all">
+                        {viewingItem.data.email || viewingItem.data.userEmail || 'Not Provided'}
+                      </span>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+                      <span className="text-[10px] font-black uppercase text-slate-400 block">Area / Sector / City (एरिया / पता)</span>
+                      <span className="font-bold text-orange-300 break-words">
+                        {viewingItem.data.area || viewingItem.data.address || viewingItem.data.sector || viewingItem.data.city || 'Not Provided'}
+                      </span>
+                    </div>
+                    {(viewingItem.data.category || viewingItem.data.categoryId || viewingItem.data.customCategoryName || viewingItem.data.service) && (
+                      <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+                        <span className="text-[10px] font-black uppercase text-slate-400 block">Category / Work (कैटेगरी / काम)</span>
+                        <span className="font-bold text-amber-300 break-words">
+                          {viewingItem.data.customCategoryName || viewingItem.data.category || viewingItem.data.categoryId || viewingItem.data.service}
+                        </span>
+                      </div>
+                    )}
+                    {(viewingItem.data.skills || viewingItem.data.description) && (
+                      <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+                        <span className="text-[10px] font-black uppercase text-slate-400 block">Skills / Work Details (कौशल / विवरण)</span>
+                        <span className="font-bold text-white break-words">
+                          {Array.isArray(viewingItem.data.skills)
+                            ? viewingItem.data.skills.join(', ')
+                            : viewingItem.data.skills || viewingItem.data.description}
+                        </span>
+                      </div>
+                    )}
+                    {viewingItem.data.experience && (
+                      <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+                        <span className="text-[10px] font-black uppercase text-slate-400 block">Experience (अनुभव)</span>
+                        <span className="font-bold text-indigo-300 break-words">{viewingItem.data.experience}</span>
+                      </div>
+                    )}
+                    {viewingItem.data.isPhonePublic !== undefined && (
+                      <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+                        <span className="text-[10px] font-black uppercase text-slate-400 block">Phone Privacy Setting</span>
+                        <span className="font-bold text-slate-200">
+                          {viewingItem.data.isPhonePublic ? '🌐 Public (Visible to Users)' : '🔒 Private (Admin Only)'}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Mandatory Live Selfie Verification Section */}
+                {(viewingItem.data.idDocumentWatermarked || viewingItem.data.liveSelfieUrl || viewingItem.data.avatarUrl) ? (
+                  <div className="p-3.5 rounded-2xl bg-slate-950 border-2 border-emerald-500/40">
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
+                      <p className="text-xs sm:text-sm font-black text-emerald-400">
+                        📸 Mandatory Live Selfie (लाइव सेल्फी वेरिफिकेशन फ़ोटो):
+                      </p>
+                      <span className="px-2 py-0.5 rounded-md bg-emerald-500/20 border border-emerald-500/40 text-[10px] font-black text-emerald-300">
+                        VERIFIED LIVE SELFIE • WATERMARKED
+                      </span>
+                    </div>
+                    <div className="relative select-none overflow-hidden rounded-xl border border-slate-800 bg-slate-900 p-2 text-center">
+                      <img
+                        src={viewingItem.data.idDocumentWatermarked || viewingItem.data.liveSelfieUrl || viewingItem.data.avatarUrl}
+                        alt="User Live Selfie"
+                        loading="lazy"
+                        decoding="async"
+                        onContextMenu={(e) => e.preventDefault()}
+                        draggable={false}
+                        className="max-h-80 w-auto mx-auto object-contain rounded-lg"
+                      />
+                      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                        <span className="rotate-[-18deg] bg-black/55 text-white/85 border border-white/25 px-3 py-1 rounded-lg text-[10px] sm:text-xs font-black tracking-wider uppercase shadow-lg">
+                          LOCOHELP SECURITY VAULT • DO NOT REUSE OR VIRAL
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-3.5 rounded-2xl bg-rose-950/30 border border-rose-500/40 text-rose-300 text-xs font-bold">
+                    ⚠️ इस यूज़र ने अभी तक अपनी लाइव सेल्फी (Live Selfie) अपलोड नहीं की है।
+                  </div>
+                )}
+
+                {/* Optional Visiting Card / Work Photo Section */}
+                {(viewingItem.data.visitingCardUrl || viewingItem.data.photoUrl || viewingItem.data.workPhotoUrl) && (
+                  <div className="p-3.5 rounded-2xl bg-slate-950 border border-cyan-500/35 space-y-2">
+                    <p className="text-xs sm:text-sm font-black text-cyan-300">
+                      🪪 Optional Visiting Card / Work Photo / Attachment (विज़िटिंग कार्ड / काम का फोटो):
                     </p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {viewingItem.data.photoUrl && (
+                      {(viewingItem.data.visitingCardUrl || viewingItem.data.photoUrl) && (
                         <div className="rounded-xl border border-slate-800 bg-slate-900 p-2 text-center">
                           <img
-                            src={viewingItem.data.photoUrl}
-                            alt="Preserved Evidence"
+                            src={viewingItem.data.visitingCardUrl || viewingItem.data.photoUrl}
+                            alt="Visiting Card or Photo"
                             loading="lazy"
-                            className="max-h-60 w-auto mx-auto object-contain rounded-lg"
+                            className="max-h-64 w-auto mx-auto object-contain rounded-lg"
                           />
                           <a
-                            href={viewingItem.data.photoUrl}
+                            href={viewingItem.data.visitingCardUrl || viewingItem.data.photoUrl}
                             target="_blank"
                             rel="noreferrer"
                             className="inline-block mt-2 text-[11px] font-black text-cyan-400 hover:underline"
                           >
-                            Open Full Photo Link ↗
+                            Open Full Visiting Card / Photo ↗
                           </a>
                         </div>
                       )}
@@ -4957,7 +5484,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                             src={viewingItem.data.workPhotoUrl}
                             alt="Preserved Work Photo"
                             loading="lazy"
-                            className="max-h-60 w-auto mx-auto object-contain rounded-lg"
+                            className="max-h-64 w-auto mx-auto object-contain rounded-lg"
                           />
                           <a
                             href={viewingItem.data.workPhotoUrl}
@@ -4969,36 +5496,6 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                           </a>
                         </div>
                       )}
-                    </div>
-                  </div>
-                )}
-
-                {viewingItem.data.idDocumentWatermarked && (
-                  <div className="p-3 rounded-2xl bg-slate-950 border border-cyan-500/30">
-                    <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                      <p className="text-xs font-black text-cyan-400">
-                        🪪 Uploaded Verification Document (Auto-Watermarked):
-                      </p>
-                      <span className="px-2 py-0.5 rounded-md bg-amber-500/20 border border-amber-500/40 text-[10px] font-black text-amber-300">
-                        FOR LOCOHELP VERIFICATION ONLY • DO NOT SHARE
-                      </span>
-                    </div>
-                    <div className="relative select-none overflow-hidden rounded-xl border border-slate-800 bg-slate-900">
-                      <img
-                        src={viewingItem.data.idDocumentWatermarked}
-                        alt="Verification ID"
-                        loading="lazy"
-                        decoding="async"
-                        onContextMenu={(e) => e.preventDefault()}
-                        draggable={false}
-                        className="max-h-80 w-auto mx-auto object-contain pointer-events-none"
-                      />
-                      {/* Extra protective visual watermark overlay in Admin Viewer */}
-                      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                        <span className="rotate-[-18deg] bg-black/55 text-white/85 border border-white/25 px-3 py-1 rounded-lg text-[10px] sm:text-xs font-black tracking-wider uppercase shadow-lg">
-                          LOCOHELP SECURITY VAULT • DO NOT REUSE OR VIRAL
-                        </span>
-                      </div>
                     </div>
                   </div>
                 )}

@@ -70,7 +70,7 @@ export function hasDangerousOrDoubleExtension(fileName: string, allowPdf: boolea
     };
   }
 
-  const isAllowedImageExt = ALLOWED_IMAGE_EXTS.has(finalExt);
+  const isAllowedImageExt = ALLOWED_IMAGE_EXTS.has(finalExt) || /^\d+$/.test(finalExt) || finalExt === 'mpo' || finalExt === 'tmp';
   const isAllowedPdfExt = allowPdf && finalExt === 'pdf';
 
   if (!isAllowedImageExt && !isAllowedPdfExt) {
@@ -181,9 +181,9 @@ export async function validateUploadedFile(
     return { valid: true, mimeType: 'application/pdf', isPdf: true };
   }
 
-  // 3. Image Validation
-  const mimeOk = !mime || ALLOWED_IMAGE_MIMES.has(mime) || mime.startsWith('image/');
-  const extOk = !finalExt || ALLOWED_IMAGE_EXTS.has(finalExt);
+  // 3. Image Validation (Android WebView camera intents sometimes set mime to 'application/octet-stream' or '')
+  const mimeOk = !mime || mime === 'application/octet-stream' || ALLOWED_IMAGE_MIMES.has(mime) || mime.startsWith('image/');
+  const extOk = !finalExt || ALLOWED_IMAGE_EXTS.has(finalExt) || /^\d+$/.test(finalExt) || finalExt === 'mpo' || finalExt === 'tmp';
   if (!mimeOk || !extOk) {
     return {
       valid: false,

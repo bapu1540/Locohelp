@@ -794,14 +794,15 @@ export default function HomeCategoryGrid({
             onClick={(e) => {
               if (e.target === e.currentTarget) closePopupExplicitly();
             }}
-            className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-slate-950/60 backdrop-blur-xs overscroll-none"
+            className="fixed inset-0 z-[10000] flex items-center justify-center px-3 pt-14 pb-20 sm:p-4 bg-slate-950/60 backdrop-blur-xs overscroll-none"
+            style={{ zIndex: 10000 }}
             role="dialog"
             aria-modal="true"
           >
             <div
               onClick={(e) => e.stopPropagation()}
               style={{ borderColor: activeModalCat.bd }}
-              className="w-full max-w-[520px] sm:max-w-[680px] max-h-[84vh] flex flex-col bg-white rounded-3xl border-2 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+              className="w-full max-w-[520px] sm:max-w-[680px] max-h-[calc(100dvh-136px)] sm:max-h-[84vh] flex flex-col bg-white rounded-3xl border-2 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150"
             >
               {/* Pastel Themed Modal Header */}
               <div

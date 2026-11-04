@@ -329,8 +329,15 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
   return (
     <AnimatePresence>
       <div
-        className="fixed inset-x-0 bottom-0 top-[52px] z-50 bg-white dark:bg-slate-900 flex flex-col overflow-hidden"
-        style={{ position: 'fixed', top: '52px', left: 0, right: 0, bottom: 0, zIndex: 5000 }}
+        className="fixed inset-x-0 z-50 bg-white dark:bg-slate-900 flex flex-col overflow-hidden"
+        style={{
+          position: 'fixed',
+          top: '52px',
+          left: 0,
+          right: 0,
+          bottom: 'calc(62px + env(safe-area-inset-bottom, 0px))',
+          zIndex: 5000,
+        }}
       >
         <motion.div 
           initial={{ opacity: 0, y: 12 }} 
@@ -782,7 +789,7 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
                 )}
               </div>
 
-              <div className="flex gap-2 pt-2">
+              <div className="flex gap-2 pt-2 pb-12">
                 <button
                   type="button"
                   onClick={() => setActiveTab('registered')}
