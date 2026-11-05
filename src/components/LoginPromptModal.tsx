@@ -514,12 +514,12 @@ export default function LoginPromptModal({
       }}
     >
       <div
-        className="relative w-full max-w-sm rounded-3xl bg-white shadow-2xl border border-slate-200 overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-200"
+        className="relative w-full max-w-sm rounded-3xl bg-white shadow-2xl border border-slate-200 overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-300"
         style={{ backgroundColor: '#ffffff', zIndex: 10501 }}
       >
-        {/* Minimal Top Bar: Language Selector + Close Button Only */}
+        {/* Top Bar: Language Selector + Close Button */}
         <div
-          className="bg-teal-700 px-4 py-2.5 text-white flex items-center justify-between"
+          className="bg-gradient-to-r from-teal-700 via-teal-600 to-emerald-600 px-4 py-2.5 text-white flex items-center justify-between"
           style={{ backgroundColor: '#0f766e', color: '#ffffff' }}
         >
           {/* Language Switcher */}
@@ -576,7 +576,43 @@ export default function LoginPromptModal({
           </button>
         </div>
 
-        <div className="p-4 space-y-3">
+        {/* Animated Single LocoHelp Brand Header inside Login */}
+        <div className="pt-4 pb-1 px-4 flex flex-col items-center justify-center text-center bg-gradient-to-b from-teal-50/70 via-blue-50/20 to-white">
+          <div className="relative flex items-center justify-center mb-1.5">
+            <div className="absolute w-16 h-16 rounded-full bg-blue-500/15 animate-ping" style={{ animationDuration: '2.2s' }} />
+            <div className="relative w-14 h-14 rounded-2xl bg-white border-2 border-blue-100 shadow-lg flex items-center justify-center transition-transform duration-300 hover:scale-105">
+              <svg width="40" height="40" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path
+                  d="M 16 60 C 26 84, 42 93, 50 93 C 58 93, 74 84, 84 60 C 87 53, 77 49, 73 55 C 65 67, 57 76, 50 76 C 43 76, 35 67, 27 55 C 23 49, 13 53, 16 60 Z"
+                  fill="#FF8800"
+                  stroke="#FF8800"
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <path
+                  d="M 50 6 C 36 6 25 17 25 31 C 25 46 50 66 50 66 C 50 66 75 46 75 31 C 75 17 64 6 50 6 Z M 50 42 C 43.9 42 39 37.1 39 31 C 39 24.9 43.9 20 50 20 C 56.1 20 61 24.9 61 31 C 61 37.1 56.1 42 50 42 Z"
+                  fill="#0066FF"
+                />
+              </svg>
+            </div>
+          </div>
+          <div className="text-xl font-black tracking-tight leading-none">
+            <span className="text-[#0066FF]">Loco</span>
+            <span className="text-[#FF8800]">Help</span>
+          </div>
+          <p className="text-[11px] font-bold text-slate-500 mt-1">
+            {actionTitleGu && language === 'GU'
+              ? actionTitleGu
+              : actionTitleHi && language === 'HI'
+              ? actionTitleHi
+              : actionTitleEn && language === 'EN'
+              ? actionTitleEn
+              : tr('Quick & Secure Login', 'त्वरित और सुरक्षित लॉगिन', 'ઝડપી અને સુરક્ષિત લોગિન')}
+          </p>
+        </div>
+
+        <div className="p-4 pt-2.5 space-y-3">
           {/* Error / Success Banner */}
           {errorMsg && (
             <div className="rounded-xl bg-rose-50 border border-rose-200 p-2.5 flex items-start gap-2 text-rose-800 text-xs font-bold">

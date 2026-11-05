@@ -200,16 +200,16 @@
     <script src="https://accounts.google.com/gsi/client" async defer onerror="this.onerror=null;"></script>
   </head>
   <body class="bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100">
-    <!-- Animated PWA Startup Splash Screen (Official LocoHelp Logo & Brand Typography) -->
-    <div id="pwa-startup-splash" style="position:fixed;inset:0;z-index:999999;display:flex;flex-direction:column;align-items:center;justify-content:center;background:linear-gradient(135deg, #ffffff 0%, #f1f5f9 100%);color:#0f172a;font-family:system-ui,-apple-system,sans-serif;pointer-events:none;transition:opacity 0.5s ease-out, visibility 0.5s ease-out;">
+    <!-- Single Animated Startup Splash Screen (Official LocoHelp Logo Only) -->
+    <div id="pwa-startup-splash" style="position:fixed;inset:0;z-index:999999;display:flex;flex-direction:column;align-items:center;justify-content:center;background:radial-gradient(circle at 50% 42%, #ffffff 0%, #f0f7ff 55%, #fff7ed 100%);color:#0f172a;font-family:system-ui,-apple-system,sans-serif;pointer-events:none;transition:opacity 0.42s cubic-bezier(0.16,1,0.3,1), transform 0.42s cubic-bezier(0.16,1,0.3,1), visibility 0.42s ease-out;">
       <div style="position:relative;display:flex;align-items:center;justify-content:center;">
-        <!-- Glowing animated pulse rings in LocoHelp Blue & Orange -->
-        <div style="position:absolute;width:136px;height:136px;border-radius:50%;background:rgba(0,102,255,0.16);animation:splashPulseRing 1.8s infinite cubic-bezier(0.4,0,0.6,1);"></div>
-        <div style="position:absolute;width:176px;height:176px;border-radius:50%;background:rgba(255,136,0,0.14);animation:splashPulseRing 1.8s infinite cubic-bezier(0.4,0,0.6,1) 0.4s;"></div>
+        <!-- Glowing animated aura rings in LocoHelp Blue & Orange -->
+        <div style="position:absolute;width:144px;height:144px;border-radius:50%;background:radial-gradient(circle, rgba(0,102,255,0.22) 0%, rgba(0,102,255,0) 72%);animation:splashPulseRing 1.6s infinite cubic-bezier(0.4,0,0.6,1);"></div>
+        <div style="position:absolute;width:188px;height:188px;border-radius:50%;background:radial-gradient(circle, rgba(255,136,0,0.18) 0%, rgba(255,136,0,0) 72%);animation:splashPulseRing 1.6s infinite cubic-bezier(0.4,0,0.6,1) 0.3s;"></div>
         
-        <!-- Official LocoHelp Logo container with smooth zoom + fade in -->
-        <div style="position:relative;z-index:10;width:98px;height:98px;border-radius:30px;background:#ffffff;border:2px solid #e2e8f0;display:flex;align-items:center;justify-content:center;box-shadow:0 20px 45px -10px rgba(0,102,255,0.28);animation:splashZoomIn 1.1s cubic-bezier(0.16,1,0.3,1) forwards;">
-          <svg width="74" height="74" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <!-- Official LocoHelp Logo container with smooth spring pop + float -->
+        <div style="position:relative;z-index:10;width:104px;height:104px;border-radius:32px;background:#ffffff;border:2px solid rgba(0,102,255,0.14);display:flex;align-items:center;justify-content:center;box-shadow:0 22px 50px -12px rgba(0,102,255,0.32), 0 8px 20px -6px rgba(255,136,0,0.2);animation:splashZoomIn 0.75s cubic-bezier(0.34,1.56,0.64,1) forwards;">
+          <svg width="78" height="78" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path
               d="M 16 60 C 26 84, 42 93, 50 93 C 58 93, 74 84, 84 60 C 87 53, 77 49, 73 55 C 65 67, 57 76, 50 76 C 43 76, 35 67, 27 55 C 23 49, 13 53, 16 60 Z"
               fill="#FF8800"
@@ -221,47 +221,61 @@
             <path
               d="M 50 6 C 36 6 25 17 25 31 C 25 46 50 66 50 66 C 50 66 75 46 75 31 C 75 17 64 6 50 6 Z M 50 42 C 43.9 42 39 37.1 39 31 C 39 24.9 43.9 20 50 20 C 56.1 20 61 24.9 61 31 C 61 37.1 56.1 42 50 42 Z"
               fill="#0066FF"
+              style="transform-origin:50px 36px;animation:splashPinBounce 0.85s cubic-bezier(0.34,1.56,0.64,1) forwards;"
             />
           </svg>
         </div>
       </div>
-      <div style="margin-top:26px;text-align:center;animation:splashFadeUp 0.9s cubic-bezier(0.16,1,0.3,1) forwards 0.15s;opacity:0;">
-        <h1 style="font-size:34px;font-weight:900;letter-spacing:-0.8px;margin:0;line-height:1;">
+      <div style="margin-top:22px;text-align:center;animation:splashFadeUp 0.65s cubic-bezier(0.16,1,0.3,1) forwards 0.1s;opacity:0;">
+        <h1 style="font-size:36px;font-weight:900;letter-spacing:-0.9px;margin:0;line-height:1;">
           <span style="color:#0066FF;">Loco</span><span style="color:#FF8800;">Help</span>
         </h1>
-        <p style="font-size:12px;font-weight:800;color:#475569;margin:8px 0 0 0;letter-spacing:1.6px;text-transform:uppercase;">Hyper-Local Help Network</p>
+        <div style="width:96px;height:4px;border-radius:999px;background:#e2e8f0;margin:14px auto 0;overflow:hidden;position:relative;">
+          <div style="width:55%;height:100%;border-radius:999px;background:linear-gradient(90deg,#0066FF,#FF8800);animation:splashBarSlide 0.9s ease-in-out infinite;"></div>
+        </div>
       </div>
     </div>
 
     <style>
       @keyframes splashZoomIn {
-        0% { transform: scale(0.4); opacity: 0; }
-        50% { opacity: 1; }
-        100% { transform: scale(1); opacity: 1; }
+        0% { transform: scale(0.45) translateY(12px); opacity: 0; }
+        60% { opacity: 1; }
+        100% { transform: scale(1) translateY(0); opacity: 1; }
+      }
+      @keyframes splashPinBounce {
+        0% { transform: translateY(-16px) scale(0.85); }
+        100% { transform: translateY(0) scale(1); }
       }
       @keyframes splashPulseRing {
-        0% { transform: scale(0.85); opacity: 0.8; }
-        50% { transform: scale(1.15); opacity: 0.3; }
-        100% { transform: scale(0.85); opacity: 0.8; }
+        0% { transform: scale(0.82); opacity: 0.9; }
+        50% { transform: scale(1.18); opacity: 0.35; }
+        100% { transform: scale(0.82); opacity: 0.9; }
       }
       @keyframes splashFadeUp {
-        0% { transform: translateY(14px); opacity: 0; }
+        0% { transform: translateY(12px); opacity: 0; }
         100% { transform: translateY(0); opacity: 1; }
+      }
+      @keyframes splashBarSlide {
+        0% { transform: translateX(-100%); }
+        100% { transform: translateX(200%); }
       }
     </style>
 
     <script>
+      window.__dismissLocoSplash = function() {
+        var splash = document.getElementById('pwa-startup-splash');
+        if (splash && !splash.getAttribute('data-dismissed')) {
+          splash.setAttribute('data-dismissed', 'true');
+          splash.style.opacity = '0';
+          splash.style.transform = 'scale(1.04)';
+          splash.style.visibility = 'hidden';
+          setTimeout(function() {
+            if (splash && splash.parentNode) splash.parentNode.removeChild(splash);
+          }, 420);
+        }
+      };
       window.addEventListener('load', function() {
-        setTimeout(function() {
-          var splash = document.getElementById('pwa-startup-splash');
-          if (splash) {
-            splash.style.opacity = '0';
-            splash.style.visibility = 'hidden';
-            setTimeout(function() {
-              if (splash && splash.parentNode) splash.parentNode.removeChild(splash);
-            }, 500);
-          }
-        }, 1200);
+        setTimeout(window.__dismissLocoSplash, 750);
       });
     </script>
 

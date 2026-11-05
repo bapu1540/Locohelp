@@ -174,26 +174,8 @@ export default function PrivateLockGate({ children }: PrivateLockGateProps) {
     return <>{children}</>;
   }
 
-  // If status is still loading from server, show official LocoHelp startup loading screen
-  if (isLockedOnServer === null) {
-    return (
-      <div className="fixed inset-0 bg-white dark:bg-slate-950 flex flex-col items-center justify-center z-50 text-slate-900 dark:text-white">
-        <div className="mb-4 flex flex-col items-center gap-3">
-          <div className="w-20 h-20 rounded-3xl bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 shadow-xl flex items-center justify-center">
-            <LocoHelpLogo size={58} showText={false} />
-          </div>
-          <div className="font-black text-3xl tracking-tight leading-none">
-            <span className="text-[#0066FF] dark:text-[#3388FF]">Loco</span>
-            <span className="text-[#FF8800]">Help</span>
-          </div>
-        </div>
-        <div className="w-8 h-8 border-3 border-blue-500/30 border-t-blue-600 rounded-full animate-spin mt-1" />
-      </div>
-    );
-  }
-
-  // If site is unlocked on server OR session is already unlocked, render full application
-  if (!isLockedOnServer || isSessionUnlocked) {
+  // Render application directly without showing a second duplicate logo screen
+  if (isLockedOnServer === null || !isLockedOnServer || isSessionUnlocked) {
     return <>{children}</>;
   }
 

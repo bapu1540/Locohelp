@@ -5093,20 +5093,69 @@ async function startServer() {
 
     if (dbPool && isDbConnected) {
       try {
-        const usersRes = tenDigits
-          ? await dbPool.query(
-              `SELECT * FROM users
-               WHERE LOWER(TRIM(email)) = LOWER(TRIM($1))
-                  OR REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g') LIKE '%' || $2
-                  OR id = $3
-               ORDER BY CASE WHEN password_hash IS NOT NULL AND password_hash <> '' THEN 0 ELSE 1 END
-               LIMIT 1`,
-              [cleanEmail, tenDigits, `phone_${tenDigits}`]
-            )
-          : await dbPool.query(
-              "SELECT * FROM users WHERE LOWER(TRIM(email)) = LOWER(TRIM($1)) LIMIT 1",
-              [cleanEmail]
-            );
+        const otpUid = tenDigits ? `phone_${tenDigits}` : ('email_' + cleanEmail.replace(/[^a-z0-9]/g, '_'));
+        const [usersRes, pwRes, userRes, profRes] = await Promise.all([
+          (tenDigits
+            ? dbPool.query(
+                `SELECT * FROM users
+                 WHERE LOWER(TRIM(email)) = LOWER(TRIM($1))
+                    OR REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g') LIKE '%' || $2
+                    OR id = $3
+                 ORDER BY CASE WHEN password_hash IS NOT NULL AND password_hash <> '' THEN 0 ELSE 1 END
+                 LIMIT 1`,
+                [cleanEmail, tenDigits, `phone_${tenDigits}`]
+              )
+            : dbPool.query(
+                "SELECT * FROM users WHERE LOWER(TRIM(email)) = LOWER(TRIM($1)) LIMIT 1",
+                [cleanEmail]
+              )
+          ).catch(() => ({ rows: [] as any[] })),
+          (tenDigits
+            ? dbPool.query(
+                `SELECT * FROM user_passwords
+                 WHERE LOWER(TRIM(email)) = LOWER(TRIM($1))
+                    OR REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g') LIKE '%' || $2
+                 LIMIT 1`,
+                [cleanEmail, tenDigits]
+              )
+            : dbPool.query(
+                "SELECT * FROM user_passwords WHERE LOWER(TRIM(email)) = LOWER(TRIM($1)) LIMIT 1",
+                [cleanEmail]
+              )
+          ).catch(() => ({ rows: [] as any[] })),
+          (tenDigits
+            ? dbPool.query(
+                `SELECT * FROM "user"
+                 WHERE LOWER(TRIM(email)) = LOWER(TRIM($1))
+                    OR REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g') LIKE '%' || $2
+                    OR id = $1 OR id = $3
+                 LIMIT 1`,
+                [cleanEmail, tenDigits, otpUid]
+              )
+            : dbPool.query(
+                'SELECT * FROM "user" WHERE LOWER(TRIM(email)) = LOWER(TRIM($1)) OR id = $1 OR id = $2 LIMIT 1',
+                [cleanEmail, otpUid]
+              )
+          ).catch(() => ({ rows: [] as any[] })),
+          (tenDigits
+            ? dbPool.query(
+                `SELECT uid, id, name, full_name, email, phone FROM profiles
+                 WHERE LOWER(TRIM(COALESCE(email, ''))) = LOWER(TRIM($1))
+                    OR REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g') LIKE '%' || $2
+                    OR uid = $3 OR id = $3
+                 LIMIT 1`,
+                [cleanEmail, tenDigits, otpUid]
+              )
+            : dbPool.query(
+                `SELECT uid, id, name, full_name, email, phone FROM profiles
+                 WHERE LOWER(TRIM(COALESCE(email, ''))) = LOWER(TRIM($1))
+                    OR uid = $2 OR id = $2
+                 LIMIT 1`,
+                [cleanEmail, otpUid]
+              )
+          ).catch(() => ({ rows: [] as any[] }))
+        ]);
+
         if (usersRes.rows.length > 0) {
           const uRow = usersRes.rows[0];
           record = {
@@ -5119,18 +5168,6 @@ async function startServer() {
           };
         }
 
-        const pwRes = tenDigits
-          ? await dbPool.query(
-              `SELECT * FROM user_passwords
-               WHERE LOWER(TRIM(email)) = LOWER(TRIM($1))
-                  OR REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g') LIKE '%' || $2
-               LIMIT 1`,
-              [cleanEmail, tenDigits]
-            )
-          : await dbPool.query(
-              "SELECT * FROM user_passwords WHERE LOWER(TRIM(email)) = LOWER(TRIM($1)) LIMIT 1",
-              [cleanEmail]
-            );
         if (pwRes.rows.length > 0) {
           const row = pwRes.rows[0];
           record = {
@@ -5142,20 +5179,6 @@ async function startServer() {
           };
         }
 
-        const otpUid = tenDigits ? `phone_${tenDigits}` : ('email_' + cleanEmail.replace(/[^a-z0-9]/g, '_'));
-        const userRes = tenDigits
-          ? await dbPool.query(
-              `SELECT * FROM "user"
-               WHERE LOWER(TRIM(email)) = LOWER(TRIM($1))
-                  OR REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g') LIKE '%' || $2
-                  OR id = $1 OR id = $3
-               LIMIT 1`,
-              [cleanEmail, tenDigits, otpUid]
-            )
-          : await dbPool.query(
-              'SELECT * FROM "user" WHERE LOWER(TRIM(email)) = LOWER(TRIM($1)) OR id = $1 OR id = $2 LIMIT 1',
-              [cleanEmail, otpUid]
-            );
         if (userRes.rows.length > 0) {
           const u = userRes.rows[0];
           record = {
@@ -5168,22 +5191,6 @@ async function startServer() {
           };
         }
 
-        const profRes = tenDigits
-          ? await dbPool.query(
-              `SELECT uid, id, name, full_name, email, phone FROM profiles
-               WHERE LOWER(TRIM(COALESCE(email, ''))) = LOWER(TRIM($1))
-                  OR REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g') LIKE '%' || $2
-                  OR uid = $3 OR id = $3
-               LIMIT 1`,
-              [cleanEmail, tenDigits, otpUid]
-            )
-          : await dbPool.query(
-              `SELECT uid, id, name, full_name, email, phone FROM profiles
-               WHERE LOWER(TRIM(COALESCE(email, ''))) = LOWER(TRIM($1))
-                  OR uid = $2 OR id = $2
-               LIMIT 1`,
-              [cleanEmail, otpUid]
-            );
         if (profRes.rows.length > 0) {
           const pr = profRes.rows[0];
           record = {
@@ -5246,31 +5253,33 @@ async function startServer() {
     const extraLinkedIds: string[] = [];
     if (dbPool && isDbConnected && (uid || email || phoneDigits)) {
       try {
-        const uLookup = await dbPool
-          .query(
-            `SELECT id::text AS id, email, phone FROM users
-             WHERE ($1 <> '' AND LOWER(COALESCE(id::text, '')) = LOWER($1))
-                OR ($2 <> '' AND LOWER(COALESCE(email, '')) = LOWER($2))
-                OR ($3 <> '' AND REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE '%' || $3)
-             LIMIT 3`,
-            [uid, email, phoneDigits]
-          )
-          .catch(() => ({ rows: [] as any[] }));
+        const [uLookup, pLookup] = await Promise.all([
+          dbPool
+            .query(
+              `SELECT id::text AS id, email, phone FROM users
+               WHERE ($1 <> '' AND LOWER(COALESCE(id::text, '')) = LOWER($1))
+                  OR ($2 <> '' AND LOWER(COALESCE(email, '')) = LOWER($2))
+                  OR ($3 <> '' AND REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE '%' || $3)
+               LIMIT 3`,
+              [uid, email, phoneDigits]
+            )
+            .catch(() => ({ rows: [] as any[] })),
+          dbPool
+            .query(
+              `SELECT uid, id, email, phone FROM profiles
+               WHERE ($1 <> '' AND (LOWER(COALESCE(uid, '')) = LOWER($1) OR LOWER(COALESCE(id, '')) = LOWER($1)))
+                  OR ($2 <> '' AND LOWER(COALESCE(email, '')) = LOWER($2))
+                  OR ($3 <> '' AND REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE '%' || $3)
+               LIMIT 3`,
+              [uid, email, phoneDigits]
+            )
+            .catch(() => ({ rows: [] as any[] }))
+        ]);
         for (const r of uLookup.rows) {
           if (r.id) extraLinkedIds.push(String(r.id).trim().toLowerCase());
           if (!email && r.email) email = String(r.email).trim().toLowerCase();
           if (!phoneDigits && r.phone) phoneDigits = normalizePhoneDigitsServer(r.phone);
         }
-        const pLookup = await dbPool
-          .query(
-            `SELECT uid, id, email, phone FROM profiles
-             WHERE ($1 <> '' AND (LOWER(COALESCE(uid, '')) = LOWER($1) OR LOWER(COALESCE(id, '')) = LOWER($1)))
-                OR ($2 <> '' AND LOWER(COALESCE(email, '')) = LOWER($2))
-                OR ($3 <> '' AND REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE '%' || $3)
-             LIMIT 3`,
-            [uid, email, phoneDigits]
-          )
-          .catch(() => ({ rows: [] as any[] }));
         for (const r of pLookup.rows) {
           if (r.uid) extraLinkedIds.push(String(r.uid).trim().toLowerCase());
           if (r.id) extraLinkedIds.push(String(r.id).trim().toLowerCase());
@@ -5319,23 +5328,67 @@ async function startServer() {
 
     if (dbPool && isDbConnected && (idCandidates.length > 0 || email || phoneDigits)) {
       try {
+        const [vRes, pRes, hRes, uRes] = await Promise.all([
+          dbPool
+            .query(
+              `SELECT status FROM verification_requests
+               WHERE LOWER(COALESCE(entity_id, '')) = ANY($1::text[])
+                  OR LOWER(COALESCE(user_id, '')) = ANY($1::text[])
+                  OR ($2 <> '' AND LOWER(COALESCE(user_email, '')) = LOWER($2))
+                  OR ($3 <> '' AND REGEXP_REPLACE(COALESCE(user_phone, ''), '\\D', '', 'g') LIKE '%' || $3)
+               ORDER BY CASE WHEN LOWER(status) = 'approved' THEN 0 WHEN LOWER(status) = 'pending' THEN 1 WHEN LOWER(status) = 'rejected' THEN 2 ELSE 3 END, created_at DESC
+               LIMIT 1`,
+              [idCandidates, email, phoneDigits]
+            )
+            .catch(() => ({ rows: [] as any[] })),
+          dbPool
+            .query(
+              `SELECT verified, is_verified, status, is_deleted FROM profiles
+               WHERE (
+                 LOWER(COALESCE(uid, '')) = ANY($1::text[])
+                 OR LOWER(COALESCE(id, '')) = ANY($1::text[])
+                 OR LOWER(COALESCE(user_id, '')) = ANY($1::text[])
+                 OR ($2 <> '' AND LOWER(COALESCE(email, '')) = LOWER($2))
+                 OR ($3 <> '' AND REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE '%' || $3)
+               )
+               ORDER BY COALESCE(is_deleted, false) ASC, CASE WHEN COALESCE(is_verified, false) = true OR COALESCE(verified, false) = true OR LOWER(COALESCE(status, '')) = 'approved' THEN 0 ELSE 1 END
+               LIMIT 1`,
+              [idCandidates, email, phoneDigits]
+            )
+            .catch(() => ({ rows: [] as any[] })),
+          dbPool
+            .query(
+              `SELECT is_verified, status, is_deleted FROM helpers
+               WHERE (
+                 LOWER(COALESCE(id, '')) = ANY($1::text[])
+                 OR LOWER(COALESCE(user_id, '')) = ANY($1::text[])
+                 OR ($2 <> '' AND LOWER(COALESCE(email, '')) = LOWER($2))
+                 OR ($3 <> '' AND REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE '%' || $3)
+               )
+               ORDER BY COALESCE(is_deleted, false) ASC
+               LIMIT 1`,
+              [idCandidates, email, phoneDigits]
+            )
+            .catch(() => ({ rows: [] as any[] })),
+          dbPool
+            .query(
+              `SELECT id, is_deleted FROM users
+               WHERE (
+                 LOWER(COALESCE(id, '')) = ANY($1::text[])
+                 OR ($2 <> '' AND LOWER(COALESCE(email, '')) = LOWER($2))
+                 OR ($3 <> '' AND REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE '%' || $3)
+               )
+               LIMIT 1`,
+              [idCandidates, email, phoneDigits]
+            )
+            .catch(() => ({ rows: [] as any[] }))
+        ]);
+
         // 1. Check verification_requests table first (Admin approvals here take highest priority)
-        const vRes = await dbPool
-          .query(
-            `SELECT status FROM verification_requests
-             WHERE LOWER(COALESCE(entity_id, '')) = ANY($1::text[])
-                OR LOWER(COALESCE(user_id, '')) = ANY($1::text[])
-                OR ($2 <> '' AND LOWER(COALESCE(user_email, '')) = LOWER($2))
-                OR ($3 <> '' AND REGEXP_REPLACE(COALESCE(user_phone, ''), '\\D', '', 'g') LIKE '%' || $3)
-             ORDER BY CASE WHEN LOWER(status) = 'approved' THEN 0 WHEN LOWER(status) = 'pending' THEN 1 WHEN LOWER(status) = 'rejected' THEN 2 ELSE 3 END, created_at DESC
-             LIMIT 1`,
-            [idCandidates, email, phoneDigits]
-          )
-          .catch(() => ({ rows: [] as any[] }));
         if (vRes.rows.length > 0) {
           const st = String(vRes.rows[0].status || "pending").toLowerCase();
           if (st === "approved") {
-            await unmarkEntitiesDeletedPermanently([uid, email, ...idCandidates]).catch(() => {});
+            void unmarkEntitiesDeletedPermanently([uid, email, ...idCandidates]).catch(() => {});
             return { isApproved: true, status: "approved" };
           }
           if (st === "deleted") {
@@ -5347,21 +5400,6 @@ async function startServer() {
         }
 
         // 2. Check profiles table (including soft-deleted check)
-        const pRes = await dbPool
-          .query(
-            `SELECT verified, is_verified, status, is_deleted FROM profiles
-             WHERE (
-               LOWER(COALESCE(uid, '')) = ANY($1::text[])
-               OR LOWER(COALESCE(id, '')) = ANY($1::text[])
-               OR LOWER(COALESCE(user_id, '')) = ANY($1::text[])
-               OR ($2 <> '' AND LOWER(COALESCE(email, '')) = LOWER($2))
-               OR ($3 <> '' AND REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE '%' || $3)
-             )
-             ORDER BY COALESCE(is_deleted, false) ASC, CASE WHEN COALESCE(is_verified, false) = true OR COALESCE(verified, false) = true OR LOWER(COALESCE(status, '')) = 'approved' THEN 0 ELSE 1 END
-             LIMIT 1`,
-            [idCandidates, email, phoneDigits]
-          )
-          .catch(() => ({ rows: [] as any[] }));
         if (pRes.rows.length > 0) {
           const row = pRes.rows[0];
           const st = String(row.status || "pending").toLowerCase();
@@ -5370,7 +5408,7 @@ async function startServer() {
           } else {
             accountFound = true;
             if (row.is_verified === true || row.verified === true || st === "approved") {
-              await unmarkEntitiesDeletedPermanently([uid, email, ...idCandidates]).catch(() => {});
+              void unmarkEntitiesDeletedPermanently([uid, email, ...idCandidates]).catch(() => {});
               return { isApproved: true, status: "approved" };
             }
             if (st === "rejected") {
@@ -5380,20 +5418,6 @@ async function startServer() {
         }
 
         // 3. Check helpers table (if user is a Service Provider)
-        const hRes = await dbPool
-          .query(
-            `SELECT is_verified, status, is_deleted FROM helpers
-             WHERE (
-               LOWER(COALESCE(id, '')) = ANY($1::text[])
-               OR LOWER(COALESCE(user_id, '')) = ANY($1::text[])
-               OR ($2 <> '' AND LOWER(COALESCE(email, '')) = LOWER($2))
-               OR ($3 <> '' AND REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE '%' || $3)
-             )
-             ORDER BY COALESCE(is_deleted, false) ASC
-             LIMIT 1`,
-            [idCandidates, email, phoneDigits]
-          )
-          .catch(() => ({ rows: [] as any[] }));
         if (hRes.rows.length > 0) {
           const hRow = hRes.rows[0];
           const hSt = String(hRow.status || "pending").toLowerCase();
@@ -5402,32 +5426,18 @@ async function startServer() {
           } else {
             accountFound = true;
             if (hRow.is_verified === true || hSt === "approved") {
-              await unmarkEntitiesDeletedPermanently([uid, email, ...idCandidates]).catch(() => {});
+              void unmarkEntitiesDeletedPermanently([uid, email, ...idCandidates]).catch(() => {});
               return { isApproved: true, status: "approved" };
             }
           }
         }
 
         // 4. Check users / user_passwords tables to see if account exists at all
-        if (!accountFound) {
-          const uRes = await dbPool
-            .query(
-              `SELECT id, is_deleted FROM users
-               WHERE (
-                 LOWER(COALESCE(id, '')) = ANY($1::text[])
-                 OR ($2 <> '' AND LOWER(COALESCE(email, '')) = LOWER($2))
-                 OR ($3 <> '' AND REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE '%' || $3)
-               )
-               LIMIT 1`,
-              [idCandidates, email, phoneDigits]
-            )
-            .catch(() => ({ rows: [] as any[] }));
-          if (uRes.rows.length > 0) {
-            if (uRes.rows[0].is_deleted === true) {
-              explicitlyDeletedInDb = true;
-            } else {
-              accountFound = true;
-            }
+        if (!accountFound && uRes.rows.length > 0) {
+          if (uRes.rows[0].is_deleted === true) {
+            explicitlyDeletedInDb = true;
+          } else {
+            accountFound = true;
           }
         }
       } catch {}
@@ -5694,7 +5704,7 @@ async function startServer() {
     const phoneDigits = normalizePhoneDigitsServer(phone || '');
     const syntheticEmailUid = cleanEmail ? `email_${cleanEmail.replace(/[^a-z0-9]/g, '_')}` : '';
     const syntheticPhoneUid = phoneDigits ? `phone_${phoneDigits}` : '';
-    await unmarkEntitiesDeletedPermanently([uid, cleanEmail, phone, syntheticEmailUid, syntheticPhoneUid]).catch(() => {});
+    void unmarkEntitiesDeletedPermanently([uid, cleanEmail, phone, syntheticEmailUid, syntheticPhoneUid]).catch(() => {});
 
     const authUsers = readJsonFile<Record<string, any>>(AUTH_USERS_FILE, {});
     authUsers[cleanEmail] = {
@@ -5709,67 +5719,66 @@ async function startServer() {
 
     if (dbPool && isDbConnected) {
       try {
-        await dbPool.query(
-          `INSERT INTO users (id, name, email, password_hash, phone, role, is_deleted, hidden, terms_accepted, terms_accepted_at, created_at)
-           VALUES ($1, $2, $3, $4, $5, 'user', false, false, true, NOW(), NOW())
-           ON CONFLICT (email) DO UPDATE SET
-             id = COALESCE(NULLIF(users.id, ''), EXCLUDED.id),
-             name = COALESCE(NULLIF(EXCLUDED.name, ''), users.name),
-             phone = COALESCE(NULLIF(EXCLUDED.phone, ''), users.phone),
-             password_hash = CASE WHEN EXCLUDED.password_hash <> '' THEN EXCLUDED.password_hash ELSE users.password_hash END,
-             is_deleted = false,
-             hidden = false,
-             terms_accepted = true,
-             terms_accepted_at = COALESCE(users.terms_accepted_at, NOW())`,
-          [uid, displayName, cleanEmail, hashedPassword, phone || '']
-        );
-
-        await dbPool.query(
-          `INSERT INTO user_passwords (email, uid, name, phone, password_hash, updated_at)
-           VALUES ($1, $2, $3, $4, $5, NOW())
-           ON CONFLICT (email) DO UPDATE SET
-             uid = EXCLUDED.uid,
-             name = COALESCE(NULLIF(EXCLUDED.name, ''), user_passwords.name),
-             phone = COALESCE(NULLIF(EXCLUDED.phone, ''), user_passwords.phone),
-             password_hash = CASE WHEN EXCLUDED.password_hash <> '' THEN EXCLUDED.password_hash ELSE user_passwords.password_hash END,
-             updated_at = NOW()`,
-          [cleanEmail, uid, displayName, phone || '', hashedPassword]
-        );
-
-        await dbPool.query(
-          `INSERT INTO "user" (id, name, phone, email, is_deleted, hidden, terms_accepted, terms_accepted_at, created_at)
-           VALUES ($1, $2, $3, $4, false, false, true, NOW(), NOW())
-           ON CONFLICT (id) DO UPDATE SET
-             name = COALESCE(NULLIF(EXCLUDED.name, ''), "user".name),
-             phone = COALESCE(NULLIF(EXCLUDED.phone, ''), "user".phone),
-             email = COALESCE(NULLIF(EXCLUDED.email, ''), "user".email),
-             is_deleted = false,
-             hidden = false,
-             terms_accepted = true,
-             terms_accepted_at = COALESCE("user".terms_accepted_at, NOW())`,
-          [uid, displayName, phone || '', cleanEmail]
-        );
-
-        await dbPool.query(
-          `INSERT INTO profiles (uid, id, user_id, name, full_name, email, phone, account_type, verified, is_verified, status, is_deleted, hidden, terms_accepted, terms_accepted_at, updated_at)
-           VALUES ($1, $1, $1, $2, $2, $3, $4, 'simple_user', false, false, 'pending', false, false, true, NOW(), NOW())
-           ON CONFLICT (uid) DO UPDATE SET
-             name = COALESCE(NULLIF(EXCLUDED.name, ''), profiles.name),
-             full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), profiles.full_name),
-             phone = COALESCE(NULLIF(EXCLUDED.phone, ''), profiles.phone),
-             is_deleted = false,
-             hidden = false,
-             status = CASE WHEN profiles.status IN ('deleted', 'deletion_requested') THEN 'pending' ELSE COALESCE(NULLIF(profiles.status, ''), 'pending') END,
-             terms_accepted = true,
-             terms_accepted_at = COALESCE(profiles.terms_accepted_at, NOW()),
-             updated_at = NOW()`,
-          [uid, displayName, cleanEmail, phone || '']
-        );
+        await Promise.all([
+          dbPool.query(
+            `INSERT INTO users (id, name, email, password_hash, phone, role, is_deleted, hidden, terms_accepted, terms_accepted_at, created_at)
+             VALUES ($1, $2, $3, $4, $5, 'user', false, false, true, NOW(), NOW())
+             ON CONFLICT (email) DO UPDATE SET
+               id = COALESCE(NULLIF(users.id, ''), EXCLUDED.id),
+               name = COALESCE(NULLIF(EXCLUDED.name, ''), users.name),
+               phone = COALESCE(NULLIF(EXCLUDED.phone, ''), users.phone),
+               password_hash = CASE WHEN EXCLUDED.password_hash <> '' THEN EXCLUDED.password_hash ELSE users.password_hash END,
+               is_deleted = false,
+               hidden = false,
+               terms_accepted = true,
+               terms_accepted_at = COALESCE(users.terms_accepted_at, NOW())`,
+            [uid, displayName, cleanEmail, hashedPassword, phone || '']
+          ),
+          dbPool.query(
+            `INSERT INTO user_passwords (email, uid, name, phone, password_hash, updated_at)
+             VALUES ($1, $2, $3, $4, $5, NOW())
+             ON CONFLICT (email) DO UPDATE SET
+               uid = EXCLUDED.uid,
+               name = COALESCE(NULLIF(EXCLUDED.name, ''), user_passwords.name),
+               phone = COALESCE(NULLIF(EXCLUDED.phone, ''), user_passwords.phone),
+               password_hash = CASE WHEN EXCLUDED.password_hash <> '' THEN EXCLUDED.password_hash ELSE user_passwords.password_hash END,
+               updated_at = NOW()`,
+            [cleanEmail, uid, displayName, phone || '', hashedPassword]
+          ),
+          dbPool.query(
+            `INSERT INTO "user" (id, name, phone, email, is_deleted, hidden, terms_accepted, terms_accepted_at, created_at)
+             VALUES ($1, $2, $3, $4, false, false, true, NOW(), NOW())
+             ON CONFLICT (id) DO UPDATE SET
+               name = COALESCE(NULLIF(EXCLUDED.name, ''), "user".name),
+               phone = COALESCE(NULLIF(EXCLUDED.phone, ''), "user".phone),
+               email = COALESCE(NULLIF(EXCLUDED.email, ''), "user".email),
+               is_deleted = false,
+               hidden = false,
+               terms_accepted = true,
+               terms_accepted_at = COALESCE("user".terms_accepted_at, NOW())`,
+            [uid, displayName, phone || '', cleanEmail]
+          ),
+          dbPool.query(
+            `INSERT INTO profiles (uid, id, user_id, name, full_name, email, phone, account_type, verified, is_verified, status, is_deleted, hidden, terms_accepted, terms_accepted_at, updated_at)
+             VALUES ($1, $1, $1, $2, $2, $3, $4, 'simple_user', false, false, 'pending', false, false, true, NOW(), NOW())
+             ON CONFLICT (uid) DO UPDATE SET
+               name = COALESCE(NULLIF(EXCLUDED.name, ''), profiles.name),
+               full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), profiles.full_name),
+               phone = COALESCE(NULLIF(EXCLUDED.phone, ''), profiles.phone),
+               is_deleted = false,
+               hidden = false,
+               status = CASE WHEN profiles.status IN ('deleted', 'deletion_requested') THEN 'pending' ELSE COALESCE(NULLIF(profiles.status, ''), 'pending') END,
+               terms_accepted = true,
+               terms_accepted_at = COALESCE(profiles.terms_accepted_at, NOW()),
+               updated_at = NOW()`,
+            [uid, displayName, cleanEmail, phone || '']
+          )
+        ]);
       } catch (e) {
         console.warn("[PostgreSQL] saveAccountWithPassword note:", e);
       }
     }
-    await ensureUserPendingVerification(uid, displayName, cleanEmail, phone || '');
+    void ensureUserPendingVerification(uid, displayName, cleanEmail, phone || '').catch(() => {});
   };
 
   // Smart Unified Phone + PIN/Password Login & First-Time Registration (PostgreSQL permanent storage + 365d HttpOnly cookie)
@@ -5816,9 +5825,11 @@ async function startServer() {
           ? existing.passwordHash
           : hashPassword(secret);
 
-        await saveAccountWithPassword(finalEmail, existing.uid, finalName, finalPhone, finalHash);
-        const approval = await getUserApprovalState(existing.uid, finalEmail, finalPhone);
-        await logSecurityAudit(existing.uid, "LOGIN", req);
+        const [, approval] = await Promise.all([
+          saveAccountWithPassword(finalEmail, existing.uid, finalName, finalPhone, finalHash),
+          getUserApprovalState(existing.uid, finalEmail, finalPhone)
+        ]);
+        void logSecurityAudit(existing.uid, "LOGIN", req);
 
         const user = {
           uid: existing.uid,
@@ -5868,9 +5879,11 @@ async function startServer() {
         (parsed.tenDigits ? `Member ${parsed.tenDigits.slice(-4)}` : accountEmail.split("@")[0]);
       const hashedPassword = hashPassword(secret);
 
-      await saveAccountWithPassword(accountEmail, uid, displayName, finalPhone, hashedPassword);
-      const approval = await getUserApprovalState(uid, accountEmail, finalPhone);
-      await logSecurityAudit(uid, existing ? "LOGIN" : "SIGNUP", req);
+      const [, approval] = await Promise.all([
+        saveAccountWithPassword(accountEmail, uid, displayName, finalPhone, hashedPassword),
+        getUserApprovalState(uid, accountEmail, finalPhone)
+      ]);
+      void logSecurityAudit(uid, existing ? "LOGIN" : "SIGNUP", req);
 
       const user = {
         uid,
@@ -5937,9 +5950,11 @@ async function startServer() {
       const finalPhone = (phone && phone.trim()) || existing?.phone || '';
       const hashedPassword = hashPassword(String(password));
 
-      await saveAccountWithPassword(cleanEmail, uid, displayName, finalPhone, hashedPassword);
-      const approval = await getUserApprovalState(uid, cleanEmail, finalPhone);
-      await logSecurityAudit(uid, existing ? "LOGIN" : "SIGNUP", req);
+      const [, approval] = await Promise.all([
+        saveAccountWithPassword(cleanEmail, uid, displayName, finalPhone, hashedPassword),
+        getUserApprovalState(uid, cleanEmail, finalPhone)
+      ]);
+      void logSecurityAudit(uid, existing ? "LOGIN" : "SIGNUP", req);
 
       const user = {
         uid,
@@ -6010,9 +6025,11 @@ async function startServer() {
       const finalPasswordHash = existing.passwordHash.startsWith("$2")
         ? existing.passwordHash
         : hashPassword(String(password));
-      await saveAccountWithPassword(finalEmail, existing.uid, existing.name, finalPhone, finalPasswordHash);
-      const approval = await getUserApprovalState(existing.uid, finalEmail, finalPhone);
-      await logSecurityAudit(existing.uid, "LOGIN", req);
+      const [, approval] = await Promise.all([
+        saveAccountWithPassword(finalEmail, existing.uid, existing.name, finalPhone, finalPasswordHash),
+        getUserApprovalState(existing.uid, finalEmail, finalPhone)
+      ]);
+      void logSecurityAudit(existing.uid, "LOGIN", req);
 
       const user = {
         uid: existing.uid,
@@ -7932,12 +7949,26 @@ async function startServer() {
     return set;
   };
 
+  const identitySetCache = new Map<string, { expiresAt: number; values: string[] }>();
+  const postOwnerInfoCache = new Map<
+    string,
+    { expiresAt: number; data: { posterId: string; posterName: string; posterEmail: string; posterAvatar: string; postDescription?: string } }
+  >();
+
   // Helper: Expand an identity set with any linked Service Provider (`helpers`) or `users`/`profiles` records from PostgreSQL + JSON
   const expandIdentitySetFromDb = async (baseSet: Set<string>): Promise<Set<string>> => {
     const expanded = new Set<string>(Array.from(baseSet));
     const getSeedArray = () =>
       Array.from(expanded).filter((x) => x && x !== "guest" && x !== "guest_user" && x !== "system");
-    if (getSeedArray().length === 0) return expanded;
+    const initialSeeds = getSeedArray();
+    if (initialSeeds.length === 0) return expanded;
+
+    const cacheKey = initialSeeds.slice().sort().join("|");
+    const cached = identitySetCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      cached.values.forEach((v) => expanded.add(v));
+      return expanded;
+    }
 
     const getPhoneDigitsFromExpanded = () =>
       Array.from(expanded)
@@ -8049,6 +8080,10 @@ async function startServer() {
       });
     } catch {}
 
+    identitySetCache.set(cacheKey, {
+      expiresAt: Date.now() + 15000,
+      values: Array.from(expanded)
+    });
     return expanded;
   };
 
@@ -8065,6 +8100,11 @@ async function startServer() {
     const cleanPostId = String(postId || "").trim();
     if (!cleanPostId || cleanPostId === "general") {
       return { posterId, posterName, posterEmail, posterAvatar, postDescription };
+    }
+
+    const cachedOwner = postOwnerInfoCache.get(cleanPostId);
+    if (cachedOwner && cachedOwner.expiresAt > Date.now()) {
+      return { ...cachedOwner.data };
     }
 
     // 0. Check if this postId is a Direct Service Provider Profile Chat (`provider_chat_...`, `direct_chat_...`, or `helper_...`)
@@ -8168,11 +8208,23 @@ async function startServer() {
       }
     }
 
-    if (dbPool && isDbConnected) {
+    if (dbPool && isDbConnected && (!posterId || !posterEmail)) {
       try {
-        const pRes = await dbPool
-          .query("SELECT user_id, author_name, content, raw_json FROM posts WHERE id = $1 LIMIT 1", [cleanPostId])
-          .catch(() => ({ rows: [] as any[] }));
+        const [pRes, bRes, cRes] = await Promise.all([
+          dbPool
+            .query("SELECT user_id, author_name, content, raw_json FROM posts WHERE id = $1 LIMIT 1", [cleanPostId])
+            .catch(() => ({ rows: [] as any[] })),
+          dbPool
+            .query("SELECT author_id, author_name, author_avatar, description FROM broadcast_posts WHERE id = $1 LIMIT 1", [cleanPostId])
+            .catch(() => ({ rows: [] as any[] })),
+          dbPool
+            .query(
+              "SELECT poster_id, poster_name, poster_email, poster_avatar FROM conversations WHERE post_id = $1 AND poster_id IS NOT NULL AND TRIM(poster_id) <> '' LIMIT 1",
+              [cleanPostId]
+            )
+            .catch(() => ({ rows: [] as any[] }))
+        ]);
+
         if (pRes.rows.length > 0) {
           const r = pRes.rows[0];
           const raw = r.raw_json && typeof r.raw_json === "object" ? r.raw_json : {};
@@ -8182,31 +8234,18 @@ async function startServer() {
           posterAvatar = String(raw.authorAvatar || posterAvatar || "").trim();
           postDescription = String(r.content || raw.description || postDescription || "").trim();
         }
-        if (!posterId) {
-          const bRes = await dbPool
-            .query("SELECT author_id, author_name, author_avatar, description FROM broadcast_posts WHERE id = $1 LIMIT 1", [cleanPostId])
-            .catch(() => ({ rows: [] as any[] }));
-          if (bRes.rows.length > 0) {
-            posterId = String(bRes.rows[0].author_id || "").trim();
-            posterName = posterName || String(bRes.rows[0].author_name || "").trim();
-            posterAvatar = posterAvatar || String(bRes.rows[0].author_avatar || "").trim();
-            postDescription = postDescription || String(bRes.rows[0].description || "").trim();
-          }
+        if (!posterId && bRes.rows.length > 0) {
+          posterId = String(bRes.rows[0].author_id || "").trim();
+          posterName = posterName || String(bRes.rows[0].author_name || "").trim();
+          posterAvatar = posterAvatar || String(bRes.rows[0].author_avatar || "").trim();
+          postDescription = postDescription || String(bRes.rows[0].description || "").trim();
         }
         // Fallback 1: Check conversations table if posterId or posterEmail is still missing
-        if (!posterId || !posterEmail) {
-          const cRes = await dbPool
-            .query(
-              "SELECT poster_id, poster_name, poster_email, poster_avatar FROM conversations WHERE post_id = $1 AND poster_id IS NOT NULL AND TRIM(poster_id) <> '' LIMIT 1",
-              [cleanPostId]
-            )
-            .catch(() => ({ rows: [] as any[] }));
-          if (cRes.rows.length > 0) {
-            if (!posterId) posterId = String(cRes.rows[0].poster_id || "").trim();
-            posterName = posterName || String(cRes.rows[0].poster_name || "").trim();
-            posterEmail = posterEmail || String(cRes.rows[0].poster_email || "").trim().toLowerCase();
-            posterAvatar = posterAvatar || String(cRes.rows[0].poster_avatar || "").trim();
-          }
+        if ((!posterId || !posterEmail) && cRes.rows.length > 0) {
+          if (!posterId) posterId = String(cRes.rows[0].poster_id || "").trim();
+          posterName = posterName || String(cRes.rows[0].poster_name || "").trim();
+          posterEmail = posterEmail || String(cRes.rows[0].poster_email || "").trim().toLowerCase();
+          posterAvatar = posterAvatar || String(cRes.rows[0].poster_avatar || "").trim();
         }
         // Fallback 2: Check messages table for post_owner_id
         if (!posterId) {
@@ -8263,7 +8302,14 @@ async function startServer() {
       } catch {}
     }
 
-    return { posterId, posterName, posterEmail, posterAvatar, postDescription };
+    const resultInfo = { posterId, posterName, posterEmail, posterAvatar, postDescription };
+    if (posterId) {
+      postOwnerInfoCache.set(cleanPostId, {
+        expiresAt: Date.now() + 25000,
+        data: resultInfo
+      });
+    }
+    return resultInfo;
   };
 
   // 4. Get 1-on-1 Chat Messages (GET /api/chat/messages, GET /api/messages/:conversationId, GET /api/intents/:id/messages)
@@ -8297,8 +8343,10 @@ async function startServer() {
       let posterId = ownerInfo.posterId;
       let posterEmail = ownerInfo.posterEmail;
 
-      const posterIdentities = await expandIdentitySetFromDb(buildServerIdentitySet(posterId, posterEmail));
-      const callerIdentities = await expandIdentitySetFromDb(buildServerIdentitySet(userId, userEmail));
+      const [posterIdentities, callerIdentities] = await Promise.all([
+        expandIdentitySetFromDb(buildServerIdentitySet(posterId, posterEmail)),
+        expandIdentitySetFromDb(buildServerIdentitySet(userId, userEmail))
+      ]);
       const isCallerPostOwner = Array.from(callerIdentities).some((id) => posterIdentities.has(id));
 
       // Authoritative helperId: prefer parsed conv_ ID or explicit queryHelperId (as long as it's not the poster's own ID)
@@ -8315,7 +8363,7 @@ async function startServer() {
         (rawParamId.startsWith("conv_") ? rawParamId : "") ||
         (postId && helperId ? buildConversationId(postId, helperId) : "");
 
-      if (dbPool && isDbConnected && (activeConvId || queryConvId || rawParamId)) {
+      if (dbPool && isDbConnected && (activeConvId || queryConvId || rawParamId) && (!postId || !helperId)) {
         try {
           const lookupTarget = activeConvId || queryConvId || rawParamId;
           const convLookup = await dbPool
@@ -8473,7 +8521,7 @@ async function startServer() {
             });
           }
 
-          // Mark unread messages as read for the viewing user and reset unread counter in conversations
+          // Mark unread messages as read for the viewing user and reset unread counter in conversations (in background)
           if ((userId || userEmail) && (activeConvId || (postId && helperId))) {
             const targetConv = activeConvId || buildConversationId(postId, helperId);
             const callerIdArr = Array.from(callerIdentities);
@@ -8488,55 +8536,63 @@ async function startServer() {
               ])
             );
 
-            await dbPool
-              .query(
-                `UPDATE messages
-                 SET is_read = TRUE
-                 WHERE (
-                   LOWER(conversation_id) = ANY($1::text[])
-                   OR ((post_id = $2 OR intent_id = $2) AND LOWER(sender_id) = ANY($3::text[]))
-                 )
-                   AND NOT (LOWER(sender_id) = ANY($4::text[]))
-                   AND is_read = FALSE`,
-                [convIdVariants, postId, helperIdVariants, callerIdArr]
-              )
-              .catch(() => {});
-
-            if (isCallerPostOwner) {
-              await dbPool
+            void Promise.all([
+              dbPool
                 .query(
-                  `UPDATE conversations
-                   SET unread_poster_count = 0
-                   WHERE LOWER(id) = ANY($1::text[])
-                      OR (post_id = $2 AND LOWER(helper_id) = ANY($3::text[]))`,
-                  [convIdVariants, postId, helperIdVariants]
+                  `UPDATE messages
+                   SET is_read = TRUE
+                   WHERE (
+                     LOWER(conversation_id) = ANY($1::text[])
+                     OR ((post_id = $2 OR intent_id = $2) AND LOWER(sender_id) = ANY($3::text[]))
+                   )
+                     AND NOT (LOWER(sender_id) = ANY($4::text[]))
+                     AND is_read = FALSE`,
+                  [convIdVariants, postId, helperIdVariants, callerIdArr]
                 )
-                .catch(() => {});
-            } else {
-              await dbPool
-                .query(
-                  `UPDATE conversations
-                   SET unread_helper_count = 0
-                   WHERE LOWER(id) = ANY($1::text[])
-                      OR (post_id = $2 AND LOWER(helper_id) = ANY($3::text[]))`,
-                  [convIdVariants, postId, helperIdVariants]
-                )
-                .catch(() => {});
-            }
+                .catch(() => {}),
+              isCallerPostOwner
+                ? dbPool
+                    .query(
+                      `UPDATE conversations
+                       SET unread_poster_count = 0
+                       WHERE LOWER(id) = ANY($1::text[])
+                          OR (post_id = $2 AND LOWER(helper_id) = ANY($3::text[]))`,
+                      [convIdVariants, postId, helperIdVariants]
+                    )
+                    .catch(() => {})
+                : dbPool
+                    .query(
+                      `UPDATE conversations
+                       SET unread_helper_count = 0
+                       WHERE LOWER(id) = ANY($1::text[])
+                          OR (post_id = $2 AND LOWER(helper_id) = ANY($3::text[]))`,
+                      [convIdVariants, postId, helperIdVariants]
+                    )
+                    .catch(() => {})
+            ]);
           }
         } catch (dbErr) {
           console.warn("DB 1-on-1 messages query error:", dbErr);
         }
 
-        // Enrich any missing sender names, emails, or avatars from users / profiles tables
+        // Enrich any missing sender names, emails, or avatars from users / profiles tables only if needed
         try {
-          const senderIds = Array.from(
-            new Set(
-              Array.from(mergedMap.values())
-                .map((m) => String(m.sender_id || m.senderId || m.authorId || "").trim())
-                .filter(Boolean)
-            )
+          const needsEnrichment = Array.from(mergedMap.values()).some(
+            (m) =>
+              !m.senderName ||
+              m.senderName === "Community Peer" ||
+              m.senderName === "Community Member" ||
+              !m.senderEmail
           );
+          const senderIds = needsEnrichment
+            ? Array.from(
+                new Set(
+                  Array.from(mergedMap.values())
+                    .map((m) => String(m.sender_id || m.senderId || m.authorId || "").trim())
+                    .filter(Boolean)
+                )
+              )
+            : [];
           if (senderIds.length > 0) {
             const userMap = new Map<string, { name?: string; email?: string; avatar?: string }>();
             const uRes = await dbPool
@@ -9648,26 +9704,30 @@ async function startServer() {
         } catch {}
       }
 
-      // Account Check for Messaging: Ensure user is logged in and not blocked/deleted/rejected
-      if (!isRequestAdmin(req)) {
-        if (!senderIdVal || senderIdVal === "guest" || senderIdVal === "guest_user") {
-          return res.status(401).json({
-            error: "मैसेज भेजने के लिए कृपया पहले लॉगिन करें (Please login first to send a message).",
-            code: "LOGIN_REQUIRED"
-          });
-        }
-        const senderApproval = await getUserApprovalState(senderIdVal, resolvedEmail, resolvedPhone);
-        if (senderApproval.status === "deleted" || senderApproval.status === "rejected") {
-          return res.status(403).json({
-            error: "आपका अकाउंट एडमिन द्वारा रोक दिया गया है। (Your account is restricted by Admin.)",
-            code: "ACCOUNT_PENDING_APPROVAL",
-            approvalStatus: senderApproval.status
-          });
-        }
+      // Account Check for Messaging + Resolve authoritative poster_id in parallel
+      const isAdminReq = isRequestAdmin(req);
+      if (!isAdminReq && (!senderIdVal || senderIdVal === "guest" || senderIdVal === "guest_user")) {
+        return res.status(401).json({
+          error: "मैसेज भेजने के लिए कृपया पहले लॉगिन करें (Please login first to send a message).",
+          code: "LOGIN_REQUIRED"
+        });
       }
 
-      // Resolve authoritative poster_id, poster_name, poster_email from PostgreSQL posts/broadcast_posts or helpers
-      const ownerInfo = await resolvePostOwnerInfo(postId);
+      const [senderApproval, ownerInfo] = await Promise.all([
+        !isAdminReq
+          ? getUserApprovalState(senderIdVal, resolvedEmail, resolvedPhone)
+          : Promise.resolve({ isApproved: true, status: "approved" }),
+        resolvePostOwnerInfo(postId)
+      ]);
+
+      if (!isAdminReq && (senderApproval.status === "deleted" || senderApproval.status === "rejected")) {
+        return res.status(403).json({
+          error: "आपका अकाउंट एडमिन द्वारा रोक दिया गया है। (Your account is restricted by Admin.)",
+          code: "ACCOUNT_PENDING_APPROVAL",
+          approvalStatus: senderApproval.status
+        });
+      }
+
       const postOwnerId = sanitizeServerText(
         ownerInfo.posterId || message.post_owner_id || message.postOwnerId || message.posterId || message.poster_id || "",
         150
@@ -9679,17 +9739,19 @@ async function startServer() {
       const postOwnerName = sanitizeServerText(ownerInfo.posterName || message.postOwnerName || message.posterName || "Post Owner", 120);
       const postOwnerAvatar = sanitizeServerText(ownerInfo.posterAvatar || "", 500);
 
-      const posterIdentities = await expandIdentitySetFromDb(buildServerIdentitySet(postOwnerId, postOwnerEmail));
-      if (message.postOwnerId || message.post_owner_id) {
-        const extraPosterSet = await expandIdentitySetFromDb(
-          buildServerIdentitySet(
-            String(message.postOwnerId || message.post_owner_id || ""),
-            String(message.postOwnerEmail || message.post_owner_email || "")
-          )
-        );
-        extraPosterSet.forEach((id) => posterIdentities.add(id));
-      }
-      const senderIdentities = await expandIdentitySetFromDb(buildServerIdentitySet(senderIdVal, resolvedEmail));
+      const [posterIdentities, extraPosterSet, senderIdentities] = await Promise.all([
+        expandIdentitySetFromDb(buildServerIdentitySet(postOwnerId, postOwnerEmail)),
+        message.postOwnerId || message.post_owner_id
+          ? expandIdentitySetFromDb(
+              buildServerIdentitySet(
+                String(message.postOwnerId || message.post_owner_id || ""),
+                String(message.postOwnerEmail || message.post_owner_email || "")
+              )
+            )
+          : Promise.resolve(new Set<string>()),
+        expandIdentitySetFromDb(buildServerIdentitySet(senderIdVal, resolvedEmail))
+      ]);
+      extraPosterSet.forEach((id) => posterIdentities.add(id));
 
       const isSenderPostOwner = Array.from(senderIdentities).some((id) => posterIdentities.has(id));
 
@@ -9740,18 +9802,19 @@ async function startServer() {
         });
       }
 
-      // Enforce User-to-User Chat Block
-      const blockCheck = await checkChatBlockState(postId, senderIdVal, resolvedReceiverId);
+      // Enforce User-to-User Chat Block & upload any attachment in parallel
+      const [blockCheck, uploadedChatAttachment] = await Promise.all([
+        checkChatBlockState(postId, senderIdVal, resolvedReceiverId),
+        message.attachmentUrl
+          ? uploadDataToFirebaseServer(message.attachmentUrl, "chat_attachments")
+          : Promise.resolve(null)
+      ]);
       if (blockCheck.isBlocked) {
         return res.status(403).json({
           error: "इस चैट में संदेश भेजना ब्लॉक किया गया है। (Messaging is blocked in this conversation.)",
           code: "CHAT_BLOCKED"
         });
       }
-
-      const uploadedChatAttachment = message.attachmentUrl
-        ? await uploadDataToFirebaseServer(message.attachmentUrl, "chat_attachments")
-        : null;
 
       const effectivePosterId = postOwnerId || (isSenderPostOwner ? senderIdVal : resolvedReceiverId);
       const effectiveConvId =
@@ -9813,8 +9876,10 @@ async function startServer() {
 
       const previewText = safeText || (uploadedChatAttachment ? "📷 Photo / Attachment" : "Sent a message");
 
-      // 1. PostgreSQL Upsert into conversations & Insert into messages, responses, and chats
+      // 1. PostgreSQL Parallel Upsert into conversations & Insert into messages, responses, and chats
       if (dbPool && isDbConnected) {
+        const dbWriteTasks: Promise<any>[] = [];
+
         if (postId && postId !== "general" && helperId) {
           const unreadPosterDelta = isSenderPostOwner ? 0 : 1;
           const unreadHelperDelta = isSenderPostOwner ? 1 : 0;
@@ -9834,41 +9899,19 @@ async function startServer() {
             unreadPosterDelta,
             unreadHelperDelta
           ];
-          try {
-            await dbPool.query(
-              `INSERT INTO conversations (
-                 id, post_id, poster_id, poster_name, poster_email, poster_avatar,
-                 helper_id, helper_name, helper_email, helper_avatar,
-                 last_message, last_message_at, unread_poster_count, unread_helper_count, created_at
-               )
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $12)
-               ON CONFLICT (id) DO UPDATE SET
-                 poster_id = COALESCE(NULLIF(EXCLUDED.poster_id, ''), conversations.poster_id),
-                 poster_name = COALESCE(NULLIF(EXCLUDED.poster_name, 'Post Owner'), conversations.poster_name),
-                 poster_email = COALESCE(NULLIF(EXCLUDED.poster_email, ''), conversations.poster_email),
-                 last_message = EXCLUDED.last_message,
-                 last_message_at = EXCLUDED.last_message_at,
-                 unread_poster_count = conversations.unread_poster_count + $13,
-                 unread_helper_count = conversations.unread_helper_count + $14,
-                 helper_name = CASE
-                   WHEN EXCLUDED.helper_name <> '' AND EXCLUDED.helper_name <> 'Community Helper'
-                   THEN EXCLUDED.helper_name
-                   ELSE conversations.helper_name
-                 END,
-                 helper_email = COALESCE(NULLIF(EXCLUDED.helper_email, ''), conversations.helper_email),
-                 helper_avatar = COALESCE(NULLIF(EXCLUDED.helper_avatar, ''), conversations.helper_avatar)`,
-              convParams
-            );
-          } catch {
-            try {
-              await dbPool.query(
+          dbWriteTasks.push(
+            dbPool
+              .query(
                 `INSERT INTO conversations (
                    id, post_id, poster_id, poster_name, poster_email, poster_avatar,
                    helper_id, helper_name, helper_email, helper_avatar,
                    last_message, last_message_at, unread_poster_count, unread_helper_count, created_at
                  )
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $12)
-                 ON CONFLICT (post_id, poster_id, helper_id) DO UPDATE SET
+                 ON CONFLICT (id) DO UPDATE SET
+                   poster_id = COALESCE(NULLIF(EXCLUDED.poster_id, ''), conversations.poster_id),
+                   poster_name = COALESCE(NULLIF(EXCLUDED.poster_name, 'Post Owner'), conversations.poster_name),
+                   poster_email = COALESCE(NULLIF(EXCLUDED.poster_email, ''), conversations.poster_email),
                    last_message = EXCLUDED.last_message,
                    last_message_at = EXCLUDED.last_message_at,
                    unread_poster_count = conversations.unread_poster_count + $13,
@@ -9881,71 +9924,72 @@ async function startServer() {
                    helper_email = COALESCE(NULLIF(EXCLUDED.helper_email, ''), conversations.helper_email),
                    helper_avatar = COALESCE(NULLIF(EXCLUDED.helper_avatar, ''), conversations.helper_avatar)`,
                 convParams
-              );
-            } catch (convUpsertErr) {
-              console.warn("Conversations upsert notice:", convUpsertErr);
-            }
-          }
+              )
+              .catch(() =>
+                dbPool
+                  ?.query(
+                    `INSERT INTO conversations (
+                       id, post_id, poster_id, poster_name, poster_email, poster_avatar,
+                       helper_id, helper_name, helper_email, helper_avatar,
+                       last_message, last_message_at, unread_poster_count, unread_helper_count, created_at
+                     )
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $12)
+                     ON CONFLICT (post_id, poster_id, helper_id) DO UPDATE SET
+                       last_message = EXCLUDED.last_message,
+                       last_message_at = EXCLUDED.last_message_at,
+                       unread_poster_count = conversations.unread_poster_count + $13,
+                       unread_helper_count = conversations.unread_helper_count + $14,
+                       helper_name = CASE
+                         WHEN EXCLUDED.helper_name <> '' AND EXCLUDED.helper_name <> 'Community Helper'
+                         THEN EXCLUDED.helper_name
+                         ELSE conversations.helper_name
+                       END,
+                       helper_email = COALESCE(NULLIF(EXCLUDED.helper_email, ''), conversations.helper_email),
+                       helper_avatar = COALESCE(NULLIF(EXCLUDED.helper_avatar, ''), conversations.helper_avatar)`,
+                    convParams
+                  )
+                  .catch((convUpsertErr) => console.warn("Conversations upsert notice:", convUpsertErr))
+              )
+          );
         }
 
-        try {
-          await dbPool.query(
-            `INSERT INTO responses (id, post_id, post_owner_id, sender_id, sender_name, sender_email, sender_avatar, receiver_id, message, attachment_url, attachment_type, is_read, created_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, FALSE, $12)
-             ON CONFLICT (id) DO NOTHING`,
-            [
-              newMsg.id,
-              postId,
-              newMsg.postOwnerId,
-              newMsg.senderId,
-              newMsg.authorName || "Community Peer",
-              newMsg.senderEmail || null,
-              newMsg.senderAvatar || null,
-              newMsg.receiverId,
-              newMsg.text,
-              newMsg.attachmentUrl,
-              newMsg.attachmentType,
-              newMsg.createdAt
-            ]
-          );
-        } catch {}
-
-        try {
-          await dbPool.query(
-            `INSERT INTO messages (id, conversation_id, intent_id, post_id, post_owner_id, sender_id, sender_name, sender_email, sender_avatar, receiver_id, text, content, type, attachment_url, attachment_type, is_read, created_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, FALSE, $16)
-             ON CONFLICT (id) DO NOTHING`,
-            [
-              newMsg.id,
-              effectiveConvId,
-              postId,
-              postId,
-              newMsg.postOwnerId,
-              newMsg.senderId,
-              newMsg.authorName || "Community Peer",
-              newMsg.senderEmail || null,
-              newMsg.senderAvatar || null,
-              newMsg.receiverId,
-              newMsg.text,
-              newMsg.content,
-              newMsg.type,
-              newMsg.attachmentUrl,
-              newMsg.attachmentType,
-              newMsg.createdAt
-            ]
-          );
-        } catch (dbErr) {
-          console.warn("DB messages insert fallback attempt:", dbErr);
-          try {
-            await dbPool.query(
-              `INSERT INTO messages (id, intent_id, sender_id, sender_name, receiver_id, text, content, type, attachment_url, attachment_type, created_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        dbWriteTasks.push(
+          dbPool
+            .query(
+              `INSERT INTO responses (id, post_id, post_owner_id, sender_id, sender_name, sender_email, sender_avatar, receiver_id, message, attachment_url, attachment_type, is_read, created_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, FALSE, $12)
                ON CONFLICT (id) DO NOTHING`,
               [
                 newMsg.id,
                 postId,
+                newMsg.postOwnerId,
                 newMsg.senderId,
                 newMsg.authorName || "Community Peer",
+                newMsg.senderEmail || null,
+                newMsg.senderAvatar || null,
+                newMsg.receiverId,
+                newMsg.text,
+                newMsg.attachmentUrl,
+                newMsg.attachmentType,
+                newMsg.createdAt
+              ]
+            )
+            .catch(() => {}),
+          dbPool
+            .query(
+              `INSERT INTO messages (id, conversation_id, intent_id, post_id, post_owner_id, sender_id, sender_name, sender_email, sender_avatar, receiver_id, text, content, type, attachment_url, attachment_type, is_read, created_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, FALSE, $16)
+               ON CONFLICT (id) DO NOTHING`,
+              [
+                newMsg.id,
+                effectiveConvId,
+                postId,
+                postId,
+                newMsg.postOwnerId,
+                newMsg.senderId,
+                newMsg.authorName || "Community Peer",
+                newMsg.senderEmail || null,
+                newMsg.senderAvatar || null,
                 newMsg.receiverId,
                 newMsg.text,
                 newMsg.content,
@@ -9954,39 +9998,65 @@ async function startServer() {
                 newMsg.attachmentType,
                 newMsg.createdAt
               ]
-            );
-          } catch {}
-        }
+            )
+            .catch(() =>
+              dbPool
+                ?.query(
+                  `INSERT INTO messages (id, intent_id, sender_id, sender_name, receiver_id, text, content, type, attachment_url, attachment_type, created_at)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                   ON CONFLICT (id) DO NOTHING`,
+                  [
+                    newMsg.id,
+                    postId,
+                    newMsg.senderId,
+                    newMsg.authorName || "Community Peer",
+                    newMsg.receiverId,
+                    newMsg.text,
+                    newMsg.content,
+                    newMsg.type,
+                    newMsg.attachmentUrl,
+                    newMsg.attachmentType,
+                    newMsg.createdAt
+                  ]
+                )
+                .catch(() => {})
+            ),
+          dbPool
+            .query(
+              `INSERT INTO chats (id, intent_id, post_id, post_owner_id, sender_id, sender_name, sender_email, receiver_id, message, sent_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+               ON CONFLICT (id) DO NOTHING`,
+              [
+                newMsg.id,
+                postId,
+                postId,
+                newMsg.postOwnerId,
+                newMsg.senderId,
+                newMsg.authorName || "Community Peer",
+                newMsg.senderEmail || null,
+                newMsg.receiverId,
+                newMsg.message,
+                newMsg.createdAt
+              ]
+            )
+            .catch(() => {})
+        );
 
+        await Promise.all(dbWriteTasks);
+      }
+
+      // 2. Local file backup keyed by 1-on-1 conversationId (non-blocking)
+      setImmediate(() => {
         try {
-          await dbPool.query(
-            `INSERT INTO chats (id, intent_id, post_id, post_owner_id, sender_id, sender_name, sender_email, receiver_id, message, sent_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-             ON CONFLICT (id) DO NOTHING`,
-            [
-              newMsg.id,
-              postId,
-              postId,
-              newMsg.postOwnerId,
-              newMsg.senderId,
-              newMsg.authorName || "Community Peer",
-              newMsg.senderEmail || null,
-              newMsg.receiverId,
-              newMsg.message,
-              newMsg.createdAt
-            ]
-          );
+          const allMessages = readJsonFile<Record<string, any[]>>(MESSAGES_FILE, {});
+          const chatMessages = allMessages[effectiveConvId] || [];
+          if (!chatMessages.some((m: any) => m.id === newMsg.id)) {
+            chatMessages.push(newMsg);
+            allMessages[effectiveConvId] = chatMessages;
+            writeJsonFile(MESSAGES_FILE, allMessages);
+          }
         } catch {}
-      }
-
-      // 2. Local file backup keyed by 1-on-1 conversationId
-      const allMessages = readJsonFile<Record<string, any[]>>(MESSAGES_FILE, {});
-      const chatMessages = allMessages[effectiveConvId] || [];
-      if (!chatMessages.some((m: any) => m.id === newMsg.id)) {
-        chatMessages.push(newMsg);
-        allMessages[effectiveConvId] = chatMessages;
-        writeJsonFile(MESSAGES_FILE, allMessages);
-      }
+      });
 
       // Refresh post interaction timestamp & compute updated response_count / repliers for this post from conversations
       let updatedResponseCount = 1;
@@ -9994,7 +10064,7 @@ async function startServer() {
       if (postId && postId !== "general") {
         try {
           if (dbPool && isDbConnected) {
-            await dbPool
+            void dbPool
               .query(`UPDATE broadcast_posts SET expires_at = NOW() + INTERVAL '1 hour' WHERE id = $1`, [postId])
               .catch(() => {});
 

@@ -540,8 +540,68 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
   // Real-time cross-device server sync for 1-on-1 conversation & Post Owner Inbox list
   useEffect(() => {
     let isMounted = true;
+    let isSyncing = false;
+
+    const mergeIncomingMessages = (incomingList: any[]) => {
+      if (!isMounted || !Array.isArray(incomingList) || incomingList.length === 0) return;
+      setMessages(prev => {
+        const map = new Map<string, any>();
+        prev.forEach(m => {
+          if (m && m.id) map.set(m.id, m);
+        });
+        let changed = false;
+        incomingList.forEach((m: any) => {
+          if (m && m.id) {
+            const existing = map.get(m.id);
+            const resolvedAuthorId = String(
+              m.sender_id || m.senderId || m.authorId || m.user_id || existing?.sender_id || existing?.authorId || 'peer'
+            ).trim();
+            const resolvedAuthorName = String(
+              m.sender_name || m.senderName || m.authorName || existing?.authorName || 'Community Peer'
+            ).trim();
+            const resolvedEmail = String(
+              m.sender_email || m.senderEmail || m.authorEmail || existing?.senderEmail || ''
+            ).trim().toLowerCase();
+            const resolvedAvatar = String(
+              m.sender_avatar || m.senderAvatar || m.authorAvatar || existing?.senderAvatar || ''
+            ).trim();
+            const nextText = m.text || m.content || m.message || (existing?.text || '');
+            const nextRead = Boolean(m.isRead || m.is_read || existing?.isRead || existing?.is_read);
+            if (!existing || existing.text !== nextText || Boolean(existing.isRead) !== nextRead) {
+              changed = true;
+            }
+            map.set(m.id, {
+              id: m.id,
+              text: nextText,
+              type: m.type || existing?.type || 'text',
+              authorId: resolvedAuthorId,
+              sender_id: resolvedAuthorId,
+              user_id: resolvedAuthorId,
+              authorName: resolvedAuthorName,
+              sender_name: resolvedAuthorName,
+              senderEmail: resolvedEmail,
+              sender_email: resolvedEmail,
+              senderAvatar: resolvedAvatar,
+              receiverId: m.receiverId || m.receiver_id || existing?.receiverId || undefined,
+              isCollaborator: Boolean(m.isCollaborator || m.is_collaborator || existing?.isCollaborator),
+              isRead: nextRead,
+              is_read: nextRead,
+              attachmentUrl: m.attachmentUrl || m.attachment_url || existing?.attachmentUrl || undefined,
+              attachmentType: m.attachmentType || m.attachment_type || existing?.attachmentType || undefined,
+              createdAt: m.createdAt || m.created_at || m.sent_at || existing?.createdAt || new Date().toISOString()
+            });
+          }
+        });
+        if (!changed && map.size === prev.length) return prev;
+        const list = Array.from(map.values()) as any[];
+        list.sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
+        return list;
+      });
+    };
 
     const syncChat = async () => {
+      if (isSyncing) return;
+      isSyncing = true;
       try {
         const activeUser = getCurrentUser();
         const myUid = activeUser?.uid || '';
@@ -550,50 +610,66 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
         let effectiveHelperId = activeHelperId;
         let effectiveConvId = activeConversationId;
 
-        // If Post Owner, also keep the list of responders synced so they can switch or select a helper
-        if (isPostOwner) {
-          try {
-            const token = localStorage.getItem('locohelp_token');
-            const convRes = await fetch(
-              `/api/chat/conversations?postId=${encodeURIComponent(chatId)}&userId=${encodeURIComponent(myUid)}&ownerEmail=${encodeURIComponent(myEmail)}&_t=${Date.now()}`,
-              {
-                cache: 'no-store',
-                headers: token ? { Authorization: `Bearer ${token}` } : undefined
-              }
-            );
-            if (convRes.ok) {
-              const convList = await convRes.json();
-              if (isMounted && Array.isArray(convList)) {
-                setInboxConversations(convList);
-                if (!selectedReplierId && convList.length > 0) {
-                  const firstHelper = convList[0];
-                  const firstHelperId = firstHelper.helperId || firstHelper.senderId || firstHelper.helper_id;
-                  if (firstHelperId) {
-                    effectiveHelperId = String(firstHelperId);
-                    effectiveConvId = firstHelper.id || firstHelper.conversationId || `conv_${chatId}__${String(firstHelperId).toLowerCase()}`;
-                    setSelectedReplierId(firstHelperId);
-                    setSelectedReplierName(firstHelper.helperName || firstHelper.senderName || 'Community Helper');
-                    setSelectedReplierEmail(firstHelper.helperEmail || firstHelper.senderEmail || null);
-                    setSelectedReplierAvatar(firstHelper.helperAvatar || firstHelper.senderAvatar || null);
+        const fetchInboxPromise = isPostOwner
+          ? (async () => {
+              try {
+                const token = localStorage.getItem('locohelp_token');
+                const convRes = await fetch(
+                  `/api/chat/conversations?postId=${encodeURIComponent(chatId)}&userId=${encodeURIComponent(myUid)}&ownerEmail=${encodeURIComponent(myEmail)}&_t=${Date.now()}`,
+                  {
+                    cache: 'no-store',
+                    headers: token ? { Authorization: `Bearer ${token}` } : undefined
+                  }
+                );
+                if (convRes.ok) {
+                  const convList = await convRes.json();
+                  if (isMounted && Array.isArray(convList)) {
+                    setInboxConversations(convList);
+                    if (!selectedReplierId && convList.length > 0) {
+                      const firstHelper = convList[0];
+                      const firstHelperId = firstHelper.helperId || firstHelper.senderId || firstHelper.helper_id;
+                      if (firstHelperId) {
+                        effectiveHelperId = String(firstHelperId);
+                        effectiveConvId = firstHelper.id || firstHelper.conversationId || `conv_${chatId}__${String(firstHelperId).toLowerCase()}`;
+                        setSelectedReplierId(firstHelperId);
+                        setSelectedReplierName(firstHelper.helperName || firstHelper.senderName || 'Community Helper');
+                        setSelectedReplierEmail(firstHelper.helperEmail || firstHelper.senderEmail || null);
+                        setSelectedReplierAvatar(firstHelper.helperAvatar || firstHelper.senderAvatar || null);
+                      }
+                    }
                   }
                 }
-              }
-            }
-          } catch {}
+              } catch {}
+            })()
+          : Promise.resolve();
+
+        // If we already know the target conversation or helper, fetch messages in parallel with inbox!
+        const initialTargetConv = effectiveConvId || chatId;
+        let serverMessages: any[] = [];
+        if (initialTargetConv && (!isPostOwner || selectedReplierId || effectiveHelperId)) {
+          const [, msgs] = await Promise.all([
+            fetchInboxPromise,
+            fetchChatMessages(initialTargetConv, {
+              postId: chatId,
+              helperId: effectiveHelperId || undefined,
+              userId: myUid,
+              userEmail: myEmail
+            })
+          ]);
+          serverMessages = msgs;
+        } else {
+          await fetchInboxPromise;
+          const targetConvToFetch = effectiveConvId || chatId;
+          if (!targetConvToFetch) return;
+          serverMessages = await fetchChatMessages(targetConvToFetch, {
+            postId: chatId,
+            helperId: effectiveHelperId || undefined,
+            userId: myUid,
+            userEmail: myEmail
+          });
         }
 
-        const targetConvToFetch = effectiveConvId || chatId;
-        if (!targetConvToFetch) return;
-
-        const serverMessages = await fetchChatMessages(targetConvToFetch, {
-          postId: chatId,
-          helperId: effectiveHelperId || undefined,
-          userId: myUid,
-          userEmail: myEmail
-        });
-
         if (isMounted && Array.isArray(serverMessages)) {
-          // If Post Owner had no selectedReplierId yet, auto-select the first responder found in serverMessages
           if (isPostOwner && !selectedReplierId && !effectiveHelperId && serverMessages.length > 0) {
             const firstIncoming = serverMessages.find((m: any) => !isMessageSentByUser(m, activeUser));
             if (firstIncoming) {
@@ -607,66 +683,43 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
             }
           }
 
-          setMessages(prev => {
-            const map = new Map<string, any>();
-            prev.forEach(m => {
-              if (m && m.id) map.set(m.id, m);
-            });
-            serverMessages.forEach((m: any) => {
-              if (m && m.id) {
-                const existing = map.get(m.id);
-                const resolvedAuthorId = String(
-                  m.sender_id || m.senderId || m.authorId || m.user_id || existing?.sender_id || existing?.authorId || 'peer'
-                ).trim();
-                const resolvedAuthorName = String(
-                  m.sender_name || m.senderName || m.authorName || existing?.authorName || 'Community Peer'
-                ).trim();
-                const resolvedEmail = String(
-                  m.sender_email || m.senderEmail || m.authorEmail || existing?.senderEmail || ''
-                ).trim().toLowerCase();
-                const resolvedAvatar = String(
-                  m.sender_avatar || m.senderAvatar || m.authorAvatar || existing?.senderAvatar || ''
-                ).trim();
-                map.set(m.id, {
-                  id: m.id,
-                  text: m.text || m.content || m.message || (existing?.text || ''),
-                  type: m.type || existing?.type || 'text',
-                  authorId: resolvedAuthorId,
-                  sender_id: resolvedAuthorId,
-                  user_id: resolvedAuthorId,
-                  authorName: resolvedAuthorName,
-                  sender_name: resolvedAuthorName,
-                  senderEmail: resolvedEmail,
-                  sender_email: resolvedEmail,
-                  senderAvatar: resolvedAvatar,
-                  receiverId: m.receiverId || m.receiver_id || existing?.receiverId || undefined,
-                  isCollaborator: Boolean(m.isCollaborator || m.is_collaborator || existing?.isCollaborator),
-                  isRead: Boolean(m.isRead || m.is_read || existing?.isRead || existing?.is_read),
-                  is_read: Boolean(m.is_read || m.isRead || existing?.is_read || existing?.isRead),
-                  attachmentUrl: m.attachmentUrl || m.attachment_url || existing?.attachmentUrl || undefined,
-                  attachmentType: m.attachmentType || m.attachment_type || existing?.attachmentType || undefined,
-                  createdAt: m.createdAt || m.created_at || m.sent_at || existing?.createdAt || new Date().toISOString()
-                });
-              }
-            });
-            const list = Array.from(map.values()) as any[];
-            list.sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
-            return list;
-          });
+          mergeIncomingMessages(serverMessages);
           try {
             window.dispatchEvent(new CustomEvent('locohelp_chat_read_updated'));
           } catch {}
         }
-      } catch (e) {}
+      } catch (e) {
+      } finally {
+        isSyncing = false;
+      }
     };
 
     syncChat();
-    const pollInterval = setInterval(syncChat, 1200);
+    const pollInterval = setInterval(syncChat, 900);
     const unsubStream = subscribeToRealtimeStream({
       onNewResponse: (payload) => {
         if (!currentIntent) {
           loadAllChats();
-        } else if (payload?.postId === chatId) {
+          return;
+        }
+        const incomingPostId = String(payload?.postId || (payload as any)?.post_id || '').trim();
+        const incomingConvId = String(payload?.conversationId || (payload as any)?.conversation_id || '').trim();
+        const matchesChat =
+          (incomingPostId && incomingPostId === chatId) ||
+          (incomingConvId && activeConversationId && incomingConvId.toLowerCase() === activeConversationId.toLowerCase());
+
+        if (matchesChat) {
+          // 0ms Instant UI Insertion from SSE payload before background verification sync
+          if (payload?.response && payload.response.id) {
+            const msgObj = payload.response;
+            const msgHelperId = String(msgObj.helperId || msgObj.helper_id || payload.helperId || '').trim();
+            if (!isPostOwner || !activeHelperId || !msgHelperId || msgHelperId.toLowerCase() === activeHelperId.toLowerCase()) {
+              mergeIncomingMessages([msgObj]);
+            }
+          }
+          if (isPostOwner && Array.isArray(payload?.repliers) && payload.repliers.length > 0) {
+            setInboxConversations(payload.repliers);
+          }
           syncChat();
         }
       }

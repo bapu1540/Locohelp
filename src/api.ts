@@ -23,7 +23,7 @@ export interface ChatMessage {
   senderAvatar?: string;
   receiverId?: string;
   text: string;
-  type?: 'text' | 'pin' | 'identity_request' | 'identity_shared' | 'attachment' | 'task_completed';
+  type?: 'text' | 'pin' | 'identity_request' | 'identity_shared' | 'phone_request' | 'phone_shared' | 'attachment' | 'task_completed';
   attachmentUrl?: string | null;
   attachmentType?: string | null;
   createdAt: string;
@@ -2089,7 +2089,7 @@ export async function saveUserFcmTokenOnServer(payload: {
 // REAL-TIME SERVER-SENT EVENTS (SSE) STREAM (/api/stream)
 // ==========================================
 
-export function subscribeToRealtimeStream(handlers: {
+type RealtimeStreamHandlers = {
   onNewPost?: (payload: { post?: Intent; intent?: Intent }) => void;
   onPostDeleted?: (payload: { postId?: string; id?: string }) => void;
   onNewResponse?: (payload: {
@@ -2103,58 +2103,73 @@ export function subscribeToRealtimeStream(handlers: {
     response_count?: number;
     repliers?: any[];
   }) => void;
-}): () => void {
+};
+
+let sharedEventSource: EventSource | null = null;
+let sharedReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+const streamSubscribers = new Set<RealtimeStreamHandlers>();
+
+function ensureSharedEventSource() {
+  if (typeof window === 'undefined' || typeof EventSource === 'undefined') return;
+  if (sharedEventSource || streamSubscribers.size === 0) return;
+
+  try {
+    const es = new EventSource('/api/stream');
+    sharedEventSource = es;
+
+    es.addEventListener('new_post', (event: MessageEvent) => {
+      try {
+        const data = JSON.parse(event.data || '{}');
+        streamSubscribers.forEach((h) => h.onNewPost?.(data));
+      } catch {}
+    });
+
+    es.addEventListener('post_deleted', (event: MessageEvent) => {
+      try {
+        const data = JSON.parse(event.data || '{}');
+        streamSubscribers.forEach((h) => h.onPostDeleted?.(data));
+      } catch {}
+    });
+
+    es.addEventListener('new_response', (event: MessageEvent) => {
+      try {
+        const data = JSON.parse(event.data || '{}');
+        streamSubscribers.forEach((h) => h.onNewResponse?.(data));
+      } catch {}
+    });
+
+    es.onerror = () => {
+      try {
+        es.close();
+      } catch {}
+      if (sharedEventSource === es) {
+        sharedEventSource = null;
+      }
+      if (streamSubscribers.size > 0 && !sharedReconnectTimer) {
+        sharedReconnectTimer = setTimeout(() => {
+          sharedReconnectTimer = null;
+          ensureSharedEventSource();
+        }, 1500);
+      }
+    };
+  } catch {
+    sharedEventSource = null;
+    if (streamSubscribers.size > 0 && !sharedReconnectTimer) {
+      sharedReconnectTimer = setTimeout(() => {
+        sharedReconnectTimer = null;
+        ensureSharedEventSource();
+      }, 2000);
+    }
+  }
+}
+
+export function subscribeToRealtimeStream(handlers: RealtimeStreamHandlers): () => void {
   if (typeof window === 'undefined' || typeof EventSource === 'undefined') {
     return () => {};
   }
 
-  let es: EventSource | null = null;
-  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  let closed = false;
-
-  const connect = () => {
-    if (closed) return;
-    try {
-      es = new EventSource('/api/stream');
-
-      es.addEventListener('new_post', (event: MessageEvent) => {
-        try {
-          const data = JSON.parse(event.data || '{}');
-          handlers.onNewPost?.(data);
-        } catch {}
-      });
-
-      es.addEventListener('post_deleted', (event: MessageEvent) => {
-        try {
-          const data = JSON.parse(event.data || '{}');
-          handlers.onPostDeleted?.(data);
-        } catch {}
-      });
-
-      es.addEventListener('new_response', (event: MessageEvent) => {
-        try {
-          const data = JSON.parse(event.data || '{}');
-          handlers.onNewResponse?.(data);
-        } catch {}
-      });
-
-      es.onerror = () => {
-        try {
-          es?.close();
-        } catch {}
-        es = null;
-        if (!closed) {
-          reconnectTimer = setTimeout(connect, 3500);
-        }
-      };
-    } catch {
-      if (!closed) {
-        reconnectTimer = setTimeout(connect, 4000);
-      }
-    }
-  };
-
-  connect();
+  streamSubscribers.add(handlers);
+  ensureSharedEventSource();
 
   const localRespListener = (e: Event) => {
     const custom = e as CustomEvent;
@@ -2165,12 +2180,18 @@ export function subscribeToRealtimeStream(handlers: {
   window.addEventListener('locohelp_realtime_new_response', localRespListener);
 
   return () => {
-    closed = true;
-    if (reconnectTimer) clearTimeout(reconnectTimer);
-    try {
-      es?.close();
-    } catch {}
+    streamSubscribers.delete(handlers);
     window.removeEventListener('locohelp_realtime_new_response', localRespListener);
+    if (streamSubscribers.size === 0) {
+      if (sharedReconnectTimer) {
+        clearTimeout(sharedReconnectTimer);
+        sharedReconnectTimer = null;
+      }
+      try {
+        sharedEventSource?.close();
+      } catch {}
+      sharedEventSource = null;
+    }
   };
 }
 
