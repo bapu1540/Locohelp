@@ -25,7 +25,7 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
-      hmr: process.env.DISABLE_HMR !== 'true',
+      hmr: false,
     },
     build: {
       minify: 'esbuild' as const,

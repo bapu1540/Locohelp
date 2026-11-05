@@ -2582,6 +2582,7 @@ export default function HomeScreen({
           {/* 6. Sponsored Ad Banners Section (Admin-Managed 16:9 Banners Only) */}
           <AdBannerSection 
             onOpenChat={handleSafeOpenChat}
+            categoryImages={categoryImages}
           />
 
           {/* 4. Unified Community, Guide & Vision Section (Chhote aur compact buttons) */}

@@ -2,23 +2,15 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Sparkles, 
   MessageSquare, 
-  MapPin, 
   ChevronLeft, 
   ChevronRight, 
-  ShieldCheck, 
-  Star, 
   ExternalLink,
-  Tag,
-  X,
-  Info,
-  Megaphone,
-  Lock
+  X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useLanguage } from '../i18n';
 import { Language } from '../types';
-import { fetchLiveAds } from '../api';
-import LocoHelpLogo from './LocoHelpLogo';
+import { fetchCategoryImages, getCachedCategoryImages } from '../api';
 
 export interface AdBannerItem {
   id: string;
@@ -42,18 +34,17 @@ export interface AdBannerItem {
   isPermanentOfficialBanner?: boolean;
 }
 
-// Permanent, Locked Official LocoHelp Advertisement Banner (Cannot be edited or deleted by anyone)
 export const PERMANENT_LOCOHELP_PROMO_AD: AdBannerItem = {
   id: 'locohelp_official_promo_banner',
   businessName: 'LocoHelp Official Advertisement Space',
   logo: '📢',
-  category: 'LocoHelp Official • विज्ञापन स्पेस',
-  offerBadge: '✨ ADVERTISE HERE • विज्ञापन दें',
-  offerTitle: 'आप यहाँ पर अपना विज्ञापन (Advertisement) कर सकते हैं!',
+  category: 'LocoHelp Official • જાહેરાત સ્પેસ',
+  offerBadge: '✨ ADVERTISE HERE',
+  offerTitle: 'તમારા બિઝનેસની જાહેરાત અહીં આપો!',
   description: 'Promote your Shop, Business, Showroom or Special Offers on LocoHelp!',
   photoUrl: '/assets/aistudio/advertisement_30c9824f.png',
   distance: 0.1,
-  area: 'All Local Areas • www.locohelp.com',
+  area: 'All Local Areas',
   rating: 5.0,
   reviewCount: 1000,
   isVerified: true,
@@ -62,150 +53,108 @@ export const PERMANENT_LOCOHELP_PROMO_AD: AdBannerItem = {
 
 export const DEFAULT_ADS: AdBannerItem[] = [];
 
+export interface PromoBannerSlot {
+  id: string;
+  slotNumber: number;
+  imageUrl: string;
+  linkUrl?: string;
+}
+
 const LOCALIZED_TEXTS: Record<Language, {
-  sponsored: string;
-  ad: string;
-  chatWithSeller: string;
-  inquireNow: string;
-  viewDetails: string;
-  visitStore: string;
   sectionTitle: string;
-  sectionSub: string;
-  postAdBtn: string;
-  verifiedMerchant: string;
-  away: string;
-  openLink: string;
+  adBadge: string;
+  visitLink: string;
+  chatNow: string;
 }> = {
   EN: {
-    sponsored: 'SPONSORED',
-    ad: 'AD',
-    chatWithSeller: 'Chat with Seller',
-    inquireNow: 'Inquire Now',
-    viewDetails: 'View Details',
-    visitStore: 'Visit Website / Store',
     sectionTitle: 'Sponsored Local Offers & Advertisements',
-    sectionSub: 'Auto-scrolling local advertisements & offers',
-    postAdBtn: '+ Post Your Ad',
-    verifiedMerchant: 'Verified Merchant',
-    away: 'away',
-    openLink: 'Open Link'
+    adBadge: 'AD',
+    visitLink: 'Visit Link',
+    chatNow: 'Inquire Now'
   },
   HI: {
-    sponsored: 'प्रायोजित',
-    ad: 'विज्ञापन',
-    chatWithSeller: 'दुकानदार से चैट करें',
-    inquireNow: 'पूछताछ करें',
-    viewDetails: 'विस्तार से देखें',
-    visitStore: 'स्टोर लिंक खोलें',
     sectionTitle: 'प्रायोजित लोकल ऑफर्स और विज्ञापन',
-    sectionSub: 'आपके क्षेत्र के ऑटो-स्क्रॉल विज्ञापन और ऑफर्स',
-    postAdBtn: '+ अपना विज्ञापन लगाएं',
-    verifiedMerchant: 'सत्यापित दुकानदार',
-    away: 'दूर',
-    openLink: 'लिंक खोलें'
+    adBadge: 'विज्ञापन',
+    visitLink: 'लिंक खोलें',
+    chatNow: 'पूछताछ करें'
   },
   GU: {
-    sponsored: 'પ્રાયોજિત (Ad)',
-    ad: 'જાહેરાત',
-    chatWithSeller: 'વિક્રેતા સાથે ચેટ કરો',
-    inquireNow: 'પૂછપરછ કરો',
-    viewDetails: 'વિગત જુઓ',
-    visitStore: 'સ્ટોર / લિંક જુઓ',
     sectionTitle: 'પ્રાયોજિત સ્થાનિક ઓફર્સ અને જાહેરાતો',
-    sectionSub: 'તમારા વિસ્તારની ઓટો-સ્ક્રોલ જાહેરાતો',
-    postAdBtn: '+ તમારી જાહેરાત આપો',
-    verifiedMerchant: 'વેરિફાઈડ વેપારી',
-    away: 'દૂર',
-    openLink: 'લિંક ખોલો'
+    adBadge: 'જાહેરાત',
+    visitLink: 'લિંક ખોલો',
+    chatNow: 'પૂછપરછ કરો'
   }
 };
 
 interface AdBannerSectionProps {
   onOpenChat: (intent?: any) => void;
   onOpenPostAd?: () => void;
+  categoryImages?: Record<string, string>;
 }
 
-export default function AdBannerSection({ onOpenChat, onOpenPostAd }: AdBannerSectionProps) {
+export default function AdBannerSection({ onOpenChat, categoryImages: propCategoryImages }: AdBannerSectionProps) {
   const { language } = useLanguage();
   const text = LOCALIZED_TEXTS[language] || LOCALIZED_TEXTS.EN;
 
-  const [ads, setAds] = useState<AdBannerItem[]>(() => {
-    try {
-      const saved = localStorage.getItem('locohelp_ad_banners');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
-      }
-    } catch (e) {}
-    return DEFAULT_ADS;
-  });
-
+  const [localCatImages, setLocalCatImages] = useState<Record<string, string>>(() => getCachedCategoryImages());
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isAutoPlaying, setIsAutoPlaying] = useState(true);
-  const [selectedAdForDetails, setSelectedAdForDetails] = useState<AdBannerItem | null>(null);
   const scrollTrackRef = useRef<HTMLDivElement>(null);
 
-  // Sync ads dynamically from server & localStorage
+  // Sync category images dynamically
   useEffect(() => {
     let isMounted = true;
-    const loadAds = async () => {
-      const live = await fetchLiveAds();
-      if (isMounted && Array.isArray(live)) {
-        setAds(live.filter(a => a && a.id && a.id !== PERMANENT_LOCOHELP_PROMO_AD.id));
-      }
-    };
-    loadAds();
-
-    const handleAdsUpdated = () => {
+    const loadImages = async () => {
       try {
-        const saved = localStorage.getItem('locohelp_ad_banners');
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed)) {
-            setAds(parsed.filter(a => a && a.id && a.id !== PERMANENT_LOCOHELP_PROMO_AD.id));
-          }
+        const imgs = await fetchCategoryImages();
+        if (isMounted && imgs && typeof imgs === 'object') {
+          setLocalCatImages(imgs);
         }
-      } catch (e) {}
-      loadAds();
+      } catch {}
+    };
+    loadImages();
+
+    const handleSync = () => {
+      loadImages();
     };
 
-    window.addEventListener('storage', handleAdsUpdated);
-    window.addEventListener('locohelp_ads_updated', handleAdsUpdated);
-
-    const pollInterval = setInterval(loadAds, 10000);
+    window.addEventListener('locohelp_category_images_updated', handleSync);
+    window.addEventListener('storage', handleSync);
     return () => {
       isMounted = false;
-      clearInterval(pollInterval);
-      window.removeEventListener('storage', handleAdsUpdated);
-      window.removeEventListener('locohelp_ads_updated', handleAdsUpdated);
+      window.removeEventListener('locohelp_category_images_updated', handleSync);
+      window.removeEventListener('storage', handleSync);
     };
   }, []);
 
-  // Combine the Permanent Locked LocoHelp Official Banner + all active advertisements & multi-photo slides
-  const allScrollableBanners = React.useMemo(() => {
-    const customAds = (ads || []).filter(
-      a => a && a.id && a.id !== PERMANENT_LOCOHELP_PROMO_AD.id && a.isActive !== false
-    );
-    const slides: AdBannerItem[] = [PERMANENT_LOCOHELP_PROMO_AD];
-    customAds.forEach(a => {
-      const photos = Array.isArray(a.photos) && a.photos.length > 0 ? a.photos : (a.photoUrl ? [a.photoUrl] : []);
-      if (photos.length <= 1) {
-        slides.push(a);
-      } else {
-        photos.forEach((pUrl, pIdx) => {
-          slides.push({
-            ...a,
-            id: `${a.id}_photo_${pIdx}`,
-            photoUrl: pUrl,
-            offerBadge: `${a.offerBadge || '🔥 Special Deal'} (📸 ${pIdx + 1}/${photos.length})`
-          });
+  const mergedImages = propCategoryImages || localCatImages;
+
+  // Extract uploaded 16:9 Promo Ad Banners (Slots 1 to 5)
+  const activePromoBanners: PromoBannerSlot[] = React.useMemo(() => {
+    const list: PromoBannerSlot[] = [];
+    for (let slot = 1; slot <= 5; slot++) {
+      const imgKey = `__promo_ad_banner_${slot}__`;
+      const linkKey = `__promo_ad_banner_link_${slot}__`;
+      const imgVal = mergedImages[imgKey];
+      if (imgVal && typeof imgVal === 'string' && imgVal.trim() !== '' && imgVal !== '__deleted__') {
+        const linkVal = mergedImages[linkKey];
+        list.push({
+          id: `promo_banner_${slot}`,
+          slotNumber: slot,
+          imageUrl: imgVal.trim(),
+          linkUrl: typeof linkVal === 'string' && linkVal.trim() !== '' ? linkVal.trim() : undefined
         });
       }
-    });
-    return slides;
-  }, [ads]);
+    }
+    return list;
+  }, [mergedImages]);
 
-  // Smoothly scroll the horizontal container to the active slide
+  // If NO banners are uploaded (0 banners): Return null so this section does NOT appear as empty space
+  if (activePromoBanners.length === 0) {
+    return null;
+  }
+
+  // Smoothly scroll container to active slide
   const scrollToSlide = (index: number) => {
     const container = scrollTrackRef.current;
     if (!container) return;
@@ -219,27 +168,27 @@ export default function AdBannerSection({ onOpenChat, onOpenPostAd }: AdBannerSe
     }
   };
 
-  // Auto-scroll one after another every 3.5 seconds
+  // Continuous right-to-left auto-scroll every 3.5 seconds (ONLY if 2 or more banners)
   useEffect(() => {
-    if (!isAutoPlaying || allScrollableBanners.length <= 1) return;
+    if (!isAutoPlaying || activePromoBanners.length <= 1) return;
     const interval = setInterval(() => {
       setCurrentIndex(prev => {
-        const nextIdx = (prev + 1) % allScrollableBanners.length;
+        const nextIdx = (prev + 1) % activePromoBanners.length;
         scrollToSlide(nextIdx);
         return nextIdx;
       });
     }, 3500);
     return () => clearInterval(interval);
-  }, [isAutoPlaying, allScrollableBanners.length]);
+  }, [isAutoPlaying, activePromoBanners.length]);
 
-  // Update active dot when user manually swipes/scrolls the banner track
+  // Update active dot when user manually swipes/scrolls the track
   const handleTrackScroll = () => {
     const container = scrollTrackRef.current;
-    if (!container || allScrollableBanners.length <= 1) return;
+    if (!container || activePromoBanners.length <= 1) return;
     const scrollLeft = container.scrollLeft;
     const width = container.clientWidth || 1;
     const approxIndex = Math.round(scrollLeft / width);
-    if (approxIndex >= 0 && approxIndex < allScrollableBanners.length && approxIndex !== currentIndex) {
+    if (approxIndex >= 0 && approxIndex < activePromoBanners.length && approxIndex !== currentIndex) {
       setCurrentIndex(approxIndex);
     }
   };
@@ -247,7 +196,7 @@ export default function AdBannerSection({ onOpenChat, onOpenPostAd }: AdBannerSe
   const handlePrev = (e: React.MouseEvent) => {
     e.stopPropagation();
     setIsAutoPlaying(false);
-    const prevIdx = (currentIndex - 1 + allScrollableBanners.length) % allScrollableBanners.length;
+    const prevIdx = (currentIndex - 1 + activePromoBanners.length) % activePromoBanners.length;
     setCurrentIndex(prevIdx);
     scrollToSlide(prevIdx);
   };
@@ -255,41 +204,99 @@ export default function AdBannerSection({ onOpenChat, onOpenPostAd }: AdBannerSe
   const handleNext = (e: React.MouseEvent) => {
     e.stopPropagation();
     setIsAutoPlaying(false);
-    const nextIdx = (currentIndex + 1) % allScrollableBanners.length;
+    const nextIdx = (currentIndex + 1) % activePromoBanners.length;
     setCurrentIndex(nextIdx);
     scrollToSlide(nextIdx);
   };
 
-  const handleRedirect = (ad: AdBannerItem, e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
-    const destination = ad.destinationUrl;
-
-    if (!destination || destination.trim() === '') {
-      setSelectedAdForDetails(ad);
+  const handleBannerClick = (banner: PromoBannerSlot) => {
+    if (banner.linkUrl) {
+      let target = banner.linkUrl.trim();
+      if (!/^(https?:\/\/|tel:|mailto:)/i.test(target)) {
+        target = 'https://' + target;
+      }
+      try {
+        window.open(target, '_blank', 'noopener,noreferrer');
+      } catch {
+        window.location.href = target;
+      }
       return;
     }
 
-    let targetUrl = destination.trim();
-    if (!/^https?:\/\//i.test(targetUrl)) {
-      targetUrl = 'https://' + targetUrl;
-    }
-
-    try {
-      window.open(targetUrl, '_blank', 'noopener,noreferrer');
-    } catch (err) {
-      window.location.href = targetUrl;
-    }
+    // Default action if no link: open chat inquiry for this ad
+    onOpenChat({
+      id: `intent_promo_ad_${banner.slotNumber}`,
+      authorId: `promo_admin_slot_${banner.slotNumber}`,
+      sellerName: `LocoHelp Ad Sponsor #${banner.slotNumber}`,
+      authorName: `LocoHelp Ad Sponsor #${banner.slotNumber}`,
+      description: `Inquiry for Sponsored Advertisement Banner #${banner.slotNumber}`,
+      tags: ['Advertisement', 'Offer'],
+      distance: 0.1,
+      status: 'active',
+      createdAt: new Date().toISOString()
+    });
   };
 
-  const getDestinationBadgeLabel = (url?: string) => {
-    if (!url) return text.visitStore;
+  const getLinkBadgeLabel = (url?: string) => {
+    if (!url) return text.visitLink;
     const lower = url.toLowerCase();
-    if (lower.includes('wa.me') || lower.includes('whatsapp.com')) return 'WhatsApp Chat ↗';
-    if (lower.includes('instagram.com')) return 'Instagram Page ↗';
-    if (lower.includes('facebook.com')) return 'Facebook Page ↗';
-    return text.visitStore + ' ↗';
+    if (lower.includes('wa.me') || lower.includes('whatsapp.com')) return 'WhatsApp ↗';
+    if (lower.includes('instagram.com')) return 'Instagram ↗';
+    if (lower.includes('facebook.com')) return 'Facebook ↗';
+    if (lower.startsWith('tel:')) return 'Call Now 📞';
+    return text.visitLink + ' ↗';
   };
 
+  // =========================================================================
+  // SCENARIO 1: EXACTLY 1 BANNER UPLOADED (Fixed, 16:9, NO SCROLL)
+  // =========================================================================
+  if (activePromoBanners.length === 1) {
+    const singleBanner = activePromoBanners[0];
+    return (
+      <div className="space-y-2 select-none w-full max-w-4xl mx-auto">
+        {/* Section Header */}
+        <div className="flex items-center justify-between px-1 gap-2">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0"></span>
+            <span className="text-[11px] sm:text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-200 flex items-center gap-1 leading-snug break-words">
+              <Sparkles className="w-3.5 h-3.5 text-amber-500 fill-amber-500 shrink-0" />
+              <span>{text.sectionTitle}</span>
+            </span>
+          </div>
+
+          <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 shrink-0">
+            ✨ {text.adBadge} (16:9)
+          </span>
+        </div>
+
+        {/* Single Fixed 16:9 Banner */}
+        <div
+          onClick={() => handleBannerClick(singleBanner)}
+          className="w-full aspect-video rounded-2xl overflow-hidden border-2 border-amber-400/80 shadow-lg bg-slate-900 relative group cursor-pointer transition-transform duration-300 hover:shadow-xl"
+          title={singleBanner.linkUrl ? `Click to open: ${singleBanner.linkUrl}` : text.sectionTitle}
+        >
+          <img
+            src={singleBanner.imageUrl}
+            alt="Sponsored Local Offer & Advertisement"
+            className="w-full h-full object-cover object-center"
+            loading="lazy"
+            decoding="async"
+          />
+
+          {singleBanner.linkUrl && (
+            <div className="absolute bottom-2.5 right-2.5 bg-black/75 backdrop-blur-xs text-white text-[10px] font-black px-2.5 py-1 rounded-xl border border-white/25 flex items-center gap-1 shadow-md group-hover:scale-105 transition-transform">
+              <ExternalLink className="w-3 h-3 text-cyan-400 shrink-0" />
+              <span>{getLinkBadgeLabel(singleBanner.linkUrl)}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // =========================================================================
+  // SCENARIO 2: 2 TO 5 BANNERS UPLOADED (Smooth Right-to-Left Auto-Scroll)
+  // =========================================================================
   return (
     <div
       className="space-y-2 select-none w-full max-w-4xl mx-auto"
@@ -298,7 +305,7 @@ export default function AdBannerSection({ onOpenChat, onOpenPostAd }: AdBannerSe
       onTouchStart={() => setIsAutoPlaying(false)}
       onTouchEnd={() => setTimeout(() => setIsAutoPlaying(true), 4000)}
     >
-      {/* Header with Title, Badge & Scroll Controls */}
+      {/* Header with Title, Active Dots & Scroll Controls */}
       <div className="flex items-center justify-between px-1 gap-2">
         <div className="flex items-center gap-1.5 min-w-0">
           <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping shrink-0"></span>
@@ -311,9 +318,9 @@ export default function AdBannerSection({ onOpenChat, onOpenPostAd }: AdBannerSe
         <div className="flex items-center gap-1.5 shrink-0">
           {/* Dots Indicator */}
           <div className="flex items-center gap-1 mr-1">
-            {allScrollableBanners.map((item, idx) => (
+            {activePromoBanners.map((item, idx) => (
               <button
-                key={item.id || idx}
+                key={item.id}
                 onClick={(e) => {
                   e.stopPropagation();
                   setIsAutoPlaying(false);
@@ -322,243 +329,76 @@ export default function AdBannerSection({ onOpenChat, onOpenPostAd }: AdBannerSe
                 }}
                 className={`transition-all rounded-full cursor-pointer ${
                   idx === currentIndex
-                    ? 'w-4 h-1.5 bg-indigo-600 dark:bg-indigo-400'
+                    ? 'w-4 h-1.5 bg-amber-500 dark:bg-amber-400'
                     : 'w-1.5 h-1.5 bg-slate-300 dark:bg-slate-700 hover:bg-slate-400'
                 }`}
-                title={`Slide ${idx + 1}`}
-                aria-label={`Go to slide ${idx + 1}`}
+                title={`Banner ${idx + 1}`}
+                aria-label={`Go to banner ${idx + 1}`}
               />
             ))}
           </div>
 
-          {allScrollableBanners.length > 1 && (
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={handlePrev}
-                className="p-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 cursor-pointer"
-                title="Previous Banner"
-              >
-                <ChevronLeft className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={handleNext}
-                className="p-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 cursor-pointer"
-                title="Next Banner"
-              >
-                <ChevronRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          )}
+          {/* Prev / Next Arrows */}
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={handlePrev}
+              className="p-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 cursor-pointer shadow-2xs"
+              title="Previous Banner"
+              aria-label="Previous Banner"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={handleNext}
+              className="p-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 cursor-pointer shadow-2xs"
+              title="Next Banner"
+              aria-label="Next Banner"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Horizontal Auto-Scrolling & Swipeable Advertisement Track */}
+      {/* Horizontal Auto-Scrolling 16:9 Banner Track (Right to Left continuous flow) */}
       <div
         ref={scrollTrackRef}
         onScroll={handleTrackScroll}
         className="flex items-center gap-3 overflow-x-auto snap-x snap-mandatory scroll-smooth scrollbar-hide pb-1"
       >
-        {allScrollableBanners.map((adItem) => {
-          // 1. PERMANENT LOCKED LOCOHELP OFFICIAL ADVERTISEMENT BANNER (Clicking opens Admin Contact Email support@locohelp.com)
-          if (adItem.isPermanentOfficialBanner) {
-            const bannerImg = adItem.photoUrl || '/assets/aistudio/advertisement_30c9824f.png';
-            return (
-              <a
-                key={adItem.id}
-                data-ad-slide="true"
-                href="mailto:support@locohelp.com?subject=LocoHelp%20Sponsored%20Advertisement%20Inquiry&body=Namaste%20LocoHelp%20Admin,%0A%0AI%20want%20to%20place%20an%20advertisement%20banner%20for%20my%20business%20on%20LocoHelp."
-                title="Click to email Admin (support@locohelp.com) to place your Advertisement"
-                className="w-full shrink-0 snap-center relative aspect-video overflow-hidden rounded-xl bg-slate-900 border-2 border-amber-400/80 shadow-lg flex items-center justify-center cursor-pointer"
-              >
-                <img
-                  src={bannerImg}
-                  alt="LocoHelp Official Advertisement Banner"
-                  className="w-full h-full object-contain sm:object-cover object-center"
-                  loading="lazy"
-                  decoding="async"
-                />
-              </a>
-            );
-          }
-
-          // 2. USER / ADMIN ADDED ADVERTISEMENT BANNERS (Displayed in the exact same clean 16:9 full-photo banner layout as the main banner)
-          const activeSlidePhoto =
-            adItem.photoUrl ||
-            (Array.isArray(adItem.photos) && adItem.photos.length > 0 ? adItem.photos[0] : '');
-
-          return (
-            <div
-              key={adItem.id}
-              data-ad-slide="true"
-              onClick={() => setSelectedAdForDetails(adItem)}
-              className="w-full shrink-0 snap-center relative aspect-video overflow-hidden rounded-xl bg-slate-900 border-2 border-amber-400/80 shadow-lg flex items-center justify-center cursor-pointer group"
-              title={adItem.businessName || 'Click to view full ad details'}
-            >
-              {activeSlidePhoto ? (
-                <img
-                  src={activeSlidePhoto}
-                  alt={adItem.businessName || 'Sponsored Advertisement'}
-                  className="w-full h-full object-contain sm:object-cover object-center transition-transform duration-300"
-                  loading="lazy"
-                  decoding="async"
-                />
-              ) : (
-                <div className="w-full h-full flex flex-col items-center justify-center p-4 text-center bg-gradient-to-br from-amber-500 via-orange-500 to-indigo-600 text-white">
-                  <span className="text-3xl mb-1">{adItem.logo || '🏪'}</span>
-                  <h3 className="text-base sm:text-lg font-black line-clamp-2">{adItem.businessName}</h3>
-                  {adItem.offerTitle && (
-                    <p className="text-xs sm:text-sm font-bold text-amber-100 mt-1 line-clamp-2">{adItem.offerTitle}</p>
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      {/* ========================================================= */}
-      {/* AD DETAILS MODAL                                          */}
-      {/* ========================================================= */}
-      <AnimatePresence>
-        {selectedAdForDetails && !selectedAdForDetails.isPermanentOfficialBanner && (
+        {activePromoBanners.map((b, idx) => (
           <div
-            className="fixed inset-x-0 bottom-0 top-[52px] z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/65 backdrop-blur-xs"
-            style={{ position: 'fixed', top: '52px', left: 0, right: 0, bottom: 0, zIndex: 5000 }}
+            key={b.id}
+            data-ad-slide="true"
+            onClick={() => handleBannerClick(b)}
+            className="w-full shrink-0 snap-center relative aspect-video overflow-hidden rounded-2xl bg-slate-900 border-2 border-amber-400/80 shadow-lg flex items-center justify-center cursor-pointer group"
+            title={b.linkUrl ? `Click to open: ${b.linkUrl}` : `Sponsored Advertisement ${idx + 1}`}
           >
-            <motion.div
-              initial={{ opacity: 0, y: 80, scale: 0.96 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 80, scale: 0.96 }}
-              className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-t-[32px] sm:rounded-3xl shadow-2xl border border-amber-200 dark:border-slate-800 max-h-[85vh] flex flex-col overflow-hidden"
-            >
-              <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800 bg-amber-50/60 dark:bg-slate-850">
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-ping"></span>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-500 text-white">
-                      ★ {text.sponsored}
-                    </span>
-                    <span className="text-xs font-extrabold text-slate-800 dark:text-slate-200">
-                      {selectedAdForDetails.category}
-                    </span>
-                  </div>
-                </div>
+            <img
+              src={b.imageUrl}
+              alt={`Sponsored Advertisement ${idx + 1}`}
+              className="w-full h-full object-cover object-center transition-transform duration-300 group-hover:scale-[1.01]"
+              loading="lazy"
+              decoding="async"
+            />
 
-                <button
-                  onClick={() => setSelectedAdForDetails(null)}
-                  className="p-2 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
-                >
-                  <X className="w-5 h-5" />
-                </button>
+            {/* Optional Target Link Overlay Badge */}
+            {b.linkUrl && (
+              <div className="absolute bottom-2.5 right-2.5 bg-black/75 backdrop-blur-xs text-white text-[10px] font-black px-2.5 py-1 rounded-xl border border-white/25 flex items-center gap-1 shadow-md group-hover:scale-105 transition-transform">
+                <ExternalLink className="w-3 h-3 text-cyan-400 shrink-0" />
+                <span>{getLinkBadgeLabel(b.linkUrl)}</span>
               </div>
+            )}
 
-              <div className="overflow-y-auto p-5 space-y-4 flex-1">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 text-white flex items-center justify-center text-2xl shadow-md shrink-0">
-                      {selectedAdForDetails.logo}
-                    </div>
-                    <div>
-                      <h3 className="text-base sm:text-lg md:text-xl font-bold text-slate-900 dark:text-white leading-snug break-words">
-                        {selectedAdForDetails.businessName}
-                      </h3>
-                      <div className="flex flex-wrap items-center gap-2 mt-1">
-                        {selectedAdForDetails.isVerified && (
-                          <span className="text-[10px] font-bold text-emerald-800 dark:text-emerald-200 bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-200 dark:border-emerald-800 px-2 py-0.5 rounded-md flex items-center gap-1">
-                            <ShieldCheck className="w-3 h-3 text-emerald-600" />
-                            <span>{text.verifiedMerchant}</span>
-                          </span>
-                        )}
-                        <span className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
-                          <MapPin className="w-3.5 h-3.5 text-indigo-500" />
-                          <span>{selectedAdForDetails.area}</span>
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {(() => {
-                  const modalGallery = Array.isArray(selectedAdForDetails.photos) && selectedAdForDetails.photos.length > 0
-                    ? selectedAdForDetails.photos
-                    : (selectedAdForDetails.photoUrl ? [selectedAdForDetails.photoUrl] : []);
-                  if (!modalGallery.length) return null;
-
-                  if (modalGallery.length === 1) {
-                    return (
-                      <div className="w-full aspect-video overflow-hidden rounded-xl bg-gray-900/5 relative border border-slate-200 dark:border-slate-700 shadow-md">
-                        <img
-                          src={modalGallery[0]}
-                          alt={selectedAdForDetails.businessName}
-                          loading="lazy"
-                          decoding="async"
-                          className="w-full h-full object-cover object-center"
-                        />
-                      </div>
-                    );
-                  }
-
-                  return (
-                    <div className="flex gap-2 overflow-x-auto snap-x snap-mandatory scrollbar-hide rounded-xl pb-1">
-                      {modalGallery.map((mUrl, mIdx) => (
-                        <div
-                          key={mIdx}
-                          className="min-w-[85%] sm:min-w-[75%] snap-start w-full aspect-video overflow-hidden rounded-xl bg-gray-900/5 relative border-2 border-amber-300 dark:border-slate-700 shadow-md shrink-0"
-                        >
-                          <img
-                            src={mUrl}
-                            alt={`${selectedAdForDetails.businessName} ${mIdx + 1}`}
-                            loading="lazy"
-                            decoding="async"
-                            className="w-full h-full object-cover object-center"
-                          />
-                          <span className="absolute bottom-2 right-2 bg-black/70 backdrop-blur-xs text-white text-[10px] font-black px-2 py-0.5 rounded-lg border border-white/20">
-                            Photo {mIdx + 1} of {modalGallery.length}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  );
-                })()}
-
-                <div className="bg-amber-50/70 dark:bg-slate-800/80 border border-amber-200/80 dark:border-slate-700 rounded-2xl p-4 space-y-2">
-                  <h4 className="text-sm sm:text-base font-black text-slate-900 dark:text-white leading-snug">
-                    {selectedAdForDetails.offerTitle}
-                  </h4>
-                  <p className="text-xs sm:text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
-                    {selectedAdForDetails.description}
-                  </p>
-                </div>
-              </div>
-
-              <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-850 flex items-center justify-center">
-                <button
-                  onClick={() => {
-                    onOpenChat({
-                      id: 'intent_ad_' + selectedAdForDetails.id,
-                      authorId: selectedAdForDetails.id,
-                      sellerName: selectedAdForDetails.businessName,
-                      authorName: selectedAdForDetails.businessName,
-                      description: `Inquiring for "${selectedAdForDetails.businessName}" (${selectedAdForDetails.offerTitle})`,
-                      tags: [selectedAdForDetails.category],
-                      distance: selectedAdForDetails.distance,
-                      status: 'active',
-                      createdAt: new Date().toISOString()
-                    });
-                    setSelectedAdForDetails(null);
-                  }}
-                  className="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-sm rounded-xl flex items-center justify-center gap-2 shadow-md shadow-indigo-600/20 active:scale-95 transition-all cursor-pointer"
-                >
-                  <MessageSquare className="w-4.5 h-4.5" />
-                  <span>{language === 'EN' ? 'Chat on App Screen' : language === 'GU' ? 'એપની ચેટ સ્ક્રીન પર વાત કરો' : 'ऐप की चैट स्क्रीन पर बात करें'}</span>
-                </button>
-              </div>
-            </motion.div>
+            {/* Slide Index Pill */}
+            <div className="absolute top-2.5 right-2.5 bg-black/70 backdrop-blur-xs text-amber-300 text-[9px] font-black px-2 py-0.5 rounded-md border border-amber-400/30">
+              16:9 • {idx + 1}/{activePromoBanners.length}
+            </div>
           </div>
-        )}
-      </AnimatePresence>
+        ))}
+      </div>
     </div>
   );
 }

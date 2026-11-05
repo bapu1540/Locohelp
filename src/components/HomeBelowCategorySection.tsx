@@ -74,6 +74,7 @@ export interface ShowcaseProviderItem {
   userId?: string;
   email?: string;
   isVerified?: boolean;
+  isPhonePublic?: boolean;
 }
 
 export const DEFAULT_SHOWCASE_PROVIDERS: ShowcaseProviderItem[] = [];
@@ -295,14 +296,23 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
             `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(prov.name)}`;
           const catKey = String(prov.categoryId || prov.category || 'electrician');
           const matchedCat = CATEGORIES.find((c) => c.id === catKey);
-          const customSkill =
+          
+          // Check customCategoryName or first skill, ignoring generic words like 'all', 'other', 'general', 'helper', 'સર્વિસ', 'બધા'
+          const rawCustom = String(
             prov.customCategoryName ||
-            (Array.isArray(prov.skills) && prov.skills[0] && prov.skills[0] !== 'other'
-              ? prov.skills[0]
-              : '');
-          const roleGu = customSkill || matchedCat?.nameGu || 'સેવા નિષ્ણાત';
-          const roleHi = customSkill || matchedCat?.nameHi || 'सेवा विशेषज्ञ';
-          const roleEn = customSkill || matchedCat?.nameEn || 'Service Expert';
+            (Array.isArray(prov.skills) && prov.skills[0] ? prov.skills[0] : '')
+          ).trim();
+          const isGenericCustom = !rawCustom || ['all', 'other', 'general', 'helper', 'service', 'સર્વિસ', 'બધા', 'સેવા'].includes(rawCustom.toLowerCase());
+          const validCustom = isGenericCustom ? '' : rawCustom;
+
+          // If matchedCat is a recognized specific category (like plumber, electrician), use its localized name
+          const roleGu = (matchedCat && matchedCat.id !== 'other' ? matchedCat.nameGu : validCustom) || matchedCat?.nameGu || validCustom || 'સેવા નિષ્ણાત';
+          const roleHi = (matchedCat && matchedCat.id !== 'other' ? matchedCat.nameHi : validCustom) || matchedCat?.nameHi || validCustom || 'सेवा विशेषज्ञ';
+          const roleEn = (matchedCat && matchedCat.id !== 'other' ? matchedCat.nameEn : validCustom) || matchedCat?.nameEn || validCustom || 'Service Expert';
+          
+          const rawPhone = String(prov.phone || '').trim();
+          const isPhoneAvailable = Boolean(rawPhone && rawPhone !== '9876543210' && prov.isPhonePublic !== false);
+
           return {
             id: String(prov.id || `live-prov-${idx}`),
             userId: String(prov.userId || prov.user_id || prov.id || ''),
@@ -321,7 +331,8 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
             distance: dist,
             avatar,
             avatarUrl: avatar,
-            phone: prov.phone || '',
+            phone: isPhoneAvailable ? rawPhone : '',
+            isPhonePublic: isPhoneAvailable,
             areaGu: prov.area || selectedCityName || 'ગાંધીનગર',
             areaHi: prov.area || selectedCityName || 'गांधीनगर',
             areaEn: prov.area || selectedCityName || 'Local Area',
@@ -940,32 +951,59 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
                       </div>
                     </div>
 
-                    <a
-                      href={item.phone ? `tel:${item.phone}` : undefined}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (!item.phone) {
-                          e.preventDefault();
+                    {item.isPhonePublic && item.phone ? (
+                      <a
+                        href={`tel:${item.phone}`}
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                          width: '26px',
+                          height: '26px',
+                          borderRadius: '9999px',
+                          backgroundColor: '#16a34a',
+                          color: '#ffffff',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexShrink: 0,
+                          textDecoration: 'none',
+                          boxShadow: '0 1px 2px rgba(22,163,74,0.25)',
+                        }}
+                        title={`Call ${name}`}
+                      >
+                        <Phone className="w-3.5 h-3.5" />
+                      </a>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
                           setSelectedProviderProfile(item);
+                        }}
+                        style={{
+                          width: '26px',
+                          height: '26px',
+                          borderRadius: '9999px',
+                          backgroundColor: '#0284c7',
+                          color: '#ffffff',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexShrink: 0,
+                          border: 'none',
+                          cursor: 'pointer',
+                          boxShadow: '0 1px 2px rgba(2,132,199,0.25)',
+                        }}
+                        title={
+                          language === 'GU'
+                            ? 'મોબાઇલ નંબર માટે વિનંતી કરો'
+                            : language === 'HI'
+                            ? 'मोबाइल नंबर के लिए अनुरोध करें'
+                            : 'Request Mobile Number'
                         }
-                      }}
-                      style={{
-                        width: '26px',
-                        height: '26px',
-                        borderRadius: '9999px',
-                        backgroundColor: '#16a34a',
-                        color: '#ffffff',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        flexShrink: 0,
-                        textDecoration: 'none',
-                        boxShadow: '0 1px 2px rgba(22,163,74,0.25)',
-                      }}
-                      title={`Call ${name}`}
-                    >
-                      <Phone className="w-3.5 h-3.5" />
-                    </a>
+                      >
+                        <Phone className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
 
                   {/* Bottom Row: Direct Message / Chat Button */}
@@ -973,14 +1011,29 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
+                      const provTargetId = item.userId || item.id;
+                      const provPhoneDigits = String(item.phone || '').replace(/\D/g, '').slice(-10);
+                      const provEmail = item.email || (provPhoneDigits ? `${provPhoneDigits}@phone.locohelp.com` : '');
                       onOpenDirectChat({
-                        id: item.userId || item.id,
-                        name: name,
-                        role: role,
+                        id: `provider_chat_${item.id}`,
+                        authorId: provTargetId,
+                        authorEmail: provEmail,
+                        authorPhone: item.phone || '',
                         phone: item.phone || '',
-                        email: item.email || '',
-                        categoryKey: item.categoryKey,
-                        avatar: item.avatar,
+                        authorName: name,
+                        providerHelperId: item.id,
+                        receiverId: provTargetId,
+                        isDirectProviderChat: true,
+                        isViewerPostOwner: false,
+                        description:
+                          language === 'GU'
+                            ? `${name} (${role}) સાથે સીધી વાતચીત`
+                            : `${name} (${role}) Direct Inquiry`,
+                        category: item.categoryKey,
+                        location: item.areaEn || 'Local Area',
+                        distance: Number(item.distance) || 0.5,
+                        status: 'active',
+                        createdAt: new Date().toISOString(),
                       });
                     }}
                     style={{
@@ -1714,31 +1767,102 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
                     marginBottom: '10px',
                   }}
                 >
-                  <a
-                    href={`tel:${selectedProviderProfile.phone || '9876543210'}`}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '6px',
-                      padding: '11px 12px',
-                      borderRadius: '12px',
-                      backgroundColor: '#16a34a',
-                      color: '#ffffff',
-                      fontSize: '12.5px',
-                      fontWeight: 900,
-                      textDecoration: 'none',
-                    }}
-                  >
-                    <Phone className="w-4 h-4 fill-white" />
-                    <span>
-                      {language === 'GU'
-                        ? 'ડાયરેક્ટ કોલ કરો'
-                        : language === 'HI'
-                        ? 'डायरेक्ट कॉल करें'
-                        : 'Call Now'}
-                    </span>
-                  </a>
+                  {selectedProviderProfile.isPhonePublic && selectedProviderProfile.phone ? (
+                    <a
+                      href={`tel:${selectedProviderProfile.phone}`}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '6px',
+                        padding: '11px 12px',
+                        borderRadius: '12px',
+                        backgroundColor: '#16a34a',
+                        color: '#ffffff',
+                        fontSize: '12.5px',
+                        fontWeight: 900,
+                        textDecoration: 'none',
+                      }}
+                    >
+                      <Phone className="w-4 h-4 fill-white" />
+                      <span>
+                        {language === 'GU'
+                          ? 'ડાયરેક્ટ કોલ કરો'
+                          : language === 'HI'
+                          ? 'डायरेक्ट कॉल करें'
+                          : 'Call Now'}
+                      </span>
+                    </a>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const prov = selectedProviderProfile;
+                        setSelectedProviderProfile(null);
+                        const provTargetId = prov.userId || prov.id;
+                        const provPhoneDigits = String(prov.phone || '').replace(/\D/g, '').slice(-10);
+                        const provEmail = prov.email || (provPhoneDigits ? `${provPhoneDigits}@phone.locohelp.com` : '');
+                        onOpenDirectChat({
+                          id: `provider_chat_${prov.id}`,
+                          authorId: provTargetId,
+                          authorEmail: provEmail,
+                          authorPhone: prov.phone || '',
+                          phone: prov.phone || '',
+                          authorName:
+                            language === 'GU'
+                              ? prov.nameGu
+                              : language === 'HI'
+                              ? prov.nameHi
+                              : prov.nameEn,
+                          providerHelperId: prov.id,
+                          receiverId: provTargetId,
+                          isDirectProviderChat: true,
+                          isViewerPostOwner: false,
+                          initialAction: 'request_phone',
+                          description:
+                            language === 'GU'
+                              ? `${prov.nameGu} (${prov.roleGu}) સાથે સીધી વાતચીત`
+                              : `${prov.nameEn} (${prov.roleEn}) Direct Inquiry`,
+                          category: prov.categoryKey,
+                          location: prov.areaEn || 'Local Area',
+                          distance: Number(prov.distance) || 0.5,
+                          status: 'active',
+                          createdAt: new Date().toISOString(),
+                        });
+                      }}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '5px',
+                        padding: '11px 8px',
+                        borderRadius: '12px',
+                        backgroundColor: '#0284c7',
+                        color: '#ffffff',
+                        fontSize: '12px',
+                        fontWeight: 900,
+                        border: 'none',
+                        cursor: 'pointer',
+                        textAlign: 'center',
+                      }}
+                      title={
+                        language === 'GU'
+                          ? 'મોબાઇલ નંબર માટે વિનંતી કરો'
+                          : language === 'HI'
+                          ? 'मोबाइल नंबर के लिए अनुरोध करें'
+                          : 'Request Mobile Number'
+                      }
+                    >
+                      <Phone className="w-3.5 h-3.5 fill-white" />
+                      <span>
+                        {language === 'GU'
+                          ? '📞 નંબર વિનંતી કરો'
+                          : language === 'HI'
+                          ? '📞 नंबर अनुरोध'
+                          : '📞 Request Number'}
+                      </span>
+                    </button>
+                  )}
 
                   <button
                     type="button"

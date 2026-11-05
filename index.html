@@ -68,7 +68,7 @@
     <meta name="google-signin-client_id" content="547738120834-43c97ifmhguemiqcp2b8lgllffqf55p1.apps.googleusercontent.com" />
 
     <!-- Google Analytics 4 (GA4) - Single Load & Privacy Safe -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-ZN184GR1M9"></script>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-ZN184GR1M9" onerror="this.onerror=null;"></script>
     <script>
       if (!window.__LOCOHELP_GA_INITIALIZED__) {
         window.__LOCOHELP_GA_INITIALIZED__ = true;
@@ -127,7 +127,7 @@
             });
           }).catch(function() {});
         }
-        if ('serviceWorker' in navigator) {
+        if ('serviceWorker' in navigator && window.self === window.top) {
           window.addEventListener('load', function() {
             fetch('/firebase-messaging-sw.js', { cache: 'no-store' })
               .then(function(res) {
@@ -168,7 +168,14 @@
 
       window.addEventListener('error', function(e) {
         var msg = String((e && (e.message || (e.error && e.error.message))) || '');
-        if (msg.indexOf('ServiceWorker') !== -1 || msg.indexOf('sw.js') !== -1) {
+        if (
+          msg.indexOf('ServiceWorker') !== -1 ||
+          msg.indexOf('sw.js') !== -1 ||
+          msg.indexOf('websocket') !== -1 ||
+          msg.indexOf('WebSocket') !== -1 ||
+          msg.indexOf('gtag') !== -1 ||
+          msg.indexOf('gsi') !== -1
+        ) {
           e.preventDefault();
           return;
         }
@@ -177,7 +184,12 @@
 
       window.addEventListener('unhandledrejection', function(e) {
         var reasonStr = String((e && e.reason && (e.reason.message || e.reason)) || '');
-        if (reasonStr.indexOf('ServiceWorker') !== -1 || reasonStr.indexOf('sw.js') !== -1) {
+        if (
+          reasonStr.indexOf('ServiceWorker') !== -1 ||
+          reasonStr.indexOf('sw.js') !== -1 ||
+          reasonStr.indexOf('websocket') !== -1 ||
+          reasonStr.indexOf('WebSocket') !== -1
+        ) {
           e.preventDefault();
           return;
         }
@@ -185,7 +197,7 @@
     </script>
 
     <!-- Google Identity Services -->
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <script src="https://accounts.google.com/gsi/client" async defer onerror="this.onerror=null;"></script>
   </head>
   <body class="bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100">
     <!-- Animated PWA Startup Splash Screen (Official LocoHelp Logo & Brand Typography) -->

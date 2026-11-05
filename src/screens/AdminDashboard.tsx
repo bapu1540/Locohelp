@@ -427,6 +427,131 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
     await handleResetLanguageHeroBanner('gu');
   };
 
+  // =========================================================================
+  // 5 DEDICATED 16:9 PROMO AD BANNERS ("Sponsored Local Offers & Advertisements")
+  // =========================================================================
+  const [uploadingPromoAdSlot, setUploadingPromoAdSlot] = useState<number | null>(null);
+  const [editingPromoAdSlot, setEditingPromoAdSlot] = useState<number | null>(null);
+  const [promoAdCustomUrlInput, setPromoAdCustomUrlInput] = useState('');
+  const [promoAdCustomLinkInput, setPromoAdCustomLinkInput] = useState('');
+
+  const handleUploadPromoAdBanner = async (
+    slotIndex: number,
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const storageKey = `__promo_ad_banner_${slotIndex}__`;
+    setUploadingPromoAdSlot(slotIndex);
+    try {
+      const check = await validateUploadedFile(file, { allowPdf: false, maxSizeBytes: 25 * 1024 * 1024 });
+      if (!check.valid) {
+        showToast(check.error || 'અમાન્ય ઈમેજ ફાઇલ (JPG, PNG અથવા WebP પસંદ કરો)');
+        return;
+      }
+      let compressedUrl: string;
+      try {
+        compressedUrl = await compressImageToWebP(file, { maxWidth: 1920, maxHeight: 1080, quality: 0.85, folder: 'banners' });
+      } catch (_compErr) {
+        compressedUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || ''));
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+      }
+      const res = await saveCategoryImageOnServer(storageKey, compressedUrl);
+      if (res.success) {
+        const finalUrl = (res.images && res.images[storageKey]) || res.imageUrl || compressedUrl;
+        setCategoryImages(prev => ({
+          ...prev,
+          [storageKey]: finalUrl
+        }));
+        try {
+          window.dispatchEvent(new CustomEvent('locohelp_category_images_updated'));
+        } catch {}
+        showToast(`✅ સ્લોટ ${slotIndex} નું 16:9 જાહેરાત બેનર સફળતાપૂર્વક અપલોડ થયું!`);
+      } else {
+        showToast(res.error || 'બેનર અપડેટ કરવામાં ક્ષતિ આવી');
+      }
+    } catch (err: any) {
+      showToast(err?.message || 'બેનર અપલોડ કરવામાં સમસ્યા આવી');
+    } finally {
+      setUploadingPromoAdSlot(null);
+      e.target.value = '';
+    }
+  };
+
+  const handleDeletePromoAdBanner = async (slotIndex: number) => {
+    const storageKey = `__promo_ad_banner_${slotIndex}__`;
+    const linkKey = `__promo_ad_banner_link_${slotIndex}__`;
+    setUploadingPromoAdSlot(slotIndex);
+    try {
+      const res = await deleteCategoryImageOnServer(storageKey);
+      await deleteCategoryImageOnServer(linkKey).catch(() => {});
+      if (res.success) {
+        setCategoryImages(prev => {
+          const next = { ...prev };
+          delete next[storageKey];
+          delete next[linkKey];
+          return next;
+        });
+        try {
+          window.dispatchEvent(new CustomEvent('locohelp_category_images_updated'));
+        } catch {}
+        showToast(`🗑️ સ્લોટ ${slotIndex} નું જાહેરાત બેનર હટાવી દીધું!`);
+      } else {
+        showToast(res.error || 'બેનર ડિલીટ કરવામાં ક્ષતિ આવી');
+      }
+    } catch (err: any) {
+      showToast(err?.message || 'Error deleting ad banner');
+    } finally {
+      setUploadingPromoAdSlot(null);
+    }
+  };
+
+  const handleSavePromoAdCustomValues = async (slotIndex: number) => {
+    const storageKey = `__promo_ad_banner_${slotIndex}__`;
+    const linkKey = `__promo_ad_banner_link_${slotIndex}__`;
+    const cleanImgUrl = promoAdCustomUrlInput.trim();
+    const cleanLinkUrl = promoAdCustomLinkInput.trim();
+
+    if (!cleanImgUrl) {
+      showToast('કૃપા કરીને માન્ય ઈમેજ URL દાખલ કરો');
+      return;
+    }
+
+    setUploadingPromoAdSlot(slotIndex);
+    try {
+      const resImg = await saveCategoryImageOnServer(storageKey, cleanImgUrl);
+      if (cleanLinkUrl) {
+        await saveCategoryImageOnServer(linkKey, cleanLinkUrl).catch(() => {});
+      } else {
+        await deleteCategoryImageOnServer(linkKey).catch(() => {});
+      }
+
+      if (resImg.success) {
+        const finalUrl = (resImg.images && resImg.images[storageKey]) || resImg.imageUrl || cleanImgUrl;
+        setCategoryImages(prev => ({
+          ...prev,
+          [storageKey]: finalUrl,
+          ...(cleanLinkUrl ? { [linkKey]: cleanLinkUrl } : {})
+        }));
+        try {
+          window.dispatchEvent(new CustomEvent('locohelp_category_images_updated'));
+        } catch {}
+        showToast(`✅ સ્લોટ ${slotIndex} ની વિગતો સેવ થઈ ગઈ!`);
+        setEditingPromoAdSlot(null);
+      } else {
+        showToast(resImg.error || 'સેવ કરવામાં ક્ષતિ આવી');
+      }
+    } catch (err: any) {
+      showToast(err?.message || 'Error saving values');
+    } finally {
+      setUploadingPromoAdSlot(null);
+    }
+  };
+
   // Action Loading States
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
@@ -4679,143 +4804,284 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
               </button>
             </div>
 
-            {/* Home Page Main Hero Banner Changer inside Ads & Banners Module */}
-            <div className="rounded-3xl bg-gradient-to-br from-blue-950/90 via-[#111827] to-indigo-950/80 border-2 border-cyan-500/40 p-5 sm:p-6 shadow-xl space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-4">
+            {/* Dedicated 5-Slot 16:9 Banner Management for "Promote Your Business / Sponsored Local Offers & Advertisements" */}
+            <div className="rounded-3xl bg-gradient-to-br from-amber-950/40 via-[#111827] to-slate-900 border-2 border-amber-500/40 p-5 sm:p-6 shadow-xl space-y-6">
+              <div className="flex flex-wrap items-center justify-between gap-4 border-b border-amber-500/20 pb-4">
                 <div>
-                  <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
-                    🖼️ હોમ પેજ મેઈન બેનર (LocoHelp Logo નીચે / સર્ચ બાર ઉપર)
-                  </span>
-                  <h3 className="text-base sm:text-lg font-black text-white mt-1">
-                    હોમ પેજ મેઈન બેનર અપલોડ, એડિટ અથવા ડીલીટ કરો
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                      📢 હોમ પેજ જાહેરાત બેનર્સ (16:9 Aspect Ratio)
+                    </span>
+                    <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">
+                      લાઇવ બ્રોડકાસ્ટ પોસ્ટ્સ નીચે
+                    </span>
+                  </div>
+                  <h3 className="text-base sm:text-xl font-black text-white mt-2">
+                    પ્રાયોજિત સ્થાનિક ઓફર અને જાહેરાતો (વધુમાં વધુ 5 બેનર)
                   </h3>
-                  <p className="text-xs text-slate-300 font-medium">
-                    અહીંથી અપલોડ કરેલો ફોટો હોમ પેજ પર LocoHelp લોગોની નીચે અને સર્ચ બારની ઉપર દરેક યુઝરને મોબાઈલ, ટેબલેટ, લેપટોપ અને કોમ્પ્યુટર પર સરખી રીતે દેખાશે.
+                  <p className="text-xs text-slate-300 font-medium max-w-2xl mt-1">
+                    અહીંથી તમે 1 થી 5 બિઝનેસ જાહેરાતના 16:9 બેનર અપલોડ, પ્રિવ્યુ અને ડીલીટ કરી શકો છો. 5 બેનર ફરજિયાત નથી; જેટલા અપલોડ કરશો તેટલા જ હોમ પેજ પર દેખાશે.
                   </p>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <label className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white font-black text-xs shadow-lg transition-all cursor-pointer flex items-center gap-2">
-                    <Upload className="w-4 h-4" />
-                    <span>{isUploadingHeroBanner ? '⏳ પ્રક્રિયા ચાલુ છે...' : '📸 અપલોડ કરો (Upload)'}</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleUploadHomeHeroBanner}
-                      disabled={isUploadingHeroBanner}
-                      className="hidden"
-                    />
-                  </label>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const currentVal = categoryImages['__home_hero_banner__'];
-                      setHeroBannerCustomUrlInput(
-                        currentVal && currentVal !== '__deleted__' ? currentVal : DEFAULT_HOME_HERO_BANNER
-                      );
-                      setIsEditingHeroBanner(prev => !prev);
-                    }}
-                    disabled={isUploadingHeroBanner}
-                    className="px-3.5 py-2.5 rounded-xl bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-200 border border-indigo-400/40 font-black text-xs transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
-                  >
-                    <Edit3 className="w-3.5 h-3.5" />
-                    <span>✏️ એડિટ કરો (Edit)</span>
-                  </button>
-
-                  {categoryImages['__home_hero_banner__'] !== '__deleted__' && (
-                    <button
-                      type="button"
-                      onClick={handleDeleteHomeHeroBanner}
-                      disabled={isUploadingHeroBanner}
-                      className="px-3.5 py-2.5 rounded-xl bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/40 font-black text-xs transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span>🗑️ ડીલીટ કરો (Delete)</span>
-                    </button>
-                  )}
-
-                  {categoryImages['__home_hero_banner__'] && (
-                    <button
-                      type="button"
-                      onClick={handleResetHomeHeroBanner}
-                      disabled={isUploadingHeroBanner}
-                      className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 font-black text-xs transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                      <span>🔄 ડિફોલ્ટ બેનર રાખો</span>
-                    </button>
-                  )}
-                </div>
+                {/* Status Indicator Pill */}
+                {(() => {
+                  let activeCount = 0;
+                  for (let i = 1; i <= 5; i++) {
+                    const img = categoryImages[`__promo_ad_banner_${i}__`];
+                    if (img && img !== '__deleted__') activeCount++;
+                  }
+                  return (
+                    <div className="flex flex-col items-end gap-1">
+                      <div className="px-3.5 py-1.5 rounded-xl bg-slate-900 border border-amber-400/40 flex items-center gap-2">
+                        <span className={`w-2.5 h-2.5 rounded-full ${activeCount > 0 ? 'bg-emerald-400 animate-ping' : 'bg-slate-500'}`}></span>
+                        <span className="text-xs font-black text-white">
+                          સક્રિય બેનર: <span className="text-amber-400">{activeCount}</span> / 5
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-slate-400 font-bold">
+                        {activeCount === 0
+                          ? '🚫 સેક્શન છુપાયેલું રહેશે (કોઈ ખાલી જગ્યા નહીં)'
+                          : activeCount === 1
+                          ? '📌 ૧ બેનર સ્થિર (Fixed) રહેશે'
+                          : `🔄 ${activeCount} બેનર સતત Auto-Scroll થશે`}
+                      </span>
+                    </div>
+                  );
+                })()}
               </div>
 
-              {isEditingHeroBanner && (
-                <div className="p-4 rounded-2xl bg-slate-900/95 border border-indigo-500/40 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-xs sm:text-sm font-black text-indigo-300 flex items-center gap-2">
-                      <Edit3 className="w-4 h-4" />
-                      <span>બેનર એડિટ કરો (નવો ફોટો પસંદ કરો અથવા ઈમેજ URL બદલો)</span>
-                    </h4>
-                    <button
-                      type="button"
-                      onClick={() => setIsEditingHeroBanner(false)}
-                      className="text-slate-400 hover:text-white cursor-pointer"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                  <div className="flex flex-col sm:flex-row gap-2.5">
-                    <input
-                      type="text"
-                      value={heroBannerCustomUrlInput}
-                      onChange={e => setHeroBannerCustomUrlInput(e.target.value)}
-                      placeholder="https://... અથવા /assets/... ઈમેજ લિંક નાખો"
-                      className="flex-1 px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white focus:outline-none focus:border-cyan-400"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleSaveHeroBannerCustomUrl}
-                      disabled={isUploadingHeroBanner}
-                      className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs cursor-pointer transition-all shrink-0 disabled:opacity-50"
-                    >
-                      💾 URL સેવ કરો
-                    </button>
-                    <label className="px-4 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-black text-xs cursor-pointer transition-all shrink-0 flex items-center justify-center gap-1.5">
-                      <Upload className="w-3.5 h-3.5" />
-                      <span>ગેલેરીમાંથી ફોટો બદલો</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleUploadHomeHeroBanner}
-                        disabled={isUploadingHeroBanner}
-                        className="hidden"
-                      />
-                    </label>
-                  </div>
-                </div>
-              )}
+              {/* 5 Slots Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {[1, 2, 3, 4, 5].map(slotNum => {
+                  const storageKey = `__promo_ad_banner_${slotNum}__`;
+                  const linkKey = `__promo_ad_banner_link_${slotNum}__`;
+                  const bannerImg = categoryImages[storageKey];
+                  const bannerLink = categoryImages[linkKey];
+                  const isUploaded = Boolean(bannerImg && bannerImg !== '__deleted__');
+                  const isUploading = uploadingPromoAdSlot === slotNum;
+                  const isEditing = editingPromoAdSlot === slotNum;
 
-              <div className="rounded-2xl overflow-hidden border border-slate-700/80 bg-slate-950/70 p-2 max-w-xl">
-                {categoryImages['__home_hero_banner__'] === '__deleted__' ? (
-                  <div className="p-6 text-center rounded-xl bg-slate-900/90 border border-red-500/30 space-y-2">
-                    <p className="text-sm font-black text-red-300">
-                      🚫 હોમ પેજ પરથી મેઈન બેનર ડીલીટ (દૂર) કરેલ છે.
-                    </p>
-                    <p className="text-xs text-slate-400">
-                      નવું બેનર મૂકવા માટે ઉપર <strong>&ldquo;📸 અપલોડ કરો&rdquo;</strong> અથવા <strong>&ldquo;🔄 ડિફોલ્ટ બેનર રાખો&rdquo;</strong> પર ક્લિક કરો.
-                    </p>
-                  </div>
-                ) : (
-                  <img
-                    src={categoryImages['__home_hero_banner__'] || DEFAULT_HOME_HERO_BANNER}
-                    alt="Home Page Main Banner Preview"
-                    className="w-full h-auto block object-contain rounded-xl"
-                    onError={(e) => {
-                      if (e.currentTarget.src !== window.location.origin + DEFAULT_HOME_HERO_BANNER) {
-                        e.currentTarget.src = DEFAULT_HOME_HERO_BANNER;
-                      }
-                    }}
-                  />
-                )}
+                  return (
+                    <div
+                      key={slotNum}
+                      className={`rounded-2xl border p-4 flex flex-col justify-between transition-all ${
+                        isUploaded
+                          ? 'bg-slate-900/90 border-amber-400/40 shadow-lg'
+                          : 'bg-slate-950/60 border-slate-800 border-dashed hover:border-slate-700'
+                      }`}
+                    >
+                      {/* Slot Header */}
+                      <div className="flex items-center justify-between gap-2 mb-3">
+                        <span className="text-xs font-black text-amber-300 flex items-center gap-1.5">
+                          <span className="w-5 h-5 rounded-md bg-amber-500/20 text-amber-400 border border-amber-500/40 flex items-center justify-center text-[10px] font-black">
+                            {slotNum}
+                          </span>
+                          <span>બેનર સ્લોટ {slotNum}</span>
+                        </span>
+                        <span
+                          className={`text-[10px] font-black px-2 py-0.5 rounded-full border ${
+                            isUploaded
+                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                              : 'bg-slate-800 text-slate-400 border-slate-700'
+                          }`}
+                        >
+                          {isUploaded ? '🟢 Live Active' : '⚪ ખાલી સ્લોટ'}
+                        </span>
+                      </div>
+
+                      {/* 16:9 Image Preview or Upload Dropzone */}
+                      {isUploaded ? (
+                        <div className="space-y-3">
+                          <div className="w-full aspect-video rounded-xl overflow-hidden border border-amber-400/40 bg-slate-950 relative group shadow-md">
+                            <img
+                              src={bannerImg}
+                              alt={`Slot ${slotNum} Banner`}
+                              className="w-full h-full object-cover"
+                              loading="lazy"
+                            />
+                            <div className="absolute top-2 right-2">
+                              <span className="text-[9px] font-black px-2 py-0.5 rounded-md bg-black/80 text-amber-300 border border-amber-400/40">
+                                16:9
+                              </span>
+                            </div>
+                          </div>
+
+                          {bannerLink && (
+                            <div className="text-[11px] text-slate-300 bg-slate-950/80 px-2.5 py-1.5 rounded-lg border border-slate-800 truncate flex items-center gap-1.5">
+                              <ExternalLink className="w-3 h-3 text-cyan-400 shrink-0" />
+                              <span className="text-slate-400">લિંક:</span>
+                              <span className="truncate text-cyan-300 font-medium">{bannerLink}</span>
+                            </div>
+                          )}
+
+                          {isEditing && (
+                            <div className="p-3 rounded-xl bg-slate-950 border border-indigo-500/40 space-y-2 mt-2">
+                              <label className="text-[10px] font-bold text-slate-300 block">
+                                ઈમેજ URL અથવા નવો ફોટો:
+                              </label>
+                              <input
+                                type="text"
+                                value={promoAdCustomUrlInput}
+                                onChange={e => setPromoAdCustomUrlInput(e.target.value)}
+                                placeholder="https://... ઈમેજ URL"
+                                className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-400"
+                              />
+                              <label className="text-[10px] font-bold text-slate-300 block">
+                                ટાર્ગેટ લિંક (Website / WhatsApp / Phone):
+                              </label>
+                              <input
+                                type="text"
+                                value={promoAdCustomLinkInput}
+                                onChange={e => setPromoAdCustomLinkInput(e.target.value)}
+                                placeholder="https://wa.me/91... અથવા https://myshop.com"
+                                className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-400"
+                              />
+                              <div className="flex items-center gap-2 pt-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleSavePromoAdCustomValues(slotNum)}
+                                  disabled={isUploading}
+                                  className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs cursor-pointer disabled:opacity-50"
+                                >
+                                  💾 સેવ કરો
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingPromoAdSlot(null)}
+                                  className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 text-xs hover:bg-slate-700 cursor-pointer"
+                                >
+                                  રદ કરો
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Action Buttons for Uploaded Slot */}
+                          <div className="flex flex-wrap items-center gap-2 pt-1">
+                            <label className="flex-1 py-2 px-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white font-black text-xs transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-md">
+                              <Upload className="w-3.5 h-3.5" />
+                              <span>{isUploading ? 'અપલોડિંગ...' : '📸 બદલો'}</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                onChange={e => handleUploadPromoAdBanner(slotNum, e)}
+                                disabled={isUploading}
+                                className="hidden"
+                              />
+                            </label>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPromoAdCustomUrlInput(bannerImg || '');
+                                setPromoAdCustomLinkInput(bannerLink || '');
+                                setEditingPromoAdSlot(prev => (prev === slotNum ? null : slotNum));
+                              }}
+                              disabled={isUploading}
+                              className="py-2 px-2.5 rounded-xl bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-200 border border-indigo-400/40 font-black text-xs transition-all cursor-pointer flex items-center justify-center gap-1 disabled:opacity-50"
+                              title="લિંક અથવા URL બદલો"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                              <span>લિંક</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (window.confirm(`શું તમે સ્લોટ ${slotNum} નું જાહેરાત બેનર ડીલીટ કરવા માંગો છો?`)) {
+                                  handleDeletePromoAdBanner(slotNum);
+                                }
+                              }}
+                              disabled={isUploading}
+                              className="py-2 px-2.5 rounded-xl bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/40 font-black text-xs transition-all cursor-pointer flex items-center justify-center gap-1 disabled:opacity-50"
+                              title="આ બેનર હટાવો"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>હટાવો</span>
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          <label className="w-full aspect-video rounded-xl border-2 border-dashed border-slate-700 hover:border-amber-400/80 bg-slate-950/60 p-4 flex flex-col items-center justify-center text-center transition-all cursor-pointer group">
+                            <div className="w-10 h-10 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 group-hover:scale-110 transition-transform mb-2">
+                              <Upload className="w-5 h-5" />
+                            </div>
+                            <span className="text-xs font-black text-slate-200 group-hover:text-amber-300">
+                              {isUploading ? 'અપલોડ ચાલુ છે...' : '+ 16:9 બેનર અપલોડ કરો'}
+                            </span>
+                            <span className="text-[10px] text-slate-500 mt-1">
+                              JPG, PNG અથવા WebP (16:9 રેશિયો)
+                            </span>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={e => handleUploadPromoAdBanner(slotNum, e)}
+                              disabled={isUploading}
+                              className="hidden"
+                            />
+                          </label>
+
+                          {isEditing ? (
+                            <div className="p-3 rounded-xl bg-slate-950 border border-indigo-500/40 space-y-2">
+                              <label className="text-[10px] font-bold text-slate-300 block">
+                                ઈમેજ URL:
+                              </label>
+                              <input
+                                type="text"
+                                value={promoAdCustomUrlInput}
+                                onChange={e => setPromoAdCustomUrlInput(e.target.value)}
+                                placeholder="https://... ઈમેજ URL"
+                                className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-400"
+                              />
+                              <label className="text-[10px] font-bold text-slate-300 block">
+                                ટાર્ગેટ લિંક (Website / WhatsApp):
+                              </label>
+                              <input
+                                type="text"
+                                value={promoAdCustomLinkInput}
+                                onChange={e => setPromoAdCustomLinkInput(e.target.value)}
+                                placeholder="https://... લિંક (ઓપ્શનલ)"
+                                className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-400"
+                              />
+                              <div className="flex items-center gap-2 pt-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleSavePromoAdCustomValues(slotNum)}
+                                  disabled={isUploading}
+                                  className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs cursor-pointer disabled:opacity-50"
+                                >
+                                  💾 સેવ કરો
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingPromoAdSlot(null)}
+                                  className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 text-xs hover:bg-slate-700 cursor-pointer"
+                                >
+                                  રદ કરો
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPromoAdCustomUrlInput('');
+                                setPromoAdCustomLinkInput('');
+                                setEditingPromoAdSlot(slotNum);
+                              }}
+                              className="w-full py-1.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800 text-[11px] font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                            >
+                              <Edit3 className="w-3 h-3" />
+                              <span>અથવા URL દાખલ કરો</span>
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
 

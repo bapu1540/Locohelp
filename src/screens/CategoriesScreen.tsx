@@ -796,7 +796,7 @@ export default function CategoriesScreen({
     onApproved();
   };
 
-  const handleChatWithHelper = (helper: FreeHelperProfile) => {
+  const handleChatWithHelper = (helper: FreeHelperProfile, initialAction?: string) => {
     if (isGuestUser()) {
       setIsLoginPromptOpen(true);
       return;
@@ -821,6 +821,7 @@ export default function CategoriesScreen({
           helperId: myUid,
           isDirectProviderChat: true,
           isViewerPostOwner: false,
+          initialAction: initialAction || undefined,
           description: `${helper.name} (${
             helper.customCategoryName ||
             CATEGORIES.find((c) => c.id === helper.categoryId)?.nameEn ||
@@ -1231,7 +1232,42 @@ export default function CategoriesScreen({
                     <div>
                       <div className="flex items-start justify-between gap-2 mb-2">
                         <div className="flex items-center gap-2.5">
-                          <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 text-white font-extrabold text-base flex items-center justify-center shrink-0 shadow-sm">
+                          {(() => {
+                            const avatarUrl =
+                              (helper as any).photoUrl ||
+                              (helper as any).avatar ||
+                              (helper as any).idDocUrl ||
+                              (helper as any).workPhotoUrl ||
+                              (Array.isArray((helper as any).workPhotos) ? (helper as any).workPhotos[0] : null);
+
+                            if (avatarUrl) {
+                              return (
+                                <img
+                                  src={avatarUrl}
+                                  alt={helper.name}
+                                  onError={(e) => {
+                                    e.currentTarget.style.display = 'none';
+                                    const sibling = e.currentTarget.parentElement?.querySelector('.cat-avatar-fallback') as HTMLElement;
+                                    if (sibling) sibling.style.display = 'flex';
+                                  }}
+                                  className="w-11 h-11 rounded-xl object-cover shrink-0 border border-slate-200 dark:border-slate-700 shadow-sm"
+                                />
+                              );
+                            }
+                            return null;
+                          })()}
+                          <div
+                            style={{
+                              display:
+                                (helper as any).photoUrl ||
+                                (helper as any).avatar ||
+                                (helper as any).idDocUrl ||
+                                (helper as any).workPhotoUrl
+                                  ? 'none'
+                                  : 'flex',
+                            }}
+                            className="cat-avatar-fallback w-11 h-11 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 text-white font-extrabold text-base items-center justify-center shrink-0 shadow-sm"
+                          >
                             {helper.name.charAt(0).toUpperCase()}
                           </div>
                           <div>
@@ -1355,29 +1391,54 @@ export default function CategoriesScreen({
                               <Flag className="w-3.5 h-3.5" />
                             </button>
 
-                            {(helper as any).isPhonePublic === true && helper.phone && (
-                              <a
-                                href={`https://wa.me/91${helper.phone.replace(
-                                  /\D/g,
-                                  ''
-                                )}?text=${encodeURIComponent(
-                                  `नमस्ते ${helper.name}, मैंने LocoHelp पर आपकी ${
-                                    catObj?.nameEn || 'Service'
-                                  } प्रोफाइल देखी।`
-                                )}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                onClick={(e) => {
-                                  if (isGuestUser()) {
-                                    e.preventDefault();
-                                    setIsLoginPromptOpen(true);
-                                  }
-                                }}
-                                className="px-2.5 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-xs font-bold flex items-center gap-1 transition-colors"
+                            {(helper as any).isPhonePublic === true && helper.phone ? (
+                              <>
+                                <a
+                                  href={`tel:${helper.phone}`}
+                                  onClick={(e) => {
+                                    if (isGuestUser()) {
+                                      e.preventDefault();
+                                      setIsLoginPromptOpen(true);
+                                    }
+                                  }}
+                                  className="px-2.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1 transition-colors"
+                                  title={tr('Direct Call', 'डायरेक्ट कॉल', 'ડાયરેક્ટ કૉલ')}
+                                >
+                                  <Phone className="w-3.5 h-3.5 fill-white" />
+                                  <span>{tr('Call', 'कॉल', 'કૉલ')}</span>
+                                </a>
+                                <a
+                                  href={`https://wa.me/91${helper.phone.replace(
+                                    /\D/g,
+                                    ''
+                                  )}?text=${encodeURIComponent(
+                                    `नमस्ते ${helper.name}, मैंने LocoHelp पर आपकी ${
+                                      catObj?.nameEn || 'Service'
+                                    } प्रोफाइल देखी।`
+                                  )}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={(e) => {
+                                    if (isGuestUser()) {
+                                      e.preventDefault();
+                                      setIsLoginPromptOpen(true);
+                                    }
+                                  }}
+                                  className="px-2 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-xs font-bold flex items-center gap-1 transition-colors"
+                                >
+                                  <span>WhatsApp</span>
+                                </a>
+                              </>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleChatWithHelper(helper, 'request_phone')}
+                                className="px-2.5 py-1.5 rounded-xl bg-sky-50 dark:bg-sky-950/60 hover:bg-sky-100 border border-sky-200 dark:border-sky-800 text-sky-700 dark:text-sky-300 text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                                title={tr('Request Phone Number', 'मोबाइल नंबर के लिए अनुरोध करें', 'મોબાઇલ નંબર માટે વિનંતી કરો')}
                               >
-                                <Phone className="w-3.5 h-3.5" />
-                                <span>WhatsApp</span>
-                              </a>
+                                <Phone className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
+                                <span>{tr('Request No.', 'नंबर मांगें', 'નંબર વિનંતી')}</span>
+                              </button>
                             )}
 
                             <button

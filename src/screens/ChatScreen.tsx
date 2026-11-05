@@ -284,7 +284,7 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
     senderAvatar?: string;
     receiverId?: string;
     isCollaborator?: boolean;
-    type?: 'text' | 'pin' | 'attachment' | 'task_completed';
+    type?: 'text' | 'pin' | 'attachment' | 'task_completed' | 'phone_request' | 'phone_shared';
     attachmentUrl?: string;
     attachmentType?: string;
     isRead?: boolean;
@@ -341,6 +341,12 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
   const lastMessageIdRef = useRef<string | null>(null);
   const [isHeaderMenuOpen, setIsHeaderMenuOpen] = useState(false);
   const [isSafetyBannerDismissed, setIsSafetyBannerDismissed] = useState(false);
+
+  // Phone Request & Instant Share States
+  const [phonePromptModalOpen, setPhonePromptModalOpen] = useState(false);
+  const [promptPhoneVal, setPromptPhoneVal] = useState('');
+  const [promptPhoneError, setPromptPhoneError] = useState('');
+  const phoneRequestSentRef = useRef(false);
 
   // Sync selected replier if currentIntent changes (e.g., opened from My Chats list, View Responses modal, or post card)
   useEffect(() => {
@@ -814,7 +820,12 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
     }
   };
 
-  const handleSend = async (textToSend: string, type: 'text' | 'pin' | 'attachment' | 'task_completed' = 'text', attachmentUrl?: string, attachmentType?: string) => {
+  const handleSend = async (
+    textToSend: string,
+    type: 'text' | 'pin' | 'attachment' | 'task_completed' | 'phone_request' | 'phone_shared' = 'text',
+    attachmentUrl?: string,
+    attachmentType?: string
+  ) => {
     if (isGuestUser()) {
       setIsLoginPromptOpen(true);
       return;
@@ -967,6 +978,89 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
         setCollaboratorId(replierId);
       }
     } catch (e) {}
+  };
+
+  // Auto-send phone number request message if opened with initialAction: 'request_phone'
+  useEffect(() => {
+    if ((currentIntent as any)?.initialAction === 'request_phone' && !phoneRequestSentRef.current) {
+      phoneRequestSentRef.current = true;
+      const t = setTimeout(() => {
+        handleSend(
+          language === 'GU'
+            ? '📞 [નંબર વિનંતી] નમસ્તે, કૃપા કરીને તમારો મોબાઇલ નંબર આપવા વિનંતી જેથી હું તમારો સીધો સંપર્ક કરી શકું.'
+            : language === 'HI'
+            ? '📞 [नंबर अनुरोध] नमस्ते, कृपया अपना मोबाइल नंबर साझा करें ताकि मैं आपसे सीधे संपर्क कर सकूँ।'
+            : '📞 [Phone Request] Hi, please share your mobile number so I can contact you directly.',
+          'phone_request'
+        );
+      }, 500);
+      return () => clearTimeout(t);
+    }
+  }, [currentIntent]);
+
+  const handleApprovePhoneRequest = async (targetMsg?: any) => {
+    const activeUser = getCurrentUser();
+    const myStoredPhone =
+      activeUser?.phone ||
+      localStorage.getItem('locohelp_profile_phone') ||
+      localStorage.getItem('locohelp_last_logged_in_phone') ||
+      '';
+    const cleanDigits = String(myStoredPhone).replace(/\D/g, '').slice(-10);
+
+    if (/^[6-9]\d{9}$/.test(cleanDigits)) {
+      await handleSend(
+        language === 'GU'
+          ? `✅ મારો મોબાઇલ નંબર: +91 ${cleanDigits}`
+          : language === 'HI'
+          ? `✅ मेरा मोबाइल नंबर: +91 ${cleanDigits}`
+          : `✅ My Mobile Number: +91 ${cleanDigits}`,
+        'phone_shared',
+        cleanDigits
+      );
+    } else {
+      setPromptPhoneVal('');
+      setPromptPhoneError('');
+      setPhonePromptModalOpen(true);
+    }
+  };
+
+  const handleConfirmPromptPhone = async () => {
+    const digits = promptPhoneVal.replace(/\D/g, '').slice(-10);
+    if (!/^[6-9]\d{9}$/.test(digits)) {
+      setPromptPhoneError(
+        language === 'GU'
+          ? 'કૃપા કરીને માન્ય 10 આંકડાનો મોબાઇલ નંબર દાખલ કરો'
+          : language === 'HI'
+          ? 'कृपया 10 अंकों का मान्य मोबाइल नंबर दर्ज करें'
+          : 'Please enter a valid 10-digit mobile number'
+      );
+      return;
+    }
+    try {
+      localStorage.setItem('locohelp_profile_phone', digits);
+      localStorage.setItem('locohelp_last_logged_in_phone', digits);
+    } catch {}
+    setPhonePromptModalOpen(false);
+    await handleSend(
+      language === 'GU'
+        ? `✅ મારો મોબાઇલ નંબર: +91 ${digits}`
+        : language === 'HI'
+        ? `✅ मेरा मोबाइल नंबर: +91 ${digits}`
+        : `✅ My Mobile Number: +91 ${digits}`,
+      'phone_shared',
+      digits
+    );
+  };
+
+  const handleDeclinePhoneRequest = async (targetMsg?: any) => {
+    await handleSend(
+      language === 'GU'
+        ? '🙏 માફ કરશો, હાલમાં હું મોબાઇલ નંબર શેર કરી શકતો નથી. તમે અહીં ચેટમાં જ વાતચીત કરી શકો છો.'
+        : language === 'HI'
+        ? '🙏 माफ़ कीजिए, अभी मैं नंबर साझा नहीं कर सकता। कृपया यहीं चैट पर बात करें।'
+        : '🙏 Sorry, I cannot share my phone number right now. Please continue chatting here.',
+      'text'
+    );
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1709,9 +1803,9 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
           </div>
         </div>
 
-        {/* Right Side: Direct Call + WhatsApp + Replier Switcher + Options Menu */}
+        {/* Right Side: Direct Call + WhatsApp + Phone Request + Replier Switcher + Options Menu */}
         <div className="flex items-center gap-1.5 shrink-0 relative">
-          {peerPhoneDigits && (
+          {peerPhoneDigits ? (
             <>
               <a
                 href={`tel:+91${peerPhoneDigits}`}
@@ -1734,7 +1828,26 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
                 <span className="hidden sm:inline">WhatsApp</span>
               </a>
             </>
-          )}
+          ) : !isPostOwner ? (
+            <button
+              type="button"
+              onClick={() => {
+                handleSend(
+                  language === 'GU'
+                    ? '📞 [નંબર વિનંતી] નમસ્તે, કૃપા કરીને તમારો મોબાઇલ નંબર આપવા વિનંતી જેથી હું તમારો સીધો સંપર્ક કરી શકું.'
+                    : language === 'HI'
+                    ? '📞 [नंबर अनुरोध] नमस्ते, कृपया अपना मोबाइल नंबर साझा करें ताकि मैं आपसे सीधे संपर्क कर सकूँ।'
+                    : '📞 [Phone Request] Hi, please share your mobile number so I can contact you directly.',
+                  'phone_request'
+                );
+              }}
+              className="px-2.5 py-1.5 rounded-xl bg-sky-50 dark:bg-sky-950/80 text-sky-700 dark:text-sky-300 border border-sky-300 dark:border-sky-700 text-[10px] sm:text-xs font-black flex items-center gap-1 shadow-2xs hover:bg-sky-100 transition-all cursor-pointer"
+              title={tr('Request Phone Number', 'मोबाइल नंबर मांगें', 'મોબાઇલ નંબર વિનંતી')}
+            >
+              <Phone className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
+              <span>{tr('Request No.', 'नंबर मांगें', 'નંબર વિનંતી')}</span>
+            </button>
+          ) : null}
 
           {isPostOwner && distinctRepliers.length > 1 && selectedReplierId && (
             <button
@@ -2055,6 +2168,128 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
                     <Navigation className="w-3.5 h-3.5" />
                     <span>🗺️ Google Maps पर लोकेशन देखें</span>
                   </a>
+                </div>
+              </div>
+            );
+          }
+
+          if (msg.type === 'phone_request') {
+            return (
+              <div key={msg.id} className={`w-full flex ${isMe ? 'justify-end' : 'justify-start'} my-1`}>
+                {isMe ? (
+                  <div className="max-w-[85%] p-3.5 rounded-2xl bg-sky-600 text-white ml-auto rounded-tr-xs shadow-md space-y-1.5">
+                    <div className="flex items-center gap-1.5 font-black text-xs text-sky-100">
+                      <Phone className="w-3.5 h-3.5 fill-sky-200 shrink-0" />
+                      <span>
+                        {language === 'GU'
+                          ? 'મોબાઇલ નંબર માટે વિનંતી મોકલી છે'
+                          : language === 'HI'
+                          ? 'मोबाइल नंबर का अनुरोध भेजा गया'
+                          : 'Phone Number Requested'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-sky-100 leading-snug font-medium">
+                      {language === 'GU'
+                        ? 'સામેવાળી વ્યક્તિ વિનંતી સ્વીકારશે એટલે તેમનો નંબર અહીં કૉલ બટન સાથે આપમેળે દેખાશે.'
+                        : language === 'HI'
+                        ? 'सामने वाले व्यक्ति के स्वीकार करते ही उनका नंबर यहाँ सीधे कॉल बटन के साथ दिखेगा।'
+                        : 'Their direct phone number and 1-tap call button will appear here once approved.'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="max-w-[88%] p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/70 border-2 border-emerald-500 rounded-tl-xs shadow-md space-y-2">
+                    <div className="flex items-center gap-2 text-emerald-900 dark:text-emerald-200 font-black text-xs">
+                      <Phone className="w-4 h-4 text-emerald-600 animate-pulse shrink-0" />
+                      <span>
+                        {language === 'GU'
+                          ? 'ગ્રાહકે તમારા મોબાઇલ નંબરની વિનંતી કરી છે'
+                          : language === 'HI'
+                          ? 'ग्राहक ने आपके मोबाइल नंबर का अनुरोध किया है'
+                          : 'Client Requested Your Mobile Number'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-emerald-800 dark:text-emerald-300 font-medium leading-relaxed">
+                      {language === 'GU'
+                        ? 'ગ્રાહક તમારી સાથે સીધો સંપર્ક કરવા માંગે છે. "✓ નંબર આપો" પર ક્લિક કરતાં જ તમારો મોબાઇલ નંબર આ ચેટમાં શેર થઈ જશે.'
+                        : language === 'HI'
+                        ? 'ग्राहक आपसे सीधे बात करना चाहता है। "✓ नंबर दें" पर क्लिक करते ही आपका नंबर चैट में शेयर हो जाएगा।'
+                        : 'Client wants to call you directly. Tap "Approve" to share your phone number in this chat.'}
+                    </p>
+                    <div className="flex items-center gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => handleApprovePhoneRequest(msg)}
+                        className="flex-1 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black flex items-center justify-center gap-1.5 shadow-sm active:scale-95 transition-all cursor-pointer"
+                      >
+                        <Check className="w-4 h-4 stroke-[3]" />
+                        <span>
+                          {language === 'GU'
+                            ? '✓ નંબર આપો (Approve)'
+                            : language === 'HI'
+                            ? '✓ नंबर दें (Approve)'
+                            : '✓ Approve & Share'}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeclinePhoneRequest(msg)}
+                        className="py-2 px-3 rounded-xl bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 text-slate-700 dark:text-slate-200 text-xs font-bold transition-all cursor-pointer"
+                      >
+                        <span>{language === 'GU' ? '✕ નકારો' : language === 'HI' ? '✕ नकारें' : '✕ Decline'}</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          }
+
+          if (msg.type === 'phone_shared') {
+            const rawPhone = String(msg.attachmentUrl || msg.text.replace(/\D/g, '').slice(-10)).replace(/\D/g, '').slice(-10);
+            const displayPhone = rawPhone && /^[6-9]\d{9}$/.test(rawPhone) ? rawPhone : '';
+            return (
+              <div key={msg.id} className="w-full flex justify-center my-2">
+                <div className="w-full max-w-[88%] p-3.5 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-700 text-white shadow-md flex flex-col gap-2 border border-emerald-400/40">
+                  <div className="flex items-center justify-between gap-2 border-b border-white/20 pb-1.5">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <ShieldCheck className="w-4 h-4 text-emerald-200 shrink-0" />
+                      <span className="text-xs font-black truncate">
+                        {language === 'GU'
+                          ? 'વેરિફાઇડ મોબાઇલ નંબર શેર કર્યો'
+                          : language === 'HI'
+                          ? 'वेरिफाइड मोबाइल नंबर साझा किया गया'
+                          : 'Verified Phone Number Shared'}
+                      </span>
+                    </div>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/20 font-extrabold shrink-0">
+                      100% Free
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2 pt-0.5 flex-wrap">
+                    <div className="font-mono text-base font-black tracking-wider text-white">
+                      📞 {displayPhone ? `+91 ${displayPhone}` : msg.text}
+                    </div>
+                    {displayPhone && (
+                      <div className="flex items-center gap-2">
+                        <a
+                          href={`tel:${displayPhone}`}
+                          className="py-1.5 px-3 rounded-xl bg-white text-emerald-800 hover:bg-emerald-50 text-xs font-black flex items-center gap-1 shadow-sm active:scale-95 transition-all text-decoration-none"
+                        >
+                          <Phone className="w-3.5 h-3.5 fill-emerald-800" />
+                          <span>{language === 'GU' ? 'કૉલ કરો' : language === 'HI' ? 'कॉल करें' : 'Call'}</span>
+                        </a>
+                        <a
+                          href={`https://wa.me/91${displayPhone}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="py-1.5 px-2.5 rounded-xl bg-emerald-500/80 hover:bg-emerald-500 text-white text-xs font-black flex items-center gap-1 shadow-sm active:scale-95 transition-all text-decoration-none"
+                        >
+                          <span>WhatsApp</span>
+                        </a>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             );
@@ -2585,6 +2820,86 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
                 >
                   <Navigation className="w-4 h-4" /> {tr('🗺️ Open in Google Maps', '🗺️ Google Maps में खोलें', '🗺️ Google Maps માં ખોલો')}
                 </a>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Phone Number Confirmation Modal for Helper */}
+      <AnimatePresence>
+        {phonePromptModalOpen && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs"
+            onClick={() => setPhonePromptModalOpen(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white dark:bg-slate-800 rounded-3xl p-5 w-full max-w-sm shadow-2xl border border-slate-200 dark:border-slate-700 space-y-3.5"
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-100 dark:bg-emerald-950 text-emerald-600 flex items-center justify-center text-lg">
+                  📞
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-slate-900 dark:text-white">
+                    {language === 'GU'
+                      ? 'મોબાઇલ નંબર શેર કરો'
+                      : language === 'HI'
+                      ? 'मोबाइल नंबर शेयर करें'
+                      : 'Share Mobile Number'}
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    {language === 'GU'
+                      ? 'ગ્રાહકને ડાયરેક્ટ કૉલ કરવા માટે તમારો 10 આંકડાનો નંબર આપો'
+                      : language === 'HI'
+                      ? 'ग्राहक को सीधे कॉल करने के लिए 10 अंकों का नंबर दें'
+                      : 'Provide your 10-digit number to allow direct calling'}
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-black text-slate-700 dark:text-slate-300 mb-1">
+                  {language === 'GU' ? 'મોબાઇલ નંબર (+91)' : 'मोबाइल नंबर (+91)'}
+                </label>
+                <div className="flex items-center rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-xs font-bold text-slate-900 dark:text-white">
+                  <span className="text-slate-400 mr-2 font-mono">+91</span>
+                  <input
+                    type="tel"
+                    maxLength={10}
+                    value={promptPhoneVal}
+                    onChange={(e) => {
+                      setPromptPhoneVal(e.target.value.replace(/\D/g, '').slice(0, 10));
+                      setPromptPhoneError('');
+                    }}
+                    placeholder="9876543210"
+                    className="w-full bg-transparent outline-none font-mono text-sm tracking-wider"
+                  />
+                </div>
+                {promptPhoneError && (
+                  <p className="text-[10px] text-rose-500 font-bold mt-1">{promptPhoneError}</p>
+                )}
+              </div>
+
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setPhonePromptModalOpen(false)}
+                  className="flex-1 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 text-slate-700 dark:text-slate-200 text-xs font-bold transition-all cursor-pointer"
+                >
+                  {language === 'GU' ? 'રદ કરો' : 'रद्द करें'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmPromptPhone}
+                  className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black shadow-md transition-all cursor-pointer"
+                >
+                  {language === 'GU' ? '✓ નંબર મોકલો' : '✓ नंबर भेजें'}
+                </button>
               </div>
             </motion.div>
           </div>
