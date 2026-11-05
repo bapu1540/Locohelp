@@ -723,9 +723,6 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
 
     const newStatus = 'pending';
     const newIsVerified = false;
-    const updatedHelper = myHelperProfile
-      ? { ...myHelperProfile, isVerified: false, status: 'pending' }
-      : null;
 
     const profileData = {
       uid: userKey,
@@ -742,16 +739,13 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
       idDocumentWatermarked: finalSelfie,
       visitingCardUrl: userVisitingCard || '',
       visiting_card_url: userVisitingCard || '',
-      myHelperProfile: updatedHelper,
+      myHelperProfile: myHelperProfile || null,
       status: newStatus,
       isVerified: newIsVerified,
       updated_at: new Date().toISOString()
     };
 
     setVerificationStatus('pending');
-    if (updatedHelper) {
-      setMyHelperProfile(updatedHelper);
-    }
 
     try {
       localStorage.setItem(`locohelp_user_profile_${userKey}`, JSON.stringify(profileData));
@@ -761,9 +755,6 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
       localStorage.setItem('locohelp_profile_exp', safeExp);
       if (profileData.email) localStorage.setItem('locohelp_last_logged_in_email', profileData.email);
       if (finalSelfie) localStorage.setItem('locohelp_profile_photo', finalSelfie);
-      if (updatedHelper) {
-        localStorage.setItem('locohelp_my_helper_profile', JSON.stringify(updatedHelper));
-      }
 
       const current = getCurrentUser();
       localStorage.setItem('locohelp_user', JSON.stringify({
@@ -800,12 +791,9 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
         taluka: parsedTaluka,
         area: parsedTaluka
       });
-      if (updatedHelper && updatedHelper.id) {
-        await saveHelper({ ...updatedHelper, isVerified: false, status: 'pending' }).catch(() => {});
-      }
       await submitVerification({
         entityType: 'user_profile',
-        entityId: updatedHelper?.id || userKey,
+        entityId: userKey,
         userId: userKey,
         userName: profileData.full_name,
         userEmail: profileData.email || undefined,
@@ -873,6 +861,9 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
     }
 
     const finalWorkPhoto = helperWorkPhoto || myHelperProfile?.photoUrl;
+    const helperLocParts = helperArea.split(',').map(s => s.trim()).filter(Boolean);
+    const parsedHelperTaluka = helperLocParts[0] || helperArea.trim() || 'Local Area';
+    const parsedHelperCity = helperLocParts[1] || parsedHelperTaluka;
 
     const newHelper = saveFreeHelperProfile({
       id: myHelperProfile?.id,
@@ -884,7 +875,8 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
       phone: sanitizeText(resolvedHelperPhone, 30),
       isPhonePublic: isHelperPhonePublic,
       skills: skillsList,
-      area: sanitizeText(helperArea.trim() || 'Local Area', 150),
+      area: sanitizeText(parsedHelperTaluka, 150),
+      city: sanitizeText(parsedHelperCity, 100),
       experience: sanitizeText(helperExp.trim() || '1 Year', 60),
       distance: 0.5,
       photoUrl: finalWorkPhoto || undefined,
@@ -912,18 +904,27 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
 
     try {
       const helperId = newHelper.id || `helper_${Date.now()}`;
-      await saveHelper({ ...newHelper, id: helperId, photoUrl: finalWorkPhoto, isPhonePublic: isHelperPhonePublic, isVerified: false, status: 'pending' });
+      await saveHelper({
+        ...newHelper,
+        id: helperId,
+        area: sanitizeText(parsedHelperTaluka, 150),
+        city: sanitizeText(parsedHelperCity, 100),
+        photoUrl: finalWorkPhoto,
+        isPhonePublic: isHelperPhonePublic,
+        isVerified: false,
+        status: 'pending'
+      });
     } catch (e) {}
 
     try {
       await submitVerification({
-        entityType: 'user_profile',
+        entityType: 'helper',
         entityId: newHelper.id,
         userId: uid || newHelper.id,
         userName: newHelper.name,
         userEmail: cleanEmail || undefined,
         userPhone: newHelper.phone,
-        title: `Service Expert Profile (${finalCatName}) - Live Selfie & Work Proof`,
+        title: `Service Expert Profile (${finalCatName}) - ${parsedHelperTaluka}`,
         idDocumentWatermarked: finalDoc || ''
       });
       setVerificationStatus('pending');
@@ -1369,8 +1370,14 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                     <span className="font-extrabold text-slate-900 dark:text-white break-all">{userEmail || '—'}</span>
                   </div>
                   <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase block">{tr('Area / Locality', 'क्षेत्र / इलाका', 'વિસ્તાર / સોસાયટી')}</span>
-                    <span className="font-extrabold text-slate-900 dark:text-white">{userAddress || myHelperProfile?.area || '—'}</span>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block">{tr('Location (Taluka, District)', 'लोकेशन (तालुका, जिला)', 'લોકેશન (તાલુકો, જિલ્લો)')}</span>
+                    <span className="font-extrabold text-slate-900 dark:text-white">
+                      {(() => {
+                        const reg = getProfileRegisteredLocation();
+                        const regLabel = reg.taluka && reg.district ? `${reg.taluka}, ${reg.district} (${reg.state})` : '';
+                        return userAddress || myHelperProfile?.area || regLabel || '—';
+                      })()}
+                    </span>
                   </div>
                 </div>
 

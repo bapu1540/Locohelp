@@ -308,20 +308,8 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
             <div className="flex items-center justify-between px-1">
               <p className="text-slate-500 dark:text-slate-400 text-[11px] font-extrabold uppercase tracking-wider flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
-                <span>{language === 'EN' ? 'Verified Local Shops & Malls' : 'सत्यापित लोकल दुकानें, शोरूम व मॉल'}</span>
+                <span>{language === 'EN' ? 'Verified Local Shops & Malls' : language === 'GU' ? 'વેરિફાઈડ લોકલ દુકાનો, શોરૂમ અને મોલ' : 'सत्यापित लोकल दुकानें, शोरूम व मॉल'}</span>
               </p>
-              <button 
-                onClick={() => {
-                  if (isGuestUser()) {
-                    setIsLoginPromptOpen(true);
-                    return;
-                  }
-                  setIsRegisterShopOpen(true);
-                }}
-                className="text-[10px] text-amber-600 dark:text-amber-400 font-bold hover:underline cursor-pointer"
-              >
-                + {language === 'EN' ? 'Add Business' : 'अपनी दुकान जोड़ें'}
-              </button>
             </div>
 
             {filteredShops.length === 0 && (
@@ -332,27 +320,17 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
                 <div>
                   <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">
                     {searchQuery 
-                      ? (language === 'EN' ? 'No shops found matching your search.' : 'आपकी खोज के अनुसार कोई दुकान नहीं मिली।')
-                      : (language === 'EN' ? 'No Shops or Malls Registered Yet' : 'अभी तक कोई दुकान, शोरूम या मॉल लिस्टेड नहीं है')}
+                      ? (language === 'EN' ? 'No shops found matching your search.' : language === 'GU' ? 'તમારી શોધ મુજબ કોઈ દુકાન મળી નથી.' : 'आपकी खोज के अनुसार कोई दुकान नहीं मिली।')
+                      : (language === 'EN' ? 'No Shops or Malls Registered Yet' : language === 'GU' ? 'હજુ સુધી કોઈ દુકાન, શોરૂમ કે મોલ લિસ્ટેડ નથી' : 'अभी तक कोई दुकान, शोरूम या मॉल लिस्टेड नहीं है')}
                   </h4>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                     {language === 'EN'
-                      ? 'Have a shop, showroom, mart, or commercial establishment? Register it 100% free!'
-                      : 'क्या आपकी दुकान, शोरूम, मार्ट या कोई व्यवसाय है? अभी 100% फ्री में रजिस्टर करें!'}
+                      ? 'Have a shop, showroom, mart, or commercial establishment? Click the "+ Register Shop / Mall" button at the top to list it 100% free!'
+                      : language === 'GU'
+                      ? 'શું તમારી દુકાન, શોરૂમ કે વ્યવસાય છે? ઉપર આપેલા "+ દુકાન/મોલ રજિસ્ટર કરો" બટનથી 100% ફ્રીમાં રજિસ્ટર કરો!'
+                      : 'क्या आपकी दुकान, शोरूम, मार्ट या कोई व्यवसाय है? ऊपर दिए गए बटन से 100% फ्री में रजिस्टर करें!'}
                   </p>
                 </div>
-                <button
-                  onClick={() => {
-                    if (isGuestUser()) {
-                      setIsLoginPromptOpen(true);
-                      return;
-                    }
-                    setIsRegisterShopOpen(true);
-                  }}
-                  className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl shadow-md transition-all active:scale-95 cursor-pointer"
-                >
-                  + {language === 'EN' ? 'Register Your Shop / Mall' : 'अपनी दुकान / मॉल रजिस्टर करें'}
-                </button>
               </div>
             )}
 
@@ -493,18 +471,6 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
                 <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>
                 <span>{language === 'EN' ? 'Nearby Verified Service Experts' : language === 'GU' ? 'આસપાસના વેરિફાઈડ સર્વિસ એક્સપર્ટ્સ' : 'आस-पास के सत्यापित सर्विस एक्सपर्ट्स'}</span>
               </p>
-              <button 
-                onClick={() => {
-                  if (isGuestUser()) {
-                    setIsLoginPromptOpen(true);
-                    return;
-                  }
-                  setIsRegisterHelperOpen(true);
-                }}
-                className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold hover:underline cursor-pointer"
-              >
-                + {language === 'EN' ? 'Register Profile' : language === 'GU' ? 'નવી સર્વિસ એક્સપર્ટ પ્રોફાઈલ ઉમેરો' : 'नया सर्विस एक्सपर्ट प्रोफाइल जोड़ें'}
-              </button>
             </div>
 
             {/* Grouped Category & Sub-Category Filter for Service Experts */}
@@ -555,22 +521,12 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
                   </h4>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                     {language === 'EN' 
-                      ? 'Be the first plumber, electrician, developer, or local expert to register in your neighborhood!'
-                      : 'अपने इलाके में पहले प्लंबर, इलेक्ट्रीशियन, डेवलपर या एक्सपर्ट के रूप में फ्री रजिस्टर करें!'}
+                      ? 'Be the first plumber, electrician, developer, or local expert to register using the button at the top!'
+                      : language === 'GU'
+                      ? 'તમારા વિસ્તારમાં પ્રથમ પ્લમ્બર, ઈલેક્ટ્રીશિયન કે એક્સપર્ટ તરીકે ઉપર આપેલા "+ સર્વિસ એક્સપર્ટ રજિસ્ટર કરો" બટનથી ફ્રીમાં જોડાઓ!'
+                      : 'अपने इलाके में पहले प्लंबर, इलेक्ट्रीशियन, डेवलपर या एक्सपर्ट के रूप में ऊपर दिए गए बटन से फ्री रजिस्टर करें!'}
                   </p>
                 </div>
-                <button
-                  onClick={() => {
-                    if (isGuestUser()) {
-                      setIsLoginPromptOpen(true);
-                      return;
-                    }
-                    setIsRegisterHelperOpen(true);
-                  }}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl shadow-md transition-all active:scale-95 cursor-pointer"
-                >
-                  + {language === 'EN' ? 'Register as Service Expert' : language === 'GU' ? 'સર્વિસ એક્સપર્ટ તરીકે રજિસ્ટર કરો' : 'सर्विस एक्सपर्ट के रूप में रजिस्टर करें'}
-                </button>
               </div>
             )}
             

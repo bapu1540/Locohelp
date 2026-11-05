@@ -773,9 +773,12 @@ export default function HomeScreen({
 
     if ((!area || !city) && rawLoc && rawLoc.includes(',')) {
       const parts = rawLoc.split(',').map(s => s.trim()).filter(Boolean);
-      if (parts.length >= 2) {
-        if (!area) area = parts.slice(0, -1).join(', ');
-        if (!city) city = parts[parts.length - 1];
+      if (parts.length >= 3) {
+        if (!area) area = parts[0];
+        if (!city) city = parts[1];
+      } else if (parts.length === 2) {
+        if (!area) area = parts[0];
+        if (!city) city = parts[1];
       }
     }
 
@@ -1693,10 +1696,10 @@ export default function HomeScreen({
                 <div className="min-w-0">
                   <p className="text-xs font-black leading-tight truncate">
                     {language === 'EN'
-                      ? `Get Instant Alerts in ${userLocation.area || userLocation.district || 'Your Area'}`
+                      ? `Get Instant Alerts in ${userLocation.taluka || userLocation.area || userLocation.district || 'Your Area'}`
                       : language === 'GU'
-                      ? `${userLocation.area || userLocation.district || 'તમારા વિસ્તાર'} ની નવી પોસ્ટના એલર્ટ મેળવો`
-                      : `${userLocation.area || userLocation.district || 'अपने इलाके'} के तुरंत लोकल अलर्ट पाएं`}
+                      ? `${userLocation.taluka || userLocation.area || userLocation.district || 'તમારા વિસ્તાર'} ની નવી પોસ્ટના એલર્ટ મેળવો`
+                      : `${userLocation.taluka || userLocation.area || userLocation.district || 'अपने इलाके'} के तुरंत लोकल अलर्ट पाएं`}
                   </p>
                   <p className="text-[10px] text-indigo-100 font-medium truncate">
                     {language === 'EN'
@@ -2105,10 +2108,14 @@ export default function HomeScreen({
                   type="button"
                   onClick={() => setIsLocationModalOpen(true)}
                   className="inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/90 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 hover:bg-emerald-200 dark:hover:bg-emerald-900 transition-all cursor-pointer shadow-2xs active:scale-95 shrink-0"
-                  title={language === 'GU' ? 'લોકેશન બદલો (સમગ્ર ભારત)' : language === 'HI' ? 'लोकेशन बदलें (पूरा भारत)' : 'Change Location (Pan-India)'}
+                  title={language === 'GU' ? 'લોકેશન બદલો (રાજ્ય ➔ જિલ્લો ➔ તાલુકો)' : language === 'HI' ? 'लोकेशन बदलें (राज्य ➔ जिला ➔ तालुका)' : 'Change Location (State ➔ District ➔ Taluka)'}
                 >
                   <span className="shrink-0">📍</span>
-                  <span className="truncate max-w-[100px] sm:max-w-none">{userLocation.district || 'All India'}</span>
+                  <span className="truncate max-w-[155px] sm:max-w-none">
+                    {(userLocation.taluka || userLocation.area)
+                      ? `${userLocation.taluka || userLocation.area}, ${userLocation.district || 'Gandhinagar'}`
+                      : (userLocation.district || 'Gandhinagar')}
+                  </span>
                   <span className="text-[8px] opacity-70 shrink-0">▾</span>
                 </button>
               </div>
@@ -2849,12 +2856,13 @@ export default function HomeScreen({
         currentLocation={userLocation}
         onLocationSaved={(newLoc) => {
           setUserLocation(newLoc);
+          const talLabel = newLoc.taluka || newLoc.area || '';
           setCreatedToast(
             language === 'EN'
-              ? `📍 Location saved: ${newLoc.area ? newLoc.area + ', ' : ''}${newLoc.district} (${newLoc.state})`
+              ? `📍 Location saved: ${talLabel ? talLabel + ', ' : ''}${newLoc.district} (${newLoc.state})`
               : language === 'GU'
-              ? `📍 લોકેશન સેવ થઈ ગયું: ${newLoc.area ? newLoc.area + ', ' : ''}${newLoc.district} (${newLoc.state})`
-              : `📍 लोकेशन सेव हो गई: ${newLoc.area ? newLoc.area + ', ' : ''}${newLoc.district} (${newLoc.state})`
+              ? `📍 લોકેશન સેવ થઈ ગયું: ${talLabel ? talLabel + ', ' : ''}${newLoc.district} (${newLoc.state})`
+              : `📍 लोकेशन सेव हो गई: ${talLabel ? talLabel + ', ' : ''}${newLoc.district} (${newLoc.state})`
           );
           setTimeout(() => setCreatedToast(null), 4000);
         }}

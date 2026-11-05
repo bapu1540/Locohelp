@@ -31,6 +31,7 @@ import {
 } from '../api';
 import { getSavedUserLocation, UserManualLocation as UserLocationData } from '../data/panIndiaLocations';
 import { getAuthenticRatingInfo, isEntityAdminVerified } from '../modules/verification';
+import { CATEGORIES } from '../data/categories';
 
 export interface HomeBelowCategorySectionProps {
   onNavigate: (screen: Screen) => void;
@@ -75,86 +76,7 @@ export interface ShowcaseProviderItem {
   isVerified?: boolean;
 }
 
-export const DEFAULT_SHOWCASE_PROVIDERS: ShowcaseProviderItem[] = [
-  {
-    id: 'demo-prov-1',
-    nameGu: 'મહેશ પટેલ',
-    nameHi: 'महेश पटेल',
-    nameEn: 'Mahesh Patel',
-    roleGu: 'ઈલેક્ટ્રીશિયન',
-    roleHi: 'इलेक्ट्रीशियन',
-    roleEn: 'Electrician',
-    categoryId: 'electrician',
-    categoryKey: 'electrician',
-    rating: '4.8',
-    reviews: 320,
-    distance: '1.2',
-    avatar: 'https://images.unsplash.com/photo-1540569014015-19a7be504e3a?w=180&auto=format&fit=crop&q=80',
-    avatarUrl: 'https://images.unsplash.com/photo-1540569014015-19a7be504e3a?w=180&auto=format&fit=crop&q=80',
-    phone: '9876543210',
-    areaGu: 'સેક્ટર 21, ગાંધીનગર',
-    areaHi: 'सेक्टर 21, गांधीनगर',
-    areaEn: 'Sector 21, Gandhinagar',
-    experienceGu: '8+ વર્ષનો અનુભવ',
-    experienceHi: '8+ वर्षों का अनुभव',
-    experienceEn: '8+ Years Experience',
-    aboutGu: 'ઘર અને ઓફિસનું તમામ પ્રકારનું વાયરિંગ, પંખા, લાઈટ, એમસીબી બોર્ડ અને ઇન્વર્ટર રિપેરિંગની ઝડપી અને ખાતરીપૂર્વક સેવા.',
-    aboutHi: 'घर और ऑफिस की सभी प्रकार की वायरिंग, पंखे, लाइट, एमसीबी बोर्ड और इन्वर्टर रिपेयरिंग की विश्वसनीय सेवा।',
-    aboutEn: 'Complete home & office wiring, fan/light repair, MCB switchboard & inverter installation service.',
-  },
-  {
-    id: 'demo-prov-2',
-    nameGu: 'રાકેશ ઠાકોર',
-    nameHi: 'राकेश ठाकोर',
-    nameEn: 'Rakesh Thakor',
-    roleGu: 'પ્લમ્બર',
-    roleHi: 'प्लंबर',
-    roleEn: 'Plumber',
-    categoryId: 'plumber',
-    categoryKey: 'plumber',
-    rating: '4.7',
-    reviews: 245,
-    distance: '2.5',
-    avatar: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=180&auto=format&fit=crop&q=80',
-    avatarUrl: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=180&auto=format&fit=crop&q=80',
-    phone: '9876543211',
-    areaGu: 'કુડાસણ, ગાંધીનગર',
-    areaHi: 'कुडासण, गांधीनगर',
-    areaEn: 'Kudasan, Gandhinagar',
-    experienceGu: '6+ વર્ષનો અનુભવ',
-    experienceHi: '6+ वर्षों का अनुभव',
-    experienceEn: '6+ Years Experience',
-    aboutGu: 'પાણીની લાઈન લીકેજ, નળ ફિટિંગ, બાથરૂમ ફિટિંગ, પાણીની ટાંકી અને મોટર ફિટિંગની તાત્કાલિક સેવા.',
-    aboutHi: 'पानी की पाइप लीकेज, नल फिटिंग, बाथरूम फिटिंग, पानी की टंकी और मोटर फिटिंग की तत्काल सेवा।',
-    aboutEn: 'Expert in pipe leakage repair, tap installation, bathroom fittings, water tank & motor plumbing.',
-  },
-  {
-    id: 'demo-prov-3',
-    nameGu: 'વિજય શાહ',
-    nameHi: 'विजय शाह',
-    nameEn: 'Vijay Shah',
-    roleGu: 'RO ટેકનિશિયન',
-    roleHi: 'RO तकनीशियन',
-    roleEn: 'RO Technician',
-    categoryId: 'ac_repair',
-    categoryKey: 'ac_repair',
-    rating: '4.9',
-    reviews: 189,
-    distance: '3.0',
-    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=180&auto=format&fit=crop&q=80',
-    avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=180&auto=format&fit=crop&q=80',
-    phone: '9876543212',
-    areaGu: 'સરગાસણ, ગાંધીનગર',
-    areaHi: 'सरगासण, गांधीनगर',
-    areaEn: 'Sargasan, Gandhinagar',
-    experienceGu: '10+ વર્ષનો અનુભવ',
-    experienceHi: '10+ वर्षों का अनुभव',
-    experienceEn: '10+ Years Experience',
-    aboutGu: 'તમામ કંપનીના RO વોટર પ્યોરિફાયર સર્વિસ, ફિલ્ટર બદલવા, AC સર્વિસ અને ફ્રિજ રિપેરિંગના નિષ્ણાત.',
-    aboutHi: 'सभी कंपनियों के RO वाटर प्यूरीफायर सर्विस, फिल्टर रिप्लेसमेंट, AC सर्विस और फ्रिज रिपेयरिंग विशेषज्ञ।',
-    aboutEn: 'Specialist in all brands of RO water purifier servicing, filter replacement, AC & refrigerator repair.',
-  },
-];
+export const DEFAULT_SHOWCASE_PROVIDERS: ShowcaseProviderItem[] = [];
 
 export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> = ({
   onNavigate,
@@ -222,17 +144,31 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
       try {
         const list = (await getHelpers()) || [];
         if (!isMounted || !Array.isArray(list)) return;
-        const approved = list.filter(
-          (h: any) => h && h.name && (!h.status || h.status === 'approved')
-        );
+        const approved = list.filter((h: any) => {
+          if (!h || !h.name) return false;
+          if (h.status && h.status !== 'approved') return false;
+          const idStr = String(h.id || '').trim();
+          // Exclude Simple User Profiles — only include genuine Service Expert registrations
+          if (!idStr.startsWith('helper_') && !idStr.startsWith('hp_')) return false;
+          const catId = String(h.categoryId || h.category || '').trim().toLowerCase();
+          const customCat = String(h.customCategoryName || '').trim();
+          const firstSkill =
+            Array.isArray(h.skills) && h.skills[0] ? String(h.skills[0]).trim().toLowerCase() : '';
+          if ((!catId || catId === 'other') && !customCat && (!firstSkill || firstSkill === 'other')) {
+            return false;
+          }
+          return true;
+        });
         setLiveHelpers(approved);
       } catch {
         if (isMounted) setLiveHelpers([]);
       }
     };
     loadApprovedHelpers();
+    window.addEventListener('locohelp_free_helpers_updated', loadApprovedHelpers);
     return () => {
       isMounted = false;
+      window.removeEventListener('locohelp_free_helpers_updated', loadApprovedHelpers);
     };
   }, []);
 
@@ -319,19 +255,24 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
     onNavigate('categories');
   };
 
-  const selectedCityName = (userLocation?.district || userLocation?.area || '').trim();
+  const selectedTaluka = (userLocation?.taluka || userLocation?.area || '').trim();
+  const selectedDistrict = (userLocation?.district || '').trim();
+  const selectedCityName =
+    selectedTaluka && selectedDistrict
+      ? `${selectedTaluka}, ${selectedDistrict}`
+      : selectedTaluka || selectedDistrict;
   const locationFilteredHelpers = React.useMemo(() => {
     if (!filterByMyCity || !selectedCityName) return liveHelpers;
     const normDistrict = (userLocation?.district || '').trim().toLowerCase();
-    const normArea = (userLocation?.area || '').trim().toLowerCase();
+    const normArea = (userLocation?.taluka || userLocation?.area || '').trim().toLowerCase();
     const matched = liveHelpers.filter((prov: any) => {
       const pArea = String(prov.area || prov.city || prov.location || '').toLowerCase();
       if (!pArea) return false;
-      if (normDistrict && pArea.includes(normDistrict)) return true;
       if (normArea && pArea.includes(normArea)) return true;
+      if (normDistrict && pArea.includes(normDistrict)) return true;
       return false;
     });
-    // Prioritize matching city helpers first, then include remaining approved liveHelpers so newly approved profiles are always visible
+    // Prioritize matching city helpers first, then include remaining approved liveHelpers up to 6
     if (matched.length > 0 && matched.length < 6) {
       const matchedIds = new Set(matched.map((m: any) => m.id));
       const others = liveHelpers.filter((p: any) => p && !matchedIds.has(p.id));
@@ -340,7 +281,7 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
     return matched.length > 0 ? matched : liveHelpers;
   }, [liveHelpers, filterByMyCity, selectedCityName, userLocation]);
 
-  // Build uniform ShowcaseProviderItem list matching selected location (or fallback to showcase defaults if Gandhinagar/All)
+  // Build uniform ShowcaseProviderItem list (strictly max 6 Service Experts, never Simple User Profiles)
   const displayProviders: ShowcaseProviderItem[] =
     locationFilteredHelpers.length > 0
       ? locationFilteredHelpers.slice(0, 6).map((prov, idx) => {
@@ -352,7 +293,16 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
             prov.avatar ||
             prov.photoUrl ||
             `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(prov.name)}`;
-          const role = prov.skills?.[0] || prov.category || 'Service Expert';
+          const catKey = String(prov.categoryId || prov.category || 'electrician');
+          const matchedCat = CATEGORIES.find((c) => c.id === catKey);
+          const customSkill =
+            prov.customCategoryName ||
+            (Array.isArray(prov.skills) && prov.skills[0] && prov.skills[0] !== 'other'
+              ? prov.skills[0]
+              : '');
+          const roleGu = customSkill || matchedCat?.nameGu || 'સેવા નિષ્ણાત';
+          const roleHi = customSkill || matchedCat?.nameHi || 'सेवा विशेषज्ञ';
+          const roleEn = customSkill || matchedCat?.nameEn || 'Service Expert';
           return {
             id: String(prov.id || `live-prov-${idx}`),
             userId: String(prov.userId || prov.user_id || prov.id || ''),
@@ -361,11 +311,11 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
             nameGu: prov.name,
             nameHi: prov.name,
             nameEn: prov.name,
-            roleGu: role,
-            roleHi: role,
-            roleEn: role,
-            categoryId: prov.categoryId || prov.category || 'electrician',
-            categoryKey: prov.categoryId || prov.category || 'electrician',
+            roleGu,
+            roleHi,
+            roleEn,
+            categoryId: catKey,
+            categoryKey: catKey,
             rating: ratingVal,
             reviews: Number(revCount),
             distance: dist,
@@ -392,11 +342,6 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
               'Verified local service provider offering reliable doorstep service.',
           };
         })
-      : !filterByMyCity ||
-        !selectedCityName ||
-        selectedCityName.toLowerCase().includes('gandhinagar') ||
-        selectedCityName.includes('ગાંધીનગર')
-      ? DEFAULT_SHOWCASE_PROVIDERS
       : [];
 
   return (
@@ -621,16 +566,17 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
         </div>
       </div>
 
-      {/* 2. તમારા વિસ્તારમાં ઉપલબ્ધ સેવા પ્રદાતાઓ (Clicking any card/name opens that Provider's Profile Modal) */}
+      {/* 2. તમારા વિસ્તારમાં ઉપલબ્ધ સેવા પ્રદાતાઓ (Verified Service Experts Showcase Grid - Max 6 Boxes) */}
       <div
         style={{
           backgroundColor: '#ffffff',
-          border: '1px solid #dbeafe',
-          borderRadius: '16px',
+          border: '1px solid #e2e8f0',
+          borderRadius: '18px',
           padding: '10px',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
         }}
       >
+        {/* Section Header */}
         <div
           style={{
             display: 'flex',
@@ -638,13 +584,14 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
             alignItems: 'center',
             justifyContent: 'space-between',
             marginBottom: '8px',
+            gap: '6px',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
-            <span
+            <div
               style={{
-                width: '20px',
-                height: '20px',
+                width: '22px',
+                height: '22px',
                 borderRadius: '9999px',
                 backgroundColor: '#1d4ed8',
                 color: '#ffffff',
@@ -654,11 +601,11 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
                 flexShrink: 0,
               }}
             >
-              <MapPin className="w-3 h-3" />
-            </span>
+              <MapPin className="w-3.5 h-3.5" />
+            </div>
             <h3
               style={{
-                fontSize: '12px',
+                fontSize: '13px',
                 fontWeight: 900,
                 color: '#0f172a',
                 margin: 0,
@@ -671,30 +618,38 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
                 ? 'તમારા વિસ્તારમાં ઉપલબ્ધ સેવા પ્રદાતાઓ'
                 : language === 'HI'
                 ? 'आपके क्षेत्र में उपलब्ध सेवा प्रदाता'
-                : 'Available Service Providers in Your Area'}
+                : 'Available Providers in Your Area'}
             </h3>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
             {selectedCityName && (
               <button
                 type="button"
                 onClick={() => setFilterByMyCity((prev) => !prev)}
                 style={{
+                  fontSize: '10px',
+                  fontWeight: 800,
+                  padding: '3px 8px',
+                  borderRadius: '9999px',
+                  border: filterByMyCity ? '1px solid #93c5fd' : '1px solid #cbd5e1',
+                  backgroundColor: filterByMyCity ? '#eff6ff' : '#f8fafc',
+                  color: filterByMyCity ? '#1d4ed8' : '#475569',
+                  cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '3px',
-                  padding: '3px 7px',
-                  borderRadius: '9999px',
-                  fontSize: '10px',
-                  fontWeight: 800,
-                  backgroundColor: filterByMyCity ? '#dbeafe' : '#f1f5f9',
-                  color: filterByMyCity ? '#1d4ed8' : '#475569',
-                  border: filterByMyCity ? '1px solid #93c5fd' : '1px solid #cbd5e1',
-                  cursor: 'pointer',
                 }}
-                title="Toggle Location Filter"
+                title="Click to toggle between your city & all cities"
               >
-                <span>📍 {filterByMyCity ? selectedCityName : 'All Areas'}</span>
+                📍{' '}
+                {filterByMyCity
+                  ? selectedCityName
+                  : language === 'GU'
+                  ? 'બધા શહેરો'
+                  : language === 'HI'
+                  ? 'सभी शहर'
+                  : 'All Cities'}
               </button>
             )}
             <button
@@ -707,305 +662,358 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
                 fontSize: '11px',
                 fontWeight: 800,
                 color: '#1d4ed8',
-                background: 'none',
+                background: 'transparent',
                 border: 'none',
                 cursor: 'pointer',
                 flexShrink: 0,
+                padding: 0,
               }}
             >
-              {language === 'GU' ? 'વધુ જુઓ' : language === 'HI' ? 'और देखें' : 'View More'}
+              <span>
+                {language === 'GU' ? 'વધુ જુઓ' : language === 'HI' ? 'और देखें' : 'View More'}
+              </span>
               <ChevronRight className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
 
+        {/* 6-Box Grid (Max 6 Service Experts) or Clean Empty Box */}
         {displayProviders.length === 0 ? (
           <div
             style={{
-              backgroundColor: '#f8fafc',
-              border: '1px dashed #cbd5e1',
-              borderRadius: '12px',
-              padding: '12px',
+              padding: '16px 12px',
               textAlign: 'center',
-              fontSize: '11.5px',
-              color: '#475569',
-              fontWeight: 700,
+              backgroundColor: '#f8fafc',
+              borderRadius: '14px',
+              border: '1px dashed #cbd5e1',
             }}
           >
-            <div>
+            <p style={{ fontSize: '12px', fontWeight: 800, color: '#334155', margin: '0 0 4px 0' }}>
               {language === 'GU'
-                ? `📍 ${selectedCityName} વિસ્તારમાં હાલમાં કોઈ સેવા પ્રદાતા મળ્યા નથી.`
+                ? `${selectedCityName || 'આ વિસ્તાર'} માં હાલમાં કોઈ રજિસ્ટર્ડ સેવા નિષ્ણાત ઉપલબ્ધ નથી.`
                 : language === 'HI'
-                ? `📍 ${selectedCityName} क्षेत्र में अभी कोई सेवा प्रदाता नहीं मिला।`
-                : `📍 No service providers found in ${selectedCityName} yet.`}
-            </div>
-            <button
-              type="button"
-              onClick={() => setFilterByMyCity(false)}
-              style={{
-                marginTop: '6px',
-                padding: '5px 12px',
-                borderRadius: '9999px',
-                backgroundColor: '#2563eb',
-                color: '#ffffff',
-                fontSize: '11px',
-                fontWeight: 800,
-                border: 'none',
-                cursor: 'pointer',
-              }}
-            >
+                ? `${selectedCityName || 'इस क्षेत्र'} में अभी कोई रजिस्टर्ड सेवा विशेषज्ञ उपलब्ध नहीं है।`
+                : `No registered service experts available in ${selectedCityName || 'this area'} yet.`}
+            </p>
+            <p style={{ fontSize: '10.5px', fontWeight: 600, color: '#64748b', margin: '0 0 10px 0' }}>
               {language === 'GU'
-                ? 'બધા વિસ્તારના કારીગરો જુઓ'
+                ? 'જ્યારે કોઈ સેવા નિષ્ણાત (જેમ કે પ્લમ્બર, ઈલેક્ટ્રીશિયન વગેરે) રજિસ્ટ્રેશન કરશે ત્યારે અહીં 6 બોક્સમાં દેખાશે.'
                 : language === 'HI'
-                ? 'सभी क्षेत्रों के कारीगर देखें'
-                : 'Show All Areas'}
-            </button>
-          </div>
-        ) : null}
-
-        {/* 3 Compact Provider Cards Side-by-Side */}
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-            gap: '6px',
-            width: '100%',
-          }}
-        >
-          {displayProviders.map((item) => {
-            const name =
-              language === 'GU'
-                ? item.nameGu
-                : language === 'HI'
-                ? item.nameHi
-                : item.nameEn;
-            const role =
-              language === 'GU'
-                ? item.roleGu
-                : language === 'HI'
-                ? item.roleHi
-                : item.roleEn;
-            const isFav = favoriteIds.includes(item.id);
-
-            return (
-              <div
-                key={item.id}
-                onClick={() => setSelectedProviderProfile(item)}
-                style={{
-                  position: 'relative',
-                  backgroundColor: '#f8fafc',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '12px',
-                  padding: '10px 6px 6px 6px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'space-between',
-                  minWidth: 0,
-                }}
-              >
-                {/* Favorite ❤️ button on top-left */}
+                ? 'जब कोई सेवा विशेषज्ञ (जैसे प्लंबर, इलेक्ट्रीशियन आदि) रजिस्ट्रेशन करेगा तो यहाँ दिखाई देगा।'
+                : 'Registered service experts (like Plumber, Electrician, etc.) will appear here (up to 6 cards).'}
+            </p>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              {filterByMyCity && liveHelpers.length > 0 && (
                 <button
                   type="button"
-                  onClick={(e) => toggleFavoriteProvider(item, e)}
-                  title={
-                    language === 'GU'
-                      ? 'પસંદીદામાં સેવ કરો'
-                      : language === 'HI'
-                      ? 'पसंदीदा में सेव करें'
-                      : 'Save to Favorites'
-                  }
+                  onClick={() => setFilterByMyCity(false)}
                   style={{
-                    position: 'absolute',
-                    top: '-6px',
-                    left: '4px',
-                    width: '18px',
-                    height: '18px',
+                    fontSize: '11px',
+                    fontWeight: 800,
+                    color: '#1d4ed8',
+                    backgroundColor: '#eff6ff',
+                    border: '1px solid #bfdbfe',
                     borderRadius: '9999px',
-                    backgroundColor: '#ffffff',
-                    border: '1px solid #fecdd3',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    padding: 0,
+                    padding: '5px 12px',
                     cursor: 'pointer',
                   }}
                 >
-                  <Heart
-                    className={`w-2.5 h-2.5 ${
-                      isFav ? 'text-rose-600 fill-rose-600' : 'text-slate-400'
-                    }`}
-                  />
+                  {language === 'GU'
+                    ? 'બધા વિસ્તારના કારીગરો જુઓ'
+                    : language === 'HI'
+                    ? 'सभी क्षेत्रों के कारीगर देखें'
+                    : 'Show All Areas'}
                 </button>
+              )}
+              <button
+                type="button"
+                onClick={() => handleOpenCategoryOrHelpers()}
+                style={{
+                  fontSize: '11px',
+                  fontWeight: 800,
+                  color: '#0f766e',
+                  backgroundColor: '#f0fdfa',
+                  border: '1px solid #99f6e4',
+                  borderRadius: '9999px',
+                  padding: '5px 12px',
+                  cursor: 'pointer',
+                }}
+              >
+                {language === 'GU'
+                  ? 'કેટેગરી લિસ્ટ જુઓ'
+                  : language === 'HI'
+                  ? 'कैटेगरी लिस्ट देखें'
+                  : 'Browse Categories'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+              gap: '8px',
+              width: '100%',
+            }}
+          >
+            {displayProviders.slice(0, 6).map((item) => {
+              const name =
+                language === 'GU' ? item.nameGu : language === 'HI' ? item.nameHi : item.nameEn;
+              const role =
+                language === 'GU' ? item.roleGu : language === 'HI' ? item.roleHi : item.roleEn;
+              const isFav = favoriteIds.includes(item.id);
 
-                {item.isVerified !== false && (
-                  <span
-                    style={{
-                      position: 'absolute',
-                      top: '-6px',
-                      right: '4px',
-                      backgroundColor: '#16a34a',
-                      color: '#ffffff',
-                      fontSize: '7.5px',
-                      fontWeight: 800,
-                      padding: '1px 5px',
-                      borderRadius: '9999px',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '2px',
-                    }}
-                  >
-                    ✓ {language === 'GU' ? 'વેરિફાઈડ' : language === 'HI' ? 'वेरिफाइड' : 'Verified'}
-                  </span>
-                )}
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: '5px', minWidth: 0 }}>
-                  <img
-                    src={item.avatar}
-                    alt={name}
-                    style={{
-                      width: '34px',
-                      height: '34px',
-                      borderRadius: '8px',
-                      objectFit: 'cover',
-                      border: '1px solid #bfdbfe',
-                      flexShrink: 0,
-                    }}
-                    referrerPolicy="no-referrer"
-                  />
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    <p
-                      style={{
-                        fontSize: '10px',
-                        fontWeight: 900,
-                        color: '#0f172a',
-                        margin: 0,
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                      }}
-                    >
-                      {name}
-                    </p>
-                    <p
-                      style={{
-                        fontSize: '8.5px',
-                        fontWeight: 700,
-                        color: '#475569',
-                        margin: 0,
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                      }}
-                    >
-                      ({role})
-                    </p>
-                  </div>
-                </div>
-
+              return (
                 <div
+                  key={item.id}
+                  onClick={() => setSelectedProviderProfile(item)}
                   style={{
+                    backgroundColor: '#f8fafc',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '14px',
+                    padding: '8px 6px 6px 6px',
+                    position: 'relative',
                     display: 'flex',
-                    alignItems: 'center',
+                    flexDirection: 'column',
                     justifyContent: 'space-between',
-                    marginTop: '6px',
+                    minWidth: 0,
+                    cursor: 'pointer',
                   }}
                 >
-                  <div style={{ fontSize: '8px', fontWeight: 700, color: '#334155', lineHeight: 1.25 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
-                      <span style={{ color: '#f59e0b' }}>★</span>
-                      <span style={{ fontWeight: 900 }}>{item.rating}</span>
-                      <span style={{ color: '#64748b' }}>({item.reviews})</span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '2px', color: '#475569' }}>
-                      <span style={{ color: '#ef4444' }}>📍</span>
-                      <span>
-                        {item.distance} {language === 'GU' ? 'કિ.મી.' : language === 'HI' ? 'कि.मी.' : 'km'}
-                      </span>
-                    </div>
-                  </div>
-
-                  <span
+                  {/* Top Left Favorite Heart Button */}
+                  <button
+                    type="button"
+                    onClick={(e) => toggleFavoriteProvider(item, e)}
+                    title={
+                      isFav
+                        ? language === 'GU'
+                          ? 'પસંદીદામાંથી હટાવો'
+                          : 'Remove Favorite'
+                        : language === 'GU'
+                        ? 'પસંદીદામાં ઉમેરો'
+                        : 'Add to Favorite'
+                    }
                     style={{
-                      width: '22px',
-                      height: '22px',
+                      position: 'absolute',
+                      top: '-5px',
+                      left: '4px',
+                      width: '20px',
+                      height: '20px',
                       borderRadius: '9999px',
-                      backgroundColor: '#16a34a',
-                      color: '#ffffff',
+                      backgroundColor: '#ffffff',
+                      border: isFav ? '1px solid #fecaca' : '1px solid #cbd5e1',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      flexShrink: 0,
+                      cursor: 'pointer',
+                      zIndex: 3,
+                      padding: 0,
+                      boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
                     }}
                   >
-                    <Phone className="w-3 h-3 fill-white" />
-                  </span>
-                </div>
+                    <Heart
+                      className={`w-3 h-3 ${
+                        isFav ? 'text-red-500 fill-red-500' : 'text-slate-400'
+                      }`}
+                    />
+                  </button>
 
-                {/* Direct 1-Click Chat Button on Service Expert Card */}
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    const provTargetId = item.userId || item.id;
-                    const provPhoneDigits = String(item.phone || '').replace(/\D/g, '').slice(-10);
-                    const provEmail = item.email || (provPhoneDigits ? `${provPhoneDigits}@phone.locohelp.com` : '');
-                    onOpenDirectChat({
-                      id: `provider_chat_${item.id}`,
-                      authorId: provTargetId,
-                      authorEmail: provEmail,
-                      authorPhone: item.phone || '',
-                      phone: item.phone || '',
-                      authorName:
-                        language === 'GU'
-                          ? item.nameGu
+                  {/* Verified Green Badge on Top Right */}
+                  {item.isVerified && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: '-6px',
+                        right: '6px',
+                        backgroundColor: '#16a34a',
+                        color: '#ffffff',
+                        fontSize: '8px',
+                        fontWeight: 800,
+                        padding: '1px 6px',
+                        borderRadius: '9999px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '2px',
+                        boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
+                      }}
+                    >
+                      <span>✓</span>
+                      <span>
+                        {language === 'GU'
+                          ? 'વેરિફાઈડ'
                           : language === 'HI'
-                          ? item.nameHi
-                          : item.nameEn,
-                      providerHelperId: item.id,
-                      receiverId: provTargetId,
-                      isDirectProviderChat: true,
-                      isViewerPostOwner: false,
-                      description:
-                        language === 'GU'
-                          ? `${item.nameGu} (${item.roleGu}) સાથે સીધી વાતચીત`
-                          : `${item.nameEn} (${item.roleEn}) Direct Inquiry`,
-                      category: item.categoryKey,
-                      location: item.areaEn || 'Local Area',
-                      distance: Number(item.distance) || 1.2,
-                      status: 'active',
-                      createdAt: new Date().toISOString(),
-                    });
-                  }}
-                  style={{
-                    marginTop: '5px',
-                    width: '100%',
-                    padding: '4px 4px',
-                    borderRadius: '8px',
-                    backgroundColor: '#0d9488',
-                    color: '#ffffff',
-                    fontSize: '8.5px',
-                    fontWeight: 900,
-                    border: 'none',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '3px',
-                  }}
-                >
-                  <span>
-                    {language === 'GU'
-                      ? '💬 મેસેજ કરો (Chat)'
-                      : language === 'HI'
-                      ? '💬 चैट करें (Chat)'
-                      : '💬 Chat'}
-                  </span>
-                </button>
-              </div>
-            );
-          })}
-        </div>
+                          ? 'वेरिफाइड'
+                          : 'Verified'}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Top Row: Photo + Name & Role */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: '6px',
+                      marginTop: '4px',
+                      minWidth: 0,
+                    }}
+                  >
+                    <img
+                      src={item.avatar}
+                      alt={name}
+                      style={{
+                        width: '34px',
+                        height: '34px',
+                        borderRadius: '10px',
+                        objectFit: 'cover',
+                        flexShrink: 0,
+                        border: '1px solid #cbd5e1',
+                      }}
+                    />
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div
+                        style={{
+                          fontSize: '11px',
+                          fontWeight: 900,
+                          color: '#0f172a',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          lineHeight: 1.2,
+                        }}
+                      >
+                        {name}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: '9.5px',
+                          fontWeight: 700,
+                          color: '#475569',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          lineHeight: 1.2,
+                        }}
+                      >
+                        ({role})
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Middle Row: Rating + Distance + Call Circle */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      marginTop: '6px',
+                      marginBottom: '6px',
+                    }}
+                  >
+                    <div style={{ minWidth: 0 }}>
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '2px',
+                          fontSize: '9px',
+                          fontWeight: 800,
+                          color: '#334155',
+                        }}
+                      >
+                        <span style={{ color: '#f59e0b' }}>★</span>
+                        <span>{item.rating}</span>
+                        <span style={{ color: '#64748b', fontWeight: 600 }}>({item.reviews})</span>
+                      </div>
+                      <div
+                        style={{
+                          fontSize: '8.5px',
+                          fontWeight: 700,
+                          color: '#475569',
+                          marginTop: '1px',
+                        }}
+                      >
+                        📍 {item.distance}{' '}
+                        {language === 'GU' ? 'કિ.મી.' : language === 'HI' ? 'कि.मी.' : 'km'}
+                      </div>
+                    </div>
+
+                    <a
+                      href={item.phone ? `tel:${item.phone}` : undefined}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (!item.phone) {
+                          e.preventDefault();
+                          setSelectedProviderProfile(item);
+                        }
+                      }}
+                      style={{
+                        width: '26px',
+                        height: '26px',
+                        borderRadius: '9999px',
+                        backgroundColor: '#16a34a',
+                        color: '#ffffff',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                        textDecoration: 'none',
+                        boxShadow: '0 1px 2px rgba(22,163,74,0.25)',
+                      }}
+                      title={`Call ${name}`}
+                    >
+                      <Phone className="w-3.5 h-3.5" />
+                    </a>
+                  </div>
+
+                  {/* Bottom Row: Direct Message / Chat Button */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onOpenDirectChat({
+                        id: item.userId || item.id,
+                        name: name,
+                        role: role,
+                        phone: item.phone || '',
+                        email: item.email || '',
+                        categoryKey: item.categoryKey,
+                        avatar: item.avatar,
+                      });
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '4px 4px',
+                      borderRadius: '8px',
+                      backgroundColor: '#0d9488',
+                      color: '#ffffff',
+                      fontSize: '9.5px',
+                      fontWeight: 800,
+                      border: 'none',
+                      cursor: 'pointer',
+                      textAlign: 'center',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '3px',
+                    }}
+                  >
+                    <span>💬</span>
+                    <span>
+                      {language === 'GU'
+                        ? 'મેસેજ કરો (Chat)'
+                        : language === 'HI'
+                        ? 'मैसेज करें (Chat)'
+                        : 'Message (Chat)'}
+                    </span>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* 3. Two Side-by-Side Action Banners: Urgent Service & Advertise Business (Opens Admin Email support@locohelp.com) */}

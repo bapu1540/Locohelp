@@ -375,6 +375,16 @@ export function findStateForDistrict(district: string): string {
   return 'Gujarat';
 }
 
+export function formatUserLocationLabel(loc?: Partial<UserManualLocation> | null): string {
+  if (!loc) return 'Gandhinagar';
+  const district = (loc.district || '').trim();
+  const taluka = (loc.taluka || loc.area || '').trim();
+  if (taluka && district) {
+    return `${taluka}, ${district}`;
+  }
+  return taluka || district || 'Gandhinagar';
+}
+
 /**
  * Returns the user's current Browsing Filter Location (used on Home Page / Directory Search).
  * Defaults to State: Gujarat, District: Gandhinagar, Taluka: Gandhinagar.
@@ -387,7 +397,12 @@ export function getSavedUserLocation(): UserManualLocation {
       if (parsed && parsed.district) {
         const state = parsed.state || findStateForDistrict(parsed.district) || 'Gujarat';
         const district = parsed.district;
-        const taluka = parsed.taluka || parsed.area || localStorage.getItem('locohelp_selected_area') || '';
+        const taluka =
+          parsed.taluka ||
+          parsed.area ||
+          localStorage.getItem('locohelp_selected_area') ||
+          getTalukasForDistrict(district)[0] ||
+          district;
         return {
           state,
           district,
@@ -406,11 +421,12 @@ export function getSavedUserLocation(): UserManualLocation {
     const legacyState = localStorage.getItem('locohelp_selected_state');
     const legacyArea = localStorage.getItem('locohelp_selected_area');
     if (legacyCity) {
+      const resolvedTaluka = legacyArea || getTalukasForDistrict(legacyCity)[0] || legacyCity;
       return {
         state: legacyState || findStateForDistrict(legacyCity) || 'Gujarat',
         district: legacyCity,
-        taluka: legacyArea || '',
-        area: legacyArea || ''
+        taluka: resolvedTaluka,
+        area: resolvedTaluka
       };
     }
   } catch (e) {}

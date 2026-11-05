@@ -1289,9 +1289,16 @@ export function getFreeHelperProfiles(includePending = false): FreeHelperProfile
 
     const data = localStorage.getItem(STORAGE_KEY);
     const custom: FreeHelperProfile[] = data ? JSON.parse(data) : [];
-    // Filter out any legacy dummy helpers (h1..h14) and explicitly deleted IDs
+    const genericPlaceholders = ['other', 'general', 'service', 'community helper', 'user', ''];
+    // Filter out any legacy dummy helpers (h1..h14), Simple User profiles, and explicitly deleted IDs
     const realOnly = custom
-      .filter(h => h && h.id && !/^h\d+/.test(String(h.id)) && !deletedIds.includes(String(h.id)))
+      .filter(h => {
+        if (!h || !h.id) return false;
+        const idStr = String(h.id).trim();
+        if (/^h\d+/.test(idStr) || deletedIds.includes(idStr)) return false;
+        if (!idStr.startsWith('helper_') && !idStr.startsWith('hp_')) return false;
+        return true;
+      })
       .map(h => {
         const norm = normalizeCategorySlug(
           h.categoryId || (h as any).category,
@@ -1303,6 +1310,18 @@ export function getFreeHelperProfiles(includePending = false): FreeHelperProfile
           categoryId: norm.categoryId,
           customCategoryName: h.customCategoryName || norm.customCategoryName
         };
+      })
+      .filter(h => {
+        const catLower = String(h.categoryId || '').trim().toLowerCase();
+        const customLower = String(h.customCategoryName || '').trim().toLowerCase();
+        const skillsArr = Array.isArray(h.skills)
+          ? h.skills.map(s => String(s || '').trim().toLowerCase()).filter(Boolean)
+          : [];
+        if ((!catLower || catLower === 'other' || catLower === 'general') && genericPlaceholders.includes(customLower)) {
+          const hasRealSkill = skillsArr.some(s => !genericPlaceholders.includes(s));
+          if (!hasRealSkill) return false;
+        }
+        return true;
       });
     if (includePending) {
       return realOnly;

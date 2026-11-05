@@ -4281,8 +4281,14 @@ async function startServer() {
       const normalizedHelper = myHelper
         ? {
             ...myHelper,
-            isVerified: isApprovedStatus,
-            status: requestedStatus
+            isVerified:
+              requestedStatus === 'deletion_requested'
+                ? false
+                : Boolean(myHelper.isVerified ?? myHelper.is_verified ?? false),
+            status:
+              requestedStatus === 'deletion_requested'
+                ? 'deletion_requested'
+                : (myHelper.status || 'pending')
           }
         : null;
 
@@ -4426,15 +4432,15 @@ async function startServer() {
             ).catch(() => {});
           }
 
-          if (!isApprovedStatus) {
+          if (requestedStatus === 'deletion_requested') {
             await dbPool.query(
-              "UPDATE helpers SET is_verified = false WHERE id = $1 OR phone = $2",
+              "UPDATE helpers SET is_verified = false, status = 'deletion_requested' WHERE id = $1 OR phone = $2",
               [normalizedHelper?.id || uid, phone]
             ).catch(() => {});
           }
 
-          // Always upsert verification_requests so Admin sees the latest Live Selfie, Name, Phone, Area & Category
-          const verifId = 'verif_usr_' + (normalizedHelper?.id || uid);
+          // Always upsert verification_requests for the Simple User Profile using uid (never overwrite helper verification)
+          const verifId = 'verif_usr_' + uid;
           const verifTitle = `User Profile (${categoryName || categoryId || skills || 'Member'}) - ${sector || address || city || 'Local Area'}`;
           const finalVerifStatus =
             requestedStatus === 'deletion_requested'
@@ -4454,7 +4460,7 @@ async function startServer() {
                title = EXCLUDED.title`,
             [
               verifId,
-              normalizedHelper?.id || uid,
+              uid,
               uid,
               fullName,
               email,
@@ -4473,10 +4479,13 @@ async function startServer() {
                    user_name = COALESCE(NULLIF($2, ''), user_name),
                    user_phone = COALESCE(NULLIF($3, ''), user_phone),
                    user_email = COALESCE(NULLIF($4, ''), user_email)
-               WHERE entity_id = $5
-                  OR user_id = $5
-                  OR ($4 <> '' AND LOWER(user_email) = LOWER($4))
-                  OR ($6 <> '' AND RIGHT(REGEXP_REPLACE(COALESCE(user_phone, ''), '\\D', '', 'g'), 10) = $6)`,
+               WHERE entity_type = 'user_profile'
+                 AND (
+                   entity_id = $5
+                   OR user_id = $5
+                   OR ($4 <> '' AND LOWER(user_email) = LOWER($4))
+                   OR ($6 <> '' AND RIGHT(REGEXP_REPLACE(COALESCE(user_phone, ''), '\\D', '', 'g'), 10) = $6)
+                 )`,
               [avatarUrl, fullName, phone, email, uid, normPh]
             ).catch(() => {});
           }
@@ -4520,26 +4529,32 @@ async function startServer() {
       };
       writeJsonFile(PROFILES_FILE, profiles);
 
-      // Revert any linked helper & verification entry to pending (or deletion_requested) when edited by a non-admin user
+      // Update user_profile verification entry (and only touch helpers if deletion was requested)
       if (!isAdminCaller) {
-        const helpers = readJsonFile<any[]>(HELPERS_FILE, []);
-        let helpersModified = false;
-        helpers.forEach(h => {
-          if (h && (h.userId === uid || (normalizedHelper?.id && h.id === normalizedHelper.id) || (email && (h.email || '').toLowerCase() === email))) {
-            h.isVerified = isApprovedStatus;
-            h.is_verified = isApprovedStatus;
-            h.status = requestedStatus;
-            helpersModified = true;
+        if (requestedStatus === 'deletion_requested') {
+          const helpers = readJsonFile<any[]>(HELPERS_FILE, []);
+          let helpersModified = false;
+          helpers.forEach(h => {
+            if (h && (h.userId === uid || (normalizedHelper?.id && h.id === normalizedHelper.id) || (email && (h.email || '').toLowerCase() === email))) {
+              h.isVerified = false;
+              h.is_verified = false;
+              h.status = 'deletion_requested';
+              helpersModified = true;
+            }
+          });
+          if (helpersModified) {
+            writeJsonFile(HELPERS_FILE, helpers);
           }
-        });
-        if (helpersModified) {
-          writeJsonFile(HELPERS_FILE, helpers);
         }
 
         const verifs = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
         let verifsModified = false;
         verifs.forEach(v => {
-          if (v && (v.userId === uid || v.entityId === uid || (normalizedHelper?.id && v.entityId === normalizedHelper.id))) {
+          if (
+            v &&
+            (v.entityType === 'user_profile' || requestedStatus === 'deletion_requested') &&
+            (v.userId === uid || v.entityId === uid)
+          ) {
             v.status = requestedStatus;
             verifsModified = true;
           }
@@ -6601,12 +6616,16 @@ async function startServer() {
               targetEmail ||
               existingAcc?.email ||
               (targetPhone ? `${targetPhone}@phone.locohelp.com` : `${targetUid}@phone.locohelp.com`);
+            const resolvedUid = targetUid || existingAcc?.uid || `user_${Date.now()}`;
+            const resolvedName = existingAcc?.name || caller?.name || "Community Member";
+            const resolvedPhone = targetPhone ? `+91 ${targetPhone}` : (existingAcc?.phone || "");
+            const hashedPass = hashPassword(cleanPass);
             await saveAccountWithPassword(
               resolvedEmail,
-              cleanPass,
-              existingAcc?.name || caller?.name || "Community Member",
-              targetUid || existingAcc?.uid || `user_${Date.now()}`,
-              targetPhone ? `+91 ${targetPhone}` : existingAcc?.phone
+              resolvedUid,
+              resolvedName,
+              resolvedPhone,
+              hashedPass
             );
             return res.json({ success: true, passwordCreated: true });
           }
@@ -10783,13 +10802,15 @@ async function startServer() {
             });
             result.rows.forEach(r => {
               if (!r || !r.id || isEntityDeleted(r.id)) return;
-              const localMatch = localById.get(String(r.id)) || {};
+              const idStr = String(r.id).trim();
+              if (!idStr.startsWith('helper_') && !idStr.startsWith('hp_')) return;
+              const localMatch = localById.get(idStr) || {};
               const rawStatus = String(r.status || localMatch.status || '').toLowerCase();
               const isRejected = rawStatus === 'rejected';
               const isApproved = !isRejected && Boolean(
                 r.is_verified === true ||
                 rawStatus === 'approved' ||
-                approvedEntityIds.has(String(r.id))
+                approvedEntityIds.has(idStr)
               );
               mergedMap.set(r.id, {
                 ...localMatch,
@@ -10816,71 +10837,20 @@ async function startServer() {
               });
             });
           }
-
-          // Also merge Approved Profiles from the profiles table that have a real name & category/skills so approved user profiles show up in the app
-          const profRes = await dbPool
-            .query(
-              `SELECT * FROM profiles
-               WHERE COALESCE(is_deleted, false) = false
-                 AND COALESCE(hidden, false) = false
-                 AND (COALESCE(is_verified, false) = true OR COALESCE(verified, false) = true OR LOWER(COALESCE(status, '')) = 'approved')
-               ORDER BY updated_at DESC`
-            )
-            .catch(() => ({ rows: [] as any[] }));
-          const seenHelperPhones = new Set<string>();
-          mergedMap.forEach((val) => {
-            const pDig = normalizePhoneDigitsServer(val.phone || "");
-            if (pDig) seenHelperPhones.add(pDig);
-          });
-          profRes.rows.forEach((p: any) => {
-            const pid = String(p.uid || p.id || "").trim();
-            if (!pid || mergedMap.has(pid) || isEntityDeleted(pid) || isEntityDeleted(p.email)) return;
-            if (isPlayStoreReviewerAccount(pid, p.email, p.phone)) return;
-            const pName = String(p.full_name || p.name || "").trim();
-            if (!pName || ["community member", "user", "guest user", "google play reviewer"].includes(pName.toLowerCase())) return;
-            const pCat = String(p.category_id || p.category_name || "").trim();
-            const pSkillsStr = String(p.skills || "").trim();
-            if (!pCat && !pSkillsStr) return;
-            const pPhoneDig = normalizePhoneDigitsServer(p.phone || "");
-            if (pPhoneDig && seenHelperPhones.has(pPhoneDig)) return;
-            if (pPhoneDig) seenHelperPhones.add(pPhoneDig);
-
-            mergedMap.set(pid, {
-              id: pid,
-              userId: pid,
-              email: p.email || "",
-              name: pName,
-              categoryId: pCat || "other",
-              customCategoryName: p.category_name || "",
-              phone: p.phone || "",
-              skills: pSkillsStr ? pSkillsStr.split(",").map((s: string) => s.trim()).filter(Boolean) : [pCat || "Service"],
-              area: p.sector || p.address || p.city || "Local Area",
-              experience: p.experience || "1+ Year",
-              distance: 0.8,
-              rating: 0,
-              reviewCount: 0,
-              reviews: [],
-              photoUrl: p.avatar_url || p.image_url || null,
-              isVerified: true,
-              status: "approved",
-              govtIdUploaded: true,
-              idDocUrl: null,
-              createdAt: p.updated_at || p.created_at || new Date().toISOString()
-            });
-          });
         } catch (e) {}
       } else {
         const localHelpers = readJsonFile<any[]>(HELPERS_FILE, []);
         localHelpers.forEach(h => {
           if (!h || !h.id || isEntityDeleted(h.id) || isEntityDeleted(h.email)) return;
+          const idStr = String(h.id).trim();
+          if (!idStr.startsWith('helper_') && !idStr.startsWith('hp_')) return;
           const existing = mergedMap.get(h.id) || {};
           const isApproved = Boolean(
             existing.isVerified === true ||
             h.isVerified === true ||
             h.is_verified === true ||
             h.status === 'approved' ||
-            approvedEntityIds.has(String(h.id)) ||
-            (h.userId && approvedEntityIds.has(String(h.userId)))
+            approvedEntityIds.has(idStr)
           );
           mergedMap.set(h.id, {
             ...existing,
@@ -10891,46 +10861,24 @@ async function startServer() {
             status: isApproved ? 'approved' : (h.status || 'pending')
           });
         });
-
-        const localProfiles = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
-        Object.entries(localProfiles).forEach(([pid, p]: [string, any]) => {
-          if (!p || mergedMap.has(pid) || isEntityDeleted(pid) || isEntityDeleted(p.email)) return;
-          if (isPlayStoreReviewerAccount(pid, p.email, p.phone)) return;
-          const isApproved = Boolean(p.isVerified === true || p.is_verified === true || p.verified === true || String(p.status || "").toLowerCase() === "approved");
-          if (!isApproved) return;
-          const pName = String(p.full_name || p.name || "").trim();
-          if (!pName || ["community member", "user", "guest user", "google play reviewer"].includes(pName.toLowerCase())) return;
-          const pCat = String(p.categoryId || p.category_id || p.category || "").trim();
-          const pSkillsStr = String(p.skills || "").trim();
-          if (!pCat && !pSkillsStr) return;
-          mergedMap.set(pid, {
-            id: pid,
-            userId: pid,
-            email: p.email || "",
-            name: pName,
-            categoryId: pCat || "other",
-            customCategoryName: p.customCategoryName || "",
-            phone: p.phone || "",
-            skills: pSkillsStr ? pSkillsStr.split(",").map((s: string) => s.trim()).filter(Boolean) : [pCat || "Service"],
-            area: p.area || p.address || p.sector || "Local Area",
-            experience: p.experience || "1+ Year",
-            distance: 0.8,
-            rating: 0,
-            reviewCount: 0,
-            reviews: [],
-            photoUrl: p.avatarUrl || p.avatar_url || null,
-            isVerified: true,
-            status: "approved",
-            govtIdUploaded: true,
-            idDocUrl: null,
-            createdAt: p.updated_at || p.createdAt || new Date().toISOString()
-          });
-        });
       }
 
-      let allHelpers = Array.from(mergedMap.values()).filter(
-        h => h && h.id && !isEntityDeleted(h.id) && !isEntityDeleted(h.email)
-      );
+      const genericHelperPlaceholders = ['other', 'general', 'service', 'community helper', 'user', ''];
+      let allHelpers = Array.from(mergedMap.values()).filter(h => {
+        if (!h || !h.id || isEntityDeleted(h.id) || isEntityDeleted(h.email)) return false;
+        const idStr = String(h.id).trim();
+        if (!idStr.startsWith('helper_') && !idStr.startsWith('hp_')) return false;
+        const catLower = String(h.categoryId || h.category_id || '').trim().toLowerCase();
+        const customLower = String(h.customCategoryName || h.custom_category_name || '').trim().toLowerCase();
+        const skillsArr = Array.isArray(h.skills)
+          ? h.skills.map((s: any) => String(s || '').trim().toLowerCase()).filter(Boolean)
+          : [];
+        if ((!catLower || catLower === 'other' || catLower === 'general') && genericHelperPlaceholders.includes(customLower)) {
+          const hasRealSkill = skillsArr.some((s: string) => !genericHelperPlaceholders.includes(s));
+          if (!hasRealSkill) return false;
+        }
+        return true;
+      });
       if (!isAdmin) {
         allHelpers = allHelpers.filter(
           h => !h.is_flagged && !h.hidden && !h.is_deleted && h.status !== 'flagged' && h.status !== 'deleted'
@@ -11239,8 +11187,8 @@ async function startServer() {
           }
           // Preserve Firebase Storage photos/ID documents in Security Vault (do not delete files from Firebase Storage)
           await dbPool.query("DELETE FROM helpers WHERE id = $1", [id]);
-          await dbPool.query("DELETE FROM profiles WHERE uid = $1 OR id = $1", [id]).catch(() => {});
-          await dbPool.query("DELETE FROM verification_requests WHERE entity_id = $1 OR user_id = $1", [id]).catch(() => {});
+          await dbPool.query("UPDATE profiles SET my_helper_profile = NULL WHERE (my_helper_profile->>'id') = $1", [id]).catch(() => {});
+          await dbPool.query("DELETE FROM verification_requests WHERE (entity_id = $1 OR id = ('verif_hlp_' || $1)) AND entity_type = 'helper'", [id]).catch(() => {});
         } catch (_e) {}
       }
       invalidatePublicCache(['public_helpers']);
@@ -12732,23 +12680,15 @@ async function startServer() {
           await dbPool.query(
             `UPDATE verification_requests
              SET status = $1, reviewed_at = NOW()
-             WHERE entity_id = $2
-                OR user_id = $2
-                OR ($3 <> '' AND (entity_id = $3 OR user_id = $3))
-                OR ($4 <> '' AND LOWER(user_email) = LOWER($4))
-                OR ($5 <> '' AND RIGHT(REGEXP_REPLACE(COALESCE(user_phone, ''), '\\D', '', 'g'), 10) = $5)`,
+             WHERE entity_type = 'helper'
+               AND (
+                 entity_id = $2
+                 OR id = $2
+                 OR ($3 <> '' AND entity_id = $3)
+                 OR ($4 <> '' AND LOWER(user_email) = LOWER($4))
+                 OR ($5 <> '' AND RIGHT(REGEXP_REPLACE(COALESCE(user_phone, ''), '\\D', '', 'g'), 10) = $5)
+               )`,
             [finalHelperStatus, id, helperUid, helper.email || '', helperPhoneDigits]
-          ).catch(() => {});
-
-          await dbPool.query(
-            `UPDATE profiles
-             SET status = $1, is_verified = $2, verified = $2, updated_at = NOW()
-             WHERE id = $3
-                OR uid = $3
-                OR ($4 <> '' AND (id = $4 OR uid = $4))
-                OR ($5 <> '' AND LOWER(email) = LOWER($5))
-                OR ($6 <> '' AND RIGHT(REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g'), 10) = $6)`,
-            [finalHelperStatus, finalHelperVerified, id, helperUid, helper.email || '', helperPhoneDigits]
           ).catch(() => {});
 
           await dbPool.query(`
@@ -12795,8 +12735,7 @@ async function startServer() {
         } catch {}
       }
 
-      const syntheticEmailUid = targetEmail ? ('email_' + targetEmail.replace(/[^a-z0-9]/g, '_')) : '';
-      await markEntitiesDeletedPermanently([id, targetUserId, targetEmail, syntheticEmailUid]);
+      deletedEntitiesMemorySet.add(String(id));
 
       if (targetHelper) {
         await archiveToSecurityVault(
@@ -12809,42 +12748,17 @@ async function startServer() {
       }
       writeJsonFile(
         HELPERS_FILE,
-        helpers.filter(
-          h =>
-            h &&
-            h.id !== id &&
-            h.userId !== id &&
-            (!targetEmail || String(h.email || '').trim().toLowerCase() !== targetEmail)
-        )
+        helpers.filter(h => h && h.id !== id)
       );
 
       const profiles = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
-      delete profiles[id];
-      if (targetUserId) delete profiles[targetUserId];
-      if (syntheticEmailUid) delete profiles[syntheticEmailUid];
       Object.keys(profiles).forEach(k => {
         const p = profiles[k];
-        if (!p) return;
-        if (
-          p.uid === id ||
-          p.id === id ||
-          (targetEmail && String(p.email || '').trim().toLowerCase() === targetEmail)
-        ) {
-          delete profiles[k];
-        } else if (p.myHelperProfile?.id === id) {
+        if (p && p.myHelperProfile?.id === id) {
           delete p.myHelperProfile;
         }
       });
       writeJsonFile(PROFILES_FILE, profiles);
-
-      const authUsers = readJsonFile<Record<string, any>>(AUTH_USERS_FILE, {});
-      if (targetEmail && authUsers[targetEmail]) delete authUsers[targetEmail];
-      Object.keys(authUsers).forEach(k => {
-        if (authUsers[k]?.uid === id || authUsers[k]?.uid === targetUserId || (targetEmail && k.toLowerCase() === targetEmail)) {
-          delete authUsers[k];
-        }
-      });
-      writeJsonFile(AUTH_USERS_FILE, authUsers);
 
       const verifs = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
       writeJsonFile(
@@ -12852,10 +12766,7 @@ async function startServer() {
         verifs.filter(
           v =>
             v &&
-            v.entityId !== id &&
-            v.userId !== id &&
-            v.userId !== targetUserId &&
-            (!targetEmail || String(v.userEmail || '').trim().toLowerCase() !== targetEmail)
+            !(v.entityId === id && (v.entityType === 'helper' || String(v.id).startsWith('verif_hlp_')))
         )
       );
 
@@ -12871,27 +12782,11 @@ async function startServer() {
               req
             );
           }
-          // Preserve Firebase Storage photos/ID documents in Security Vault
-          await dbPool.query("DELETE FROM helpers WHERE id = $1 OR id = $2", [id, targetUserId]).catch(() => {});
+          await dbPool.query("DELETE FROM helpers WHERE id = $1", [id]).catch(() => {});
+          await dbPool.query("UPDATE profiles SET my_helper_profile = NULL WHERE (my_helper_profile->>'id') = $1", [id]).catch(() => {});
           await dbPool.query(
-            "DELETE FROM profiles WHERE uid = $1 OR id = $1 OR user_id = $1 OR uid = $2 OR ($3 <> '' AND LOWER(email) = LOWER($3))",
-            [id, targetUserId, targetEmail]
-          ).catch(() => {});
-          await dbPool.query(
-            'DELETE FROM "user" WHERE id = $1 OR id = $2 OR ($3 <> \'\' AND LOWER(email) = LOWER($3))',
-            [id, targetUserId, targetEmail]
-          ).catch(() => {});
-          await dbPool.query(
-            "DELETE FROM users WHERE id = $1 OR id = $2 OR ($3 <> '' AND LOWER(email) = LOWER($3))",
-            [id, targetUserId, targetEmail]
-          ).catch(() => {});
-          await dbPool.query(
-            "DELETE FROM user_passwords WHERE uid = $1 OR uid = $2 OR ($3 <> '' AND LOWER(email) = LOWER($3))",
-            [id, targetUserId, targetEmail]
-          ).catch(() => {});
-          await dbPool.query(
-            "DELETE FROM verification_requests WHERE entity_id = $1 OR user_id = $1 OR user_id = $2 OR ($3 <> '' AND LOWER(user_email) = LOWER($3))",
-            [id, targetUserId, targetEmail]
+            "DELETE FROM verification_requests WHERE (entity_id = $1 OR id = ('verif_hlp_' || $1)) AND entity_type = 'helper'",
+            [id]
           ).catch(() => {});
         } catch (e) {}
       }
@@ -13221,7 +13116,7 @@ async function startServer() {
         : '';
       const phoneDigits = normalizePhoneDigitsServer(current.phone || (uid.startsWith('phone_') ? uid : '') || emailPhoneDigits);
 
-      // Sync local files as well (matching by uid, email, or 10-digit phone)
+      // Sync local profile file
       const profilesFileMap = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
       profilesFileMap[uid] = { ...(profilesFileMap[uid] || {}), ...current };
       Object.keys(profilesFileMap).forEach((pKey) => {
@@ -13243,32 +13138,13 @@ async function startServer() {
       });
       writeJsonFile(PROFILES_FILE, profilesFileMap);
 
-      const helpersFileList = readJsonFile<any[]>(HELPERS_FILE, []);
-      let helperUpdated = false;
-      helpersFileList.forEach(h => {
-        const hPh = normalizePhoneDigitsServer(h?.phone || '');
-        if (
-          h &&
-          (h.id === uid ||
-            h.userId === uid ||
-            (current.email && String(h.email || '').toLowerCase() === current.email.toLowerCase()) ||
-            (phoneDigits && hPh === phoneDigits))
-        ) {
-          h.status = current.status;
-          h.isVerified = Boolean(current.isVerified);
-          h.is_verified = Boolean(current.isVerified);
-          if (current.category) h.categoryId = current.category;
-          helperUpdated = true;
-        }
-      });
-      if (helperUpdated) writeJsonFile(HELPERS_FILE, helpersFileList);
-
       const verifs = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
       let verifUpdated = false;
       verifs.forEach(v => {
         const vPh = normalizePhoneDigitsServer(v?.userPhone || '');
         if (
           v &&
+          v.entityType === 'user_profile' &&
           (v.entityId === uid ||
             v.userId === uid ||
             v.id === uid ||
@@ -13349,29 +13225,18 @@ async function startServer() {
             [uid, current.email || '', phoneDigits]
           ).catch(() => {});
 
-          await dbPool.query(
-            `UPDATE helpers
-             SET is_verified = $1,
-                 status = $2,
-                 category_id = COALESCE(NULLIF($3, ''), category_id),
-                 is_deleted = false,
-                 hidden = false
-             WHERE id = $4
-                OR user_id = $4
-                OR ($5 <> '' AND LOWER(COALESCE(email, '')) = LOWER($5))
-                OR ($6 <> '' AND REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE '%' || $6)`,
-            [Boolean(current.isVerified), current.status || 'approved', current.category || '', uid, current.email || '', phoneDigits]
-          ).catch(() => {});
-
           if (current.status) {
             await dbPool.query(
               `UPDATE verification_requests
                SET status = $1, reviewed_at = NOW()
-               WHERE user_id = $2
-                  OR entity_id = $2
-                  OR id = $2
-                  OR ($3 <> '' AND LOWER(COALESCE(user_email, '')) = LOWER($3))
-                  OR ($4 <> '' AND REGEXP_REPLACE(COALESCE(user_phone, ''), '\\D', '', 'g') LIKE '%' || $4)`,
+               WHERE entity_type = 'user_profile'
+                 AND (
+                   user_id = $2
+                   OR entity_id = $2
+                   OR id = $2
+                   OR ($3 <> '' AND LOWER(COALESCE(user_email, '')) = LOWER($3))
+                   OR ($4 <> '' AND REGEXP_REPLACE(COALESCE(user_phone, ''), '\\D', '', 'g') LIKE '%' || $4)
+                 )`,
               [current.status, uid, current.email || '', phoneDigits]
             ).catch(() => {});
           }
@@ -13893,23 +13758,33 @@ async function startServer() {
             await dbPool.query(
               `UPDATE verification_requests
                SET id_document_watermarked = $1
-               WHERE entity_id = $2
-                  OR user_id = $3
-                  OR ($4 <> '' AND LOWER(user_email) = $4)
-                  OR ($5 <> '' AND RIGHT(REGEXP_REPLACE(COALESCE(user_phone, ''), '\\D', '', 'g'), 10) = $5)`,
-              [safeDoc, targetEntityId, targetUserId, cleanEmail, normPh]
+               WHERE id = $2
+                  OR (entity_id = $2 AND entity_type = $3)
+                  OR (user_id = $4 AND entity_type = $3)
+                  OR ($5 <> '' AND LOWER(user_email) = $5 AND entity_type = $3)
+                  OR ($6 <> '' AND RIGHT(REGEXP_REPLACE(COALESCE(user_phone, ''), '\\D', '', 'g'), 10) = $6 AND entity_type = $3)`,
+              [safeDoc, targetEntityId, entityType, targetUserId, cleanEmail, normPh]
             ).catch(() => {});
 
-            await dbPool.query(
-              `UPDATE profiles
-               SET avatar_url = COALESCE(NULLIF($1, ''), avatar_url), updated_at = NOW()
-               WHERE uid = $2
-                  OR id = $2
-                  OR uid = $3
-                  OR ($4 <> '' AND LOWER(email) = $4)
-                  OR ($5 <> '' AND RIGHT(REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g'), 10) = $5)`,
-              [safeDoc, targetUserId, targetEntityId, cleanEmail, normPh]
-            ).catch(() => {});
+            if (entityType === 'user_profile') {
+              await dbPool.query(
+                `UPDATE profiles
+                 SET avatar_url = COALESCE(NULLIF($1, ''), avatar_url), updated_at = NOW()
+                 WHERE uid = $2
+                    OR id = $2
+                    OR uid = $3
+                    OR ($4 <> '' AND LOWER(email) = $4)
+                    OR ($5 <> '' AND RIGHT(REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g'), 10) = $5)`,
+                [safeDoc, targetUserId, targetEntityId, cleanEmail, normPh]
+              ).catch(() => {});
+            } else if (entityType === 'helper') {
+              await dbPool.query(
+                `UPDATE helpers
+                 SET photo_url = COALESCE(photo_url, NULLIF($1, ''))
+                 WHERE id = $2 OR user_id = $3`,
+                [safeDoc, targetEntityId, targetUserId]
+              ).catch(() => {});
+            }
           }
         } catch (dbErr) {
           console.warn("[PostgreSQL] Verification save note:", dbErr);
@@ -14154,7 +14029,7 @@ async function startServer() {
           const catDisplay = h.categoryId === 'other' && h.customCategoryName ? `Other (${h.customCategoryName})` : (h.categoryId || 'Helper');
           const entry = {
             id: 'verif_hlp_' + h.id,
-            entityType: 'user_profile',
+            entityType: 'helper',
             entityId: h.id,
             userId: h.userId || h.id,
             userName: h.name,

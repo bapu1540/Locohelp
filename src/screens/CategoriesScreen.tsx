@@ -510,17 +510,16 @@ export default function CategoriesScreen({
       if (res.ok) {
         const data = await res.json();
         const serverList = Array.isArray(data) ? data : [];
+        const genericPlaceholders = ['other', 'general', 'service', 'community helper', 'user', ''];
         const normalizedAll = serverList
-          .filter(
-            (h: any) =>
-              h &&
-              h.id &&
-              !/^h\d+/.test(String(h.id)) &&
-              !deletedIds.includes(String(h.id)) &&
-              !h.is_flagged &&
-              !h.hidden &&
-              !h.is_deleted
-          )
+          .filter((h: any) => {
+            if (!h || !h.id) return false;
+            const idStr = String(h.id).trim();
+            if (/^h\d+/.test(idStr) || deletedIds.includes(idStr)) return false;
+            if (!idStr.startsWith('helper_') && !idStr.startsWith('hp_')) return false;
+            if (h.is_flagged || h.hidden || h.is_deleted) return false;
+            return true;
+          })
           .map((h: any) => {
             const norm = normalizeCategorySlug(
               h.categoryId || h.category,
@@ -535,6 +534,18 @@ export default function CategoriesScreen({
               isVerified: h.isVerified === true || h.status === 'approved',
               status: h.status || (h.isVerified ? 'approved' : 'pending'),
             };
+          })
+          .filter((h: any) => {
+            const catLower = String(h.categoryId || '').trim().toLowerCase();
+            const customLower = String(h.customCategoryName || '').trim().toLowerCase();
+            const skillsArr = Array.isArray(h.skills)
+              ? h.skills.map((s: any) => String(s || '').trim().toLowerCase()).filter(Boolean)
+              : [];
+            if ((!catLower || catLower === 'other' || catLower === 'general') && genericPlaceholders.includes(customLower)) {
+              const hasRealSkill = skillsArr.some((s: string) => !genericPlaceholders.includes(s));
+              if (!hasRealSkill) return false;
+            }
+            return true;
           });
         const verifiedOnly = normalizedAll.filter(
           (h: any) => h.isVerified === true || h.status === 'approved'
@@ -598,6 +609,10 @@ export default function CategoriesScreen({
     try {
       sessionStorage.removeItem('locohelp_return_popup_cat');
     } catch {}
+    if (activeCategory !== 'all' && (!selectedCategory || selectedCategory === 'all')) {
+      setActiveCategory('all');
+      return;
+    }
     if (onSelectCategory) {
       onSelectCategory('all');
     }
@@ -619,33 +634,19 @@ export default function CategoriesScreen({
     }));
   };
 
-  // Match helpers to a specific sub-category ID
+  // Strictly match helpers only to the exact category they registered in
   const isHelperMatchingCategory = (
     h: FreeHelperProfile,
     cat: CategoryItem
   ): boolean => {
+    const idStr = String(h?.id || '').trim();
+    if (!idStr.startsWith('helper_') && !idStr.startsWith('hp_')) return false;
     const norm = normalizeCategorySlug(
       h.categoryId || (h as any).category,
       h.skills,
       h.customCategoryName
     );
-    if (norm.categoryId === cat.id) return true;
-    const catNameEn = cat.nameEn.toLowerCase();
-    const catTag = cat.tag.replace('#', '').toLowerCase();
-    if (
-      Array.isArray(h.skills) &&
-      h.skills.some((s) => {
-        const sl = String(s || '').toLowerCase();
-        return (
-          sl.includes(cat.id.toLowerCase()) ||
-          sl.includes(catTag) ||
-          sl === catNameEn
-        );
-      })
-    ) {
-      return true;
-    }
-    return false;
+    return norm.categoryId === cat.id;
   };
 
   const selectedCategoryObj = CATEGORIES.find((c) => c.id === activeCategory);
@@ -732,15 +733,21 @@ export default function CategoriesScreen({
     return () => window.removeEventListener('locohelp_close_active_modal', handleCloseActiveModal);
   }, [reviewModalHelper, reportTarget, isRegisterModalOpen, isLoginPromptOpen]);
 
-  const selectedCityName = (userLocation?.district || userLocation?.area || '').trim();
+  const selectedTaluka = (userLocation?.taluka || userLocation?.area || '').trim();
+  const selectedDistrict = (userLocation?.district || '').trim();
+  const selectedCityName =
+    selectedTaluka && selectedDistrict
+      ? `${selectedTaluka}, ${selectedDistrict}`
+      : selectedTaluka || selectedDistrict;
 
-  // Filter helpers for selected category + optional user city filter
+  // Filter helpers strictly for the opened category (never show a loose list when activeCategory === 'all')
   const filteredHelpers = helpers.filter((h) => {
-    const matchesCat =
-      activeCategory === 'all' ||
-      (selectedCategoryObj
-        ? isHelperMatchingCategory(h, selectedCategoryObj)
-        : h.categoryId === activeCategory);
+    if (activeCategory === 'all') return false;
+    const matchesCat = selectedCategoryObj
+      ? isHelperMatchingCategory(h, selectedCategoryObj)
+      : h.categoryId === activeCategory;
+    if (!matchesCat) return false;
+
     const q = searchQuery.toLowerCase().trim();
     const helperCatObj = CATEGORIES.find((c) => c.id === h.categoryId);
     const matchesSearch =
@@ -756,14 +763,14 @@ export default function CategoriesScreen({
     if (filterByMyCity && selectedCityName && !q) {
       const hArea = String(h.area || (h as any).city || '').toLowerCase();
       const normDist = (userLocation?.district || '').trim().toLowerCase();
-      const normArea = (userLocation?.area || '').trim().toLowerCase();
+      const normArea = (userLocation?.taluka || userLocation?.area || '').trim().toLowerCase();
       matchesCity = Boolean(
-        (normDist && hArea.includes(normDist)) ||
-          (normArea && hArea.includes(normArea))
+        (normArea && hArea.includes(normArea)) ||
+          (normDist && hArea.includes(normDist))
       );
     }
 
-    return matchesCat && matchesSearch && matchesCity;
+    return matchesSearch && matchesCity;
   });
 
   const [pendingApprovalNotice, setPendingApprovalNotice] = useState<string | null>(null);
@@ -843,6 +850,11 @@ export default function CategoriesScreen({
               <ArrowLeft className="w-5 h-5" />
             </button>
           )}
+          {activeCategory !== 'all' && selectedCategoryObj && (
+            <div className="w-8 h-8 rounded-xl bg-orange-600 text-white flex items-center justify-center shrink-0">
+              {getCategoryIcon(selectedCategoryObj.iconName, 'w-4 h-4')}
+            </div>
+          )}
           <h1 className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white truncate">
             {activeCategory !== 'all' && selectedCategoryObj
               ? getCategoryName(selectedCategoryObj, language)
@@ -914,59 +926,6 @@ export default function CategoriesScreen({
           )}
         </div>
 
-        {/* Selected Sub-Category Header Bar */}
-        {activeCategory !== 'all' && selectedCategoryObj && (
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800/50 rounded-2xl p-3.5">
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={handleBackNavigation}
-                className="w-9 h-9 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 hover:bg-slate-100 cursor-pointer shrink-0"
-                title={tr('Back', 'वापस जाएं', 'પાછા જાઓ')}
-              >
-                <ArrowLeft className="w-4 h-4" />
-              </button>
-              <div className="w-10 h-10 rounded-xl bg-orange-600 text-white flex items-center justify-center shrink-0">
-                {getCategoryIcon(selectedCategoryObj.iconName, 'w-5 h-5')}
-              </div>
-              <div>
-                <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
-                  {getCategoryName(selectedCategoryObj, language)}
-                </h3>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleBackNavigation}
-                className="px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold hover:bg-slate-50 cursor-pointer"
-              >
-                {tr('← Back', '← वापस जाएं', '← પાછા જાઓ')}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (isGuestUser()) {
-                    setIsLoginPromptOpen(true);
-                    return;
-                  }
-                  setIsRegisterModalOpen(true);
-                }}
-                style={{
-                  background: 'linear-gradient(135deg, #FF6600 0%, #E03E00 100%)',
-                }}
-                className="px-3 py-2 rounded-xl text-white text-xs font-bold shadow-xs cursor-pointer"
-              >
-                {tr(
-                  '+ Join as Expert',
-                  '+ अपनी प्रोफाइल जोड़ें',
-                  '+ તમારી પ્રોફાઇલ ઉમેરો'
-                )}
-              </button>
-            </div>
-          </div>
-        )}
 
         {/* ===================================================================== */}
         {/* COLORFUL, SIMPLE, CLEAN ACCORDION + SUB-CATEGORY BANNERS              */}
@@ -1197,23 +1156,19 @@ export default function CategoriesScreen({
 
         {/* ===================================================================== */}
         {/* REGISTERED SERVICE PROVIDERS / HELPERS DIRECTORY LIST                 */}
+        {/* Shown ONLY inside a specific selected category (never as a loose list) */}
         {/* ===================================================================== */}
+        {activeCategory !== 'all' && (
         <div>
           <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
             <div className="flex items-center gap-2">
               <ShieldCheck className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
               <h3 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white">
-                {activeCategory === 'all'
-                  ? tr(
-                      'Registered Local Service Experts',
-                      'रजिस्टर्ड लोकल सर्विस एक्सपर्ट्स',
-                      'રજિસ્ટર્ડ લોકલ સર્વિસ એક્સપર્ટ્સ'
-                    )
-                  : `${getCategoryName(selectedCategoryObj, language)} — ${tr(
-                      'Available Experts',
-                      'उपलब्ध एक्सपर्ट्स',
-                      'ઉપલબ્ધ એક્સપર્ટ્સ'
-                    )}`}
+                {tr(
+                  'Available Service Experts',
+                  'उपलब्ध सर्विस एक्सपर्ट्स',
+                  'ઉપલબ્ધ સર્વિસ એક્સપર્ટ્સ'
+                )}
               </h3>
             </div>
             <div className="flex items-center gap-2">
@@ -1249,48 +1204,13 @@ export default function CategoriesScreen({
                   'તમારા વિસ્તારના વેરિફાઇડ સર્વિસ એક્સપર્ટ્સ ટૂંક સમયમાં જોડાઈ રહ્યા છે!'
                 )}
               </p>
-              <p className="text-xs sm:text-[13px] leading-relaxed text-slate-600 dark:text-slate-300 max-w-xl mx-auto mb-4">
+              <p className="text-xs sm:text-[13px] leading-relaxed text-slate-600 dark:text-slate-300 max-w-xl mx-auto">
                 {tr(
-                  "Onboarding of verified local experts in this category is currently underway. If you have an urgent requirement right now, click 'Create Post' on the Home page, or if you provide this service yourself, register your free profile below!",
-                  "इस कैटेगरी में लोकल कारीगरों और एक्सपर्ट्स को जोड़ने का काम चालू है। अगर आपको अभी तुरंत काम है तो आप होम पेज पर 'पोस्ट बनाएं' पर क्लिक करके अपनी ज़रूरत डाल सकते हैं, या अगर आप खुद यह काम करते हैं तो नीचे बटन दबाकर मुफ्त में अपनी प्रोफाइल जोड़ें!",
-                  "આ કેટેગરીમાં લોકલ કારીગરો અને એક્સપર્ટ્સને જોડવાનું કામ ચાલુ છે. જો તમારે અત્યારે તાત્કાલિક કામ હોય તો હોમ પેજ પર 'પોસ્ટ બનાવો' પર ક્લિક કરીને તમારી જરૂરિયાત મૂકી શકો છો, અથવા જો તમે પોતે આ કામ કરો છો તો નીચે બટન દબાવીને મફતમાં તમારી પ્રોફાઇલ જોડો!"
+                  "Onboarding of verified local experts in this category is currently underway. If you have an urgent requirement right now, click 'Create Post' on the Home page, or if you provide this service yourself, use the '+ Register Profile' button at the top!",
+                  "इस कैटेगरी में लोकल कारीगरों और एक्सपर्ट्स को जोड़ने का काम चालू है। अगर आपको अभी तुरंत काम है तो आप होम पेज पर 'पोस्ट बनाएं' पर क्लिक करके अपनी ज़रूरत डाल सकते हैं, या अगर आप खुद यह काम करते हैं तो ऊपर '+ फ्री प्रोफाइल बनाएं' बटन दबाएं!",
+                  "આ કેટેગરીમાં લોકલ કારીગરો અને એક્સપર્ટ્સને જોડવાનું કામ ચાલુ છે. જો તમારે અત્યારે તાત્કાલિક કામ હોય તો હોમ પેજ પર 'પોસ્ટ બનાવો' પર ક્લિક કરીને તમારી જરૂરિયાત મૂકી શકો છો, અથવા જો તમે પોતે આ કામ કરો છો તો ઉપર '+ ફ્રી પ્રોફાઇલ બનાવો' બટન દબાવીને મફતમાં તમારી પ્રોફાઇલ જોડો!"
                 )}
               </p>
-              <div className="flex flex-wrap items-center justify-center gap-2.5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (isGuestUser()) {
-                      setIsLoginPromptOpen(true);
-                      return;
-                    }
-                    setIsRegisterModalOpen(true);
-                  }}
-                  style={{
-                    background: 'linear-gradient(135deg, #FF6600 0%, #E03E00 100%)',
-                  }}
-                  className="px-4 py-2.5 rounded-xl text-white text-xs font-extrabold shadow-sm cursor-pointer hover:brightness-105 transition-all"
-                >
-                  {tr(
-                    '+ Register as Expert (Free)',
-                    '+ फ्री एक्सपर्ट प्रोफाइल बनाएं',
-                    '+ ફ્રી એક્સપર્ટ પ્રોફાઇલ બનાવો'
-                  )}
-                </button>
-                {onBack && (
-                  <button
-                    type="button"
-                    onClick={onBack}
-                    className="px-4 py-2.5 rounded-xl bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-xs font-bold cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-600 transition-all"
-                  >
-                    {tr(
-                      '← Back to Home',
-                      '← होम पेज पर जाएं',
-                      '← હોમ પેજ પર જાઓ'
-                    )}
-                  </button>
-                )}
-              </div>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
@@ -1479,6 +1399,7 @@ export default function CategoriesScreen({
             </div>
           )}
         </div>
+        )}
       </div>
 
       {/* Free Helper Registration Modal */}

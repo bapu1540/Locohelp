@@ -228,7 +228,6 @@ export default function FreeHelperRegisterModal({
         scoped.myHelperProfile = newHelper;
         scoped.isPhonePublic = isPhonePublic;
         localStorage.setItem(`locohelp_user_profile_${uid}`, JSON.stringify(scoped));
-        saveUserProfile({ uid, email: userEmail, phone: linkedPhone, isPhonePublic, myHelperProfile: newHelper }).catch(() => {});
       }
     } catch (e) {}
 
@@ -246,7 +245,7 @@ export default function FreeHelperRegisterModal({
 
     try {
       await submitVerification({
-        entityType: 'user_profile',
+        entityType: 'helper',
         entityId: newHelper.id,
         userId: uid || newHelper.id,
         userName: newHelper.name,

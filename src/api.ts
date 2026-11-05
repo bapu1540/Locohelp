@@ -1166,7 +1166,7 @@ export type AdBannerItem = any;
  * Submits an identity document with auto-watermark for verification
  */
 export async function submitVerification(payload: {
-  entityType: 'user_profile' | 'business';
+  entityType: 'user_profile' | 'business' | 'helper';
   entityId: string;
   userId: string;
   userName: string;
