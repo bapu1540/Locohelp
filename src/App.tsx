@@ -209,7 +209,13 @@ function AppContent() {
         refreshUnread();
       }
     });
-    const handleChatReadUpdated = () => refreshUnread();
+    const handleChatReadUpdated = (e: any) => {
+      if (typeof e?.detail?.unreadCount === 'number') {
+        if (active) setUnreadChatCount(e.detail.unreadCount);
+        return;
+      }
+      refreshUnread();
+    };
     window.addEventListener('locohelp_chat_read_updated', handleChatReadUpdated);
     window.addEventListener('storage', handleChatReadUpdated);
     return () => {

@@ -8701,21 +8701,34 @@ async function startServer() {
       const userEmailParam = String(req.query.userEmail || req.query.ownerEmail || req.query.owner_email || req.headers["x-user-email"] || caller?.email || "").trim().toLowerCase();
       const userPhoneParam = normalizePhoneDigitsServer(String(req.query.userPhone || req.headers["x-user-phone"] || caller?.phone || ""));
 
-      const ownerInfo = postId ? await resolvePostOwnerInfo(postId) : { posterId: "", posterName: "", posterEmail: "", posterAvatar: "", postDescription: "" };
-      const ownerIds = await expandIdentitySetFromDb(buildServerIdentitySet(ownerInfo.posterId, ownerInfo.posterEmail));
-      ["owner", "me", "system"].forEach((s) => ownerIds.add(s));
-      const ownerEmails = new Set<string>(
-        [ownerInfo.posterEmail]
-          .map((s) => String(s || "").trim().toLowerCase())
-          .filter(Boolean)
-      );
       const baseViewerSet = buildServerIdentitySet(userIdParam, userEmailParam);
       if (userPhoneParam) {
         baseViewerSet.add(userPhoneParam);
         baseViewerSet.add(`phone_${userPhoneParam}`);
         baseViewerSet.add(`${userPhoneParam}@phone.locohelp.com`);
       }
-      const viewerIdentitySet = await expandIdentitySetFromDb(baseViewerSet);
+
+      const [ownerData, viewerIdentitySet] = await Promise.all([
+        postId
+          ? resolvePostOwnerInfo(postId).then(async (info) => {
+              const ids = await expandIdentitySetFromDb(buildServerIdentitySet(info.posterId, info.posterEmail));
+              return { info, ids };
+            })
+          : Promise.resolve({
+              info: { posterId: "", posterName: "", posterEmail: "", posterAvatar: "", postDescription: "" },
+              ids: new Set<string>()
+            }),
+        expandIdentitySetFromDb(baseViewerSet)
+      ]);
+
+      const ownerInfo = ownerData.info;
+      const ownerIds = ownerData.ids;
+      ["owner", "me", "system"].forEach((s) => ownerIds.add(s));
+      const ownerEmails = new Set<string>(
+        [ownerInfo.posterEmail]
+          .map((s) => String(s || "").trim().toLowerCase())
+          .filter(Boolean)
+      );
       const viewerIdentityArray = Array.from(viewerIdentitySet);
 
       // Normalized key helper so conversations table and messages table rows for the same (postId, helperId) ALWAYS merge into one thread
@@ -8724,39 +8737,70 @@ async function startServer() {
       const conversationsMap = new Map<string, any>();
 
       if (dbPool && isDbConnected) {
-        // 1. Query dedicated conversations table first
-        try {
-          let convRes;
-          if (postId) {
-            convRes = await dbPool.query(
-              `SELECT * FROM conversations
-               WHERE post_id = $1
-                 AND last_message IS NOT NULL
-                 AND TRIM(last_message) <> ''
-                 AND LOWER(COALESCE(helper_id, '')) <> LOWER(COALESCE(poster_id, ''))
-                 AND (last_message_at IS NULL OR last_message_at >= NOW() - INTERVAL '7 days')
-               ORDER BY last_message_at DESC`,
-              [postId]
-            );
-          } else if (viewerIdentityArray.length > 0) {
-            convRes = await dbPool.query(
-              `SELECT * FROM conversations
-               WHERE (
-                 LOWER(poster_id) = ANY($1::text[])
-                 OR LOWER(helper_id) = ANY($1::text[])
-                 OR LOWER(poster_email) = ANY($1::text[])
-                 OR LOWER(helper_email) = ANY($1::text[])
-                 OR LOWER(post_id) = ANY($1::text[])
-               )
-                 AND last_message IS NOT NULL
-                 AND TRIM(last_message) <> ''
-                 AND LOWER(COALESCE(helper_id, '')) <> LOWER(COALESCE(poster_id, ''))
-                 AND (last_message_at IS NULL OR last_message_at >= NOW() - INTERVAL '7 days')
-               ORDER BY last_message_at DESC`,
-              [viewerIdentityArray]
-            );
-          }
+        // Run conversations and messages table queries in PARALLEL instead of sequentially
+        const [convRes, mRes] = await Promise.all([
+          postId
+            ? dbPool
+                .query(
+                  `SELECT * FROM conversations
+                   WHERE post_id = $1
+                     AND last_message IS NOT NULL
+                     AND TRIM(last_message) <> ''
+                     AND LOWER(COALESCE(helper_id, '')) <> LOWER(COALESCE(poster_id, ''))
+                     AND (last_message_at IS NULL OR last_message_at >= NOW() - INTERVAL '7 days')
+                   ORDER BY last_message_at DESC`,
+                  [postId]
+                )
+                .catch(() => ({ rows: [] as any[] }))
+            : viewerIdentityArray.length > 0
+            ? dbPool
+                .query(
+                  `SELECT * FROM conversations
+                   WHERE (
+                     LOWER(poster_id) = ANY($1::text[])
+                     OR LOWER(helper_id) = ANY($1::text[])
+                     OR LOWER(poster_email) = ANY($1::text[])
+                     OR LOWER(helper_email) = ANY($1::text[])
+                     OR LOWER(post_id) = ANY($1::text[])
+                   )
+                     AND last_message IS NOT NULL
+                     AND TRIM(last_message) <> ''
+                     AND LOWER(COALESCE(helper_id, '')) <> LOWER(COALESCE(poster_id, ''))
+                     AND (last_message_at IS NULL OR last_message_at >= NOW() - INTERVAL '7 days')
+                   ORDER BY last_message_at DESC`,
+                  [viewerIdentityArray]
+                )
+                .catch(() => ({ rows: [] as any[] }))
+            : Promise.resolve({ rows: [] as any[] }),
+          postId
+            ? dbPool
+                .query(
+                  "SELECT * FROM messages WHERE (post_id = $1 OR intent_id = $1) AND (created_at IS NULL OR created_at >= NOW() - INTERVAL '7 days') ORDER BY created_at ASC",
+                  [postId]
+                )
+                .catch(() => ({ rows: [] as any[] }))
+            : viewerIdentityArray.length > 0
+            ? dbPool
+                .query(
+                  `SELECT * FROM messages
+                   WHERE (
+                     LOWER(sender_id) = ANY($1::text[])
+                     OR LOWER(receiver_id) = ANY($1::text[])
+                     OR LOWER(post_owner_id) = ANY($1::text[])
+                     OR LOWER(sender_email) = ANY($1::text[])
+                     OR LOWER(post_id) = ANY($1::text[])
+                     OR LOWER(intent_id) = ANY($1::text[])
+                   )
+                   AND (created_at IS NULL OR created_at >= NOW() - INTERVAL '7 days')
+                   ORDER BY created_at ASC`,
+                  [viewerIdentityArray]
+                )
+                .catch(() => ({ rows: [] as any[] }))
+            : Promise.resolve({ rows: [] as any[] })
+        ]);
 
+        // 1. Process dedicated conversations table rows
+        try {
           if (convRes && convRes.rows.length > 0) {
             convRes.rows.forEach((c: any) => {
               const hId = String(c.helper_id || "").trim();
@@ -8816,30 +8860,6 @@ async function startServer() {
         // 2. Reconcile from messages table for postId OR for user's My Chats (last 7 days) so any existing replies & full message counts are included
         if (postId || viewerIdentityArray.length > 0) {
           try {
-            const mRes = postId
-              ? await dbPool
-                  .query(
-                    "SELECT * FROM messages WHERE (post_id = $1 OR intent_id = $1) AND (created_at IS NULL OR created_at >= NOW() - INTERVAL '7 days') ORDER BY created_at ASC",
-                    [postId]
-                  )
-                  .catch(() => ({ rows: [] as any[] }))
-              : await dbPool
-                  .query(
-                    `SELECT * FROM messages
-                     WHERE (
-                       LOWER(sender_id) = ANY($1::text[])
-                       OR LOWER(receiver_id) = ANY($1::text[])
-                       OR LOWER(post_owner_id) = ANY($1::text[])
-                       OR LOWER(sender_email) = ANY($1::text[])
-                       OR LOWER(post_id) = ANY($1::text[])
-                       OR LOWER(intent_id) = ANY($1::text[])
-                     )
-                     AND (created_at IS NULL OR created_at >= NOW() - INTERVAL '7 days')
-                     ORDER BY created_at ASC`,
-                    [viewerIdentityArray]
-                  )
-                  .catch(() => ({ rows: [] as any[] }));
-
             for (const r of mRes.rows) {
               const sId = String(r.sender_id || "").trim();
               const sIdLower = sId.toLowerCase();
@@ -10857,13 +10877,15 @@ async function startServer() {
 
       if (dbPool && isDbConnected) {
         try {
-          const vRes = await dbPool.query("SELECT entity_id, user_id, status FROM verification_requests WHERE status = 'approved'").catch(() => ({ rows: [] as any[] }));
+          const [vRes, result] = await Promise.all([
+            dbPool.query("SELECT entity_id, user_id, status FROM verification_requests WHERE status = 'approved'").catch(() => ({ rows: [] as any[] })),
+            dbPool.query("SELECT * FROM helpers WHERE COALESCE(is_deleted, false) = false ORDER BY created_at DESC")
+          ]);
           vRes.rows.forEach((v: any) => {
             if (v.entity_id && !isEntityDeleted(v.entity_id)) approvedEntityIds.add(String(v.entity_id));
             if (v.user_id && !isEntityDeleted(v.user_id)) approvedEntityIds.add(String(v.user_id));
           });
 
-          const result = await dbPool.query("SELECT * FROM helpers WHERE COALESCE(is_deleted, false) = false ORDER BY created_at DESC");
           if (result.rows.length > 0) {
             const localHelpersList = readJsonFile<any[]>(HELPERS_FILE, []);
             const localById = new Map<string, any>();
@@ -14766,10 +14788,18 @@ async function startServer() {
         return res.status(400).json({ error: "categoryId and imageUrl are required" });
       }
 
-      const isHeroBanner = cleanId.startsWith("__home_hero_banner");
-      const subFolder = isHeroBanner ? "banners" : "categories";
-      const customFileName = isHeroBanner ? `${cleanId.replace(/^__+|__+$/g, "")}.webp` : `category_${cleanId}.webp`;
-      const cleanUrl = rawUrl === "__deleted__" ? "__deleted__" : await uploadDataToFirebaseServer(rawUrl, subFolder, customFileName);
+      const isTextMetaKey =
+        cleanId.startsWith("__promo_ad_banner_link_") ||
+        cleanId.startsWith("__promo_ad_banner_title_");
+      const isHeroOrPromoBanner =
+        cleanId.startsWith("__home_hero_banner") ||
+        cleanId.startsWith("__promo_ad_banner_");
+      const subFolder = isHeroOrPromoBanner ? "banners" : "categories";
+      const customFileName = isHeroOrPromoBanner ? `${cleanId.replace(/^__+|__+$/g, "")}.webp` : `category_${cleanId}.webp`;
+      const cleanUrl =
+        rawUrl === "__deleted__" || isTextMetaKey
+          ? rawUrl
+          : await uploadDataToFirebaseServer(rawUrl, subFolder, customFileName);
 
       const fileImages = readJsonFile<Record<string, string>>(CATEGORY_IMAGES_FILE, {});
       const previousUrl = fileImages[cleanId];

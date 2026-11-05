@@ -15,7 +15,8 @@ import {
   blockUserInChatOnServer,
   unblockUserInChatOnServer,
   submitChatReportToServer,
-  fetchPostConversations
+  fetchPostConversations,
+  getCachedPostConversations
 } from '../api';
 import { validateUploadedFile, sanitizeText } from '../lib/security';
 import { compressImageToWebP } from '../lib/imageCompression';
@@ -31,6 +32,39 @@ interface ChatScreenProps {
   onExpandFullScreen?: () => void;
 }
 
+function normalizeAndDedupeConversations(list: any[]): any[] {
+  const dedupedMap = new Map<string, any>();
+  (Array.isArray(list) ? list : []).forEach((c: any) => {
+    if (!c) return;
+    const msgText = String(c.lastMessage || c.last_message || '').trim() || 'Sent a message';
+    const pId = String(c.postId || c.post_id || 'general').trim().toLowerCase();
+    const hId = String(c.helperId || c.helper_id || c.senderId || '').trim().toLowerCase();
+    const key = hId ? `${pId}__${hId}` : String(c.id || c.conversationId || Math.random());
+    const normalizedConv = {
+      ...c,
+      lastMessage: msgText,
+      last_message: msgText
+    };
+    const existing = dedupedMap.get(key);
+    if (!existing) {
+      dedupedMap.set(key, normalizedConv);
+    } else {
+      const existingTime = new Date(existing.lastMessageAt || existing.updatedAt || 0).getTime();
+      const newTime = new Date(normalizedConv.lastMessageAt || normalizedConv.updatedAt || 0).getTime();
+      if (newTime >= existingTime) {
+        dedupedMap.set(key, {
+          ...existing,
+          ...normalizedConv,
+          unreadCount: Math.max(Number(existing.unreadCount || 0), Number(normalizedConv.unreadCount || 0))
+        });
+      }
+    }
+  });
+  return Array.from(dedupedMap.values()).sort(
+    (a, b) => new Date(b.lastMessageAt || b.updatedAt || 0).getTime() - new Date(a.lastMessageAt || a.updatedAt || 0).getTime()
+  );
+}
+
 export default function ChatScreen({ intent, onIntentChange, onBack, onReport, isModal = false, onExpandFullScreen }: ChatScreenProps) {
   const { language, t, tr } = useLanguage();
   const [currentIntent, setCurrentIntent] = useState<Intent | null>(intent);
@@ -44,10 +78,23 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
     }
   }, [intent]);
 
-  const [allUserConversations, setAllUserConversations] = useState<any[]>([]);
-  const [isLoadingAllChats, setIsLoadingAllChats] = useState(false);
-
   const currentUser = getCurrentUser();
+
+  const [allUserConversations, setAllUserConversations] = useState<any[]>(() => {
+    if (!currentUser || isGuestUser()) return [];
+    const userPhone =
+      currentUser.phone ||
+      localStorage.getItem('locohelp_last_logged_in_phone') ||
+      localStorage.getItem('locohelp_profile_phone') ||
+      '';
+    const cached = getCachedPostConversations({
+      userId: currentUser.uid,
+      userEmail: currentUser.email,
+      userPhone
+    });
+    return normalizeAndDedupeConversations(cached);
+  });
+  const [isLoadingAllChats, setIsLoadingAllChats] = useState(false);
 
   const markConversationAsReadOnServer = async (
     targetPostId?: string,
@@ -93,52 +140,38 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
       setAllUserConversations([]);
       return;
     }
-    if (!silent) {
+    const userPhone =
+      activeUser.phone ||
+      localStorage.getItem('locohelp_last_logged_in_phone') ||
+      localStorage.getItem('locohelp_profile_phone') ||
+      '';
+    const cachedNow = normalizeAndDedupeConversations(
+      getCachedPostConversations({
+        userId: activeUser.uid,
+        userEmail: activeUser.email,
+        userPhone
+      })
+    );
+    if (cachedNow.length > 0 && allUserConversations.length === 0) {
+      setAllUserConversations(cachedNow);
+    }
+    if (!silent && cachedNow.length === 0 && allUserConversations.length === 0) {
       setIsLoadingAllChats(true);
     }
     try {
-      const userPhone = activeUser.phone || localStorage.getItem('locohelp_last_logged_in_phone') || localStorage.getItem('locohelp_profile_phone') || '';
       const list = await fetchPostConversations({
         userId: activeUser.uid,
         userEmail: activeUser.email,
         userPhone
       });
-      const dedupedMap = new Map<string, any>();
-      (Array.isArray(list) ? list : []).forEach((c: any) => {
-        if (!c) return;
-        const msgText = String(c.lastMessage || c.last_message || '').trim() || 'Sent a message';
-        const pId = String(c.postId || c.post_id || 'general').trim().toLowerCase();
-        const hId = String(c.helperId || c.helper_id || c.senderId || '').trim().toLowerCase();
-        const key = hId ? `${pId}__${hId}` : String(c.id || c.conversationId || Math.random());
-        const normalizedConv = {
-          ...c,
-          lastMessage: msgText,
-          last_message: msgText
-        };
-        const existing = dedupedMap.get(key);
-        if (!existing) {
-          dedupedMap.set(key, normalizedConv);
-        } else {
-          const existingTime = new Date(existing.lastMessageAt || existing.updatedAt || 0).getTime();
-          const newTime = new Date(normalizedConv.lastMessageAt || normalizedConv.updatedAt || 0).getTime();
-          if (newTime >= existingTime) {
-            dedupedMap.set(key, {
-              ...existing,
-              ...normalizedConv,
-              unreadCount: Math.max(Number(existing.unreadCount || 0), Number(normalizedConv.unreadCount || 0))
-            });
-          }
-        }
-      });
-      const finalConvs = Array.from(dedupedMap.values()).sort(
-        (a, b) => new Date(b.lastMessageAt || b.updatedAt || 0).getTime() - new Date(a.lastMessageAt || a.updatedAt || 0).getTime()
-      );
+      const finalConvs = normalizeAndDedupeConversations(list);
       setAllUserConversations(finalConvs);
-      window.dispatchEvent(new CustomEvent('locohelp_chat_read_updated'));
+      const totalUnread = finalConvs.reduce((sum: number, c: any) => sum + (Number(c?.unreadCount) || 0), 0);
+      window.dispatchEvent(new CustomEvent('locohelp_chat_read_updated', { detail: { unreadCount: totalUnread } }));
     } catch {
-      if (!silent) setAllUserConversations([]);
+      if (!silent && cachedNow.length === 0) setAllUserConversations([]);
     } finally {
-      if (!silent) setIsLoadingAllChats(false);
+      setIsLoadingAllChats(false);
     }
   };
 

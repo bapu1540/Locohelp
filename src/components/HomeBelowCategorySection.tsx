@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { Screen } from '../types';
 import { useLanguage } from '../i18n';
-import { getHelpers } from '../auth';
+import { getHelpers, getCachedHelpersSync } from '../auth';
 import {
   fetchHelperReviews,
   submitHelperReview,
@@ -79,6 +79,25 @@ export interface ShowcaseProviderItem {
 
 export const DEFAULT_SHOWCASE_PROVIDERS: ShowcaseProviderItem[] = [];
 
+function filterApprovedServiceExpertsList(list: any[]): any[] {
+  if (!Array.isArray(list)) return [];
+  return list.filter((h: any) => {
+    if (!h || !h.name) return false;
+    if (h.status && h.status !== 'approved') return false;
+    const idStr = String(h.id || '').trim();
+    // Exclude Simple User Profiles — only include genuine Service Expert registrations
+    if (!idStr.startsWith('helper_') && !idStr.startsWith('hp_')) return false;
+    const catId = String(h.categoryId || h.category || '').trim().toLowerCase();
+    const customCat = String(h.customCategoryName || '').trim();
+    const firstSkill =
+      Array.isArray(h.skills) && h.skills[0] ? String(h.skills[0]).trim().toLowerCase() : '';
+    if ((!catId || catId === 'other') && !customCat && (!firstSkill || firstSkill === 'other')) {
+      return false;
+    }
+    return true;
+  });
+}
+
 export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> = ({
   onNavigate,
   onSelectCategory,
@@ -91,7 +110,9 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
   showToast,
 }) => {
   const { language } = useLanguage();
-  const [liveHelpers, setLiveHelpers] = useState<any[]>([]);
+  const [liveHelpers, setLiveHelpers] = useState<any[]>(() =>
+    filterApprovedServiceExpertsList(getCachedHelpersSync(false))
+  );
   const [userLocation, setUserLocation] = useState<UserLocationData | null>(() =>
     getSavedUserLocation()
   );
@@ -143,26 +164,12 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
     let isMounted = true;
     const loadApprovedHelpers = async () => {
       try {
-        const list = (await getHelpers()) || [];
+        const list = (await getHelpers(false)) || [];
         if (!isMounted || !Array.isArray(list)) return;
-        const approved = list.filter((h: any) => {
-          if (!h || !h.name) return false;
-          if (h.status && h.status !== 'approved') return false;
-          const idStr = String(h.id || '').trim();
-          // Exclude Simple User Profiles — only include genuine Service Expert registrations
-          if (!idStr.startsWith('helper_') && !idStr.startsWith('hp_')) return false;
-          const catId = String(h.categoryId || h.category || '').trim().toLowerCase();
-          const customCat = String(h.customCategoryName || '').trim();
-          const firstSkill =
-            Array.isArray(h.skills) && h.skills[0] ? String(h.skills[0]).trim().toLowerCase() : '';
-          if ((!catId || catId === 'other') && !customCat && (!firstSkill || firstSkill === 'other')) {
-            return false;
-          }
-          return true;
-        });
+        const approved = filterApprovedServiceExpertsList(list);
         setLiveHelpers(approved);
       } catch {
-        if (isMounted) setLiveHelpers([]);
+        // Preserve existing displayed helpers if a transient network glitch occurs
       }
     };
     loadApprovedHelpers();

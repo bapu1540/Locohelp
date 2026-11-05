@@ -20,7 +20,13 @@ import { useLanguage } from '../i18n';
 import { Screen, Intent } from '../types';
 import { isGuestUser } from '../lib/authUtils';
 import { getCurrentUser } from '../auth';
-import { fetchLiveIntents } from '../api';
+import {
+  fetchLiveIntents,
+  getCachedLiveIntents,
+  fetchPostConversations,
+  getCachedPostConversations,
+  deleteIntentOnServer
+} from '../api';
 import { DEFAULT_SHOWCASE_PROVIDERS, ShowcaseProviderItem } from './HomeBelowCategorySection';
 
 interface FixedBottomNavBarProps {
@@ -47,7 +53,10 @@ export default function FixedBottomNavBar({
   const { language, tr } = useLanguage();
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
   const [activeBottomModal, setActiveBottomModal] = useState<'bookings' | 'favorites' | null>(null);
+  const [bookingsSubTab, setBookingsSubTab] = useState<'requests' | 'contacted' | 'replies'>('requests');
   const [myBookingsList, setMyBookingsList] = useState<Intent[]>([]);
+  const [contactedProvidersList, setContactedProvidersList] = useState<any[]>([]);
+  const [myRepliedChatsList, setMyRepliedChatsList] = useState<any[]>([]);
   const [isLoadingBookings, setIsLoadingBookings] = useState(false);
   const [favoriteProviders, setFavoriteProviders] = useState<ShowcaseProviderItem[]>([]);
 
@@ -60,49 +69,182 @@ export default function FixedBottomNavBar({
     return () => window.removeEventListener('locohelp_close_all_modals', handleCloseAll);
   }, []);
 
+  const filterMyOwnPosts = (posts: Intent[]): Intent[] => {
+    let myIds: string[] = [];
+    try {
+      myIds = JSON.parse(localStorage.getItem('locohelp_my_post_ids') || '[]');
+    } catch {}
+    const user = getCurrentUser();
+    const myUid = String(user?.uid || '').trim().toLowerCase();
+    const myEmail = String(
+      user?.email || localStorage.getItem('locohelp_last_logged_in_email') || ''
+    )
+      .trim()
+      .toLowerCase();
+    const myEmailUid = myEmail ? 'email_' + myEmail.replace(/[^a-z0-9]/g, '_') : '';
+
+    return (Array.isArray(posts) ? posts : []).filter((post: any) => {
+      if (!post || !post.id) return false;
+      const pAuthorId = String(post.authorId || post.userId || '').trim().toLowerCase();
+      const pAuthorEmail = String(post.authorEmail || '').trim().toLowerCase();
+      return Boolean(
+        myIds.includes(post.id) ||
+          (myUid && pAuthorId === myUid) ||
+          (myEmailUid && pAuthorId === myEmailUid) ||
+          (myEmail && (pAuthorEmail === myEmail || pAuthorId === myEmail))
+      );
+    });
+  };
+
+  const extractContactedAndReplies = (convs: any[], myPostIdsSet: Set<string>) => {
+    const user = getCurrentUser();
+    const myUid = String(user?.uid || '').trim().toLowerCase();
+    const myEmail = String(
+      user?.email || localStorage.getItem('locohelp_last_logged_in_email') || ''
+    )
+      .trim()
+      .toLowerCase();
+
+    const contactedMap = new Map<string, any>();
+    const repliesMap = new Map<string, any>();
+
+    // 1. Check local number requests / provider interactions if any
+    try {
+      const localNumReqs = JSON.parse(localStorage.getItem('locohelp_number_requests') || '[]');
+      if (Array.isArray(localNumReqs)) {
+        localNumReqs.forEach((reqItem: any) => {
+          if (!reqItem) return;
+          const reqFromId = String(reqItem.requesterId || reqItem.userId || '').trim().toLowerCase();
+          const reqFromEmail = String(reqItem.requesterEmail || '').trim().toLowerCase();
+          if ((myUid && reqFromId === myUid) || (myEmail && reqFromEmail === myEmail)) {
+            const pId = String(reqItem.providerId || reqItem.helperId || reqItem.id || '');
+            if (pId) {
+              contactedMap.set(pId, {
+                id: `provider_chat_${pId}`,
+                providerId: pId,
+                name: reqItem.providerName || reqItem.helperName || 'Service Provider',
+                category: reqItem.category || 'Service Expert',
+                location: reqItem.location || reqItem.city || 'Local Area',
+                phone: reqItem.providerPhone || '',
+                lastMessage: reqItem.status === 'approved' ? '✅ મોબાઈલ નંબર મંજૂર થયો' : '📱 મોબાઈલ નંબરની રિકવેસ્ટ મોકલી',
+                updatedAt: reqItem.createdAt || new Date().toISOString()
+              });
+            }
+          }
+        });
+      }
+    } catch {}
+
+    // 2. Classify conversations into Contacted Service Providers vs Community Replies
+    (Array.isArray(convs) ? convs : []).forEach((c: any) => {
+      if (!c) return;
+      const postIdStr = String(c.postId || c.post_id || '');
+      if (!postIdStr) return;
+
+      if (postIdStr.startsWith('provider_chat_')) {
+        const provId = postIdStr.replace(/^provider_chat_/i, '');
+        if (myUid && provId.toLowerCase() === myUid) return; // I am the provider
+        contactedMap.set(provId || postIdStr, {
+          id: postIdStr,
+          providerId: provId,
+          name: c.posterName && c.posterName !== 'Post Owner' ? c.posterName : (c.partnerName || c.postTitle || 'Service Provider'),
+          category: c.category || 'Service Expert',
+          location: c.location || 'Local Area',
+          lastMessage: c.lastMessage || c.last_message || 'વાતચીત ચાલુ છે',
+          updatedAt: c.lastMessageAt || c.updatedAt || new Date().toISOString(),
+          rawConv: c
+        });
+      } else if (!myPostIdsSet.has(postIdStr) && !c.isViewerPoster) {
+        // I replied to someone else's post
+        repliesMap.set(postIdStr, {
+          id: postIdStr,
+          title: c.postTitle || c.postDescription || c.lastMessage || 'Community Request',
+          posterName: c.posterName || c.partnerName || 'Community Member',
+          location: c.location || 'Local Area',
+          lastMessage: c.lastMessage || c.last_message || '',
+          updatedAt: c.lastMessageAt || c.updatedAt || new Date().toISOString(),
+          rawConv: c
+        });
+      }
+    });
+
+    setContactedProvidersList(Array.from(contactedMap.values()));
+    setMyRepliedChatsList(Array.from(repliesMap.values()));
+  };
+
   useEffect(() => {
     if (activeBottomModal !== 'bookings') return;
-    setIsLoadingBookings(true);
 
+    const user = getCurrentUser();
+    const userPhone =
+      user?.phone ||
+      localStorage.getItem('locohelp_last_logged_in_phone') ||
+      localStorage.getItem('locohelp_profile_phone') ||
+      '';
+
+    // STEP 1: Synchronous 0ms render from localStorage cache
+    const cachedIntents = getCachedLiveIntents();
+    const cachedMyPosts = filterMyOwnPosts(cachedIntents);
+    const cachedConvs = user
+      ? getCachedPostConversations({
+          userId: user.uid,
+          userEmail: user.email,
+          userPhone
+        })
+      : [];
+
+    setMyBookingsList(cachedMyPosts);
+    extractContactedAndReplies(
+      cachedConvs,
+      new Set(cachedMyPosts.map((p) => String(p.id)))
+    );
+
+    if (cachedMyPosts.length === 0 && cachedConvs.length === 0) {
+      setIsLoadingBookings(true);
+    } else {
+      setIsLoadingBookings(false);
+    }
+
+    // STEP 2: Background refresh from server
+    let active = true;
     const loadMyBookings = async () => {
       try {
-        const live = await fetchLiveIntents();
-        let myIds: string[] = [];
-        try {
-          myIds = JSON.parse(localStorage.getItem('locohelp_my_post_ids') || '[]');
-        } catch {}
-
-        const user = getCurrentUser();
-        const myUid = String(user?.uid || '').trim().toLowerCase();
-        const myEmail = String(
-          user?.email || localStorage.getItem('locohelp_last_logged_in_email') || ''
-        )
-          .trim()
-          .toLowerCase();
-        const myEmailUid = myEmail ? 'email_' + myEmail.replace(/[^a-z0-9]/g, '_') : '';
-
-        const filtered = (Array.isArray(live) ? live : []).filter((post: any) => {
-          if (!post || !post.id) return false;
-          const pAuthorId = String(post.authorId || post.userId || '').trim().toLowerCase();
-          const pAuthorEmail = String(post.authorEmail || '').trim().toLowerCase();
-          return Boolean(
-            myIds.includes(post.id) ||
-              (myUid && pAuthorId === myUid) ||
-              (myEmailUid && pAuthorId === myEmailUid) ||
-              (myEmail && (pAuthorEmail === myEmail || pAuthorId === myEmail))
-          );
-        });
-
-        setMyBookingsList(filtered);
+        const [live, liveConvs] = await Promise.all([
+          fetchLiveIntents(),
+          user
+            ? fetchPostConversations({
+                userId: user.uid,
+                userEmail: user.email,
+                userPhone
+              })
+            : Promise.resolve([])
+        ]);
+        if (!active) return;
+        const freshMyPosts = filterMyOwnPosts(live);
+        setMyBookingsList(freshMyPosts);
+        extractContactedAndReplies(
+          liveConvs,
+          new Set(freshMyPosts.map((p) => String(p.id)))
+        );
       } catch {
-        setMyBookingsList([]);
+        // Keep cached lists if network fails
       } finally {
-        setIsLoadingBookings(false);
+        if (active) setIsLoadingBookings(false);
       }
     };
 
     loadMyBookings();
+    return () => {
+      active = false;
+    };
   }, [activeBottomModal]);
+
+  const handleCompleteOrDeleteMyBooking = async (e: React.MouseEvent, post: Intent) => {
+    e.stopPropagation();
+    setMyBookingsList((prev) => prev.filter((item) => item.id !== post.id));
+    await deleteIntentOnServer(post.id, post.description);
+    window.dispatchEvent(new CustomEvent('locohelp_intents_updated'));
+  };
 
   const refreshFavorites = () => {
     try {
@@ -185,15 +327,16 @@ export default function FixedBottomNavBar({
               onClick={() => setActiveBottomModal(null)}
             />
             <motion.div
-              initial={{ opacity: 0, y: 30 }}
+              initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 30 }}
+              exit={{ opacity: 0, y: 20 }}
+              transition={{ duration: 0.18 }}
               style={{
                 position: 'relative',
                 zIndex: 10,
                 width: '100%',
-                maxWidth: '480px',
-                maxHeight: '80vh',
+                maxWidth: '500px',
+                maxHeight: '84vh',
                 backgroundColor: '#ffffff',
                 borderRadius: '24px',
                 border: '1px solid #e2e8f0',
@@ -225,10 +368,10 @@ export default function FixedBottomNavBar({
                     </h3>
                     <p className="text-[10px] text-blue-100 font-medium m-0">
                       {language === 'GU'
-                        ? 'તમે મૂકેલી સેવા રિકવેસ્ટ અને પોસ્ટની યાદી'
+                        ? 'તમારી પોસ્ટ, સંપર્ક કરેલા કારીગરો અને જવાબો'
                         : language === 'HI'
-                        ? 'आपके द्वारा की गई सेवा बुकिंग और पोस्ट'
-                        : 'Your active service requests and posts'}
+                        ? 'आपकी पोस्ट, संपर्क किए गए कारीगर और जवाब'
+                        : 'Your posts, contacted providers & replies'}
                     </p>
                   </div>
                 </div>
@@ -241,31 +384,214 @@ export default function FixedBottomNavBar({
                 </button>
               </div>
 
+              {/* 3 Sub-Tabs inside My Bookings Modal */}
+              <div className="grid grid-cols-3 gap-1.5 px-3 pt-3 pb-2 bg-slate-50 border-b border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setBookingsSubTab('requests')}
+                  className={`py-2 px-2 rounded-xl text-[11px] font-black transition-all cursor-pointer flex items-center justify-center gap-1 ${
+                    bookingsSubTab === 'requests'
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  <span>📋</span>
+                  <span className="truncate">
+                    {language === 'GU' ? 'મારી પોસ્ટ' : language === 'HI' ? 'मेरी पोस्ट' : 'My Posts'} ({myBookingsList.length})
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBookingsSubTab('contacted')}
+                  className={`py-2 px-2 rounded-xl text-[11px] font-black transition-all cursor-pointer flex items-center justify-center gap-1 ${
+                    bookingsSubTab === 'contacted'
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  <span>📞</span>
+                  <span className="truncate">
+                    {language === 'GU' ? 'કારીગરો' : language === 'HI' ? 'कारीगर' : 'Providers'} ({contactedProvidersList.length})
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBookingsSubTab('replies')}
+                  className={`py-2 px-2 rounded-xl text-[11px] font-black transition-all cursor-pointer flex items-center justify-center gap-1 ${
+                    bookingsSubTab === 'replies'
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  <span>🤝</span>
+                  <span className="truncate">
+                    {language === 'GU' ? 'મારા જવાબો' : language === 'HI' ? 'मेरे जवाब' : 'My Replies'} ({myRepliedChatsList.length})
+                  </span>
+                </button>
+              </div>
+
               <div className="p-4 overflow-y-auto flex-1 space-y-3">
                 {isLoadingBookings ? (
                   <div className="py-10 text-center text-xs font-bold text-slate-500">
                     ⏳ {language === 'GU' ? 'લોડ થઈ રહ્યું છે...' : 'Loading...'}
                   </div>
-                ) : myBookingsList.length === 0 ? (
-                  <div className="py-8 px-4 text-center space-y-3 bg-slate-50 rounded-2xl border border-dashed border-slate-300">
-                    <div className="w-12 h-12 rounded-2xl bg-blue-100 text-blue-600 mx-auto flex items-center justify-center text-2xl">
-                      📅
+                ) : bookingsSubTab === 'requests' ? (
+                  myBookingsList.length === 0 ? (
+                    <div className="py-8 px-4 text-center space-y-3 bg-slate-50 rounded-2xl border border-dashed border-slate-300">
+                      <div className="w-12 h-12 rounded-2xl bg-blue-100 text-blue-600 mx-auto flex items-center justify-center text-2xl">
+                        📅
+                      </div>
+                      <h4 className="text-sm font-black text-slate-900">
+                        {language === 'GU'
+                          ? 'હજુ સુધી કોઈ બુકિંગ કે પોસ્ટ નથી'
+                          : language === 'HI'
+                          ? 'अभी तक कोई बुकिंग या पोस्ट नहीं है'
+                          : 'No Bookings or Posts Yet'}
+                      </h4>
+                      <p className="text-xs text-slate-500 max-w-xs mx-auto">
+                        {language === 'GU'
+                          ? 'તમારે કોઈ પણ કારીગર કે સેવાની જરૂર હોય તો હમણાં જ ફ્રી પોસ્ટ/બુકિંગ કરો અથવા કેટેગરીમાંથી કારીગર પસંદ કરો.'
+                          : language === 'HI'
+                          ? 'किसी भी कारीगर या सेवा की आवश्यकता हो तो अभी फ्री पोस्ट करें या कैटेगरी से चुनें।'
+                          : 'Need a service expert right now? Create a free post or browse verified experts.'}
+                      </p>
+                      <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveBottomModal(null);
+                            onNavigate('home');
+                            window.scrollTo({ top: 0, behavior: 'smooth' });
+                          }}
+                          style={{ backgroundColor: '#16A34A', color: '#ffffff' }}
+                          className="px-4 py-2.5 rounded-xl text-xs font-black shadow-sm cursor-pointer flex items-center gap-1.5"
+                        >
+                          <span>➕</span>
+                          <span>
+                            {language === 'GU'
+                              ? 'નવી સેવા રિકવેસ્ટ મૂકો'
+                              : language === 'HI'
+                              ? 'नई सेवा रिक्वेस्ट डालें'
+                              : 'Create Service Request'}
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveBottomModal(null);
+                            onNavigate('categories');
+                          }}
+                          style={{ backgroundColor: '#2563EB', color: '#ffffff' }}
+                          className="px-4 py-2.5 rounded-xl text-xs font-black shadow-sm cursor-pointer flex items-center gap-1.5"
+                        >
+                          <span>🔍</span>
+                          <span>
+                            {language === 'GU'
+                              ? 'સેવા પ્રદાતા શોધો'
+                              : language === 'HI'
+                              ? 'सेवा प्रदाता खोजें'
+                              : 'Find Service Providers'}
+                          </span>
+                        </button>
+                      </div>
                     </div>
-                    <h4 className="text-sm font-black text-slate-900">
-                      {language === 'GU'
-                        ? 'હજુ સુધી કોઈ બુકિંગ કે પોસ્ટ નથી'
-                        : language === 'HI'
-                        ? 'अभी तक कोई बुकिंग या पोस्ट नहीं है'
-                        : 'No Bookings or Posts Yet'}
-                    </h4>
-                    <p className="text-xs text-slate-500 max-w-xs mx-auto">
-                      {language === 'GU'
-                        ? 'તમારે કોઈ પણ કારીગર કે સેવાની જરૂર હોય તો હમણાં જ ફ્રી પોસ્ટ/બુકિંગ કરો અથવા કેટેગરીમાંથી કારીગર પસંદ કરો.'
-                        : language === 'HI'
-                        ? 'किसी भी कारीगर या सेवा की आवश्यकता हो तो अभी फ्री पोस्ट करें या कैटेगरी से चुनें।'
-                        : 'Need a service expert right now? Create a free post or browse verified experts.'}
-                    </p>
-                    <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                  ) : (
+                    <div className="space-y-2.5">
+                      {myBookingsList.map((post: any) => {
+                        const respCount = Number(post.responseCount || post.response_count || (Array.isArray(post.repliers) ? post.repliers.length : 0));
+                        return (
+                          <div
+                            key={post.id}
+                            onClick={() => {
+                              setActiveBottomModal(null);
+                              onOpenChat(post);
+                            }}
+                            className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 hover:border-blue-400 transition-all cursor-pointer space-y-2.5"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span
+                                  style={{ backgroundColor: '#059669', color: '#ffffff' }}
+                                  className="inline-block px-2 py-0.5 rounded-md text-[10px] font-black"
+                                >
+                                  ✓ {language === 'GU' ? 'ચાલુ રિકવેસ્ટ' : 'Active Request'}
+                                </span>
+                                {post.category && (
+                                  <span className="px-2 py-0.5 rounded-md bg-blue-100 text-blue-800 text-[10px] font-black">
+                                    {post.category}
+                                  </span>
+                                )}
+                                {respCount > 0 && (
+                                  <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-800 text-[10px] font-black">
+                                    💬 {respCount} {language === 'GU' ? 'જવાબ' : 'Replies'}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <p className="text-xs sm:text-sm font-black text-slate-900 line-clamp-2">
+                              {post.description}
+                            </p>
+                            <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-200/80">
+                              <p className="text-[11px] font-bold text-slate-500 flex items-center gap-1 truncate">
+                                <MapPin className="w-3 h-3 text-blue-600 shrink-0" />
+                                <span className="truncate">{post.location || 'Local Area'}</span>
+                              </p>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleCompleteOrDeleteMyBooking(e, post)}
+                                  className="px-2.5 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-[11px] font-black flex items-center gap-1 cursor-pointer"
+                                  title={language === 'GU' ? 'કામ પૂર્ણ થયું / કાઢી નાખો' : 'Mark Completed / Remove'}
+                                >
+                                  <span>✅</span>
+                                  <span>{language === 'GU' ? 'પૂર્ણ થયું' : 'Done'}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  style={{ backgroundColor: '#2563EB', color: '#ffffff' }}
+                                  className="px-3 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1 cursor-pointer"
+                                >
+                                  <span>{language === 'GU' ? 'ચેટ જુઓ' : 'View Chat'}</span>
+                                  <ChevronRight className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      <div className="pt-2 flex justify-center">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveBottomModal(null);
+                            onNavigate('home');
+                            window.scrollTo({ top: 0, behavior: 'smooth' });
+                          }}
+                          className="w-full py-2.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-black cursor-pointer"
+                        >
+                          ➕ {language === 'GU' ? 'નવી સેવા રિકવેસ્ટ મૂકો' : 'Create Another Service Request'}
+                        </button>
+                      </div>
+                    </div>
+                  )
+                ) : bookingsSubTab === 'contacted' ? (
+                  contactedProvidersList.length === 0 ? (
+                    <div className="py-8 px-4 text-center space-y-3 bg-slate-50 rounded-2xl border border-dashed border-slate-300">
+                      <div className="w-12 h-12 rounded-2xl bg-indigo-100 text-indigo-600 mx-auto flex items-center justify-center text-2xl">
+                        📞
+                      </div>
+                      <h4 className="text-sm font-black text-slate-900">
+                        {language === 'GU'
+                          ? 'હજુ કોઈ કારીગરનો સંપર્ક કર્યો નથી'
+                          : language === 'HI'
+                          ? 'अभी किसी कारीगर से संपर्क नहीं किया है'
+                          : 'No Contacted Service Providers Yet'}
+                      </h4>
+                      <p className="text-xs text-slate-500 max-w-xs mx-auto">
+                        {language === 'GU'
+                          ? 'તમે જે કારીગર કે સેવા પ્રદાતાને મેસેજ કે કૉલ કરશો તેમની યાદી અહીં દેખાશે.'
+                          : 'Service providers you message or request numbers from will appear here.'}
+                      </p>
                       <button
                         type="button"
                         onClick={() => {
@@ -273,51 +599,118 @@ export default function FixedBottomNavBar({
                           onNavigate('categories');
                         }}
                         style={{ backgroundColor: '#2563EB', color: '#ffffff' }}
-                        className="px-4 py-2.5 rounded-xl text-xs font-black shadow-sm cursor-pointer flex items-center gap-1.5"
+                        className="px-4 py-2.5 rounded-xl text-xs font-black shadow-sm cursor-pointer inline-flex items-center gap-1.5"
                       >
                         <span>🔍</span>
-                        <span>
-                          {language === 'GU'
-                            ? 'સેવા પ્રદાતા શોધો'
-                            : language === 'HI'
-                            ? 'सेवा प्रदाता खोजें'
-                            : 'Find Service Providers'}
-                        </span>
+                        <span>{language === 'GU' ? 'કારીગર શોધો' : 'Browse Providers'}</span>
                       </button>
                     </div>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {contactedProvidersList.map((prov) => (
+                        <div
+                          key={prov.id}
+                          onClick={() => {
+                            setActiveBottomModal(null);
+                            onOpenChat({
+                              id: prov.id,
+                              authorId: prov.providerId || prov.id,
+                              authorName: prov.name,
+                              category: prov.category || 'Service Provider',
+                              description: `${prov.name} (${prov.category || 'Service'})`,
+                              location: prov.location || 'Local Area',
+                              tags: ['#ServiceProvider'],
+                              createdAt: prov.updatedAt || new Date().toISOString(),
+                              expiresAt: new Date(Date.now() + 86400000).toISOString(),
+                              distance: 0.5,
+                              hasLocationPin: true,
+                              isVerifiedUser: true
+                            });
+                          }}
+                          className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 hover:border-blue-400 transition-all cursor-pointer flex items-center justify-between gap-3"
+                        >
+                          <div className="min-w-0 flex-1 space-y-1">
+                            <span className="inline-block px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-800 text-[10px] font-black">
+                              🔧 {prov.category || 'Service Provider'}
+                            </span>
+                            <p className="text-xs sm:text-sm font-black text-slate-900 truncate">
+                              {prov.name}
+                            </p>
+                            <p className="text-[11px] font-medium text-slate-600 truncate">
+                              💬 {prov.lastMessage}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            style={{ backgroundColor: '#2563EB', color: '#ffffff' }}
+                            className="px-3 py-2 rounded-xl text-xs font-black shrink-0 flex items-center gap-1 cursor-pointer"
+                          >
+                            <span>{language === 'GU' ? 'મેસેજ' : 'Chat'}</span>
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                ) : myRepliedChatsList.length === 0 ? (
+                  <div className="py-8 px-4 text-center space-y-3 bg-slate-50 rounded-2xl border border-dashed border-slate-300">
+                    <div className="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-600 mx-auto flex items-center justify-center text-2xl">
+                      🤝
+                    </div>
+                    <h4 className="text-sm font-black text-slate-900">
+                      {language === 'GU'
+                        ? 'તમે હજુ કોઈ પોસ્ટ પર જવાબ આપ્યો નથી'
+                        : language === 'HI'
+                        ? 'आपने अभी किसी पोस्ट पर जवाब नहीं दिया है'
+                        : 'No Replies Sent Yet'}
+                    </h4>
+                    <p className="text-xs text-slate-500 max-w-xs mx-auto">
+                      {language === 'GU'
+                        ? 'તમે બીજા કોઈની મદદ રિકવેસ્ટ પર મેસેજ કરશો તો તેની યાદી અહીં દેખાશે.'
+                        : 'Posts where you offered help or replied will appear here.'}
+                    </p>
                   </div>
                 ) : (
                   <div className="space-y-2.5">
-                    {myBookingsList.map((post) => (
+                    {myRepliedChatsList.map((rep) => (
                       <div
-                        key={post.id}
+                        key={rep.id}
                         onClick={() => {
                           setActiveBottomModal(null);
-                          onOpenChat(post);
+                          onOpenChat({
+                            id: rep.id,
+                            authorId: rep.rawConv?.posterId || '',
+                            authorName: rep.posterName,
+                            category: rep.rawConv?.category || 'Community',
+                            description: rep.title,
+                            location: rep.location || 'Local Area',
+                            tags: ['#Help'],
+                            createdAt: rep.updatedAt || new Date().toISOString(),
+                            expiresAt: new Date(Date.now() + 86400000).toISOString(),
+                            distance: 0.5,
+                            hasLocationPin: true,
+                            isVerifiedUser: true
+                          });
                         }}
                         className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 hover:border-blue-400 transition-all cursor-pointer flex items-center justify-between gap-3"
                       >
                         <div className="min-w-0 flex-1 space-y-1">
-                          <span
-                            style={{ backgroundColor: '#059669', color: '#ffffff' }}
-                            className="inline-block px-2 py-0.5 rounded-md text-[10px] font-black"
-                          >
-                            ✓ {language === 'GU' ? 'તમારી બુકિંગ / પોસ્ટ' : 'Active Request'}
+                          <span className="inline-block px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 text-[10px] font-black">
+                            👤 {rep.posterName}
                           </span>
-                          <p className="text-xs sm:text-sm font-black text-slate-900 line-clamp-2">
-                            {post.description}
+                          <p className="text-xs sm:text-sm font-black text-slate-900 line-clamp-1">
+                            {rep.title}
                           </p>
-                          <p className="text-[11px] font-bold text-slate-500 flex items-center gap-1">
-                            <MapPin className="w-3 h-3 text-blue-600 shrink-0" />
-                            <span className="truncate">{post.location || 'Local Area'}</span>
+                          <p className="text-[11px] font-medium text-slate-600 truncate">
+                            💬 {rep.lastMessage}
                           </p>
                         </div>
                         <button
                           type="button"
                           style={{ backgroundColor: '#2563EB', color: '#ffffff' }}
-                          className="px-3 py-2 rounded-xl text-xs font-black shrink-0 flex items-center gap-1"
+                          className="px-3 py-2 rounded-xl text-xs font-black shrink-0 flex items-center gap-1 cursor-pointer"
                         >
-                          <span>{language === 'GU' ? 'ચેટ જુઓ' : 'View Chat'}</span>
+                          <span>{language === 'GU' ? 'ચેટ ખોલો' : 'Open Chat'}</span>
                           <ChevronRight className="w-3.5 h-3.5" />
                         </button>
                       </div>

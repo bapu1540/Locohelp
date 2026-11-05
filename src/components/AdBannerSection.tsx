@@ -1,16 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Sparkles, 
-  MessageSquare, 
   ChevronLeft, 
   ChevronRight, 
-  ExternalLink,
-  X
+  ExternalLink
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
 import { useLanguage } from '../i18n';
 import { Language } from '../types';
-import { fetchCategoryImages, getCachedCategoryImages } from '../api';
+import { fetchCategoryImages, getCachedCategoryImages, fetchLiveAds } from '../api';
 
 export interface AdBannerItem {
   id: string;
@@ -57,6 +54,7 @@ export interface PromoBannerSlot {
   id: string;
   slotNumber: number;
   imageUrl: string;
+  title?: string;
   linkUrl?: string;
 }
 
@@ -97,62 +95,109 @@ export default function AdBannerSection({ onOpenChat, categoryImages: propCatego
   const text = LOCALIZED_TEXTS[language] || LOCALIZED_TEXTS.EN;
 
   const [localCatImages, setLocalCatImages] = useState<Record<string, string>>(() => getCachedCategoryImages());
+  const [liveApprovedAds, setLiveApprovedAds] = useState<any[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isAutoPlaying, setIsAutoPlaying] = useState(true);
   const scrollTrackRef = useRef<HTMLDivElement>(null);
 
-  // Sync category images dynamically
+  // Sync category images and approved ads dynamically
   useEffect(() => {
     let isMounted = true;
-    const loadImages = async () => {
+    const loadImagesAndAds = async () => {
       try {
-        const imgs = await fetchCategoryImages();
-        if (isMounted && imgs && typeof imgs === 'object') {
+        const [imgs, adsList] = await Promise.all([
+          fetchCategoryImages().catch(() => null),
+          fetchLiveAds().catch(() => [])
+        ]);
+        if (!isMounted) return;
+        if (imgs && typeof imgs === 'object') {
           setLocalCatImages(imgs);
+        }
+        if (Array.isArray(adsList)) {
+          setLiveApprovedAds(adsList);
         }
       } catch {}
     };
-    loadImages();
+    loadImagesAndAds();
 
     const handleSync = () => {
-      loadImages();
+      loadImagesAndAds();
     };
 
     window.addEventListener('locohelp_category_images_updated', handleSync);
-    window.addEventListener('storage', handleSync);
+    window.addEventListener('locohelp_ads_updated', handleSync);
     return () => {
       isMounted = false;
       window.removeEventListener('locohelp_category_images_updated', handleSync);
-      window.removeEventListener('storage', handleSync);
+      window.removeEventListener('locohelp_ads_updated', handleSync);
     };
   }, []);
 
-  const mergedImages = propCategoryImages || localCatImages;
+  const mergedImages = React.useMemo(
+    () => ({ ...localCatImages, ...(propCategoryImages || {}) }),
+    [localCatImages, propCategoryImages]
+  );
 
-  // Extract uploaded 16:9 Promo Ad Banners (Slots 1 to 5)
+  // Extract uploaded 16:9 Promo Ad Banners (Slots 1 to 5) + Approved Ads from /api/ads (Max 5 total), with official fallback
   const activePromoBanners: PromoBannerSlot[] = React.useMemo(() => {
     const list: PromoBannerSlot[] = [];
+    const seenUrls = new Set<string>();
+
+    // 1. Check 5 Dedicated Admin Slots (__promo_ad_banner_1__ to __promo_ad_banner_5__)
     for (let slot = 1; slot <= 5; slot++) {
       const imgKey = `__promo_ad_banner_${slot}__`;
       const linkKey = `__promo_ad_banner_link_${slot}__`;
+      const titleKey = `__promo_ad_banner_title_${slot}__`;
       const imgVal = mergedImages[imgKey];
       if (imgVal && typeof imgVal === 'string' && imgVal.trim() !== '' && imgVal !== '__deleted__') {
+        const cleanUrl = imgVal.trim();
         const linkVal = mergedImages[linkKey];
+        const titleVal = mergedImages[titleKey];
+        seenUrls.add(cleanUrl);
         list.push({
           id: `promo_banner_${slot}`,
           slotNumber: slot,
-          imageUrl: imgVal.trim(),
-          linkUrl: typeof linkVal === 'string' && linkVal.trim() !== '' ? linkVal.trim() : undefined
+          imageUrl: cleanUrl,
+          title: typeof titleVal === 'string' && titleVal.trim() !== '' && titleVal !== '__deleted__' ? titleVal.trim() : undefined,
+          linkUrl: typeof linkVal === 'string' && linkVal.trim() !== '' && linkVal !== '__deleted__' ? linkVal.trim() : undefined
         });
       }
     }
-    return list;
-  }, [mergedImages]);
 
-  // If NO banners are uploaded (0 banners): Return null so this section does NOT appear as empty space
-  if (activePromoBanners.length === 0) {
-    return null;
-  }
+    // 2. Include any active/approved 16:9 ads from Admin Ads list up to 5 banners total
+    if (list.length < 5 && Array.isArray(liveApprovedAds)) {
+      for (const ad of liveApprovedAds) {
+        if (list.length >= 5) break;
+        if (!ad || ad.isActive === false || ad.status === 'pending' || ad.status === 'rejected') continue;
+        const photosArr = Array.isArray(ad.photos) && ad.photos.length > 0 ? ad.photos : (ad.photoUrl ? [ad.photoUrl] : []);
+        for (const pUrl of photosArr) {
+          if (list.length >= 5) break;
+          const cleanP = String(pUrl || '').trim();
+          if (!cleanP || seenUrls.has(cleanP)) continue;
+          seenUrls.add(cleanP);
+          list.push({
+            id: String(ad.id || `ad_${list.length + 1}`),
+            slotNumber: list.length + 1,
+            imageUrl: cleanP,
+            title: ad.offerTitle || ad.businessName || undefined,
+            linkUrl: ad.destinationUrl || (ad.phone ? `tel:${ad.phone}` : undefined)
+          });
+        }
+      }
+    }
+
+    // 3. Fallback to official LocoHelp promo banner if 0 custom banners exist so section never disappears
+    if (list.length === 0) {
+      list.push({
+        id: PERMANENT_LOCOHELP_PROMO_AD.id,
+        slotNumber: 1,
+        imageUrl: PERMANENT_LOCOHELP_PROMO_AD.photoUrl,
+        title: PERMANENT_LOCOHELP_PROMO_AD.offerTitle
+      });
+    }
+
+    return list.slice(0, 5);
+  }, [mergedImages, liveApprovedAds]);
 
   // Smoothly scroll container to active slide
   const scrollToSlide = (index: number) => {
@@ -168,7 +213,7 @@ export default function AdBannerSection({ onOpenChat, categoryImages: propCatego
     }
   };
 
-  // Continuous right-to-left auto-scroll every 3.5 seconds (ONLY if 2 or more banners)
+  // Continuous right-to-left auto-scroll every 3.5 seconds (when 2 or more banners exist)
   useEffect(() => {
     if (!isAutoPlaying || activePromoBanners.length <= 1) return;
     const interval = setInterval(() => {
@@ -180,6 +225,12 @@ export default function AdBannerSection({ onOpenChat, categoryImages: propCatego
     }, 3500);
     return () => clearInterval(interval);
   }, [isAutoPlaying, activePromoBanners.length]);
+
+  useEffect(() => {
+    if (currentIndex >= activePromoBanners.length) {
+      setCurrentIndex(0);
+    }
+  }, [activePromoBanners.length, currentIndex]);
 
   // Update active dot when user manually swipes/scrolls the track
   const handleTrackScroll = () => {
@@ -227,9 +278,9 @@ export default function AdBannerSection({ onOpenChat, categoryImages: propCatego
     onOpenChat({
       id: `intent_promo_ad_${banner.slotNumber}`,
       authorId: `promo_admin_slot_${banner.slotNumber}`,
-      sellerName: `LocoHelp Ad Sponsor #${banner.slotNumber}`,
-      authorName: `LocoHelp Ad Sponsor #${banner.slotNumber}`,
-      description: `Inquiry for Sponsored Advertisement Banner #${banner.slotNumber}`,
+      sellerName: banner.title || `LocoHelp Ad Sponsor #${banner.slotNumber}`,
+      authorName: banner.title || `LocoHelp Ad Sponsor #${banner.slotNumber}`,
+      description: banner.title || `Inquiry for Sponsored Advertisement Banner #${banner.slotNumber}`,
       tags: ['Advertisement', 'Offer'],
       distance: 0.1,
       status: 'active',
@@ -253,7 +304,7 @@ export default function AdBannerSection({ onOpenChat, categoryImages: propCatego
   if (activePromoBanners.length === 1) {
     const singleBanner = activePromoBanners[0];
     return (
-      <div className="space-y-2 select-none w-full max-w-4xl mx-auto">
+      <div className="space-y-1.5 select-none w-full max-w-4xl mx-auto">
         {/* Section Header */}
         <div className="flex items-center justify-between px-1 gap-2">
           <div className="flex items-center gap-1.5 min-w-0">
@@ -273,15 +324,21 @@ export default function AdBannerSection({ onOpenChat, categoryImages: propCatego
         <div
           onClick={() => handleBannerClick(singleBanner)}
           className="w-full aspect-video rounded-2xl overflow-hidden border-2 border-amber-400/80 shadow-lg bg-slate-900 relative group cursor-pointer transition-transform duration-300 hover:shadow-xl"
-          title={singleBanner.linkUrl ? `Click to open: ${singleBanner.linkUrl}` : text.sectionTitle}
+          title={singleBanner.linkUrl ? `Click to open: ${singleBanner.linkUrl}` : (singleBanner.title || text.sectionTitle)}
         >
           <img
             src={singleBanner.imageUrl}
-            alt="Sponsored Local Offer & Advertisement"
+            alt={singleBanner.title || 'Sponsored Local Offer & Advertisement'}
             className="w-full h-full object-cover object-center"
             loading="lazy"
             decoding="async"
           />
+
+          {singleBanner.title && (
+            <div className="absolute bottom-2.5 left-2.5 max-w-[70%] bg-black/75 backdrop-blur-xs text-white text-[11px] font-black px-2.5 py-1 rounded-xl border border-white/20 truncate shadow-md">
+              📢 {singleBanner.title}
+            </div>
+          )}
 
           {singleBanner.linkUrl && (
             <div className="absolute bottom-2.5 right-2.5 bg-black/75 backdrop-blur-xs text-white text-[10px] font-black px-2.5 py-1 rounded-xl border border-white/25 flex items-center gap-1 shadow-md group-hover:scale-105 transition-transform">
@@ -299,7 +356,7 @@ export default function AdBannerSection({ onOpenChat, categoryImages: propCatego
   // =========================================================================
   return (
     <div
-      className="space-y-2 select-none w-full max-w-4xl mx-auto"
+      className="space-y-1.5 select-none w-full max-w-4xl mx-auto"
       onMouseEnter={() => setIsAutoPlaying(false)}
       onMouseLeave={() => setIsAutoPlaying(true)}
       onTouchStart={() => setIsAutoPlaying(false)}
@@ -374,15 +431,21 @@ export default function AdBannerSection({ onOpenChat, categoryImages: propCatego
             data-ad-slide="true"
             onClick={() => handleBannerClick(b)}
             className="w-full shrink-0 snap-center relative aspect-video overflow-hidden rounded-2xl bg-slate-900 border-2 border-amber-400/80 shadow-lg flex items-center justify-center cursor-pointer group"
-            title={b.linkUrl ? `Click to open: ${b.linkUrl}` : `Sponsored Advertisement ${idx + 1}`}
+            title={b.linkUrl ? `Click to open: ${b.linkUrl}` : (b.title || `Sponsored Advertisement ${idx + 1}`)}
           >
             <img
               src={b.imageUrl}
-              alt={`Sponsored Advertisement ${idx + 1}`}
+              alt={b.title || `Sponsored Advertisement ${idx + 1}`}
               className="w-full h-full object-cover object-center transition-transform duration-300 group-hover:scale-[1.01]"
               loading="lazy"
               decoding="async"
             />
+
+            {b.title && (
+              <div className="absolute bottom-2.5 left-2.5 max-w-[68%] bg-black/75 backdrop-blur-xs text-white text-[11px] font-black px-2.5 py-1 rounded-xl border border-white/20 truncate shadow-md">
+                📢 {b.title}
+              </div>
+            )}
 
             {/* Optional Target Link Overlay Badge */}
             {b.linkUrl && (

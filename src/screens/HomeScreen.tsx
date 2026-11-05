@@ -120,16 +120,13 @@ export default function HomeScreen({
           setCategoryImages(imgs);
         }
       }).catch(() => {});
-      // Also auto-sync & recover any local helper/shop profiles with backend server
-      getHelpers(false).catch(() => {});
-      getShops(false).catch(() => {});
     };
     syncCatImages();
+    getHelpers(false).catch(() => {});
+    getShops(false).catch(() => {});
     window.addEventListener('locohelp_category_images_updated', syncCatImages);
-    window.addEventListener('storage', syncCatImages);
     return () => {
       window.removeEventListener('locohelp_category_images_updated', syncCatImages);
-      window.removeEventListener('storage', syncCatImages);
     };
   }, []);
 
@@ -2068,6 +2065,12 @@ export default function HomeScreen({
             onSelectCategory={onSelectCategory}
           />
 
+          {/* 3C. Sponsored Ad Banners Section (Directly below Categories — Auto-scrolls up to 5 banners) */}
+          <AdBannerSection
+            onOpenChat={handleSafeOpenChat}
+            categoryImages={categoryImages}
+          />
+
           {/* 4. Trust Features Strip + Available Service Providers (3 Visible + Profile Popup) + Urgent/Business Ad Banners + Shop/Expert & Job Banners */}
           <HomeBelowCategorySection
             onNavigate={onNavigate}
@@ -2578,12 +2581,6 @@ export default function HomeScreen({
               </div>
             )}
           </div>
-
-          {/* 6. Sponsored Ad Banners Section (Admin-Managed 16:9 Banners Only) */}
-          <AdBannerSection 
-            onOpenChat={handleSafeOpenChat}
-            categoryImages={categoryImages}
-          />
 
           {/* 4. Unified Community, Guide & Vision Section (Chhote aur compact buttons) */}
           <div className="bg-white/90 dark:bg-slate-800/90 border border-violet-200/70 dark:border-slate-700/70 rounded-2xl p-2.5 shadow-xs space-y-2">

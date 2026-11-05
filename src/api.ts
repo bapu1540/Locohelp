@@ -261,61 +261,86 @@ const isClientDummyPost = (item: any): boolean => {
  * Fetches all active community broadcast intents from the server.
  * Merges with local storage to support instantaneous offline browsing.
  */
-export async function fetchLiveIntents(): Promise<Intent[]> {
-  let deletedPostIds: string[] = [];
-  try {
-    const delRaw = localStorage.getItem('locohelp_deleted_posts');
-    if (delRaw) deletedPostIds = JSON.parse(delRaw);
-  } catch {}
+let inflightIntentsPromise: Promise<Intent[]> | null = null;
 
+/**
+ * Synchronously reads cached intents from localStorage for 0ms instant UI rendering.
+ */
+export function getCachedLiveIntents(): Intent[] {
   try {
-    // Also clean any cached dummy/deleted posts from localStorage immediately
-    ['locohelp_cached_intents', 'locohelp_custom_intents'].forEach(key => {
-      const raw = localStorage.getItem(key);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          const cleaned = parsed.filter(i => i && i.id && !deletedPostIds.includes(i.id) && !isClientDummyPost(i));
-          if (cleaned.length !== parsed.length) {
-            localStorage.setItem(key, JSON.stringify(cleaned));
-          }
-        }
-      }
-    });
-  } catch {}
-
-  try {
-    const res = await fetch(`/api/intents?_t=${Date.now()}`, {
-      cache: 'no-store',
-      headers: {
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache',
-        ...getAuthHeaders()
-      }
-    });
-    if (res.ok) {
-      const serverIntents: Intent[] = await res.json();
-      if (Array.isArray(serverIntents)) {
-        const cleanList = serverIntents.filter(i => i && i.id && !deletedPostIds.includes(i.id) && !isClientDummyPost(i));
-        try {
-          localStorage.setItem('locohelp_cached_intents', JSON.stringify(cleanList));
-        } catch (e) {}
-        return cleanList;
-      }
-    }
-  } catch (err) {
-    console.warn("Server fetch intents fallback to local storage:", err);
-  }
-
-  try {
+    let deletedPostIds: string[] = [];
+    try {
+      const delRaw = localStorage.getItem('locohelp_deleted_posts');
+      if (delRaw) deletedPostIds = JSON.parse(delRaw);
+    } catch {}
     const cached = localStorage.getItem('locohelp_cached_intents') || localStorage.getItem('locohelp_custom_intents');
     if (cached) {
       const list: Intent[] = JSON.parse(cached);
-      return list.filter(i => i && i.id && !deletedPostIds.includes(i.id) && !isClientDummyPost(i));
+      if (Array.isArray(list)) {
+        return list.filter(i => i && i.id && !deletedPostIds.includes(i.id) && !isClientDummyPost(i));
+      }
     }
-  } catch (e) {}
-
+  } catch {}
   return [];
+}
+
+export async function fetchLiveIntents(): Promise<Intent[]> {
+  if (inflightIntentsPromise) {
+    return inflightIntentsPromise;
+  }
+
+  inflightIntentsPromise = (async () => {
+    let deletedPostIds: string[] = [];
+    try {
+      const delRaw = localStorage.getItem('locohelp_deleted_posts');
+      if (delRaw) deletedPostIds = JSON.parse(delRaw);
+    } catch {}
+
+    try {
+      // Also clean any cached dummy/deleted posts from localStorage immediately
+      ['locohelp_cached_intents', 'locohelp_custom_intents'].forEach(key => {
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            const cleaned = parsed.filter(i => i && i.id && !deletedPostIds.includes(i.id) && !isClientDummyPost(i));
+            if (cleaned.length !== parsed.length) {
+              localStorage.setItem(key, JSON.stringify(cleaned));
+            }
+          }
+        }
+      });
+    } catch {}
+
+    try {
+      const res = await fetch(`/api/intents?_t=${Date.now()}`, {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          ...getAuthHeaders()
+        }
+      });
+      if (res.ok) {
+        const serverIntents: Intent[] = await res.json();
+        if (Array.isArray(serverIntents)) {
+          const cleanList = serverIntents.filter(i => i && i.id && !deletedPostIds.includes(i.id) && !isClientDummyPost(i));
+          try {
+            localStorage.setItem('locohelp_cached_intents', JSON.stringify(cleanList));
+          } catch (e) {}
+          return cleanList;
+        }
+      }
+    } catch (err) {
+      console.warn("Server fetch intents fallback to local storage:", err);
+    }
+
+    return getCachedLiveIntents();
+  })().finally(() => {
+    inflightIntentsPromise = null;
+  });
+
+  return inflightIntentsPromise;
 }
 
 /**
@@ -420,6 +445,39 @@ export async function deleteIntentOnServer(id: string, description?: string): Pr
   }
 }
 
+const inflightConversationsMap = new Map<string, Promise<any[]>>();
+
+function getConversationCacheKey(params: {
+  postId?: string;
+  userId?: string;
+  userEmail?: string;
+  userPhone?: string;
+}): string {
+  const p = String(params.postId || 'all').trim().toLowerCase();
+  const u = String(params.userEmail || params.userId || params.userPhone || 'user').trim().toLowerCase();
+  return `locohelp_cached_convs_${p}_${u}`;
+}
+
+/**
+ * Synchronously returns cached conversations from localStorage for 0ms instant UI rendering.
+ */
+export function getCachedPostConversations(params: {
+  postId?: string;
+  userId?: string;
+  userEmail?: string;
+  userPhone?: string;
+}): any[] {
+  try {
+    const key = getConversationCacheKey(params);
+    const raw = localStorage.getItem(key) || (!params.postId ? localStorage.getItem('locohelp_cached_convs_latest') : null);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch {}
+  return [];
+}
+
 /**
  * Fetches active 1-on-1 conversations for a post or user (`GET /api/chat/conversations`).
  */
@@ -429,29 +487,49 @@ export async function fetchPostConversations(params: {
   userEmail?: string;
   userPhone?: string;
 }): Promise<any[]> {
-  try {
-    const qs = new URLSearchParams();
-    if (params.postId) qs.set('postId', params.postId);
-    if (params.userId) qs.set('userId', params.userId);
-    if (params.userEmail) qs.set('userEmail', params.userEmail);
-    if (params.userPhone) qs.set('userPhone', params.userPhone);
-    qs.set('_t', String(Date.now()));
-    const res = await fetch(`/api/chat/conversations?${qs.toString()}`, {
-      cache: 'no-store',
-      headers: {
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache',
-        ...getAuthHeaders()
-      }
-    });
-    if (res.ok) {
-      const list = await res.json();
-      return Array.isArray(list) ? list : [];
-    }
-  } catch (err) {
-    console.warn("Failed to fetch post conversations:", err);
+  const cacheKey = getConversationCacheKey(params);
+  const existingInflight = inflightConversationsMap.get(cacheKey);
+  if (existingInflight) {
+    return existingInflight;
   }
-  return [];
+
+  const promise = (async () => {
+    try {
+      const qs = new URLSearchParams();
+      if (params.postId) qs.set('postId', params.postId);
+      if (params.userId) qs.set('userId', params.userId);
+      if (params.userEmail) qs.set('userEmail', params.userEmail);
+      if (params.userPhone) qs.set('userPhone', params.userPhone);
+      qs.set('_t', String(Date.now()));
+      const res = await fetch(`/api/chat/conversations?${qs.toString()}`, {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          ...getAuthHeaders()
+        }
+      });
+      if (res.ok) {
+        const list = await res.json();
+        const arr = Array.isArray(list) ? list : [];
+        try {
+          localStorage.setItem(cacheKey, JSON.stringify(arr));
+          if (!params.postId) {
+            localStorage.setItem('locohelp_cached_convs_latest', JSON.stringify(arr));
+          }
+        } catch {}
+        return arr;
+      }
+    } catch (err) {
+      console.warn("Failed to fetch post conversations:", err);
+    }
+    return getCachedPostConversations(params);
+  })().finally(() => {
+    inflightConversationsMap.delete(cacheKey);
+  });
+
+  inflightConversationsMap.set(cacheKey, promise);
+  return promise;
 }
 
 /**

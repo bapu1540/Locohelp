@@ -433,6 +433,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
   const [uploadingPromoAdSlot, setUploadingPromoAdSlot] = useState<number | null>(null);
   const [editingPromoAdSlot, setEditingPromoAdSlot] = useState<number | null>(null);
   const [promoAdCustomUrlInput, setPromoAdCustomUrlInput] = useState('');
+  const [promoAdCustomTitleInput, setPromoAdCustomTitleInput] = useState('');
   const [promoAdCustomLinkInput, setPromoAdCustomLinkInput] = useState('');
 
   const handleUploadPromoAdBanner = async (
@@ -485,17 +486,25 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
   const handleDeletePromoAdBanner = async (slotIndex: number) => {
     const storageKey = `__promo_ad_banner_${slotIndex}__`;
     const linkKey = `__promo_ad_banner_link_${slotIndex}__`;
+    const titleKey = `__promo_ad_banner_title_${slotIndex}__`;
     setUploadingPromoAdSlot(slotIndex);
     try {
       const res = await deleteCategoryImageOnServer(storageKey);
-      await deleteCategoryImageOnServer(linkKey).catch(() => {});
+      await Promise.all([
+        deleteCategoryImageOnServer(linkKey).catch(() => {}),
+        deleteCategoryImageOnServer(titleKey).catch(() => {}),
+      ]);
       if (res.success) {
         setCategoryImages(prev => {
           const next = { ...prev };
           delete next[storageKey];
           delete next[linkKey];
+          delete next[titleKey];
           return next;
         });
+        if (editingPromoAdSlot === slotIndex) {
+          setEditingPromoAdSlot(null);
+        }
         try {
           window.dispatchEvent(new CustomEvent('locohelp_category_images_updated'));
         } catch {}
@@ -513,17 +522,24 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
   const handleSavePromoAdCustomValues = async (slotIndex: number) => {
     const storageKey = `__promo_ad_banner_${slotIndex}__`;
     const linkKey = `__promo_ad_banner_link_${slotIndex}__`;
+    const titleKey = `__promo_ad_banner_title_${slotIndex}__`;
     const cleanImgUrl = promoAdCustomUrlInput.trim();
+    const cleanTitle = promoAdCustomTitleInput.trim();
     const cleanLinkUrl = promoAdCustomLinkInput.trim();
 
     if (!cleanImgUrl) {
-      showToast('કૃપા કરીને માન્ય ઈમેજ URL દાખલ કરો');
+      showToast('કૃપા કરીને માન્ય ઈમેજ URL દાખલ કરો અથવા ફોટો અપલોડ કરો');
       return;
     }
 
     setUploadingPromoAdSlot(slotIndex);
     try {
       const resImg = await saveCategoryImageOnServer(storageKey, cleanImgUrl);
+      if (cleanTitle) {
+        await saveCategoryImageOnServer(titleKey, cleanTitle).catch(() => {});
+      } else {
+        await deleteCategoryImageOnServer(titleKey).catch(() => {});
+      }
       if (cleanLinkUrl) {
         await saveCategoryImageOnServer(linkKey, cleanLinkUrl).catch(() => {});
       } else {
@@ -532,15 +548,21 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
 
       if (resImg.success) {
         const finalUrl = (resImg.images && resImg.images[storageKey]) || resImg.imageUrl || cleanImgUrl;
-        setCategoryImages(prev => ({
-          ...prev,
-          [storageKey]: finalUrl,
-          ...(cleanLinkUrl ? { [linkKey]: cleanLinkUrl } : {})
-        }));
+        setCategoryImages(prev => {
+          const next = {
+            ...prev,
+            [storageKey]: finalUrl,
+          };
+          if (cleanTitle) next[titleKey] = cleanTitle;
+          else delete next[titleKey];
+          if (cleanLinkUrl) next[linkKey] = cleanLinkUrl;
+          else delete next[linkKey];
+          return next;
+        });
         try {
           window.dispatchEvent(new CustomEvent('locohelp_category_images_updated'));
         } catch {}
-        showToast(`✅ સ્લોટ ${slotIndex} ની વિગતો સેવ થઈ ગઈ!`);
+        showToast(`✅ સ્લોટ ${slotIndex} ની જાહેરાત વિગતો સેવ થઈ ગઈ!`);
         setEditingPromoAdSlot(null);
       } else {
         showToast(resImg.error || 'સેવ કરવામાં ક્ષતિ આવી');
@@ -4808,19 +4830,19 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
             <div className="rounded-3xl bg-gradient-to-br from-amber-950/40 via-[#111827] to-slate-900 border-2 border-amber-500/40 p-5 sm:p-6 shadow-xl space-y-6">
               <div className="flex flex-wrap items-center justify-between gap-4 border-b border-amber-500/20 pb-4">
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40">
                       📢 હોમ પેજ જાહેરાત બેનર્સ (16:9 Aspect Ratio)
                     </span>
-                    <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">
-                      લાઇવ બ્રોડકાસ્ટ પોસ્ટ્સ નીચે
+                    <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                      હોમ પેજ કેટેગરીની બરાબર નીચે
                     </span>
                   </div>
                   <h3 className="text-base sm:text-xl font-black text-white mt-2">
-                    પ્રાયોજિત સ્થાનિક ઓફર અને જાહેરાતો (વધુમાં વધુ 5 બેનર)
+                    પ્રાયોજિત સ્થાનિક ઓફર અને જાહેરાતો (1 થી 5 Auto-Scroll બેનર મેનેજર)
                   </h3>
                   <p className="text-xs text-slate-300 font-medium max-w-2xl mt-1">
-                    અહીંથી તમે 1 થી 5 બિઝનેસ જાહેરાતના 16:9 બેનર અપલોડ, પ્રિવ્યુ અને ડીલીટ કરી શકો છો. 5 બેનર ફરજિયાત નથી; જેટલા અપલોડ કરશો તેટલા જ હોમ પેજ પર દેખાશે.
+                    અહીંથી તમે હોમ પેજ પર કેટેગરીની બરાબર નીચે દેખાતા 1 થી 5 જાહેરાત બેનર (ફોટો, ટાઇટલ અને લિંક) ઉમેરી (Add), સુધારી (Edit) અને હટાવી (Delete) શકો છો. 2 કે વધુ બેનર હશે ત્યારે દર 3.5 સેકન્ડે આપમેળે સ્લાઇડ (Auto-Scroll) થશે.
                   </p>
                 </div>
 
@@ -4834,17 +4856,17 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                   return (
                     <div className="flex flex-col items-end gap-1">
                       <div className="px-3.5 py-1.5 rounded-xl bg-slate-900 border border-amber-400/40 flex items-center gap-2">
-                        <span className={`w-2.5 h-2.5 rounded-full ${activeCount > 0 ? 'bg-emerald-400 animate-ping' : 'bg-slate-500'}`}></span>
+                        <span className={`w-2.5 h-2.5 rounded-full ${activeCount > 0 ? 'bg-emerald-400 animate-ping' : 'bg-amber-400'}`}></span>
                         <span className="text-xs font-black text-white">
                           સક્રિય બેનર: <span className="text-amber-400">{activeCount}</span> / 5
                         </span>
                       </div>
                       <span className="text-[10px] text-slate-400 font-bold">
                         {activeCount === 0
-                          ? '🚫 સેક્શન છુપાયેલું રહેશે (કોઈ ખાલી જગ્યા નહીં)'
+                          ? '✨ ડિફોલ્ટ LocoHelp પ્રમોશનલ બેનર દેખાશે'
                           : activeCount === 1
-                          ? '📌 ૧ બેનર સ્થિર (Fixed) રહેશે'
-                          : `🔄 ${activeCount} બેનર સતત Auto-Scroll થશે`}
+                          ? '📌 ૧ બેનર સ્થિર (Fixed) દેખાશે'
+                          : `🔄 ${activeCount} બેનર દર 3.5 સેકન્ડે Auto-Scroll થશે`}
                       </span>
                     </div>
                   );
@@ -4856,8 +4878,10 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                 {[1, 2, 3, 4, 5].map(slotNum => {
                   const storageKey = `__promo_ad_banner_${slotNum}__`;
                   const linkKey = `__promo_ad_banner_link_${slotNum}__`;
+                  const titleKey = `__promo_ad_banner_title_${slotNum}__`;
                   const bannerImg = categoryImages[storageKey];
-                  const bannerLink = categoryImages[linkKey];
+                  const bannerLink = categoryImages[linkKey] && categoryImages[linkKey] !== '__deleted__' ? categoryImages[linkKey] : '';
+                  const bannerTitle = categoryImages[titleKey] && categoryImages[titleKey] !== '__deleted__' ? categoryImages[titleKey] : '';
                   const isUploaded = Boolean(bannerImg && bannerImg !== '__deleted__');
                   const isUploading = uploadingPromoAdSlot === slotNum;
                   const isEditing = editingPromoAdSlot === slotNum;
@@ -4905,20 +4929,45 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                                 16:9
                               </span>
                             </div>
+                            {bannerTitle && (
+                              <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent p-2">
+                                <p className="text-[11px] font-black text-white truncate">{bannerTitle}</p>
+                              </div>
+                            )}
                           </div>
 
-                          {bannerLink && (
-                            <div className="text-[11px] text-slate-300 bg-slate-950/80 px-2.5 py-1.5 rounded-lg border border-slate-800 truncate flex items-center gap-1.5">
-                              <ExternalLink className="w-3 h-3 text-cyan-400 shrink-0" />
-                              <span className="text-slate-400">લિંક:</span>
-                              <span className="truncate text-cyan-300 font-medium">{bannerLink}</span>
+                          {(bannerTitle || bannerLink) && (
+                            <div className="space-y-1 text-[11px] bg-slate-950/80 px-2.5 py-2 rounded-lg border border-slate-800">
+                              {bannerTitle && (
+                                <div className="flex items-center gap-1.5 truncate text-amber-200 font-bold">
+                                  <span>🏷️</span>
+                                  <span className="truncate">{bannerTitle}</span>
+                                </div>
+                              )}
+                              {bannerLink && (
+                                <div className="flex items-center gap-1.5 truncate text-slate-300">
+                                  <ExternalLink className="w-3 h-3 text-cyan-400 shrink-0" />
+                                  <span className="text-slate-400">લિંક:</span>
+                                  <span className="truncate text-cyan-300 font-medium">{bannerLink}</span>
+                                </div>
+                              )}
                             </div>
                           )}
 
                           {isEditing && (
                             <div className="p-3 rounded-xl bg-slate-950 border border-indigo-500/40 space-y-2 mt-2">
                               <label className="text-[10px] font-bold text-slate-300 block">
-                                ઈમેજ URL અથવા નવો ફોટો:
+                                જાહેરાતનું નામ / ઓફર ટાઇટલ (ઓપ્શનલ):
+                              </label>
+                              <input
+                                type="text"
+                                value={promoAdCustomTitleInput}
+                                onChange={e => setPromoAdCustomTitleInput(e.target.value)}
+                                placeholder="દા.ત. ક્રિષ્ના ઇલેક્ટ્રિકલ્સ - 20% ડિસ્કાઉન્ટ"
+                                className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-400"
+                              />
+                              <label className="text-[10px] font-bold text-slate-300 block">
+                                ઈમેજ URL:
                               </label>
                               <input
                                 type="text"
@@ -4961,7 +5010,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                           <div className="flex flex-wrap items-center gap-2 pt-1">
                             <label className="flex-1 py-2 px-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white font-black text-xs transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-md">
                               <Upload className="w-3.5 h-3.5" />
-                              <span>{isUploading ? 'અપલોડિંગ...' : '📸 બદલો'}</span>
+                              <span>{isUploading ? 'અપલોડિંગ...' : '📸 ફોટો બદલો'}</span>
                               <input
                                 type="file"
                                 accept="image/*"
@@ -4975,27 +5024,24 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                               type="button"
                               onClick={() => {
                                 setPromoAdCustomUrlInput(bannerImg || '');
+                                setPromoAdCustomTitleInput(bannerTitle || '');
                                 setPromoAdCustomLinkInput(bannerLink || '');
                                 setEditingPromoAdSlot(prev => (prev === slotNum ? null : slotNum));
                               }}
                               disabled={isUploading}
                               className="py-2 px-2.5 rounded-xl bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-200 border border-indigo-400/40 font-black text-xs transition-all cursor-pointer flex items-center justify-center gap-1 disabled:opacity-50"
-                              title="લિંક અથવા URL બદલો"
+                              title="ટાઇટલ, લિંક અથવા URL સુધારો (Edit)"
                             >
                               <Edit3 className="w-3.5 h-3.5" />
-                              <span>લિંક</span>
+                              <span>એડિટ</span>
                             </button>
 
                             <button
                               type="button"
-                              onClick={() => {
-                                if (window.confirm(`શું તમે સ્લોટ ${slotNum} નું જાહેરાત બેનર ડીલીટ કરવા માંગો છો?`)) {
-                                  handleDeletePromoAdBanner(slotNum);
-                                }
-                              }}
+                              onClick={() => handleDeletePromoAdBanner(slotNum)}
                               disabled={isUploading}
                               className="py-2 px-2.5 rounded-xl bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/40 font-black text-xs transition-all cursor-pointer flex items-center justify-center gap-1 disabled:opacity-50"
-                              title="આ બેનર હટાવો"
+                              title="આ બેનર હટાવો (Delete)"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                               <span>હટાવો</span>
@@ -5009,7 +5055,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                               <Upload className="w-5 h-5" />
                             </div>
                             <span className="text-xs font-black text-slate-200 group-hover:text-amber-300">
-                              {isUploading ? 'અપલોડ ચાલુ છે...' : '+ 16:9 બેનર અપલોડ કરો'}
+                              {isUploading ? 'અપલોડ ચાલુ છે...' : '+ 16:9 બેનર ફોટો અપલોડ કરો'}
                             </span>
                             <span className="text-[10px] text-slate-500 mt-1">
                               JPG, PNG અથવા WebP (16:9 રેશિયો)
@@ -5025,6 +5071,16 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
 
                           {isEditing ? (
                             <div className="p-3 rounded-xl bg-slate-950 border border-indigo-500/40 space-y-2">
+                              <label className="text-[10px] font-bold text-slate-300 block">
+                                જાહેરાતનું નામ / ઓફર ટાઇટલ (ઓપ્શનલ):
+                              </label>
+                              <input
+                                type="text"
+                                value={promoAdCustomTitleInput}
+                                onChange={e => setPromoAdCustomTitleInput(e.target.value)}
+                                placeholder="દા.ત. ક્રિષ્ના ઇલેક્ટ્રિકલ્સ - 20% ડિસ્કાઉન્ટ"
+                                className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-400"
+                              />
                               <label className="text-[10px] font-bold text-slate-300 block">
                                 ઈમેજ URL:
                               </label>
@@ -5068,13 +5124,14 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                               type="button"
                               onClick={() => {
                                 setPromoAdCustomUrlInput('');
+                                setPromoAdCustomTitleInput('');
                                 setPromoAdCustomLinkInput('');
                                 setEditingPromoAdSlot(slotNum);
                               }}
                               className="w-full py-1.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800 text-[11px] font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5"
                             >
                               <Edit3 className="w-3 h-3" />
-                              <span>અથવા URL દાખલ કરો</span>
+                              <span>+ URL / ટાઇટલ / લિંકથી ઉમેરો</span>
                             </button>
                           )}
                         </div>

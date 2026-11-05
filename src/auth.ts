@@ -1920,6 +1920,8 @@ export async function saveShop(shop: any): Promise<any> {
   return cleanShop;
 }
 
+let inflightShopsPromise: Promise<any[]> | null = null;
+
 export async function getShops(includePending = false): Promise<any[]> {
   let deletedIds: string[] = [];
   try {
@@ -1928,34 +1930,47 @@ export async function getShops(includePending = false): Promise<any[]> {
   } catch {}
 
   try {
-    const query = includePending ? `includePending=true&_t=${Date.now()}` : `_t=${Date.now()}`;
-    const res = await fetch(`/api/shops?${query}`, {
-      headers: getAuthHeaders()
-    });
-    if (res.ok) {
-      const list = await res.json();
-      if (Array.isArray(list)) {
-        const map = new Map<string, any>();
-        list.forEach(s => {
-          if (s && s.id && !String(s.id).startsWith('sample_shop_') && !deletedIds.includes(String(s.id))) {
-            map.set(String(s.id), s);
-          }
-        });
-
-        const merged = Array.from(map.values());
-        try {
-          localStorage.setItem('locohelp_registered_shops', JSON.stringify(merged));
-          window.dispatchEvent(new Event('storage'));
-        } catch (e) {}
-
-        if (!includePending) {
-          return merged.filter(s => s.isVerified === true || s.status === 'approved');
-        }
-        return merged;
-      }
+    if (!includePending && inflightShopsPromise) {
+      return await inflightShopsPromise;
     }
+    const fetchTask = (async () => {
+      const query = includePending ? `includePending=true&_t=${Date.now()}` : `_t=${Date.now()}`;
+      const res = await fetch(`/api/shops?${query}`, {
+        headers: getAuthHeaders()
+      });
+      if (res.ok) {
+        const list = await res.json();
+        if (Array.isArray(list)) {
+          const map = new Map<string, any>();
+          list.forEach(s => {
+            if (s && s.id && !String(s.id).startsWith('sample_shop_') && !deletedIds.includes(String(s.id))) {
+              map.set(String(s.id), s);
+            }
+          });
+
+          const merged = Array.from(map.values());
+          try {
+            localStorage.setItem('locohelp_registered_shops', JSON.stringify(merged));
+          } catch (e) {}
+
+          if (!includePending) {
+            return merged.filter(s => s.isVerified === true || s.status === 'approved');
+          }
+          return merged;
+        }
+      }
+      throw new Error('Fallback to cached shops');
+    })();
+
+    if (!includePending) {
+      inflightShopsPromise = fetchTask.finally(() => {
+        inflightShopsPromise = null;
+      });
+      return await inflightShopsPromise;
+    }
+    return await fetchTask;
   } catch (e) {
-    console.warn("Get shops error:", e);
+    // Fallback below
   }
 
   let localShops: any[] = [];
@@ -1976,6 +1991,33 @@ export async function getShops(includePending = false): Promise<any[]> {
 /**
  * Helpers database queries
  */
+let memoryApprovedHelpersCache: any[] | null = null;
+let inflightHelpersPromise: Promise<any[]> | null = null;
+
+export function getCachedHelpersSync(includePending = false): any[] {
+  if (!includePending && memoryApprovedHelpersCache && memoryApprovedHelpersCache.length > 0) {
+    return memoryApprovedHelpersCache;
+  }
+  let deletedIds: string[] = [];
+  try {
+    const delRaw = localStorage.getItem('locohelp_deleted_helpers');
+    if (delRaw) deletedIds = JSON.parse(delRaw);
+  } catch {}
+  try {
+    const existingRaw = localStorage.getItem('locohelp_free_helper_profiles');
+    const existing: any[] = existingRaw ? JSON.parse(existingRaw) : [];
+    const localHelpers = existing.filter(
+      h => h && h.id && !/^h\d+/.test(String(h.id)) && !deletedIds.includes(String(h.id))
+    );
+    if (!includePending) {
+      return localHelpers.filter(h => h.isVerified === true || h.status === 'approved');
+    }
+    return localHelpers;
+  } catch {
+    return [];
+  }
+}
+
 export async function saveHelper(helper: any): Promise<any> {
   const cleanHelper = sanitizePayload(helper);
   try {
@@ -1999,60 +2041,65 @@ export async function getHelpers(includePending = false): Promise<any[]> {
   } catch {}
 
   try {
-    const query = includePending ? `includePending=true&_t=${Date.now()}` : `_t=${Date.now()}`;
-    const res = await fetch(`/api/helpers?${query}`, {
-      headers: getAuthHeaders()
-    });
-    if (res.ok) {
-      const list = await res.json();
-      if (Array.isArray(list)) {
-        const map = new Map<string, any>();
-        list.forEach(h => {
-          if (h && h.id && !/^h\d+/.test(String(h.id)) && !deletedIds.includes(String(h.id))) {
-            map.set(String(h.id), h);
-          }
-        });
-
-        const merged = Array.from(map.values());
-        try {
-          localStorage.setItem('locohelp_free_helper_profiles', JSON.stringify(merged));
-
-          const myHelperRaw = localStorage.getItem('locohelp_my_helper_profile');
-          if (myHelperRaw) {
-            const myHelper = JSON.parse(myHelperRaw);
-            const updatedMy = merged.find(h => h.id === myHelper.id || (myHelper.phone && h.phone === myHelper.phone));
-            if (updatedMy) {
-              localStorage.setItem('locohelp_my_helper_profile', JSON.stringify({ ...myHelper, ...updatedMy }));
-            } else if (includePending) {
-              localStorage.removeItem('locohelp_my_helper_profile');
-            }
-          }
-          window.dispatchEvent(new Event('storage'));
-        } catch (e) {}
-
-        if (!includePending) {
-          return merged.filter(h => h.isVerified === true || h.status === 'approved');
-        }
-        return merged;
-      }
+    if (!includePending && inflightHelpersPromise) {
+      return await inflightHelpersPromise;
     }
+
+    const fetchTask = (async () => {
+      const query = includePending ? `includePending=true&_t=${Date.now()}` : `_t=${Date.now()}`;
+      const res = await fetch(`/api/helpers?${query}`, {
+        headers: getAuthHeaders()
+      });
+      if (res.ok) {
+        const list = await res.json();
+        if (Array.isArray(list)) {
+          const map = new Map<string, any>();
+          list.forEach(h => {
+            if (h && h.id && !/^h\d+/.test(String(h.id)) && !deletedIds.includes(String(h.id))) {
+              map.set(String(h.id), h);
+            }
+          });
+
+          const merged = Array.from(map.values());
+          const approvedOnly = merged.filter(h => h.isVerified === true || h.status === 'approved');
+          memoryApprovedHelpersCache = approvedOnly;
+
+          try {
+            localStorage.setItem('locohelp_free_helper_profiles', JSON.stringify(merged));
+
+            const myHelperRaw = localStorage.getItem('locohelp_my_helper_profile');
+            if (myHelperRaw) {
+              const myHelper = JSON.parse(myHelperRaw);
+              const updatedMy = merged.find(h => h.id === myHelper.id || (myHelper.phone && h.phone === myHelper.phone));
+              if (updatedMy) {
+                localStorage.setItem('locohelp_my_helper_profile', JSON.stringify({ ...myHelper, ...updatedMy }));
+              } else if (includePending) {
+                localStorage.removeItem('locohelp_my_helper_profile');
+              }
+            }
+          } catch (e) {}
+
+          if (!includePending) {
+            return approvedOnly;
+          }
+          return merged;
+        }
+      }
+      throw new Error('Fallback to cached helpers');
+    })();
+
+    if (!includePending) {
+      inflightHelpersPromise = fetchTask.finally(() => {
+        inflightHelpersPromise = null;
+      });
+      return await inflightHelpersPromise;
+    }
+    return await fetchTask;
   } catch (e) {
-    console.warn("Get helpers error:", e);
+    // Fallback below
   }
 
-  let localHelpers: any[] = [];
-  try {
-    const existingRaw = localStorage.getItem('locohelp_free_helper_profiles');
-    const existing: any[] = existingRaw ? JSON.parse(existingRaw) : [];
-    localHelpers = existing.filter(
-      h => h && h.id && !/^h\d+/.test(String(h.id)) && !deletedIds.includes(String(h.id))
-    );
-  } catch {}
-
-  if (!includePending) {
-    return localHelpers.filter(h => h.isVerified === true || h.status === 'approved');
-  }
-  return localHelpers;
+  return getCachedHelpersSync(includePending);
 }
 
 /**
