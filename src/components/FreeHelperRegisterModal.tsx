@@ -196,6 +196,11 @@ export default function FreeHelperRegisterModal({
       ? [trimmedCustom, ...rawSkills]
       : rawSkills;
 
+    const wasAlreadyApproved = Boolean(
+      existingProfile && (existingProfile.isVerified === true || existingProfile.status === 'approved')
+    );
+    const nextStatus = wasAlreadyApproved ? 'approved' : 'pending';
+
     const newHelper = saveFreeHelperProfile({
       id: existingProfile?.id,
       userId: uid || existingProfile?.userId,
@@ -210,11 +215,14 @@ export default function FreeHelperRegisterModal({
       city: formCity.trim() || undefined,
       experience: formExp.trim() || '1 Year',
       distance: 0.5,
+      rating: existingProfile?.rating,
+      reviewCount: (existingProfile as any)?.reviewCount,
+      completedTasks: existingProfile?.completedTasks,
       photoUrl: formPhotoUrl || effectiveSelfie || undefined,
       govtIdUploaded: true,
       idDocUrl: effectiveSelfie,
-      isVerified: false,
-      status: 'pending'
+      isVerified: wasAlreadyApproved,
+      status: nextStatus
     } as any);
 
     setExistingProfile(newHelper);
@@ -238,25 +246,10 @@ export default function FreeHelperRegisterModal({
         website_url_hp: hpWebsiteUrl,
         photoUrl: formPhotoUrl || effectiveSelfie || undefined,
         idDocUrl: effectiveSelfie,
-        isVerified: false,
-        status: 'pending'
+        isVerified: wasAlreadyApproved,
+        status: nextStatus
       });
     } catch (e) {}
-
-    try {
-      await submitVerification({
-        entityType: 'helper',
-        entityId: newHelper.id,
-        userId: uid || newHelper.id,
-        userName: newHelper.name,
-        userEmail: userEmail || undefined,
-        userPhone: newHelper.phone,
-        title: `Service Expert Profile (${finalCatName}) - ${newHelper.area}`,
-        idDocumentWatermarked: effectiveSelfie
-      });
-    } catch (verifErr) {
-      console.warn("Verification submit error:", verifErr);
-    }
 
     setIsSubmitting(false);
     if (onSuccess) {

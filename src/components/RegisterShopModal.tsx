@@ -122,12 +122,13 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
     const cleanPhone = (activeUser?.phone || localStorage.getItem('locohelp_last_logged_in_phone') || '').replace(/\D/g, '').slice(-10);
     if (cleanPhone) setPhone(cleanPhone);
 
-    getShops(false).then((cloudShops) => {
+    getShops(true).then((cloudShops) => {
       if (Array.isArray(cloudShops)) {
-        const approvedOnly = cloudShops.filter(s => s && s.id && !String(s.id).startsWith('sample_shop_') && (s.isVerified === true || s.status === 'approved'));
+        const allValidShops = cloudShops.filter(s => s && s.id && !String(s.id).startsWith('sample_shop_'));
+        const approvedOnly = allValidShops.filter(s => s.isVerified === true || s.status === 'approved');
         setRegisteredShopsList(approvedOnly);
         try {
-          localStorage.setItem('locohelp_registered_shops', JSON.stringify(approvedOnly));
+          localStorage.setItem('locohelp_registered_shops', JSON.stringify(allValidShops));
         } catch {}
       }
     }).catch(() => {});
@@ -232,6 +233,14 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
       (linkedPhone ? `${linkedPhone}@phone.locohelp.com` : '')
     ).toLowerCase();
 
+    const existingEditingShop = editingShopId
+      ? registeredShopsList.find(s => s.id === editingShopId)
+      : undefined;
+    const wasShopApproved = Boolean(
+      existingEditingShop && (existingEditingShop.isVerified === true || existingEditingShop.status === 'approved')
+    );
+    const nextShopStatus = wasShopApproved ? 'approved' : 'pending';
+
     const newShop: RegisteredShop = {
       id: shopId,
       userId: activeUser?.uid || '',
@@ -250,11 +259,11 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
       photoUrl: primaryPhoto,
       photos: shopPhotos.length > 0 ? shopPhotos : (primaryPhoto ? [primaryPhoto] : []),
       idDocumentWatermarked: idDocumentWatermarked || undefined,
-      rating: 5.0,
-      reviewCount: 1,
-      isVerified: false,
-      status: 'pending',
-      createdAt: new Date().toISOString()
+      rating: existingEditingShop?.rating || 5.0,
+      reviewCount: existingEditingShop?.reviewCount || 1,
+      isVerified: wasShopApproved,
+      status: nextShopStatus,
+      createdAt: existingEditingShop?.createdAt || new Date().toISOString()
     };
 
     try {
@@ -274,21 +283,6 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
       });
     } catch (err) {
       console.warn("Shop backend save notice:", err);
-    }
-
-    try {
-      await submitVerification({
-        entityType: 'business',
-        entityId: shopId,
-        userId: activeUser?.uid || ownerName.trim() || shopName.trim(),
-        userName: shopName.trim(),
-        userEmail: newShop.ownerEmail,
-        userPhone: linkedPhone,
-        title: `${shopName.trim()} (${label}) - ${idDocumentType}`,
-        idDocumentWatermarked: idDocumentWatermarked || primaryPhoto || ''
-      });
-    } catch (verifErr) {
-      console.warn("Verification submit error:", verifErr);
     }
 
     setIsSubmitting(false);

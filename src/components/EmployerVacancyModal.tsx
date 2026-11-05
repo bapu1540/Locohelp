@@ -461,19 +461,6 @@ export default function EmployerVacancyModal({
         try {
           localStorage.setItem('locohelp_my_business', JSON.stringify(newShopObj));
         } catch (e) {}
-
-        try {
-          await submitVerification({
-            entityType: 'business',
-            entityId: shopId,
-            userId: activeUser?.uid || shopId,
-            userName: companyOrShopName.trim(),
-            userEmail: userEmail || undefined,
-            userPhone: resolvedPhone,
-            title: `${companyOrShopName.trim()} (Employer Registration + Live Selfie)`,
-            idDocumentWatermarked: employerLiveSelfie
-          });
-        } catch {}
       }
 
       // 2. Submit the Job Vacancy Requirement (strictly pending Admin approval)

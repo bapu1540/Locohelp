@@ -4181,13 +4181,17 @@ async function startServer() {
       }
 
       // Validate uploaded profile Live Selfie and optional Visiting Card, and upload to Firebase Storage (`locohelp/profiles/`)
-      const rawAvatar =
+      const rawAvatarCandidate =
         profile.liveSelfieUrl ||
         profile.idDocumentWatermarked ||
         profile.avatar_url ||
         profile.profilePhoto ||
         profile.photoURL ||
         profile.image_url;
+      const rawAvatar =
+        rawAvatarCandidate && rawAvatarCandidate !== "https://lh3.googleusercontent.com/a/default-user"
+          ? rawAvatarCandidate
+          : "";
       if (rawAvatar) {
         const avatarCheck = validateServerUploadedData(rawAvatar, { allowPdf: false });
         if (!avatarCheck.valid) {
@@ -4235,7 +4239,7 @@ async function startServer() {
           ? profile.isPhonePublic
           : profile.is_phone_public !== undefined
           ? profile.is_phone_public
-          : existingLocalOrDb?.isPhonePublic ?? existingLocalOrDb?.raw_json?.isPhonePublic ?? false
+          : existingLocalOrDb?.isPhonePublic ?? existingLocalOrDb?.is_phone_public ?? existingLocalOrDb?.raw_json?.isPhonePublic ?? false
       );
       const prevCleanAvatar =
         existingLocalOrDb?.avatar_url && existingLocalOrDb.avatar_url !== "https://lh3.googleusercontent.com/a/default-user"
@@ -4255,14 +4259,23 @@ async function startServer() {
           ? ""
           : uploadedVisitingCard || prevVisitingCard || "";
       const profileImageUrl = visitingCardUrl || avatarUrl || "";
-      const skills = sanitizeServerText(profile.skills !== undefined ? profile.skills : (existingLocalOrDb?.skills || ""), 500);
-      const address = sanitizeServerText(profile.address !== undefined ? (profile.address || profile.sector) : (existingLocalOrDb?.address || ""), 300);
+      const skills = sanitizeServerText(
+        (profile.skills && String(profile.skills).trim() !== "") ? profile.skills : (existingLocalOrDb?.skills || ""),
+        500
+      );
+      const address = sanitizeServerText(
+        ((profile.address && String(profile.address).trim() !== "") ? profile.address : profile.sector) || (existingLocalOrDb?.address || ""),
+        300
+      );
       const city = sanitizeServerText(profile.city || existingLocalOrDb?.city || "Gandhinagar", 120);
       const sector = sanitizeServerText(profile.sector || address || existingLocalOrDb?.sector || "", 200);
       const categoryId = sanitizeServerText(profile.category_id || profile.category || existingLocalOrDb?.category_id || "", 100);
       const categoryName = sanitizeServerText(profile.category_name || profile.service || categoryId || existingLocalOrDb?.category_name || "", 150);
       const description = sanitizeServerText(profile.description || profile.bio || skills || existingLocalOrDb?.description || "", 1000);
-      const experience = sanitizeServerText(profile.experience !== undefined ? profile.experience : (existingLocalOrDb?.experience || ""), 120);
+      const experience = sanitizeServerText(
+        (profile.experience && String(profile.experience).trim() !== "") ? profile.experience : (existingLocalOrDb?.experience || ""),
+        120
+      );
       const myHelper = profile.my_helper_profile || profile.myHelperProfile || existingLocalOrDb?.my_helper_profile || existingLocalOrDb?.myHelperProfile || null;
 
       const existingApproval = await getUserApprovalState(uid, email, phone);
@@ -4387,9 +4400,9 @@ async function startServer() {
               sector = COALESCE(NULLIF(EXCLUDED.sector, ''), profiles.sector),
               avatar_url = COALESCE(NULLIF(EXCLUDED.avatar_url, ''), profiles.avatar_url),
               image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), profiles.image_url),
-              skills = EXCLUDED.skills,
-              address = EXCLUDED.address,
-              experience = EXCLUDED.experience,
+              skills = COALESCE(NULLIF(EXCLUDED.skills, ''), profiles.skills),
+              address = COALESCE(NULLIF(EXCLUDED.address, ''), profiles.address),
+              experience = COALESCE(NULLIF(EXCLUDED.experience, ''), profiles.experience),
               description = COALESCE(NULLIF(EXCLUDED.description, ''), profiles.description),
               verified = EXCLUDED.verified,
               is_verified = EXCLUDED.is_verified,
@@ -7367,7 +7380,18 @@ async function startServer() {
           if (item.status === 'rejected' || item.status === 'flagged' || item.is_flagged === true || item.hidden === true || item.is_deleted === true) {
             return false;
           }
+          if (isDummyPostRecord(item.id, item.description || item.title, item.authorName)) {
+            return false;
+          }
           if (includeExpired) return true;
+          if (item.expiresAt) {
+            const expMs = new Date(item.expiresAt).getTime();
+            if (!isNaN(expMs) && nowMs > expMs) return false;
+          }
+          const createdMs = new Date(item.createdAt || item.created_at || 0).getTime();
+          if (!createdMs || isNaN(createdMs) || nowMs - createdMs > ONE_HOUR_MS) {
+            return false;
+          }
           return true;
         })
         .map(i => {
@@ -7395,14 +7419,23 @@ async function startServer() {
       res.json(combined);
     } catch (e) {
       console.warn("Recovering from fetch intents error:", e);
-      const fallbackIntents = readJsonFile<any[]>(INTENTS_FILE, []).map(i => {
-        const safe = redactBulkItemForPrivacy(i, false, false);
-        delete safe.phone;
-        delete safe.authorPhone;
-        delete safe.contactPhone;
-        delete safe.whatsapp;
-        return safe;
-      });
+      const nowFallbackMs = Date.now();
+      const ONE_HOUR_FALLBACK_MS = 60 * 60 * 1000;
+      const fallbackIntents = readJsonFile<any[]>(INTENTS_FILE, [])
+        .filter(i => {
+          if (!i || !i.id || isDummyPostRecord(i.id, i.description || i.title, i.authorName)) return false;
+          const cMs = new Date(i.createdAt || i.created_at || 0).getTime();
+          if (!cMs || isNaN(cMs) || nowFallbackMs - cMs > ONE_HOUR_FALLBACK_MS) return false;
+          return true;
+        })
+        .map(i => {
+          const safe = redactBulkItemForPrivacy(i, false, false);
+          delete safe.phone;
+          delete safe.authorPhone;
+          delete safe.contactPhone;
+          delete safe.whatsapp;
+          return safe;
+        });
       res.json(fallbackIntents);
     }
   };
@@ -10615,7 +10648,16 @@ async function startServer() {
         }
       }
 
-      const autoApprove = Boolean(isAdminCaller && shop.adminDirectCreate === true);
+      const wasShopAlreadyApproved = Boolean(
+        existingShop &&
+          (existingShop.isVerified === true ||
+            existingShop.is_verified === true ||
+            existingShop.is_approved === true ||
+            existingShop.status === 'approved')
+      );
+      const autoApprove = Boolean(
+        (isAdminCaller && shop.adminDirectCreate === true) || wasShopAlreadyApproved
+      );
       const isPhonePublic = Boolean(
         shop.isPhonePublic !== undefined
           ? shop.isPhonePublic
@@ -10639,13 +10681,13 @@ async function startServer() {
         area: sanitizeStringServer(shop.area || shop.address || 'Local Area', 200),
         address: sanitizeStringServer(shop.address || shop.area || 'Market Area', 300),
         description: sanitizeStringServer(shop.description || '', 1500),
-        photoUrl: validatedPhotos[0] || shop.photoUrl || shop.photo_url || null,
-        photos: validatedPhotos,
-        rating: typeof shop.rating === 'number' ? shop.rating : 5.0,
-        reviewCount: typeof shop.reviewCount === 'number' ? shop.reviewCount : 1,
+        photoUrl: validatedPhotos[0] || shop.photoUrl || shop.photo_url || existingShop?.photoUrl || null,
+        photos: validatedPhotos.length > 0 ? validatedPhotos : (Array.isArray(existingShop?.photos) ? existingShop.photos : []),
+        rating: typeof shop.rating === 'number' ? shop.rating : (typeof existingShop?.rating === 'number' ? existingShop.rating : 5.0),
+        reviewCount: typeof shop.reviewCount === 'number' ? shop.reviewCount : (typeof existingShop?.reviewCount === 'number' ? existingShop.reviewCount : 1),
         isVerified: autoApprove,
         status: autoApprove ? 'approved' : 'pending',
-        createdAt: shop.createdAt || new Date().toISOString()
+        createdAt: shop.createdAt || existingShop?.createdAt || new Date().toISOString()
       };
 
       // 1. PostgreSQL Insert into primary "businesses" & "shops" tables
@@ -11081,7 +11123,15 @@ async function startServer() {
         }
       }
 
-      const autoApprove = Boolean(isAdminCaller && helper.adminDirectCreate === true);
+      const wasHelperAlreadyApproved = Boolean(
+        existingHelper &&
+          (existingHelper.isVerified === true ||
+            existingHelper.is_verified === true ||
+            existingHelper.status === 'approved')
+      );
+      const autoApprove = Boolean(
+        (isAdminCaller && helper.adminDirectCreate === true) || wasHelperAlreadyApproved
+      );
       const isPhonePublic = Boolean(
         helper.isPhonePublic !== undefined
           ? helper.isPhonePublic
@@ -11101,15 +11151,15 @@ async function startServer() {
         city: sanitizeStringServer(helper.city || '', 100),
         experience: sanitizeStringServer(helper.experience || '1 Year', 80),
         distance: typeof helper.distance === 'number' ? helper.distance : 0.5,
-        rating: Number(helper.reviewCount || existingHelper?.review_count || existingHelper?.reviewCount || 0) > 0 ? Number(helper.rating || existingHelper?.rating || 5.0) : 0,
-        reviewCount: Number(helper.reviewCount ?? existingHelper?.review_count ?? existingHelper?.reviewCount ?? 0),
-        completedTasks: typeof helper.completedTasks === 'number' ? helper.completedTasks : 0,
-        photoUrl: helper.photoUrl || helper.photo_url || helper.workPhotoUrl || null,
+        rating: Number(helper.reviewCount || existingHelper?.review_count || existingHelper?.reviewCount || 0) > 0 ? Number(helper.rating || existingHelper?.rating || 5.0) : Number(existingHelper?.rating || 0),
+        reviewCount: Number(helper.reviewCount || existingHelper?.review_count || existingHelper?.reviewCount || 0),
+        completedTasks: Number(helper.completedTasks || existingHelper?.completed_tasks || existingHelper?.completedTasks || 0),
+        photoUrl: helper.photoUrl || helper.photo_url || helper.workPhotoUrl || existingHelper?.photoUrl || existingHelper?.photo_url || null,
         isVerified: autoApprove,
         status: autoApprove ? 'approved' : 'pending',
-        govtIdUploaded: !!helper.govtIdUploaded,
+        govtIdUploaded: !!(helper.govtIdUploaded || existingHelper?.govt_id_uploaded || existingHelper?.govtIdUploaded),
         idDocUrl: helper.idDocUrl || helper.id_doc_url || existingHelper?.idDocUrl || existingHelper?.id_doc_url || null,
-        createdAt: helper.createdAt || new Date().toISOString()
+        createdAt: existingHelper?.created_at || existingHelper?.createdAt || helper.createdAt || new Date().toISOString()
       };
 
       if (dbPool && isDbConnected) {
@@ -12058,6 +12108,9 @@ async function startServer() {
         }
       }
 
+      const ads = readJsonFile<any[]>(ADS_FILE, []);
+      let existingAdRecord: any = ad.id ? ads.find((a: any) => a && a.id === ad.id) : null;
+
       // Clean up replaced Firebase Storage photos if editing an existing ad
       if (ad.id && dbPool && isDbConnected) {
         try {
@@ -12065,6 +12118,7 @@ async function startServer() {
           if (prevAdRes.rows.length > 0) {
             const prevRow = prevAdRes.rows[0];
             const prevRaw = prevRow.raw_json || {};
+            existingAdRecord = prevRaw || existingAdRecord;
             const oldUrls = [prevRow.image_url, prevRaw.photoUrl, ...(Array.isArray(prevRaw.photos) ? prevRaw.photos : [])].filter(Boolean);
             for (const oldUrl of oldUrls) {
               if (oldUrl && validPhotos.length > 0 && !validPhotos.includes(oldUrl)) {
@@ -12075,37 +12129,39 @@ async function startServer() {
         } catch {}
       }
 
-      const finalPhotos = validPhotos;
-      const autoApprove = isAdminCaller;
+      const finalPhotos = validPhotos.length > 0
+        ? validPhotos
+        : (Array.isArray(existingAdRecord?.photos) ? existingAdRecord.photos : (existingAdRecord?.photoUrl ? [existingAdRecord.photoUrl] : []));
+      const wasAdApproved = existingAdRecord && (existingAdRecord.status === 'active' || existingAdRecord.status === 'approved' || existingAdRecord.isActive === true);
+      const autoApprove = isAdminCaller || Boolean(wasAdApproved);
       const adStatus = autoApprove ? (ad.isActive === false ? 'inactive' : 'active') : 'pending';
 
-      const ads = readJsonFile<any[]>(ADS_FILE, []);
       const newAd = {
-        id: ad.id || 'ad_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+        id: ad.id || 'ad_' + Date.now() + '_' + Math.random().toString(26).substring(2, 6),
         businessName: sanitizeStringServer(ad.businessName.trim(), 200),
-        contactPerson: sanitizeStringServer(ad.contactPerson || ad.ownerName || caller?.name || '', 120),
-        phone: contactPhone,
-        ownerEmail,
-        email: ownerEmail,
-        adPlan: sanitizeStringServer(ad.adPlan || 'Home Banner Ad', 100),
-        durationDays: sanitizeStringServer(String(ad.durationDays || '30 Days'), 50),
-        logo: sanitizeStringServer(ad.logo || '🏪', 20),
-        category: sanitizeStringServer(ad.category || 'Retail & Services', 120),
-        offerBadge: sanitizeStringServer(ad.offerBadge || '🔥 Special Offer', 100),
+        contactPerson: sanitizeStringServer(ad.contactPerson || ad.ownerName || existingAdRecord?.contactPerson || caller?.name || '', 120),
+        phone: contactPhone || existingAdRecord?.phone || '',
+        ownerEmail: ownerEmail || existingAdRecord?.ownerEmail || '',
+        email: ownerEmail || existingAdRecord?.email || '',
+        adPlan: sanitizeStringServer(ad.adPlan || existingAdRecord?.adPlan || 'Home Banner Ad', 100),
+        durationDays: sanitizeStringServer(String(ad.durationDays || existingAdRecord?.durationDays || '30 Days'), 50),
+        logo: sanitizeStringServer(ad.logo || existingAdRecord?.logo || '🏪', 20),
+        category: sanitizeStringServer(ad.category || existingAdRecord?.category || 'Retail & Services', 120),
+        offerBadge: sanitizeStringServer(ad.offerBadge || existingAdRecord?.offerBadge || '🔥 Special Offer', 100),
         offerTitle: sanitizeStringServer(ad.offerTitle.trim(), 200),
-        description: sanitizeStringServer(ad.description || '', 1000),
+        description: sanitizeStringServer(ad.description ?? existingAdRecord?.description ?? '', 1000),
         photoUrl: finalPhotos[0] || '',
         photos: finalPhotos,
         status: adStatus,
         isActive: autoApprove ? (ad.isActive !== false) : false,
-        distance: typeof ad.distance === 'number' ? ad.distance : 0.4,
-        area: sanitizeStringServer(ad.area || 'Local Market', 200),
-        rating: typeof ad.rating === 'number' ? ad.rating : 4.9,
-        reviewCount: typeof ad.reviewCount === 'number' ? ad.reviewCount : 12,
+        distance: typeof ad.distance === 'number' ? ad.distance : (existingAdRecord?.distance ?? 0.4),
+        area: sanitizeStringServer(ad.area || existingAdRecord?.area || 'Local Market', 200),
+        rating: typeof ad.rating === 'number' ? ad.rating : (existingAdRecord?.rating ?? 4.9),
+        reviewCount: typeof ad.reviewCount === 'number' ? ad.reviewCount : (existingAdRecord?.reviewCount ?? 12),
         isVerified: autoApprove,
-        destinationUrl: sanitizeStringServer(ad.destinationUrl || '', 500),
-        initialMessage: sanitizeStringServer(ad.initialMessage || `Namaste! ${ad.businessName} me aapka swagat hai. Ad offer "${ad.offerBadge}" ke baare me poochhein.`, 500),
-        createdAt: ad.createdAt || new Date().toISOString()
+        destinationUrl: sanitizeStringServer(ad.destinationUrl ?? existingAdRecord?.destinationUrl ?? '', 500),
+        initialMessage: sanitizeStringServer(ad.initialMessage || existingAdRecord?.initialMessage || `Namaste! ${ad.businessName} me aapka swagat hai. Ad offer "${ad.offerBadge}" ke baare me poochhein.`, 500),
+        createdAt: ad.createdAt || existingAdRecord?.createdAt || new Date().toISOString()
       };
 
       const existingIdx = ads.findIndex(a => a.id === newAd.id);
@@ -12131,7 +12187,7 @@ async function startServer() {
                market_area = EXCLUDED.market_area,
                status = EXCLUDED.status,
                description = EXCLUDED.description,
-               image_url = EXCLUDED.image_url,
+               image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), ads.image_url),
                raw_json = EXCLUDED.raw_json`,
             [
               newAd.id,
@@ -12151,24 +12207,6 @@ async function startServer() {
              ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data`,
             [newAd.id, JSON.stringify(newAd)]
           );
-
-          if (!autoApprove) {
-            const verifId = 'verif_ad_' + newAd.id;
-            await dbPool.query(
-              `INSERT INTO verification_requests (id, entity_type, entity_id, user_id, user_name, user_phone, title, id_doc_url, status, created_at)
-               VALUES ($1, 'business', $2, $3, $4, $5, $6, $7, 'pending', NOW())
-               ON CONFLICT (id) DO UPDATE SET status = 'pending', title = EXCLUDED.title`,
-              [
-                verifId,
-                newAd.id,
-                caller?.uid || ownerEmail,
-                newAd.businessName,
-                ownerEmail,
-                `Ad Banner: ${newAd.businessName} - ${newAd.offerTitle}`,
-                newAd.photoUrl || ''
-              ]
-            ).catch(() => {});
-          }
         } catch (dbErr) {
           console.warn("[PostgreSQL] ads insert note:", dbErr);
         }
@@ -12379,12 +12417,16 @@ async function startServer() {
       }
       const autoApprove = isAdminCaller;
 
+      const items = readJsonFile<any[]>(JOB_PORTAL_FILE, []);
+      let existingJobItem: any = payload.id ? items.find((i: any) => i && i.id === payload.id) : null;
+
       // Clean up replaced Firebase Storage photo/resume if updating an existing job portal item
       if (payload.id && dbPool && isDbConnected) {
         try {
           const prevJobRes = await dbPool.query("SELECT data FROM job_portal_items WHERE id = $1 LIMIT 1", [payload.id]);
           if (prevJobRes.rows.length > 0 && prevJobRes.rows[0].data) {
             const prevJob = prevJobRes.rows[0].data;
+            existingJobItem = prevJob || existingJobItem;
             if (prevJob.photoOrLogoUrl && payload.photoOrLogoUrl && prevJob.photoOrLogoUrl !== payload.photoOrLogoUrl) {
               await deleteFilesFromFirebaseStorage(prevJob.photoOrLogoUrl);
             }
@@ -12395,15 +12437,16 @@ async function startServer() {
         } catch {}
       }
 
-      const items = readJsonFile<any[]>(JOB_PORTAL_FILE, []);
+      const wasAlreadyApproved = existingJobItem && existingJobItem.status === "approved";
+      const finalApproved = autoApprove || wasAlreadyApproved;
       const isSeeker = payload.type === 'job_seeker';
       const idPrefix = isSeeker ? 'job_seeker_' : 'job_emp_';
       const isPhonePublic = Boolean(payload.isPhonePublic === true);
       const newRecord = {
         id: payload.id || idPrefix + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
-        userId,
+        userId: userId || existingJobItem?.userId || '',
         type: payload.type,
-        status: autoApprove ? "approved" : "pending",
+        status: finalApproved ? "approved" : "pending",
         fullName: sanitizeStringServer(payload.fullName?.trim() || '', 150),
         headline: sanitizeStringServer(payload.headline?.trim() || (isSeeker ? `${payload.category || 'Professional'} Specialist` : ''), 200),
         skills: Array.isArray(payload.skills) 
@@ -12422,17 +12465,17 @@ async function startServer() {
         phone: resolvedPhone,
         whatsapp: sanitizeStringServer(payload.whatsapp?.trim() || resolvedPhone, 30),
         isPhonePublic,
-        email: jobEmail,
+        email: jobEmail || existingJobItem?.email || '',
         area: sanitizeStringServer(payload.area?.trim() || 'Local Area', 150),
         address: sanitizeStringServer(payload.address?.trim() || '', 300),
         description: sanitizeStringServer(payload.description?.trim() || (isSeeker ? 'Looking for local employment opportunities.' : 'Staff required for our business.'), 2000),
-        photoOrLogoUrl: payload.photoOrLogoUrl || '',
-        idDocumentWatermarked: payload.idDocumentWatermarked || '',
-        resumeUrl: payload.resumeUrl || '',
-        resumeFileName: sanitizeStringServer(payload.resumeFileName || '', 150),
-        createdAt: new Date().toISOString(),
-        reviewedAt: autoApprove ? new Date().toISOString() : null,
-        adminNotes: autoApprove ? 'Added & Approved by Admin' : ''
+        photoOrLogoUrl: payload.photoOrLogoUrl || existingJobItem?.photoOrLogoUrl || '',
+        idDocumentWatermarked: payload.idDocumentWatermarked || existingJobItem?.idDocumentWatermarked || '',
+        resumeUrl: payload.resumeUrl || existingJobItem?.resumeUrl || '',
+        resumeFileName: sanitizeStringServer(payload.resumeFileName || existingJobItem?.resumeFileName || '', 150),
+        createdAt: existingJobItem?.createdAt || new Date().toISOString(),
+        reviewedAt: finalApproved ? (existingJobItem?.reviewedAt || new Date().toISOString()) : null,
+        adminNotes: autoApprove ? 'Added & Approved by Admin' : (existingJobItem?.adminNotes || '')
       };
 
       const updated = [newRecord, ...items.filter(i => i.id !== newRecord.id)];
@@ -14331,13 +14374,10 @@ async function startServer() {
 
       const cleanIdentifier = String(identifier).trim().toLowerCase();
 
-      // 60-second cooldown between OTP requests for the same email/mobile or IP
-      const clientIp = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.ip || "unknown";
+      // 60-second cooldown between OTP requests for the same email/mobile identifier
       const lastSentId = otpCooldownByIdentifier.get(cleanIdentifier) || 0;
-      const lastSentIp = otpCooldownByIdentifier.get(`ip_${clientIp}`) || 0;
-      const lastSent = Math.max(lastSentId, lastSentIp);
-      const elapsedMs = Date.now() - lastSent;
-      if (lastSent > 0 && elapsedMs < OTP_RESEND_COOLDOWN_MS) {
+      const elapsedMs = Date.now() - lastSentId;
+      if (lastSentId > 0 && elapsedMs < OTP_RESEND_COOLDOWN_MS) {
         const waitSec = Math.ceil((OTP_RESEND_COOLDOWN_MS - elapsedMs) / 1000);
         return res.status(429).json({
           error: `कृपया नया OTP भेजने से पहले ${waitSec} सेकंड प्रतीक्षा करें। (Please wait ${waitSec}s before requesting another OTP.)`,
@@ -14346,7 +14386,6 @@ async function startServer() {
       }
 
       otpCooldownByIdentifier.set(cleanIdentifier, Date.now());
-      otpCooldownByIdentifier.set(`ip_${clientIp}`, Date.now());
 
       const code = Math.floor(100000 + Math.random() * 900000).toString();
       const expiresAt = Date.now() + 5 * 60 * 1000;

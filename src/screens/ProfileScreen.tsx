@@ -575,10 +575,11 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
     // Fetch all shops to check user's own business status + filter public directory to approved only
     getShops(true).then((cloudShops) => {
       if (Array.isArray(cloudShops)) {
-        const approvedOnly = cloudShops.filter(s => s && s.id && !String(s.id).startsWith('sample_shop_') && (s.isVerified === true || s.status === 'approved'));
+        const allValidShops = cloudShops.filter(s => s && s.id && !String(s.id).startsWith('sample_shop_'));
+        const approvedOnly = allValidShops.filter(s => s.isVerified === true || s.status === 'approved');
         setRegisteredShopsList(approvedOnly);
         try {
-          localStorage.setItem('locohelp_registered_shops', JSON.stringify(approvedOnly));
+          localStorage.setItem('locohelp_registered_shops', JSON.stringify(allValidShops));
         } catch (e) {}
 
         if (cleanEmail || userKey || cleanPhone) {
@@ -721,8 +722,11 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
     const safeAddress = sanitizeText(userAddress, 300);
     const safeExp = sanitizeText(userExp, 120);
 
-    const newStatus = 'pending';
-    const newIsVerified = false;
+    const alreadyApproved =
+      verificationStatus === 'approved' ||
+      localStorage.getItem('locohelp_account_approved') === 'true';
+    const newStatus = alreadyApproved ? 'approved' : 'pending';
+    const newIsVerified = alreadyApproved;
 
     const profileData = {
       uid: userKey,
@@ -745,7 +749,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
       updated_at: new Date().toISOString()
     };
 
-    setVerificationStatus('pending');
+    setVerificationStatus(newStatus);
 
     try {
       localStorage.setItem(`locohelp_user_profile_${userKey}`, JSON.stringify(profileData));
@@ -791,24 +795,15 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
         taluka: parsedTaluka,
         area: parsedTaluka
       });
-      await submitVerification({
-        entityType: 'user_profile',
-        entityId: userKey,
-        userId: userKey,
-        userName: profileData.full_name,
-        userEmail: profileData.email || undefined,
-        userPhone: profileData.phone,
-        title: `Simple User Profile - ${safeAddress || 'Local Area'}`,
-        idDocumentWatermarked: finalSelfie,
-        visitingCardUrl: userVisitingCard || ''
-      } as any).catch(() => {});
-      setVerificationStatus('pending');
+      setVerificationStatus(newStatus);
     } catch (err) {}
 
     setHasExistingUserProfile(true);
     setIsEditingUserProfile(false);
     setIsSavedNotice(true);
-    setShowApprovalNoticeModal(true);
+    if (!alreadyApproved) {
+      setShowApprovalNoticeModal(true);
+    }
     setTimeout(() => setIsSavedNotice(false), 4000);
   };
 
@@ -865,6 +860,11 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
     const parsedHelperTaluka = helperLocParts[0] || helperArea.trim() || 'Local Area';
     const parsedHelperCity = helperLocParts[1] || parsedHelperTaluka;
 
+    const wasHelperApproved = Boolean(
+      myHelperProfile?.isVerified === true || myHelperProfile?.status === 'approved'
+    );
+    const nextHelperStatus = wasHelperApproved ? 'approved' : 'pending';
+
     const newHelper = saveFreeHelperProfile({
       id: myHelperProfile?.id,
       userId: uid || myHelperProfile?.userId,
@@ -882,8 +882,8 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
       photoUrl: finalWorkPhoto || undefined,
       govtIdUploaded: Boolean(finalDoc),
       idDocUrl: finalDoc || undefined,
-      isVerified: false,
-      status: 'pending',
+      isVerified: wasHelperApproved,
+      status: nextHelperStatus,
     } as any);
 
     setMyHelperProfile(newHelper);
@@ -911,29 +911,16 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
         city: sanitizeText(parsedHelperCity, 100),
         photoUrl: finalWorkPhoto,
         isPhonePublic: isHelperPhonePublic,
-        isVerified: false,
-        status: 'pending'
+        isVerified: wasHelperApproved,
+        status: nextHelperStatus
       });
+      setVerificationStatus(nextHelperStatus);
     } catch (e) {}
 
-    try {
-      await submitVerification({
-        entityType: 'helper',
-        entityId: newHelper.id,
-        userId: uid || newHelper.id,
-        userName: newHelper.name,
-        userEmail: cleanEmail || undefined,
-        userPhone: newHelper.phone,
-        title: `Service Expert Profile (${finalCatName}) - ${parsedHelperTaluka}`,
-        idDocumentWatermarked: finalDoc || ''
-      });
-      setVerificationStatus('pending');
-    } catch (verifErr) {
-      console.warn("Verification submit error:", verifErr);
-    }
-
     setIsSubmittingHelper(false);
-    setShowApprovalNoticeModal(true);
+    if (!wasHelperApproved) {
+      setShowApprovalNoticeModal(true);
+    }
   };
 
   // -------------------------------------------------------------
@@ -1009,6 +996,11 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
 
     const finalPhotos = shopPhotos.length > 0 ? shopPhotos.slice(0, 3) : (shopPhoto ? [shopPhoto] : []);
 
+    const wasBizApproved = Boolean(
+      myBusinessProfile && (myBusinessProfile.isVerified === true || myBusinessProfile.status === 'approved')
+    );
+    const nextBizStatus = wasBizApproved ? 'approved' : 'pending';
+
     const newShop: RegisteredShop = {
       id: shopId,
       userId: uid,
@@ -1025,11 +1017,11 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
       description: shopDescription.trim() || 'Welcome to our business!',
       photoUrl: finalPhotos[0] || shopPhoto || myBusinessProfile?.photoUrl || undefined,
       photos: finalPhotos.length > 0 ? finalPhotos : undefined,
-      rating: 5.0,
-      reviewCount: 1,
-      isVerified: false,
-      status: 'pending',
-      createdAt: new Date().toISOString()
+      rating: myBusinessProfile?.rating || 5.0,
+      reviewCount: myBusinessProfile?.reviewCount || 1,
+      isVerified: wasBizApproved,
+      status: nextBizStatus,
+      createdAt: myBusinessProfile?.createdAt || new Date().toISOString()
     };
 
     try {
@@ -1051,19 +1043,6 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
         idDocumentWatermarked: finalShopSelfie
       });
     } catch (err) {}
-
-    try {
-      await submitVerification({
-        entityType: 'business',
-        entityId: shopId,
-        userId: uid || ownerName.trim() || shopName.trim(),
-        userName: shopName.trim(),
-        userEmail: cleanEmail || undefined,
-        userPhone: resolvedShopPhone,
-        title: `${shopName.trim()} (${label}) - Business Registration + Owner Live Selfie`,
-        idDocumentWatermarked: finalShopSelfie
-      });
-    } catch (verifErr) {}
 
     setIsSubmittingShop(false);
     setShopSubmitSuccess(true);

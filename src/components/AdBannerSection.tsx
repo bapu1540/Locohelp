@@ -1,13 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   Sparkles, 
   ChevronLeft, 
   ChevronRight, 
-  ExternalLink
+  ExternalLink,
+  X,
+  CheckCircle2
 } from 'lucide-react';
 import { useLanguage } from '../i18n';
 import { Language } from '../types';
-import { fetchCategoryImages, getCachedCategoryImages, fetchLiveAds } from '../api';
+import { fetchCategoryImages, getCachedCategoryImages, fetchLiveAds, createAdOnServer } from '../api';
 
 export interface AdBannerItem {
   id: string;
@@ -35,9 +38,9 @@ export const PERMANENT_LOCOHELP_PROMO_AD: AdBannerItem = {
   id: 'locohelp_official_promo_banner',
   businessName: 'LocoHelp Official Advertisement Space',
   logo: '📢',
-  category: 'LocoHelp Official • જાહેરાત સ્પેસ',
-  offerBadge: '✨ ADVERTISE HERE',
-  offerTitle: 'તમારા બિઝનેસની જાહેરાત અહીં આપો!',
+  category: 'LocoHelp Official',
+  offerBadge: '',
+  offerTitle: '',
   description: 'Promote your Shop, Business, Showroom or Special Offers on LocoHelp!',
   photoUrl: '/assets/aistudio/advertisement_30c9824f.png',
   distance: 0.1,
@@ -99,6 +102,23 @@ export default function AdBannerSection({ onOpenChat, categoryImages: propCatego
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isAutoPlaying, setIsAutoPlaying] = useState(true);
   const scrollTrackRef = useRef<HTMLDivElement>(null);
+
+  // Ad Inquiry Form Modal State (User submits details only -> Admin prepares & uploads 16:9 banner)
+  const [showAdInquiryModal, setShowAdInquiryModal] = useState(false);
+  const [isSubmittingInquiry, setIsSubmittingInquiry] = useState(false);
+  const [inquirySuccess, setInquirySuccess] = useState(false);
+  const [inquiryError, setInquiryError] = useState<string | null>(null);
+  const [adForm, setAdForm] = useState({
+    businessName: '',
+    contactPerson: '',
+    phone: '',
+    ownerEmail: '',
+    area: '',
+    adPlan: 'Home Top / Middle Banner Ad',
+    durationDays: '30 Days (1 Month)',
+    offerTitle: '',
+    description: ''
+  });
 
   // Sync category images and approved ads dynamically
   useEffect(() => {
@@ -191,8 +211,7 @@ export default function AdBannerSection({ onOpenChat, categoryImages: propCatego
       list.push({
         id: PERMANENT_LOCOHELP_PROMO_AD.id,
         slotNumber: 1,
-        imageUrl: PERMANENT_LOCOHELP_PROMO_AD.photoUrl,
-        title: PERMANENT_LOCOHELP_PROMO_AD.offerTitle
+        imageUrl: PERMANENT_LOCOHELP_PROMO_AD.photoUrl
       });
     }
 
@@ -298,13 +317,371 @@ export default function AdBannerSection({ onOpenChat, categoryImages: propCatego
     return text.visitLink + ' ↗';
   };
 
+  const handleAdInquirySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setInquiryError(null);
+    if (!adForm.businessName.trim() || !adForm.phone.trim()) {
+      setInquiryError(
+        language === 'GU'
+          ? 'કૃપા કરી વ્યવસાયનું નામ અને મોબાઇલ નંબર લખો'
+          : language === 'HI'
+          ? 'कृपया व्यवसाय का नाम और मोबाइल नंबर लिखें'
+          : 'Please enter Business Name and Mobile Number'
+      );
+      return;
+    }
+    setIsSubmittingInquiry(true);
+    try {
+      const saved = await createAdOnServer({
+        businessName: adForm.businessName.trim(),
+        contactPerson: adForm.contactPerson.trim(),
+        phone: adForm.phone.trim(),
+        ownerEmail: adForm.ownerEmail.trim(),
+        area: adForm.area.trim() || 'Local Area',
+        adPlan: adForm.adPlan,
+        durationDays: adForm.durationDays,
+        offerTitle: adForm.offerTitle.trim() || `${adForm.businessName.trim()} - Special Offer`,
+        description: adForm.description.trim()
+      });
+      setIsSubmittingInquiry(false);
+      if (saved) {
+        setInquirySuccess(true);
+        setAdForm({
+          businessName: '',
+          contactPerson: '',
+          phone: '',
+          ownerEmail: '',
+          area: '',
+          adPlan: 'Home Top / Middle Banner Ad',
+          durationDays: '30 Days (1 Month)',
+          offerTitle: '',
+          description: ''
+        });
+        setTimeout(() => {
+          setInquirySuccess(false);
+          setShowAdInquiryModal(false);
+        }, 1600);
+      } else {
+        setInquiryError(
+          language === 'GU'
+            ? 'ફોર્મ સબમિટ કરવામાં ભૂલ થઈ. ફરી પ્રયાસ કરો.'
+            : 'Failed to submit ad request. Please try again.'
+        );
+      }
+    } catch {
+      setIsSubmittingInquiry(false);
+      setInquiryError(
+        language === 'GU'
+          ? 'ફોર્મ સબમિટ કરવામાં ભૂલ થઈ. ફરી પ્રયાસ કરો.'
+          : 'Failed to submit ad request. Please try again.'
+      );
+    }
+  };
+
+  const renderAdvertiseHereButton = () => (
+    <div className="flex justify-end px-1 pt-0.5">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setInquiryError(null);
+          setInquirySuccess(false);
+          setShowAdInquiryModal(true);
+        }}
+        className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900/70 border border-amber-300 dark:border-amber-700 text-[10px] sm:text-[11px] font-black text-amber-800 dark:text-amber-300 shadow-2xs active:scale-95 transition-all cursor-pointer"
+      >
+        <span>
+          📢{' '}
+          {language === 'GU'
+            ? 'તમારી જાહેરાત અહીં આપો'
+            : language === 'HI'
+            ? 'अपना विज्ञापन यहाँ दें'
+            : 'Advertise Here'}
+        </span>
+      </button>
+    </div>
+  );
+
+  const renderAdInquiryModal = () => {
+    if (!showAdInquiryModal || typeof document === 'undefined') return null;
+    return createPortal(
+      <div
+        style={{
+          position: 'fixed',
+          inset: 0,
+          zIndex: 999999,
+          backgroundColor: 'rgba(15, 23, 42, 0.72)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '14px'
+        }}
+        onClick={() => setShowAdInquiryModal(false)}
+      >
+        <div
+          style={{
+            width: '100%',
+            maxWidth: '460px',
+            backgroundColor: '#ffffff',
+            borderRadius: '22px',
+            border: '2px solid #86efac',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.35)',
+            overflow: 'hidden',
+            maxHeight: '90vh',
+            display: 'flex',
+            flexDirection: 'column'
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Modal Header */}
+          <div
+            style={{
+              background: 'linear-gradient(135deg, #16a34a 0%, #0d9488 100%)',
+              padding: '14px 16px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              color: '#ffffff'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '20px' }}>📢</span>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 900 }}>
+                  {language === 'GU'
+                    ? 'તમારા વ્યવસાયની જાહેરાત આપો'
+                    : language === 'HI'
+                    ? 'अपने व्यवसाय का विज्ञापन दें'
+                    : 'Promote Your Business (Ad Inquiry)'}
+                </h3>
+                <p style={{ margin: 0, fontSize: '11px', opacity: 0.9 }}>
+                  {language === 'GU'
+                    ? 'તમારી વિગતો ભરો — એડમિન 16:9 બેનર તૈયાર કરીને અપલોડ કરશે'
+                    : language === 'HI'
+                    ? 'अपना विवरण भरें — एडमिन 16:9 बैनर तैयार करके अपलोड करेगा'
+                    : 'Fill your details — Admin will design & upload your 16:9 ad banner'}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowAdInquiryModal(false)}
+              style={{
+                background: 'rgba(255,255,255,0.2)',
+                border: 'none',
+                borderRadius: '999px',
+                width: '28px',
+                height: '28px',
+                color: '#fff',
+                fontWeight: 900,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {inquirySuccess ? (
+            <div style={{ padding: '32px 20px', textAlign: 'center' }}>
+              <CheckCircle2 className="w-12 h-12 text-emerald-600 mx-auto mb-2" />
+              <h4 style={{ margin: '0 0 6px', fontSize: '16px', fontWeight: 900, color: '#0f172a' }}>
+                {language === 'GU'
+                  ? '✅ તમારી જાહેરાતની વિગત એડમિન પાસે પહોંચી ગઈ છે!'
+                  : language === 'HI'
+                  ? '✅ आपके विज्ञापन का विवरण एडमिन के पास भेज दिया गया है!'
+                  : '✅ Your Ad details have been sent to Admin!'}
+              </h4>
+              <p style={{ margin: 0, fontSize: '12px', color: '#475569' }}>
+                {language === 'GU'
+                  ? 'એડમિન તમારી જાહેરાતનું 16:9 બેનર તૈયાર કરીને વેબસાઇટ પર લાઈવ કરશે.'
+                  : language === 'HI'
+                  ? 'एडमिन आपके विज्ञापन का 16:9 बैनर तैयार करके वेबसाइट पर लाइव करेगा।'
+                  : 'Admin will prepare your 16:9 ad banner and publish it live on the website.'}
+              </p>
+            </div>
+          ) : (
+            <form
+              onSubmit={handleAdInquirySubmit}
+              style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '10px', overflowY: 'auto' }}
+            >
+              {inquiryError && (
+                <div style={{ padding: '8px 10px', borderRadius: '10px', backgroundColor: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', fontSize: '12px', fontWeight: 700 }}>
+                  {inquiryError}
+                </div>
+              )}
+
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: 800, color: '#334155', display: 'block', marginBottom: '3px' }}>
+                  {language === 'GU' ? 'દુકાન / વ્યવસાયનું નામ *' : language === 'HI' ? 'दुकान / व्यवसाय का नाम *' : 'Business / Shop Name *'}
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={adForm.businessName}
+                  onChange={(e) => setAdForm({ ...adForm, businessName: e.target.value })}
+                  placeholder={language === 'GU' ? 'દા.ત. ગાયત્રી ઇલેક્ટ્રોનિક્સ' : 'Ex. Gayatri Electronics & RO Care'}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '12.5px', color: '#0f172a' }}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                <div>
+                  <label style={{ fontSize: '11px', fontWeight: 800, color: '#334155', display: 'block', marginBottom: '3px' }}>
+                    {language === 'GU' ? 'તમારું નામ' : language === 'HI' ? 'आपका नाम' : 'Contact Person Name'}
+                  </label>
+                  <input
+                    type="text"
+                    value={adForm.contactPerson}
+                    onChange={(e) => setAdForm({ ...adForm, contactPerson: e.target.value })}
+                    placeholder={language === 'GU' ? 'તમારું નામ' : 'Your Name'}
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '12.5px', color: '#0f172a' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '11px', fontWeight: 800, color: '#334155', display: 'block', marginBottom: '3px' }}>
+                    {language === 'GU' ? 'મોબાઇલ નંબર *' : language === 'HI' ? 'मोबाइल नंबर *' : 'Mobile Number *'}
+                  </label>
+                  <input
+                    type="tel"
+                    required
+                    value={adForm.phone}
+                    onChange={(e) => setAdForm({ ...adForm, phone: e.target.value })}
+                    placeholder="10-digit Mobile"
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '12.5px', color: '#0f172a' }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                <div>
+                  <label style={{ fontSize: '11px', fontWeight: 800, color: '#334155', display: 'block', marginBottom: '3px' }}>
+                    {language === 'GU' ? 'શહેર / વિસ્તાર *' : language === 'HI' ? 'शहर / क्षेत्र *' : 'City / Area *'}
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={adForm.area}
+                    onChange={(e) => setAdForm({ ...adForm, area: e.target.value })}
+                    placeholder={language === 'GU' ? 'દા.ત. કુડાસણ, ગાંધીનગર' : 'Ex. Kudasan, Gandhinagar'}
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '12.5px', color: '#0f172a' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '11px', fontWeight: 800, color: '#334155', display: 'block', marginBottom: '3px' }}>
+                    {language === 'GU' ? 'ઈમેલ (Optional)' : language === 'HI' ? 'ईमेल (Optional)' : 'Email ID (Optional)'}
+                  </label>
+                  <input
+                    type="email"
+                    value={adForm.ownerEmail}
+                    onChange={(e) => setAdForm({ ...adForm, ownerEmail: e.target.value })}
+                    placeholder="you@example.com"
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '12.5px', color: '#0f172a' }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                <div>
+                  <label style={{ fontSize: '11px', fontWeight: 800, color: '#334155', display: 'block', marginBottom: '3px' }}>
+                    {language === 'GU' ? 'જાહેરાતનો પ્રકાર' : language === 'HI' ? 'विज्ञापन का प्रकार' : 'Ad Placement Type'}
+                  </label>
+                  <select
+                    value={adForm.adPlan}
+                    onChange={(e) => setAdForm({ ...adForm, adPlan: e.target.value })}
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '12px', backgroundColor: '#fff', color: '#0f172a' }}
+                  >
+                    <option value="Home Top / Middle Banner Ad">Home Page 16:9 Banner Ad</option>
+                    <option value="Category Page Spotlight Ad">Category Spotlight Ad</option>
+                    <option value="Featured Partner Offer Card">Featured Partner Offer</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: '11px', fontWeight: 800, color: '#334155', display: 'block', marginBottom: '3px' }}>
+                    {language === 'GU' ? 'કેટલા સમય માટે?' : language === 'HI' ? 'कितने समय के लिए?' : 'Ad Duration'}
+                  </label>
+                  <select
+                    value={adForm.durationDays}
+                    onChange={(e) => setAdForm({ ...adForm, durationDays: e.target.value })}
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '12px', backgroundColor: '#fff', color: '#0f172a' }}
+                  >
+                    <option value="7 Days">7 Days</option>
+                    <option value="15 Days">15 Days</option>
+                    <option value="30 Days (1 Month)">30 Days (1 Month)</option>
+                    <option value="90 Days (3 Months)">90 Days (3 Months)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: 800, color: '#334155', display: 'block', marginBottom: '3px' }}>
+                  {language === 'GU' ? 'જાહેરાતનું શીર્ષક / ઓફર *' : language === 'HI' ? 'विज्ञापन का शीर्षक / ऑफर *' : 'Ad Offer Title / Headline *'}
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={adForm.offerTitle}
+                  onChange={(e) => setAdForm({ ...adForm, offerTitle: e.target.value })}
+                  placeholder={language === 'GU' ? 'દા.ત. AC સર્વિસ પર 20% ડિસ્કાઉન્ટ' : 'Ex. Flat 20% Off on AC Servicing'}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '12.5px', color: '#0f172a' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: 800, color: '#334155', display: 'block', marginBottom: '3px' }}>
+                  {language === 'GU' ? 'જાહેરાતની સંપૂર્ણ વિગત (કેવી જાહેરાત આપવી છે?)' : language === 'HI' ? 'विज्ञापन का पूरा विवरण (कैसा विज्ञापन देना चाहते हैं?)' : 'Full Ad Details / Requirements'}
+                </label>
+                <textarea
+                  rows={3}
+                  value={adForm.description}
+                  onChange={(e) => setAdForm({ ...adForm, description: e.target.value })}
+                  placeholder={language === 'GU' ? 'તમારા વ્યવસાય અને ઓફર વિશે સંપૂર્ણ વિગત લખો...' : 'Write complete details about your business and offer...'}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '12px', color: '#0f172a' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                <button
+                  type="submit"
+                  disabled={isSubmittingInquiry}
+                  style={{
+                    flex: 1,
+                    padding: '11px',
+                    borderRadius: '12px',
+                    backgroundColor: '#16a34a',
+                    color: '#ffffff',
+                    fontSize: '13px',
+                    fontWeight: 900,
+                    border: 'none',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {isSubmittingInquiry
+                    ? 'Submitting...'
+                    : language === 'GU'
+                    ? '🚀 જાહેરાત ફોર્મ સબમિટ કરો'
+                    : language === 'HI'
+                    ? '🚀 विज्ञापन फॉर्म सबमिट करें'
+                    : '🚀 Submit Ad Request'}
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      </div>,
+      document.body
+    );
+  };
+
   // =========================================================================
   // SCENARIO 1: EXACTLY 1 BANNER UPLOADED (Fixed, 16:9, NO SCROLL)
   // =========================================================================
   if (activePromoBanners.length === 1) {
     const singleBanner = activePromoBanners[0];
     return (
-      <div className="space-y-1.5 select-none w-full max-w-4xl mx-auto">
+      <div className="space-y-1 select-none w-full max-w-4xl mx-auto">
         {/* Section Header */}
         <div className="flex items-center justify-between px-1 gap-2">
           <div className="flex items-center gap-1.5 min-w-0">
@@ -314,10 +691,6 @@ export default function AdBannerSection({ onOpenChat, categoryImages: propCatego
               <span>{text.sectionTitle}</span>
             </span>
           </div>
-
-          <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 shrink-0">
-            ✨ {text.adBadge} (16:9)
-          </span>
         </div>
 
         {/* Single Fixed 16:9 Banner */}
@@ -347,6 +720,10 @@ export default function AdBannerSection({ onOpenChat, categoryImages: propCatego
             </div>
           )}
         </div>
+
+        {/* Bottom-right "📢 તમારી જાહેરાત અહીં આપો" button */}
+        {renderAdvertiseHereButton()}
+        {renderAdInquiryModal()}
       </div>
     );
   }
@@ -356,7 +733,7 @@ export default function AdBannerSection({ onOpenChat, categoryImages: propCatego
   // =========================================================================
   return (
     <div
-      className="space-y-1.5 select-none w-full max-w-4xl mx-auto"
+      className="space-y-1 select-none w-full max-w-4xl mx-auto"
       onMouseEnter={() => setIsAutoPlaying(false)}
       onMouseLeave={() => setIsAutoPlaying(true)}
       onTouchStart={() => setIsAutoPlaying(false)}
@@ -423,7 +800,7 @@ export default function AdBannerSection({ onOpenChat, categoryImages: propCatego
       <div
         ref={scrollTrackRef}
         onScroll={handleTrackScroll}
-        className="flex items-center gap-3 overflow-x-auto snap-x snap-mandatory scroll-smooth scrollbar-hide pb-1"
+        className="flex items-center gap-3 overflow-x-auto snap-x snap-mandatory scroll-smooth scrollbar-hide pb-0.5"
       >
         {activePromoBanners.map((b, idx) => (
           <div
@@ -454,14 +831,13 @@ export default function AdBannerSection({ onOpenChat, categoryImages: propCatego
                 <span>{getLinkBadgeLabel(b.linkUrl)}</span>
               </div>
             )}
-
-            {/* Slide Index Pill */}
-            <div className="absolute top-2.5 right-2.5 bg-black/70 backdrop-blur-xs text-amber-300 text-[9px] font-black px-2 py-0.5 rounded-md border border-amber-400/30">
-              16:9 • {idx + 1}/{activePromoBanners.length}
-            </div>
           </div>
         ))}
       </div>
+
+      {/* Bottom-right "📢 તમારી જાહેરાત અહીં આપો" button */}
+      {renderAdvertiseHereButton()}
+      {renderAdInquiryModal()}
     </div>
   );
 }

@@ -988,6 +988,7 @@ export interface FreeHelperProfile {
   experience: string;
   distance: number;
   rating: number;
+  reviewCount?: number;
   completedTasks: number;
   createdAt: string;
   isVerified?: boolean;
@@ -1336,6 +1337,9 @@ export function getFreeHelperProfiles(includePending = false): FreeHelperProfile
 export function saveFreeHelperProfile(
   profile: Omit<FreeHelperProfile, 'id' | 'rating' | 'completedTasks' | 'createdAt' | 'masterCategory'> & {
     id?: string;
+    rating?: number;
+    reviewCount?: number;
+    completedTasks?: number;
     masterCategory?: MasterCategoryId;
     govtIdUploaded?: boolean;
     idDocUrl?: string;
@@ -1347,18 +1351,29 @@ export function saveFreeHelperProfile(
   const matched = CATEGORIES.find(c => c.id === norm.categoryId);
   const hasDoc = Boolean(profile.govtIdUploaded || profile.idDocUrl || profile.isVerified);
   const isApproved = Boolean(profile.isVerified === true || profile.status === 'approved');
+
+  let existingMatch: FreeHelperProfile | undefined;
+  try {
+    if (profile.id) {
+      const existingRaw = localStorage.getItem(STORAGE_KEY);
+      const list: FreeHelperProfile[] = existingRaw ? JSON.parse(existingRaw) : [];
+      existingMatch = list.find(h => h && h.id === profile.id);
+    }
+  } catch {}
+
   const newProfile: FreeHelperProfile = {
     ...profile,
     categoryId: norm.categoryId,
     customCategoryName: profile.customCategoryName || norm.customCategoryName,
     masterCategory: profile.masterCategory || (matched ? matched.masterCategory : 'other_custom'),
     id: profile.id || 'hp_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
-    rating: 0,
-    completedTasks: 0,
+    rating: typeof profile.rating === 'number' && profile.rating > 0 ? profile.rating : (existingMatch?.rating || 0),
+    reviewCount: typeof profile.reviewCount === 'number' ? profile.reviewCount : ((existingMatch as any)?.reviewCount || 0),
+    completedTasks: typeof profile.completedTasks === 'number' && profile.completedTasks > 0 ? profile.completedTasks : (existingMatch?.completedTasks || 0),
     isVerified: isApproved,
     status: isApproved ? 'approved' : 'pending',
     govtIdUploaded: hasDoc,
-    createdAt: new Date().toISOString(),
+    createdAt: (profile as any).createdAt || existingMatch?.createdAt || new Date().toISOString(),
   };
 
   try {

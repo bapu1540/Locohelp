@@ -241,17 +241,37 @@ export async function changeAdminPasswordOnServer(
   }
 }
 
-const isClientDummyPost = (item: any): boolean => {
+const ONE_HOUR_POST_EXPIRY_MS = 60 * 60 * 1000;
+
+export const isClientDummyOrExpiredPost = (item: any): boolean => {
   if (!item) return true;
   const idStr = String(item.id || '').trim().toLowerCase();
   if (
+    !idStr ||
     idStr.startsWith('seed_') ||
     idStr.startsWith('sample_') ||
     idStr.startsWith('mock_') ||
     idStr.startsWith('dummy_') ||
     idStr.includes('m660z') ||
-    idStr.includes('t9140')
+    idStr.includes('t9140') ||
+    /^i\d+$/.test(idStr)
   ) {
+    return true;
+  }
+  const descStr = String(item.description || '').trim();
+  if (!descStr) return true;
+
+  const nowMs = Date.now();
+  if (item.expiresAt) {
+    const expMs = new Date(item.expiresAt).getTime();
+    if (!isNaN(expMs) && nowMs > expMs) {
+      return true;
+    }
+  }
+  const createdRaw = item.createdAt || item.created_at;
+  if (!createdRaw) return true;
+  const createdMs = new Date(createdRaw).getTime();
+  if (isNaN(createdMs) || nowMs - createdMs > ONE_HOUR_POST_EXPIRY_MS) {
     return true;
   }
   return false;
@@ -265,6 +285,7 @@ let inflightIntentsPromise: Promise<Intent[]> | null = null;
 
 /**
  * Synchronously reads cached intents from localStorage for 0ms instant UI rendering.
+ * Strictly filters out any dummy posts and any posts older than 1 hour.
  */
 export function getCachedLiveIntents(): Intent[] {
   try {
@@ -277,7 +298,7 @@ export function getCachedLiveIntents(): Intent[] {
     if (cached) {
       const list: Intent[] = JSON.parse(cached);
       if (Array.isArray(list)) {
-        return list.filter(i => i && i.id && !deletedPostIds.includes(i.id) && !isClientDummyPost(i));
+        return list.filter(i => i && i.id && !deletedPostIds.includes(i.id) && !isClientDummyOrExpiredPost(i));
       }
     }
   } catch {}
@@ -297,13 +318,13 @@ export async function fetchLiveIntents(): Promise<Intent[]> {
     } catch {}
 
     try {
-      // Also clean any cached dummy/deleted posts from localStorage immediately
+      // Also clean any cached dummy/deleted/expired (>1 hour) posts from localStorage immediately
       ['locohelp_cached_intents', 'locohelp_custom_intents'].forEach(key => {
         const raw = localStorage.getItem(key);
         if (raw) {
           const parsed = JSON.parse(raw);
           if (Array.isArray(parsed)) {
-            const cleaned = parsed.filter(i => i && i.id && !deletedPostIds.includes(i.id) && !isClientDummyPost(i));
+            const cleaned = parsed.filter(i => i && i.id && !deletedPostIds.includes(i.id) && !isClientDummyOrExpiredPost(i));
             if (cleaned.length !== parsed.length) {
               localStorage.setItem(key, JSON.stringify(cleaned));
             }
@@ -324,7 +345,7 @@ export async function fetchLiveIntents(): Promise<Intent[]> {
       if (res.ok) {
         const serverIntents: Intent[] = await res.json();
         if (Array.isArray(serverIntents)) {
-          const cleanList = serverIntents.filter(i => i && i.id && !deletedPostIds.includes(i.id) && !isClientDummyPost(i));
+          const cleanList = serverIntents.filter(i => i && i.id && !deletedPostIds.includes(i.id) && !isClientDummyOrExpiredPost(i));
           try {
             localStorage.setItem('locohelp_cached_intents', JSON.stringify(cleanList));
           } catch (e) {}
@@ -758,23 +779,19 @@ export async function fetchLiveAds(): Promise<any[]> {
     if (res.ok) {
       const serverAds = await res.json();
       if (Array.isArray(serverAds)) {
-        const mergedMap = new Map<string, any>();
-        serverAds.forEach((a: any) => {
-          if (a && a.id && !deletedIds.includes(a.id)) {
-            mergedMap.set(a.id, a);
-          }
-        });
-        localAds.forEach((a: any) => {
-          if (a && a.id && !deletedIds.includes(a.id)) {
-            const srv = mergedMap.get(a.id);
-            mergedMap.set(a.id, srv ? { ...srv, ...a } : a);
-          }
-        });
-        const merged = Array.from(mergedMap.values());
+        const cleanServerAds = serverAds.filter(
+          (a: any) =>
+            a &&
+            a.id &&
+            !deletedIds.includes(a.id) &&
+            !String(a.id).startsWith('ad_elec_') &&
+            !String(a.id).startsWith('ad_grocery_') &&
+            !String(a.id).startsWith('ad_auto_')
+        );
         try {
-          localStorage.setItem('locohelp_ad_banners', JSON.stringify(merged));
+          localStorage.setItem('locohelp_ad_banners', JSON.stringify(cleanServerAds));
         } catch (e) {}
-        return merged;
+        return cleanServerAds;
       }
     }
   } catch (err) {
@@ -974,37 +991,17 @@ export async function fetchJobPortalItems(params?: {
     if (res.ok) {
       const items: JobPortalItem[] = await res.json();
       if (Array.isArray(items)) {
-        const serverIds = new Set<string>();
-        const map = new Map<string, JobPortalItem>();
+        const cleanServerItems = items.filter(
+          item => item && item.id && !deletedIds.includes(String(item.id))
+        );
 
-        cachedItems.forEach(item => map.set(String(item.id), item));
-        items.forEach(item => {
-          if (item && item.id && !deletedIds.includes(String(item.id))) {
-            serverIds.add(String(item.id));
-            map.set(String(item.id), { ...(map.get(String(item.id)) || {}), ...item });
-          }
-        });
-
-        const merged = Array.from(map.values());
-        if (!params?.type || params.type === 'all') {
+        if ((!params?.type || params.type === 'all') && (!params?.status || params.status === 'all' || params.status === 'approved')) {
           try {
-            localStorage.setItem('locohelp_live_jobs_cache', JSON.stringify(merged));
+            localStorage.setItem('locohelp_live_jobs_cache', JSON.stringify(cleanServerItems));
           } catch (e) {}
         }
 
-        // Auto-recover any cached job portal items missing on server after container restart
-        const missingOnServer = cachedItems.filter(i => i && i.id && !serverIds.has(String(i.id)));
-        if (missingOnServer.length > 0) {
-          missingOnServer.forEach(jobItem => {
-            fetch('/api/job-portal', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-              body: JSON.stringify(jobItem)
-            }).catch(() => {});
-          });
-        }
-
-        let filtered = merged;
+        let filtered = cleanServerItems;
         if (params?.status && params.status !== 'all') {
           filtered = filtered.filter(i => (i.status || 'approved') === params.status);
         } else if (!params?.status) {

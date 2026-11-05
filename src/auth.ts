@@ -1712,23 +1712,65 @@ export async function saveUserProfile(userData: Record<string, any>): Promise<vo
 
   const targetUid = ensureValidUUID(rawUid);
 
-  const dataToSave = sanitizePayload({
+  let existingCached: Record<string, any> = {};
+  try {
+    const rawExisting = localStorage.getItem(`locohelp_user_profile_${targetUid}`);
+    if (rawExisting) {
+      existingCached = JSON.parse(rawExisting) || {};
+    }
+  } catch {}
+
+  const rawAvatarCandidate = userData.liveSelfieUrl || userData.photoURL || userData.avatar_url || '';
+  const cleanAvatar =
+    rawAvatarCandidate && rawAvatarCandidate !== 'https://lh3.googleusercontent.com/a/default-user'
+      ? rawAvatarCandidate
+      : existingCached.avatar_url || '';
+
+  const resolvedPhonePublic =
+    userData.isPhonePublic !== undefined
+      ? Boolean(userData.isPhonePublic)
+      : userData.is_phone_public !== undefined
+      ? Boolean(userData.is_phone_public)
+      : existingCached.isPhonePublic ?? existingCached.is_phone_public ?? undefined;
+
+  const payloadRaw: Record<string, any> = {
     uid: targetUid,
-    full_name: userData.displayName || userData.full_name || 'Community Member',
-    email: userData.email || '',
-    phone: userData.phone || '',
-    is_phone_public: Boolean(userData.isPhonePublic ?? userData.is_phone_public ?? false),
-    isPhonePublic: Boolean(userData.isPhonePublic ?? userData.is_phone_public ?? false),
-    avatar_url: userData.photoURL || userData.avatar_url || 'https://lh3.googleusercontent.com/a/default-user',
-    skills: userData.skills || '',
-    address: userData.address || '',
-    experience: userData.experience || '',
-    my_helper_profile: userData.myHelperProfile || userData.my_helper_profile || null,
+    full_name: userData.displayName || userData.full_name || existingCached.full_name || 'Community Member',
+    email: userData.email || existingCached.email || '',
+    phone: userData.phone || existingCached.phone || '',
     updated_at: new Date().toISOString(),
-  });
+  };
+
+  if (cleanAvatar) {
+    payloadRaw.avatar_url = cleanAvatar;
+  }
+  if (resolvedPhonePublic !== undefined) {
+    payloadRaw.is_phone_public = resolvedPhonePublic;
+    payloadRaw.isPhonePublic = resolvedPhonePublic;
+  }
+  if (userData.skills !== undefined && String(userData.skills).trim() !== '') {
+    payloadRaw.skills = userData.skills;
+  } else if (existingCached.skills) {
+    payloadRaw.skills = existingCached.skills;
+  }
+  if (userData.address !== undefined && String(userData.address).trim() !== '') {
+    payloadRaw.address = userData.address;
+  } else if (existingCached.address) {
+    payloadRaw.address = existingCached.address;
+  }
+  if (userData.experience !== undefined && String(userData.experience).trim() !== '') {
+    payloadRaw.experience = userData.experience;
+  } else if (existingCached.experience) {
+    payloadRaw.experience = existingCached.experience;
+  }
+  if (userData.myHelperProfile || userData.my_helper_profile || existingCached.my_helper_profile) {
+    payloadRaw.my_helper_profile = userData.myHelperProfile || userData.my_helper_profile || existingCached.my_helper_profile;
+  }
+
+  const dataToSave = sanitizePayload(payloadRaw);
 
   try {
-    localStorage.setItem(`locohelp_user_profile_${targetUid}`, JSON.stringify(dataToSave));
+    localStorage.setItem(`locohelp_user_profile_${targetUid}`, JSON.stringify({ ...existingCached, ...dataToSave }));
   } catch (e) {}
 
   try {
@@ -1942,6 +1984,17 @@ export async function getShops(includePending = false): Promise<any[]> {
         const list = await res.json();
         if (Array.isArray(list)) {
           const map = new Map<string, any>();
+          if (!includePending) {
+            try {
+              const prevRaw = localStorage.getItem('locohelp_registered_shops');
+              const prevList: any[] = prevRaw ? JSON.parse(prevRaw) : [];
+              prevList.forEach(s => {
+                if (s && s.id && !deletedIds.includes(String(s.id)) && s.status === 'pending') {
+                  map.set(String(s.id), s);
+                }
+              });
+            } catch {}
+          }
           list.forEach(s => {
             if (s && s.id && !String(s.id).startsWith('sample_shop_') && !deletedIds.includes(String(s.id))) {
               map.set(String(s.id), s);
@@ -2054,6 +2107,17 @@ export async function getHelpers(includePending = false): Promise<any[]> {
         const list = await res.json();
         if (Array.isArray(list)) {
           const map = new Map<string, any>();
+          if (!includePending) {
+            try {
+              const prevRaw = localStorage.getItem('locohelp_free_helper_profiles');
+              const prevList: any[] = prevRaw ? JSON.parse(prevRaw) : [];
+              prevList.forEach(h => {
+                if (h && h.id && !/^h\d+/.test(String(h.id)) && !deletedIds.includes(String(h.id)) && h.status === 'pending') {
+                  map.set(String(h.id), h);
+                }
+              });
+            } catch {}
+          }
           list.forEach(h => {
             if (h && h.id && !/^h\d+/.test(String(h.id)) && !deletedIds.includes(String(h.id))) {
               map.set(String(h.id), h);

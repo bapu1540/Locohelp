@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Home,
+  Megaphone,
   Calendar,
   Heart,
   MessageSquare,
@@ -13,7 +14,9 @@ import {
   X,
   MapPin,
   Trash2,
-  ChevronRight
+  ChevronRight,
+  Plus,
+  Search
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useLanguage } from '../i18n';
@@ -52,7 +55,10 @@ export default function FixedBottomNavBar({
 }: FixedBottomNavBarProps) {
   const { language, tr } = useLanguage();
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
-  const [activeBottomModal, setActiveBottomModal] = useState<'bookings' | 'favorites' | null>(null);
+  const [activeBottomModal, setActiveBottomModal] = useState<'posts' | 'bookings' | 'favorites' | null>(null);
+  const [allLivePostsList, setAllLivePostsList] = useState<Intent[]>(() => getCachedLiveIntents());
+  const [postsSearchQuery, setPostsSearchQuery] = useState('');
+  const [isLoadingLivePosts, setIsLoadingLivePosts] = useState(false);
   const [bookingsSubTab, setBookingsSubTab] = useState<'requests' | 'contacted' | 'replies'>('requests');
   const [myBookingsList, setMyBookingsList] = useState<Intent[]>([]);
   const [contactedProvidersList, setContactedProvidersList] = useState<any[]>([]);
@@ -242,9 +248,42 @@ export default function FixedBottomNavBar({
   const handleCompleteOrDeleteMyBooking = async (e: React.MouseEvent, post: Intent) => {
     e.stopPropagation();
     setMyBookingsList((prev) => prev.filter((item) => item.id !== post.id));
+    setAllLivePostsList((prev) => prev.filter((item) => item.id !== post.id));
     await deleteIntentOnServer(post.id, post.description);
     window.dispatchEvent(new CustomEvent('locohelp_intents_updated'));
   };
+
+  useEffect(() => {
+    let active = true;
+    const syncLivePosts = async () => {
+      const cached = getCachedLiveIntents();
+      if (active) {
+        setAllLivePostsList(Array.isArray(cached) ? cached : []);
+      }
+      if (activeBottomModal === 'posts' && cached.length === 0) {
+        setIsLoadingLivePosts(true);
+      }
+      try {
+        const fresh = await fetchLiveIntents();
+        if (active && Array.isArray(fresh)) {
+          setAllLivePostsList(fresh);
+        }
+      } catch {} finally {
+        if (active) setIsLoadingLivePosts(false);
+      }
+    };
+    syncLivePosts();
+    // Auto-prune expired posts (>1 hour) every 30 seconds
+    const timer = setInterval(() => {
+      syncLivePosts();
+    }, 30000);
+    window.addEventListener('locohelp_intents_updated', syncLivePosts);
+    return () => {
+      active = false;
+      clearInterval(timer);
+      window.removeEventListener('locohelp_intents_updated', syncLivePosts);
+    };
+  }, [activeBottomModal]);
 
   const refreshFavorites = () => {
     try {
@@ -296,6 +335,7 @@ export default function FixedBottomNavBar({
   };
 
   const isHomeActive = currentScreen === 'home' && !activeBottomModal && !isMoreMenuOpen;
+  const isPostsActive = activeBottomModal === 'posts';
   const isBookingsActive = activeBottomModal === 'bookings';
   const isFavoritesActive = activeBottomModal === 'favorites';
   const isChatActive = currentScreen === 'chat' && !activeBottomModal && !isMoreMenuOpen;
@@ -303,8 +343,305 @@ export default function FixedBottomNavBar({
     isMoreMenuOpen ||
     (['profile', 'notifications', 'settings', 'guidelines'] as Screen[]).includes(currentScreen);
 
+  const myOwnPostIdsSet = new Set(filterMyOwnPosts(allLivePostsList).map(p => String(p.id)));
+  const filteredLivePosts = allLivePostsList.filter((post: any) => {
+    if (!post || !post.id) return false;
+    if (!postsSearchQuery.trim()) return true;
+    const q = postsSearchQuery.toLowerCase().trim();
+    return (
+      String(post.description || '').toLowerCase().includes(q) ||
+      String(post.category || '').toLowerCase().includes(q) ||
+      String(post.location || post.area || '').toLowerCase().includes(q) ||
+      String(post.authorName || '').toLowerCase().includes(q)
+    );
+  });
+
+  const handleTriggerCreatePost = () => {
+    setActiveBottomModal(null);
+    if (currentScreen !== 'home') {
+      onNavigate('home');
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('locohelp_open_post_sheet'));
+      }, 120);
+    } else {
+      window.dispatchEvent(new CustomEvent('locohelp_open_post_sheet'));
+    }
+  };
+
   return (
     <>
+      {/* ===================================================================== */}
+      {/* LIVE BROADCAST POSTS MODAL (📢 પોસ્ટ / Live Posts)                      */}
+      {/* ===================================================================== */}
+      <AnimatePresence>
+        {activeBottomModal === 'posts' && (
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 9500,
+              backgroundColor: 'rgba(15, 23, 42, 0.68)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '14px'
+            }}
+          >
+            <div
+              style={{ position: 'fixed', inset: 0 }}
+              onClick={() => setActiveBottomModal(null)}
+            />
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              transition={{ duration: 0.18 }}
+              style={{
+                position: 'relative',
+                zIndex: 10,
+                width: '100%',
+                maxWidth: '520px',
+                maxHeight: '85vh',
+                backgroundColor: '#ffffff',
+                borderRadius: '24px',
+                border: '1px solid #fed7aa',
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden',
+                boxShadow: '0 25px 50px -12px rgba(0,0,0,0.3)'
+              }}
+            >
+              {/* Header */}
+              <div
+                style={{
+                  background: 'linear-gradient(135deg, #EA580C 0%, #D97706 100%)',
+                  color: '#ffffff',
+                  padding: '13px 15px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '8px'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                  <span style={{ fontSize: '18px' }}>📢</span>
+                  <div style={{ minWidth: 0 }}>
+                    <h3 className="text-sm sm:text-base font-black leading-tight m-0 truncate">
+                      {language === 'GU'
+                        ? `લાઈવ બ્રોડકાસ્ટ પોસ્ટ્સ (${allLivePostsList.length})`
+                        : language === 'HI'
+                        ? `लाइव ब्रॉडकास्ट पोस्ट (${allLivePostsList.length})`
+                        : `Live Broadcast Posts (${allLivePostsList.length})`}
+                    </h3>
+                    <p className="text-[10px] text-orange-100 font-medium m-0 truncate">
+                      {language === 'GU'
+                        ? 'તમામ લાઈવ પોસ્ટ્સ જુઓ અથવા નવી પોસ્ટ મૂકો'
+                        : language === 'HI'
+                        ? 'सभी लाइव पोस्ट देखें या नई पोस्ट बनाएं'
+                        : 'Browse all live community requests or post your need'}
+                    </p>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                  <button
+                    type="button"
+                    onClick={handleTriggerCreatePost}
+                    style={{
+                      backgroundColor: '#ffffff',
+                      color: '#C2410C',
+                      padding: '6px 10px',
+                      borderRadius: '10px',
+                      fontSize: '11px',
+                      fontWeight: 900,
+                      border: 'none',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>{language === 'GU' ? 'પોસ્ટ કરો' : language === 'HI' ? 'पोस्ट करें' : 'Post'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveBottomModal(null)}
+                    className="p-1.5 rounded-full bg-white/15 hover:bg-white/25 text-white cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Search Bar */}
+              <div className="px-3.5 py-2.5 bg-slate-50 border-b border-slate-200">
+                <div className="relative flex items-center">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3" />
+                  <input
+                    type="text"
+                    value={postsSearchQuery}
+                    onChange={(e) => setPostsSearchQuery(e.target.value)}
+                    placeholder={
+                      language === 'GU'
+                        ? 'પોસ્ટ, સેવા કે વિસ્તાર શોધો...'
+                        : language === 'HI'
+                        ? 'पोस्ट, सेवा या क्षेत्र खोजें...'
+                        : 'Search posts, services or area...'
+                    }
+                    className="w-full pl-8 pr-8 py-1.5 rounded-xl bg-white border border-slate-200 text-xs font-bold text-slate-800 focus:outline-none focus:border-orange-500"
+                  />
+                  {postsSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setPostsSearchQuery('')}
+                      className="absolute right-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Posts Feed */}
+              <div className="p-3.5 overflow-y-auto flex-1 space-y-2.5">
+                {isLoadingLivePosts ? (
+                  <div className="py-10 text-center text-xs font-bold text-slate-500">
+                    ⏳ {language === 'GU' ? 'પોસ્ટ્સ લોડ થઈ રહી છે...' : 'Loading live posts...'}
+                  </div>
+                ) : filteredLivePosts.length === 0 ? (
+                  <div className="py-8 px-4 text-center space-y-3 bg-orange-50/50 rounded-2xl border border-dashed border-orange-300">
+                    <div className="w-12 h-12 rounded-2xl bg-orange-100 text-orange-600 mx-auto flex items-center justify-center text-2xl">
+                      📢
+                    </div>
+                    <h4 className="text-sm font-black text-slate-900">
+                      {language === 'GU'
+                        ? 'હાલ કોઈ લાઈવ પોસ્ટ નથી'
+                        : language === 'HI'
+                        ? 'अभी कोई लाइव पोस्ट नहीं है'
+                        : 'No Live Posts Found'}
+                    </h4>
+                    <p className="text-xs text-slate-500 max-w-xs mx-auto">
+                      {language === 'GU'
+                        ? 'તમારે કોઈ કારીગર કે સેવાની જરૂર હોય તો હમણાં જ ફ્રી પોસ્ટ મૂકો!'
+                        : language === 'HI'
+                        ? 'किसी कारीगर या सेवा की जरूरत हो तो अभी फ्री पोस्ट डालें!'
+                        : 'Need a service expert or help? Create a free broadcast post right now!'}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleTriggerCreatePost}
+                      style={{ backgroundColor: '#EA580C', color: '#ffffff' }}
+                      className="px-4 py-2.5 rounded-xl text-xs font-black shadow-sm cursor-pointer inline-flex items-center gap-1.5"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>
+                        {language === 'GU'
+                          ? 'નવી પોસ્ટ બનાવો'
+                          : language === 'HI'
+                          ? 'नई पोस्ट बनाएं'
+                          : 'Create New Post'}
+                      </span>
+                    </button>
+                  </div>
+                ) : (
+                  filteredLivePosts.map((post: any) => {
+                    const isMine = myOwnPostIdsSet.has(String(post.id));
+                    const respCount = Number(
+                      post.responseCount ||
+                        post.response_count ||
+                        (Array.isArray(post.repliers) ? post.repliers.length : 0)
+                    );
+                    return (
+                      <div
+                        key={post.id}
+                        onClick={() => {
+                          setActiveBottomModal(null);
+                          onOpenChat(post);
+                        }}
+                        className={`p-3.5 rounded-2xl border transition-all cursor-pointer space-y-2 ${
+                          isMine
+                            ? 'bg-emerald-50/70 border-emerald-300 hover:border-emerald-500'
+                            : 'bg-slate-50 border-slate-200 hover:border-orange-400'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {isMine ? (
+                              <span
+                                style={{ backgroundColor: '#059669', color: '#ffffff' }}
+                                className="inline-block px-2 py-0.5 rounded-md text-[10px] font-black"
+                              >
+                                ⚡ {language === 'GU' ? 'તમારી પોસ્ટ (લાઈવ)' : 'Your Post (Live)'}
+                              </span>
+                            ) : (
+                              <span className="inline-block px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-800 text-[10px] font-black">
+                                👤 {post.authorName || 'Community Member'}
+                              </span>
+                            )}
+                            {post.category && (
+                              <span className="px-2 py-0.5 rounded-md bg-orange-100 text-orange-800 text-[10px] font-black">
+                                {post.category}
+                              </span>
+                            )}
+                            {respCount > 0 && (
+                              <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-800 text-[10px] font-black">
+                                💬 {respCount} {language === 'GU' ? 'જવાબ' : 'Replies'}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <p className="text-xs sm:text-sm font-black text-slate-900 leading-snug">
+                          {post.description}
+                        </p>
+
+                        <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-slate-200/80">
+                          <p className="text-[11px] font-bold text-slate-500 flex items-center gap-1 truncate">
+                            <MapPin className="w-3 h-3 text-orange-600 shrink-0" />
+                            <span className="truncate">
+                              {post.resolvedLocationBadge || post.location || post.area || 'Local Area'}
+                            </span>
+                          </p>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {isMine && (
+                              <button
+                                type="button"
+                                onClick={(e) => handleCompleteOrDeleteMyBooking(e, post)}
+                                className="px-2.5 py-1.5 rounded-xl bg-emerald-100 hover:bg-emerald-200 text-emerald-800 text-[11px] font-black flex items-center gap-1 cursor-pointer"
+                              >
+                                <span>✅</span>
+                                <span>{language === 'GU' ? 'પૂર્ણ થયું' : 'Done'}</span>
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              style={{ backgroundColor: isMine ? '#2563EB' : '#EA580C', color: '#ffffff' }}
+                              className="px-3 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1 cursor-pointer"
+                            >
+                              <span>
+                                {isMine
+                                  ? language === 'GU'
+                                    ? 'જવાબ જુઓ'
+                                    : 'View Replies'
+                                  : language === 'GU'
+                                  ? 'ચેટ / મદદ કરો'
+                                  : 'Chat / Help'}
+                              </span>
+                              <ChevronRight className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* ===================================================================== */}
       {/* MY BOOKINGS / MY REQUESTS MODAL (મારી બુકિંગ)                           */}
       {/* ===================================================================== */}
@@ -1119,7 +1456,7 @@ export default function FixedBottomNavBar({
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
+            gridTemplateColumns: 'repeat(6, minmax(0, 1fr))',
             alignItems: 'center',
             width: '100%',
             maxWidth: '896px',
@@ -1157,7 +1494,7 @@ export default function FixedBottomNavBar({
             />
             <span
               style={{
-                fontSize: '11px',
+                fontSize: '10.5px',
                 marginTop: '2px',
                 lineHeight: 1.15,
                 fontWeight: isHomeActive ? 900 : 700,
@@ -1169,7 +1506,75 @@ export default function FixedBottomNavBar({
             </span>
           </button>
 
-          {/* 2. મારી બુકિંગ (My Bookings) */}
+          {/* 2. પોસ્ટ (Live Broadcast Posts) */}
+          <button
+            type="button"
+            onClick={() => {
+              setIsMoreMenuOpen(false);
+              setActiveBottomModal(prev => (prev === 'posts' ? null : 'posts'));
+            }}
+            style={{
+              position: 'relative',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '2px 2px',
+              border: 'none',
+              borderRight: '1px solid #e2e8f0',
+              background: 'transparent',
+              cursor: 'pointer'
+            }}
+          >
+            <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Megaphone
+                style={{
+                  width: '20px',
+                  height: '20px',
+                  color: isPostsActive ? '#EA580C' : '#334155',
+                  strokeWidth: isPostsActive ? 2.5 : 2
+                }}
+              />
+              {allLivePostsList.length > 0 && (
+                <span
+                  style={{
+                    position: 'absolute',
+                    top: '-6px',
+                    right: '-10px',
+                    minWidth: '16px',
+                    height: '16px',
+                    padding: '0 3.5px',
+                    borderRadius: '9999px',
+                    backgroundColor: '#EA580C',
+                    color: '#ffffff',
+                    fontSize: '9.5px',
+                    fontWeight: 900,
+                    lineHeight: '14px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    border: '1.5px solid #ffffff'
+                  }}
+                >
+                  {allLivePostsList.length > 99 ? '99+' : allLivePostsList.length}
+                </span>
+              )}
+            </div>
+            <span
+              style={{
+                fontSize: '10.5px',
+                marginTop: '2px',
+                lineHeight: 1.15,
+                fontWeight: isPostsActive ? 900 : 700,
+                color: isPostsActive ? '#EA580C' : '#1E293B',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              {language === 'GU' ? 'પોસ્ટ' : language === 'HI' ? 'पोस्ट' : 'Posts'}
+            </span>
+          </button>
+
+          {/* 3. મારી બુકિંગ (My Bookings) */}
           <button
             type="button"
             onClick={() => {
