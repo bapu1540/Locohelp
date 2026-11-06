@@ -824,13 +824,24 @@ function validateServerUploadedData(
   }
 
   // Block Windows PE / ELF / Mach-O executables or HTML/SVG payloads disguised inside buffer
-  const headAscii = buf.subarray(0, 64).toString("utf8");
-  if (
+  const isExe =
     (buf[0] === 0x4d && buf[1] === 0x5a) || // MZ executable
-    (buf[0] === 0x7f && buf[1] === 0x45 && buf[2] === 0x4c && buf[3] === 0x46) || // ELF
-    /<script|<iframe|<!doctype\s+html|<html|<svg/i.test(headAscii)
-  ) {
-    return { valid: false, error: "Security Block: Executable, HTML, or SVG content detected inside file." };
+    (buf[0] === 0x7f && buf[1] === 0x45 && buf[2] === 0x4c && buf[3] === 0x46); // ELF
+  if (isExe) {
+    return { valid: false, error: "Security Block: Executable file is strictly prohibited." };
+  }
+
+  const isBinaryImg =
+    (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) || // JPEG
+    (buf.length >= 4 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) || // PNG
+    (buf.length >= 4 && buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x38) || // GIF
+    (buf.length >= 12 && buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 && buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50); // WebP
+
+  if (!isBinaryImg) {
+    const headAscii = buf.subarray(0, 64).toString("utf8").trim();
+    if (/^(<!doctype\s+html|<html|<script|<iframe|<svg)/i.test(headAscii)) {
+      return { valid: false, error: "Security Block: Executable, HTML, or SVG content detected inside file." };
+    }
   }
 
   const allowedImages = ["image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif", "image/avif", "image/heic", "image/heif", "image/bmp"];
@@ -9022,7 +9033,7 @@ async function startServer() {
               allUserLookupKeys.length > 0
                 ? dbPool
                     .query(
-                      "SELECT id::text AS id, name, email, phone, avatar_url FROM users WHERE LOWER(id::text) = ANY($1::text[]) OR LOWER(email) = ANY($1::text[])",
+                      "SELECT id::text AS id, name, email, phone, avatar_url, area, city, location FROM users WHERE LOWER(id::text) = ANY($1::text[]) OR LOWER(email) = ANY($1::text[])",
                       [allUserLookupKeys]
                     )
                     .catch(() => ({ rows: [] as any[] }))
@@ -9030,7 +9041,7 @@ async function startServer() {
               allUserLookupKeys.length > 0
                 ? dbPool
                     .query(
-                      "SELECT uid, id, name, full_name, email, phone, avatar_url, image_url FROM profiles WHERE LOWER(COALESCE(uid, '')) = ANY($1::text[]) OR LOWER(COALESCE(id, '')) = ANY($1::text[]) OR LOWER(COALESCE(email, '')) = ANY($1::text[])",
+                      "SELECT uid, id, name, full_name, email, phone, avatar_url, image_url, city, sector, address FROM profiles WHERE LOWER(COALESCE(uid, '')) = ANY($1::text[]) OR LOWER(COALESCE(id, '')) = ANY($1::text[]) OR LOWER(COALESCE(email, '')) = ANY($1::text[])",
                       [allUserLookupKeys]
                     )
                     .catch(() => ({ rows: [] as any[] }))
@@ -9054,15 +9065,26 @@ async function startServer() {
               allPostIds.length > 0
                 ? dbPool
                     .query(
-                      "SELECT id, author_id, author_name, author_avatar, description, category FROM broadcast_posts WHERE id = ANY($1::text[])",
+                      "SELECT id, author_id, author_name, author_avatar, description, category, location, area, city FROM broadcast_posts WHERE id = ANY($1::text[])",
                       [allPostIds]
                     )
                     .catch(() => ({ rows: [] as any[] }))
                 : Promise.resolve({ rows: [] as any[] })
             ]);
-            const uMap = new Map<string, { name?: string; email?: string; avatar?: string }>();
+            const formatDbUserLoc = (areaVal?: string, cityVal?: string, locVal?: string): string => {
+              const a = String(areaVal || "").trim();
+              const c = String(cityVal || "").trim();
+              const l = String(locVal || "").trim();
+              if (a && c && a.toLowerCase() !== c.toLowerCase()) return `${a}, ${c}`;
+              if (c) return c;
+              if (a) return a;
+              if (l && l.toLowerCase() !== "local area") return l;
+              return "";
+            };
+            const uMap = new Map<string, { name?: string; email?: string; avatar?: string; location?: string }>();
             uRes.rows.forEach((u: any) => {
-              const info = { name: u.name, email: u.email, avatar: u.avatar_url };
+              const loc = formatDbUserLoc(u.area, u.city, u.location);
+              const info = { name: u.name, email: u.email, avatar: u.avatar_url, location: loc };
               if (u.id) uMap.set(String(u.id).toLowerCase(), info);
               if (u.email) uMap.set(String(u.email).toLowerCase(), info);
               const ph = normalizePhoneDigitsServer(u.phone || "");
@@ -9072,19 +9094,31 @@ async function startServer() {
               }
             });
             pLookupRes.rows.forEach((p: any) => {
-              const info = { name: p.full_name || p.name, email: p.email, avatar: p.avatar_url || p.image_url };
-              if (p.uid) uMap.set(String(p.uid).toLowerCase(), info);
-              if (p.id) uMap.set(String(p.id).toLowerCase(), info);
-              if (p.email) uMap.set(String(p.email).toLowerCase(), info);
+              const loc = formatDbUserLoc(p.sector, p.city, p.address);
+              const info = { name: p.full_name || p.name, email: p.email, avatar: p.avatar_url || p.image_url, location: loc };
+              if (p.uid) {
+                const prev = uMap.get(String(p.uid).toLowerCase());
+                uMap.set(String(p.uid).toLowerCase(), { ...prev, ...info, location: info.location || prev?.location });
+              }
+              if (p.id) {
+                const prev = uMap.get(String(p.id).toLowerCase());
+                uMap.set(String(p.id).toLowerCase(), { ...prev, ...info, location: info.location || prev?.location });
+              }
+              if (p.email) {
+                const prev = uMap.get(String(p.email).toLowerCase());
+                uMap.set(String(p.email).toLowerCase(), { ...prev, ...info, location: info.location || prev?.location });
+              }
               const ph = normalizePhoneDigitsServer(p.phone || "");
               if (ph) {
-                uMap.set(`phone_${ph}`, info);
-                uMap.set(`${ph}@phone.locohelp.com`, info);
+                const prev = uMap.get(`phone_${ph}`);
+                const merged = { ...prev, ...info, location: info.location || prev?.location };
+                uMap.set(`phone_${ph}`, merged);
+                uMap.set(`${ph}@phone.locohelp.com`, merged);
               }
             });
             const postInfoMap = new Map<string, { title?: string; authorId?: string; authorName?: string; authorAvatar?: string; location?: string; category?: string }>();
             hLookupRes.rows.forEach((h: any) => {
-              const info = { name: h.name, email: h.email, avatar: h.photo_url };
+              const info = { name: h.name, email: h.email, avatar: h.photo_url, location: String(h.address || "").trim() };
               if (h.id) {
                 uMap.set(String(h.id).toLowerCase(), info);
                 uMap.set(`provider_chat_${String(h.id).toLowerCase()}`, info);
@@ -9097,15 +9131,20 @@ async function startServer() {
                   category: h.category_id || "Service"
                 });
               }
-              if (h.user_id) uMap.set(String(h.user_id).toLowerCase(), info);
+              if (h.user_id) {
+                const prev = uMap.get(String(h.user_id).toLowerCase());
+                uMap.set(String(h.user_id).toLowerCase(), { ...prev, ...info, location: info.location || prev?.location });
+              }
             });
             bPostsLookupRes.rows.forEach((bp: any) => {
               if (bp.id) {
+                const bpLoc = formatDbUserLoc(bp.area, bp.city, bp.location);
                 postInfoMap.set(String(bp.id), {
                   title: bp.description,
                   authorId: bp.author_id,
                   authorName: bp.author_name,
                   authorAvatar: bp.author_avatar,
+                  location: bpLoc,
                   category: bp.category
                 });
               }
@@ -9157,6 +9196,9 @@ async function startServer() {
                   c.helperAvatar = hInfo.avatar;
                   c.senderAvatar = hInfo.avatar;
                 }
+                if (hInfo.location) {
+                  c.helperLocation = hInfo.location;
+                }
               }
               const pInfo =
                 uMap.get(String(c.posterId || "").toLowerCase()) ||
@@ -9171,6 +9213,10 @@ async function startServer() {
                 }
                 if (!c.posterAvatar && pInfo.avatar) {
                   c.posterAvatar = pInfo.avatar;
+                }
+                if (pInfo.location) {
+                  c.posterLocation = pInfo.location;
+                  if (!c.location) c.location = pInfo.location;
                 }
               }
             });

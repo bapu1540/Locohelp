@@ -3,6 +3,7 @@ import { Camera, CheckCircle2, Loader2, RefreshCw, ShieldCheck, Upload, X, Alert
 import { applyIdWatermark } from '../lib/watermark';
 import { uploadFileToFirebaseStorage } from '../lib/firebase';
 import { ProtectedSelfieCanvas } from './ProtectedSelfieCanvas';
+import { useLanguage } from '../i18n';
 
 async function compressImageToWebP(file: File): Promise<string> {
   const dataUrl: string = await new Promise((resolve, reject) => {
@@ -66,11 +67,23 @@ export const LiveSelfieCaptureField: React.FC<LiveSelfieCaptureFieldProps> = ({
   userName = 'User',
   entityType = 'user_profile',
   referenceId,
-  label = '📸 Live Camera Selfie (Mandatory / अनिवार्य *)',
-  subLabel = 'प्रोफ़ाइल अप्रूवल के लिए अपनी लाइव सेल्फी लें (Live Selfie is mandatory for Admin verification)',
+  label,
+  subLabel,
   required = true,
   onError,
 }) => {
+  const { language } = useLanguage();
+  const tr = (en: string, hi: string, gu: string) =>
+    language === 'EN' ? en : language === 'GU' ? gu : hi;
+
+  const resolvedLabel =
+    label ||
+    tr(
+      '📸 Live Camera Selfie (Mandatory)',
+      '📸 लाइव कैमरा सेल्फी (अनिवार्य)',
+      '📸 લાઈવ કેમેરા સેલ્ફી (ફરજિયાત)'
+    );
+
   const [isProcessing, setIsProcessing] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
@@ -118,7 +131,6 @@ export const LiveSelfieCaptureField: React.FC<LiveSelfieCaptureFieldProps> = ({
         }
       }, 80);
     } catch {
-      // Fallback to native camera file input if WebRTC camera permission is unavailable in WebView
       cameraInputRef.current?.click();
     }
   };
@@ -148,7 +160,14 @@ export const LiveSelfieCaptureField: React.FC<LiveSelfieCaptureFieldProps> = ({
       });
       onChange(watermarked);
     } catch (err: any) {
-      reportError(err?.message || 'लाइव सेल्फी लेने में समस्या आई। कृपया नीचे कैमरे से फोटो चुनें।');
+      reportError(
+        err?.message ||
+          tr(
+            'Unable to capture selfie. Please choose photo below.',
+            'लाइव सेल्फी लेने में समस्या आई। कृपया नीचे कैमरे से फोटो चुनें।',
+            'લાઈવ સેલ્ફી લેવામાં સમસ્યા આવી. કૃપા કરીને નીચે કેમેરાથી ફોટો પસંદ કરો.'
+          )
+      );
     } finally {
       setIsProcessing(false);
     }
@@ -168,7 +187,6 @@ export const LiveSelfieCaptureField: React.FC<LiveSelfieCaptureFieldProps> = ({
       });
       onChange(watermarked);
     } catch (err: any) {
-      // Fallback: try compressing to WebP data URL and then watermarking
       try {
         const compressed = await compressImageToWebP(file);
         const watermarked = await applyIdWatermark(compressed, {
@@ -182,7 +200,11 @@ export const LiveSelfieCaptureField: React.FC<LiveSelfieCaptureFieldProps> = ({
         reportError(
           innerErr?.message ||
             err?.message ||
-            'सेल्फी अपलोड करने में त्रुटि। कृपया दूसरी स्पष्ट फोटो चुनें।'
+            tr(
+              'Error uploading selfie. Please choose a clear photo.',
+              'सेल्फी अपलोड करने में त्रुटि। कृपया दूसरी स्पष्ट फोटो चुनें।',
+              'સેલ્ફી અપલોડ કરવામાં ભૂલ. કૃપા કરીને બીજો સ્પષ્ટ ફોટો પસંદ કરો.'
+            )
         );
       }
     } finally {
@@ -197,16 +219,18 @@ export const LiveSelfieCaptureField: React.FC<LiveSelfieCaptureFieldProps> = ({
         <div>
           <label className="block text-xs font-extrabold text-emerald-950 flex items-center gap-1.5">
             <Camera className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span>{label}</span>
+            <span>{resolvedLabel}</span>
             {required && <span className="text-red-600 font-black">*</span>}
           </label>
-          <p className="text-[11px] text-emerald-800 font-medium mt-0.5 leading-snug">
-            {subLabel}
-          </p>
+          {subLabel ? (
+            <p className="text-[11px] text-emerald-800 font-medium mt-0.5 leading-snug">
+              {subLabel}
+            </p>
+          ) : null}
         </div>
         {value && (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-600 text-white text-[10px] font-bold shrink-0">
-            <CheckCircle2 className="w-3 h-3" /> Verified Ready
+            <CheckCircle2 className="w-3 h-3" /> {tr('Ready', 'तैयार', 'તૈયાર')}
           </span>
         )}
       </div>
@@ -252,14 +276,14 @@ export const LiveSelfieCaptureField: React.FC<LiveSelfieCaptureFieldProps> = ({
               className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl shadow flex items-center justify-center gap-1.5 active:scale-95 transition-all"
             >
               <Camera className="w-4 h-4" />
-              <span>📸 सेल्फी क्लिक करें (Click Selfie)</span>
+              <span>{tr('📸 Click Selfie', '📸 सेल्फी क्लिक करें', '📸 સેલ્ફી ક્લિક કરો')}</span>
             </button>
             <button
               type="button"
               onClick={stopCameraStream}
               className="px-3 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl"
             >
-              रद्द करें
+              {tr('Cancel', 'रद्द करें', 'રદ કરો')}
             </button>
           </div>
         </div>
@@ -271,13 +295,10 @@ export const LiveSelfieCaptureField: React.FC<LiveSelfieCaptureFieldProps> = ({
             badgeText="SELFIE"
           />
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1 text-emerald-700 font-extrabold text-xs mb-1">
+            <div className="flex items-center gap-1 text-emerald-700 font-extrabold text-xs mb-2">
               <ShieldCheck className="w-4 h-4 shrink-0" />
-              <span>लाइव सेल्फी सुरक्षित रूप से जुड़ गई है!</span>
+              <span>{tr('Live selfie added!', 'लाइव सेल्फी जुड़ गई है!', 'લાઈવ સેલ્ફી ઉમેરાઈ ગઈ છે!')}</span>
             </div>
-            <p className="text-[10px] text-slate-600 leading-snug mb-2">
-              यह सेल्फी एडमिन वेरिफिकेशन के लिए सुरक्षित वॉटरमार्क के साथ सेव होगी।
-            </p>
             <div className="flex flex-wrap gap-1.5">
               <button
                 type="button"
@@ -285,7 +306,7 @@ export const LiveSelfieCaptureField: React.FC<LiveSelfieCaptureFieldProps> = ({
                 disabled={isProcessing}
                 className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-lg text-[11px] font-bold flex items-center gap-1"
               >
-                <RefreshCw className="w-3 h-3" /> फिर से सेल्फी लें
+                <RefreshCw className="w-3 h-3" /> {tr('Retake Selfie', 'फिर से सेल्फी लें', 'ફરીથી સેલ્ફી લો')}
               </button>
               <button
                 type="button"
@@ -293,46 +314,41 @@ export const LiveSelfieCaptureField: React.FC<LiveSelfieCaptureFieldProps> = ({
                 disabled={isProcessing}
                 className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[11px] font-bold flex items-center gap-1"
               >
-                <Camera className="w-3 h-3" /> कैमरा ऐप खोलें
+                <Camera className="w-3 h-3" /> {tr('Open Camera', 'कैमरा खोलें', 'કેમેરા ખોલો')}
               </button>
             </div>
           </div>
         </div>
       ) : (
-        <div className="space-y-2">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={startLiveCamera}
-              disabled={isProcessing}
-              className="w-full py-3 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-extrabold text-xs shadow-sm flex items-center justify-center gap-2 active:scale-[0.99] transition-all disabled:opacity-60"
-            >
-              {isProcessing ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>सेल्फी प्रोसेस हो रही है...</span>
-                </>
-              ) : (
-                <>
-                  <Camera className="w-4 h-4" />
-                  <span>📸 लाइव सेल्फी लें (Open Camera)</span>
-                </>
-              )}
-            </button>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={startLiveCamera}
+            disabled={isProcessing}
+            className="w-full py-3 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-extrabold text-xs shadow-sm flex items-center justify-center gap-2 active:scale-[0.99] transition-all disabled:opacity-60"
+          >
+            {isProcessing ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>{tr('Processing...', 'प्रोसेस हो रहा है...', 'પ્રોસેસ થઈ રહ્યું છે...')}</span>
+              </>
+            ) : (
+              <>
+                <Camera className="w-4 h-4" />
+                <span>{tr('📸 Take Live Selfie', '📸 लाइव सेल्फी लें', '📸 લાઈવ સેલ્ફી લો')}</span>
+              </>
+            )}
+          </button>
 
-            <button
-              type="button"
-              onClick={() => galleryInputRef.current?.click()}
-              disabled={isProcessing}
-              className="w-full py-3 px-3 bg-white hover:bg-emerald-50 text-emerald-900 border-2 border-emerald-400 rounded-xl font-extrabold text-xs flex items-center justify-center gap-2 active:scale-[0.99] transition-all disabled:opacity-60"
-            >
-              <Upload className="w-4 h-4 text-emerald-600" />
-              <span>📷 कैमरा / फोन से सेल्फी अपलोड करें</span>
-            </button>
-          </div>
-          <p className="text-[10px] text-emerald-800 font-semibold text-center">
-            🔒 आपकी सेल्फी पर ऑटोमैटिक सुरक्षा वॉटरमार्क लगेगा और यह केवल एडमिन वेरिफिकेशन के लिए है।
-          </p>
+          <button
+            type="button"
+            onClick={() => galleryInputRef.current?.click()}
+            disabled={isProcessing}
+            className="w-full py-3 px-3 bg-white hover:bg-emerald-50 text-emerald-900 border-2 border-emerald-400 rounded-xl font-extrabold text-xs flex items-center justify-center gap-2 active:scale-[0.99] transition-all disabled:opacity-60"
+          >
+            <Upload className="w-4 h-4 text-emerald-600" />
+            <span>{tr('📷 Upload Selfie from Phone', '📷 फोन से सेल्फी अपलोड करें', '📷 ફોનમાંથી સેલ્ફી અપલોડ કરો')}</span>
+          </button>
         </div>
       )}
     </div>
@@ -350,10 +366,22 @@ interface VisitingCardUploadFieldProps {
 export const VisitingCardUploadField: React.FC<VisitingCardUploadFieldProps> = ({
   value,
   onChange,
-  label = '🪪 Visiting Card / Work Photo (Optional • वैकल्पिक)',
-  subLabel = 'यदि आपके पास विजिटिंग कार्ड या दुकान/काम का फोटो है तो अपलोड करें (पूरी तरह वैकल्पिक)',
+  label,
+  subLabel,
   onError,
 }) => {
+  const { language } = useLanguage();
+  const tr = (en: string, hi: string, gu: string) =>
+    language === 'EN' ? en : language === 'GU' ? gu : hi;
+
+  const resolvedLabel =
+    label ||
+    tr(
+      '🪪 Visiting Card / Work Photo (Optional)',
+      '🪪 विजिटिंग कार्ड / काम की फोटो (वैकल्पिक)',
+      '🪪 વિઝિટિંગ કાર્ડ / કામનો ફોટો (વૈકલ્પિક)'
+    );
+
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -366,7 +394,14 @@ export const VisitingCardUploadField: React.FC<VisitingCardUploadFieldProps> = (
       onChange(compressedUrl);
     } catch (err: any) {
       if (onError) {
-        onError(err?.message || 'विजिटिंग कार्ड अपलोड करने में समस्या आई।');
+        onError(
+          err?.message ||
+            tr(
+              'Error uploading photo.',
+              'फोटो अपलोड करने में समस्या आई।',
+              'ફોટો અપલોડ કરવામાં સમસ્યા આવી.'
+            )
+        );
       }
     } finally {
       setIsUploading(false);
@@ -379,15 +414,17 @@ export const VisitingCardUploadField: React.FC<VisitingCardUploadFieldProps> = (
       <div className="flex items-center justify-between gap-2 mb-1.5">
         <label className="block text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
           <ImageIcon className="w-4 h-4 text-indigo-600 shrink-0" />
-          <span>{label}</span>
+          <span>{resolvedLabel}</span>
         </label>
         <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-200 text-slate-700">
-          Optional / वैकल्पिक
+          {tr('Optional', 'वैकल्पिक', 'વૈકલ્પિક')}
         </span>
       </div>
-      <p className="text-[11px] text-slate-500 font-medium mb-2.5 leading-snug">
-        {subLabel}
-      </p>
+      {subLabel ? (
+        <p className="text-[11px] text-slate-500 font-medium mb-2.5 leading-snug">
+          {subLabel}
+        </p>
+      ) : null}
 
       <input
         ref={fileInputRef}
@@ -406,7 +443,7 @@ export const VisitingCardUploadField: React.FC<VisitingCardUploadFieldProps> = (
           />
           <div className="flex-1 min-w-0">
             <p className="text-xs font-bold text-emerald-700 truncate">
-              ✓ विजिटिंग कार्ड / फोटो जुड़ गया
+              {tr('✓ Photo added', '✓ फोटो जुड़ गया', '✓ ફોટો ઉમેરાઈ ગયો')}
             </p>
             <div className="flex items-center gap-2 mt-1">
               <button
@@ -414,14 +451,14 @@ export const VisitingCardUploadField: React.FC<VisitingCardUploadFieldProps> = (
                 onClick={() => fileInputRef.current?.click()}
                 className="text-[11px] font-bold text-indigo-600 hover:underline"
               >
-                बदलें (Change)
+                {tr('Change', 'बदलें', 'બદલો')}
               </button>
               <button
                 type="button"
                 onClick={() => onChange('')}
                 className="text-[11px] font-bold text-red-600 hover:underline flex items-center gap-0.5"
               >
-                <X className="w-3 h-3" /> हटाएं
+                <X className="w-3 h-3" /> {tr('Remove', 'हटाएं', 'દૂર કરો')}
               </button>
             </div>
           </div>
@@ -436,12 +473,12 @@ export const VisitingCardUploadField: React.FC<VisitingCardUploadFieldProps> = (
           {isUploading ? (
             <>
               <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
-              <span>अपलोड हो रहा है...</span>
+              <span>{tr('Uploading...', 'अपलोड हो रहा है...', 'અપલોડ થઈ રહ્યું છે...')}</span>
             </>
           ) : (
             <>
               <Upload className="w-4 h-4 text-indigo-600" />
-              <span>🪪 विजिटिंग कार्ड या काम की फोटो चुनें (Optional)</span>
+              <span>{tr('🪪 Choose Visiting Card / Work Photo', '🪪 विजिटिंग कार्ड या काम की फोटो चुनें', '🪪 વિઝિટિંગ કાર્ડ કે કામનો ફોટો પસંદ કરો')}</span>
             </>
           )}
         </button>
@@ -449,3 +486,4 @@ export const VisitingCardUploadField: React.FC<VisitingCardUploadFieldProps> = (
     </div>
   );
 };
+

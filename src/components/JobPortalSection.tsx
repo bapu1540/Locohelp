@@ -212,20 +212,6 @@ export default function JobPortalSection({
         </div>
 
       </div>
-
-      {/* Safety & Verification Notice Strip */}
-      <div className="px-3 py-1.5 rounded-xl bg-slate-100/90 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 flex items-center justify-between text-[11px] text-slate-600 dark:text-slate-300">
-        <div className="flex items-center gap-1.5">
-          <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-          <span className="font-semibold">
-            {language === 'EN'
-              ? 'Security Notice: All job seeker profiles & employer vacancies are verified by Admin before going live.'
-              : language === 'GU'
-              ? 'સુરક્ષા સૂચના: તમામ નોકરી પ્રોફાઈલ અને વેકેન્સી એડમિન મંજૂરી પછી જ લાઈવ થાય છે.'
-              : 'सुरक्षा सूचना: सभी नौकरी प्रोफाइल और वेकेंसी एडमिन अनुमोदन के बाद ही लाइव होती हैं।'}
-          </span>
-        </div>
-      </div>
     </div>
   );
 }

@@ -21,7 +21,7 @@ import JobPortalBrowseModal from '../components/JobPortalBrowseModal';
 import FreeHelperRegisterModal from '../components/FreeHelperRegisterModal';
 import PostResponsesModal from '../components/PostResponsesModal';
 import PanIndiaLocationModal from '../components/PanIndiaLocationModal';
-import { getSavedUserLocation, getConnectedTwinDistricts, UserManualLocation } from '../data/panIndiaLocations';
+import { getSavedUserLocation, getConnectedTwinDistricts, calculateLocationDistanceKm, UserManualLocation } from '../data/panIndiaLocations';
 import { isGuestUser } from '../lib/authUtils';
 import { requestAndRegisterFcmToken, subscribeToForegroundPushMessages } from '../lib/firebase';
 import InstallAppModal from '../components/InstallAppModal';
@@ -863,22 +863,29 @@ export default function HomeScreen({
     const msRemaining = Math.max(0, ONE_HOUR_MS - (now - effectiveTime));
     const minsRemaining = Math.max(1, Math.ceil(msRemaining / (60 * 1000)));
 
-    const itemLat = (item as any).lat || gpsCoords.lat;
-    const itemLng = (item as any).lng || gpsCoords.lng;
-    
-    const computedKm = getGpsDistanceKm(gpsCoords.lat, gpsCoords.lng, itemLat, itemLng);
-    const finalDistance = Math.min(computedKm, item.distance || 0.8);
-
     const { area: resolvedArea, city: resolvedCity, badge: resolvedLocationBadge } = resolveIntentAreaAndCity(item, index);
+    const userLocStr = [userLocation?.taluka, userLocation?.district].filter(Boolean).join(', ');
+    const itemLocStr = [resolvedArea, resolvedCity].filter(Boolean).join(', ') || (item as any).location || '';
+
+    const itemLat = (item as any).lat;
+    const itemLng = (item as any).lng;
+    const realDistKm = calculateLocationDistanceKm(
+      userLocStr,
+      itemLocStr,
+      gpsCoords,
+      typeof itemLat === 'number' && typeof itemLng === 'number' ? { lat: itemLat, lng: itemLng } : null
+    );
+    const finalDistance = realDistKm !== null ? realDistKm : (typeof item.distance === 'number' ? item.distance : 0);
     
     return {
       ...item,
       resolvedArea,
       resolvedCity,
       resolvedLocationBadge,
+      distance: finalDistance,
       computedKm: finalDistance,
       minsRemaining,
-      isNearbyPriority: finalDistance <= 2.0
+      isNearbyPriority: finalDistance <= 5.0
     };
   });
 

@@ -1106,18 +1106,11 @@ export default function EmployerVacancyModal({
                       <span className="text-xs font-black text-amber-950 dark:text-amber-300 flex items-center gap-1.5">
                         <Camera className="w-4 h-4 text-amber-600 shrink-0" />
                         {tr(
-                          '📸 Employer Live Camera Selfie * (Mandatory for Verification)',
-                          '📸 मालिक / एम्प्लॉयर की लाइव सेल्फी * (वेरिफिकेशन के लिए अनिवार्य)',
-                          '📸 માલિક / એમ્પ્લોયરની લાઈવ સેલ્ફી * (ચકાસણી માટે ફરજિયાત)'
+                          '📸 Employer Live Camera Selfie *',
+                          '📸 मालिक / एम्प्लॉयर की लाइव सेल्फी *',
+                          '📸 માલિક / એમ્પ્લોયરની લાઈવ સેલ્ફી *'
                         )}
                       </span>
-                      <p className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 mt-0.5 leading-snug">
-                        {tr(
-                          'Protected with Anti-Download & Anti-Screenshot shield. No Government ID required.',
-                          'बिना सरकारी आईडी के असली एम्प्लॉयर की पहचान के लिए लाइव सेल्फी लें। यह फोटो डाउनलोड या स्क्रीनशॉट नहीं हो सकती।',
-                          'સરકારી આઈડી વગર સાચા એમ્પ્લોયરની ઓળખ માટે લાઈવ સેલ્ફી લો. આ ફોટો ડાઉનલોડ કે સ્ક્રીનશોટ થઈ શકતો નથી.'
-                        )}
-                      </p>
                     </div>
                   </div>
 
@@ -1131,7 +1124,7 @@ export default function EmployerVacancyModal({
 
                   {isWatermarkingSelfie && (
                     <p className="text-[11px] font-bold text-amber-700 dark:text-amber-300">
-                      ⏳ {tr('Applying security watermark...', 'सुरक्षा वॉटरमार्क लगाया जा रहा है...', 'સુરક્ષા વોટરમાર્ક લાગી રહ્યું છે...')}
+                      ⏳ {tr('Processing...', 'प्रोसेस हो रहा है...', 'પ્રોસેસ થઈ રહ્યું છે...')}
                     </p>
                   )}
 
@@ -1147,11 +1140,8 @@ export default function EmployerVacancyModal({
                       <div className="space-y-1 text-left">
                         <span className="inline-flex items-center gap-1 text-[11px] font-black text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950/60 px-2.5 py-0.5 rounded-full">
                           <CheckCircle2 className="w-3.5 h-3.5" />
-                          {tr('Live Selfie Protected & Ready', 'लाइव सेल्फी सुरक्षित और तैयार है', 'લાઈવ સેલ્ફી સુરક્ષિત અને તૈયાર છે')}
+                          {tr('Live Selfie Ready', 'लाइव सेल्फी तैयार है', 'લાઈવ સેલ્ફી તૈયાર છે')}
                         </span>
-                        <p className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold">
-                          🔒 {tr('Anti-Download & Watermark Shield Active', 'एंटी-डाउनलोड और वॉटरमार्क सुरक्षा सक्रिय', 'એન્ટી-ડાઉનલોડ અને વોટરમાર્ક સુરક્ષા સક્રિય')}
-                        </p>
                       </div>
                     </div>
                   )}

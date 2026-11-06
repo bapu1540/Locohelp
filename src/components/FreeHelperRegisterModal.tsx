@@ -541,11 +541,6 @@ export default function FreeHelperRegisterModal({
                 entityType="user_profile"
                 required={true}
                 label={tr('📸 Live Camera Selfie (Mandatory) *', '📸 लाइव कैमरा सेल्फी (अनिवार्य) *', '📸 લાઈવ કેમેરા સેલ્ફી (ફરજિયાત) *')}
-                subLabel={tr(
-                  'A live camera selfie is mandatory for genuine Service Expert verification.',
-                  'असली सर्विस एक्सपर्ट की पहचान के लिए लाइव सेल्फी अनिवार्य है।',
-                  'સાચા સર્વિસ એક્સપર્ટની ઓળખ માટે લાઈવ સેલ્ફી ફરજિયાત છે.'
-                )}
                 onError={(msg) => setFileError(msg)}
               />
 

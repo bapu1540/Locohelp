@@ -1412,9 +1412,11 @@ export default function CategoriesScreen({
                                     /\D/g,
                                     ''
                                   )}?text=${encodeURIComponent(
-                                    `नमस्ते ${helper.name}, मैंने LocoHelp पर आपकी ${
-                                      catObj?.nameEn || 'Service'
-                                    } प्रोफाइल देखी।`
+                                    language === 'GU'
+                                      ? `નમસ્તે ${helper.name}, મેં LocoHelp પર તમારી ${catObj?.nameGu || catObj?.nameEn || 'સર્વિસ'} પ્રોફાઇલ જોઈ.`
+                                      : language === 'EN'
+                                      ? `Hello ${helper.name}, I saw your ${catObj?.nameEn || 'Service'} profile on LocoHelp.`
+                                      : `नमस्ते ${helper.name}, मैंने LocoHelp पर आपकी ${catObj?.nameHi || catObj?.nameEn || 'Service'} प्रोफाइल देखी।`
                                   )}`}
                                   target="_blank"
                                   rel="noopener noreferrer"

@@ -578,3 +578,315 @@ export function getConnectedTwinDistricts(district: string): string[] {
 
   return [norm];
 }
+
+/**
+ * Geographic Coordinates (Latitude, Longitude) for Gujarat's 33 Districts, Talukas, and Major Indian Cities
+ * Used to calculate accurate real-world distance (km) between two users' profile locations.
+ */
+export const LOCATION_COORDINATES_MAP: Record<string, { lat: number; lng: number }> = {
+  // Gandhinagar District & Talukas
+  gandhinagar: { lat: 23.2156, lng: 72.6369 },
+  kalol: { lat: 23.2464, lng: 72.4959 },
+  mansa: { lat: 23.4272, lng: 72.6562 },
+  dehgam: { lat: 23.1627, lng: 72.8112 },
+  dahegam: { lat: 23.1627, lng: 72.8112 },
+  kudasan: { lat: 23.1858, lng: 72.6321 },
+  sargasan: { lat: 23.1932, lng: 72.6168 },
+  infocity: { lat: 23.1965, lng: 72.6325 },
+  adraj: { lat: 23.1852, lng: 72.5591 },
+  pethapur: { lat: 23.2571, lng: 72.6695 },
+  chiloda: { lat: 23.2856, lng: 72.7351 },
+
+  // Ahmedabad District & Talukas
+  ahmedabad: { lat: 23.0225, lng: 72.5714 },
+  amdavad: { lat: 23.0225, lng: 72.5714 },
+  sanand: { lat: 22.9921, lng: 72.3815 },
+  daskroi: { lat: 22.9754, lng: 72.6421 },
+  dholka: { lat: 22.7357, lng: 72.4418 },
+  viramgam: { lat: 23.1255, lng: 72.0543 },
+  bavla: { lat: 22.8294, lng: 72.3652 },
+  dhandhuka: { lat: 22.3688, lng: 71.9854 },
+  mandal: { lat: 23.2889, lng: 71.9182 },
+  detroj: { lat: 23.3812, lng: 72.1895 },
+  bopal: { lat: 23.0338, lng: 72.4634 },
+  gota: { lat: 23.1035, lng: 72.5412 },
+  chandkheda: { lat: 23.1116, lng: 72.5728 },
+  motera: { lat: 23.0987, lng: 72.5974 },
+  nikol: { lat: 23.0402, lng: 72.6685 },
+  naroda: { lat: 23.0685, lng: 72.6536 },
+  maninagar: { lat: 22.9962, lng: 72.6026 },
+  satellite: { lat: 23.0276, lng: 72.5236 },
+  vastrapur: { lat: 23.0387, lng: 72.5293 },
+  navrangpura: { lat: 23.0365, lng: 72.5611 },
+
+  // North Gujarat Districts & Talukas
+  mehsana: { lat: 23.5880, lng: 72.3693 },
+  mahesana: { lat: 23.5880, lng: 72.3693 },
+  kadi: { lat: 23.2974, lng: 72.3308 },
+  visnagar: { lat: 23.6989, lng: 72.5521 },
+  unjha: { lat: 23.8037, lng: 72.3921 },
+  vijapur: { lat: 23.5608, lng: 72.7525 },
+  kheralu: { lat: 23.8842, lng: 72.6186 },
+  becharaji: { lat: 23.4969, lng: 72.0434 },
+  vadnagar: { lat: 23.7848, lng: 72.6391 },
+  patan: { lat: 23.8493, lng: 72.1266 },
+  siddhpur: { lat: 23.9169, lng: 72.3712 },
+  radhanpur: { lat: 23.8322, lng: 71.6061 },
+  chanasma: { lat: 23.7145, lng: 72.1156 },
+  harij: { lat: 23.6967, lng: 71.9012 },
+  banaskantha: { lat: 24.1742, lng: 72.4319 },
+  palanpur: { lat: 24.1742, lng: 72.4319 },
+  deesa: { lat: 24.2585, lng: 72.1907 },
+  dhanera: { lat: 24.5138, lng: 72.0226 },
+  tharad: { lat: 24.3941, lng: 71.6258 },
+  ambaji: { lat: 24.3315, lng: 72.8518 },
+  sabarkantha: { lat: 23.5969, lng: 72.9661 },
+  himatnagar: { lat: 23.5969, lng: 72.9661 },
+  himmatnagar: { lat: 23.5969, lng: 72.9661 },
+  idar: { lat: 23.8351, lng: 73.0005 },
+  prantij: { lat: 23.4375, lng: 72.8562 },
+  talod: { lat: 23.3547, lng: 72.9531 },
+  khedbrahma: { lat: 24.0279, lng: 73.0463 },
+  aravalli: { lat: 23.4643, lng: 73.2988 },
+  modasa: { lat: 23.4643, lng: 73.2988 },
+  bhiloda: { lat: 23.7591, lng: 73.2452 },
+  bayad: { lat: 23.2259, lng: 73.2156 },
+  dhansura: { lat: 23.3461, lng: 73.2075 },
+
+  // Central Gujarat Districts & Talukas
+  kheda: { lat: 22.7507, lng: 72.6847 },
+  nadiad: { lat: 22.6916, lng: 72.8634 },
+  kapadvanj: { lat: 23.0211, lng: 73.0715 },
+  dakore: { lat: 22.7539, lng: 73.1492 },
+  dakor: { lat: 22.7539, lng: 73.1492 },
+  mehmedabad: { lat: 22.8286, lng: 72.7634 },
+  anand: { lat: 22.5645, lng: 72.9289 },
+  vallabhvidyanagar: { lat: 22.5446, lng: 72.9242 },
+  borsad: { lat: 22.4087, lng: 72.8992 },
+  petlad: { lat: 22.4765, lng: 72.8012 },
+  khambhat: { lat: 22.3181, lng: 72.6190 },
+  umreth: { lat: 22.6987, lng: 73.1145 },
+  vadodara: { lat: 22.3072, lng: 73.1812 },
+  baroda: { lat: 22.3072, lng: 73.1812 },
+  padra: { lat: 22.2412, lng: 73.0845 },
+  karjan: { lat: 22.0526, lng: 73.1221 },
+  dabhoi: { lat: 22.1292, lng: 73.4139 },
+  savli: { lat: 22.5612, lng: 73.2215 },
+  waghodia: { lat: 22.2995, lng: 73.3958 },
+  panchmahal: { lat: 22.7788, lng: 73.6143 },
+  godhra: { lat: 22.7788, lng: 73.6143 },
+  halol: { lat: 22.5028, lng: 73.4716 },
+  kalol_panchmahal: { lat: 22.6062, lng: 73.4628 },
+  dahod: { lat: 22.8379, lng: 74.2531 },
+  jhalod: { lat: 23.1028, lng: 74.1558 },
+  devgadbaria: { lat: 22.6967, lng: 73.9092 },
+  mahisagar: { lat: 23.1306, lng: 73.6026 },
+  lunawada: { lat: 23.1306, lng: 73.6026 },
+  balasinor: { lat: 22.9567, lng: 73.3345 },
+  santrampur: { lat: 23.1921, lng: 73.8962 },
+  "chhota udaipur": { lat: 22.3085, lng: 74.0120 },
+  bodeli: { lat: 22.2698, lng: 73.7192 },
+
+  // South Gujarat Districts & Talukas
+  bharuch: { lat: 21.7051, lng: 72.9959 },
+  ankleshwar: { lat: 21.6264, lng: 73.0152 },
+  jambusar: { lat: 22.0528, lng: 72.8021 },
+  dahej: { lat: 21.7115, lng: 72.5831 },
+  narmada: { lat: 21.8705, lng: 73.5029 },
+  rajpipla: { lat: 21.8705, lng: 73.5029 },
+  kevadia: { lat: 21.8380, lng: 73.7191 },
+  surat: { lat: 21.1702, lng: 72.8311 },
+  bardoli: { lat: 21.1255, lng: 73.1122 },
+  kamrej: { lat: 21.2695, lng: 72.9579 },
+  olpad: { lat: 21.3352, lng: 72.7521 },
+  mangrol_surat: { lat: 21.4167, lng: 73.0167 },
+  mandvi_surat: { lat: 21.2556, lng: 73.3039 },
+  tapi: { lat: 21.1131, lng: 73.4004 },
+  vyara: { lat: 21.1131, lng: 73.4004 },
+  songadh: { lat: 21.1685, lng: 73.5621 },
+  navsari: { lat: 20.9467, lng: 72.9520 },
+  bilimora: { lat: 20.7695, lng: 72.9613 },
+  chikhli: { lat: 20.7579, lng: 73.0625 },
+  valsad: { lat: 20.5992, lng: 72.9342 },
+  vapi: { lat: 20.3893, lng: 72.9106 },
+  pardi: { lat: 20.5112, lng: 72.9512 },
+  umargam: { lat: 20.1965, lng: 72.7489 },
+  dharampur: { lat: 20.5369, lng: 73.1751 },
+  dang: { lat: 20.7538, lng: 73.6866 },
+  ahwa: { lat: 20.7538, lng: 73.6866 },
+  saputara: { lat: 20.5760, lng: 73.7469 },
+
+  // Saurashtra & Kutch Districts & Talukas
+  rajkot: { lat: 22.3039, lng: 70.8022 },
+  gondal: { lat: 21.9619, lng: 70.7923 },
+  jetpur: { lat: 21.7548, lng: 70.6234 },
+  dhoraji: { lat: 21.7336, lng: 70.4504 },
+  upleta: { lat: 21.7412, lng: 70.2812 },
+  jasdan: { lat: 22.0308, lng: 71.2095 },
+  morbi: { lat: 22.8173, lng: 70.8377 },
+  wankaner: { lat: 22.6122, lng: 70.9522 },
+  halvad: { lat: 23.0145, lng: 71.1812 },
+  tankara: { lat: 22.6552, lng: 70.7428 },
+  surendranagar: { lat: 22.7284, lng: 71.6371 },
+  wadhwan: { lat: 22.7042, lng: 71.6752 },
+  dhrangadhra: { lat: 22.9906, lng: 71.4669 },
+  limbdi: { lat: 22.5651, lng: 71.8108 },
+  chotila: { lat: 22.4235, lng: 71.1962 },
+  jamnagar: { lat: 22.4707, lng: 70.0577 },
+  dhrol: { lat: 22.5712, lng: 70.4225 },
+  kalavad: { lat: 22.2089, lng: 70.3802 },
+  "devbhumi dwarka": { lat: 22.2442, lng: 68.9685 },
+  dwarka: { lat: 22.2442, lng: 68.9685 },
+  khambhalia: { lat: 22.2047, lng: 69.6562 },
+  porbandar: { lat: 21.6417, lng: 69.6293 },
+  ranavav: { lat: 21.6821, lng: 69.7421 },
+  kutiyana: { lat: 21.6289, lng: 69.9812 },
+  junagadh: { lat: 21.5222, lng: 70.4579 },
+  keshod: { lat: 21.2997, lng: 70.2520 },
+  mangrol: { lat: 21.1228, lng: 70.1147 },
+  visavadar: { lat: 21.3412, lng: 70.7521 },
+  "gir somnath": { lat: 20.9060, lng: 70.3844 },
+  veraval: { lat: 20.9060, lng: 70.3844 },
+  somnath: { lat: 20.8880, lng: 70.4012 },
+  kodinar: { lat: 20.7931, lng: 70.7031 },
+  una: { lat: 20.8228, lng: 71.0381 },
+  talala: { lat: 21.0512, lng: 70.5218 },
+  amreli: { lat: 21.6032, lng: 71.2221 },
+  savarkundla: { lat: 21.3372, lng: 71.3045 },
+  rajula: { lat: 21.0389, lng: 71.4425 },
+  bagasara: { lat: 21.4842, lng: 70.9562 },
+  dhari: { lat: 21.3289, lng: 71.0258 },
+  bhavnagar: { lat: 21.7645, lng: 72.1519 },
+  mahuva: { lat: 21.0922, lng: 71.7705 },
+  palitana: { lat: 21.5256, lng: 71.8347 },
+  sihor: { lat: 21.7189, lng: 71.9592 },
+  talaja: { lat: 21.3522, lng: 72.0336 },
+  botad: { lat: 22.1716, lng: 71.6661 },
+  gadhada: { lat: 21.9689, lng: 71.5762 },
+  barwala: { lat: 22.1528, lng: 71.8895 },
+  kutch: { lat: 23.2420, lng: 69.6669 },
+  bhuj: { lat: 23.2420, lng: 69.6669 },
+  gandhidham: { lat: 23.0753, lng: 70.1337 },
+  anjar: { lat: 23.1145, lng: 70.0269 },
+  mandvi: { lat: 22.8328, lng: 69.3524 },
+  mundra: { lat: 22.8394, lng: 69.7213 },
+  bhachau: { lat: 23.2961, lng: 70.3358 },
+  rapar: { lat: 23.5745, lng: 70.6421 },
+  nakhatrana: { lat: 23.3478, lng: 69.2658 },
+
+  // Major Pan-India Cities
+  mumbai: { lat: 19.0760, lng: 72.8777 },
+  thane: { lat: 19.2183, lng: 72.9781 },
+  pune: { lat: 18.5204, lng: 73.8567 },
+  nashik: { lat: 19.9975, lng: 73.7898 },
+  nagpur: { lat: 21.1458, lng: 79.0882 },
+  jaipur: { lat: 26.9124, lng: 75.7873 },
+  udaipur: { lat: 24.5854, lng: 73.7125 },
+  jodhpur: { lat: 26.2389, lng: 73.0243 },
+  kota: { lat: 25.2138, lng: 75.8648 },
+  indore: { lat: 22.7196, lng: 75.8577 },
+  bhopal: { lat: 23.2599, lng: 77.4126 },
+  ujjain: { lat: 23.1765, lng: 75.7885 },
+  ratlam: { lat: 23.3315, lng: 75.0367 },
+  delhi: { lat: 28.6139, lng: 77.2090 },
+  "new delhi": { lat: 28.6139, lng: 77.2090 },
+  noida: { lat: 28.5355, lng: 77.3910 },
+  gurugram: { lat: 28.4595, lng: 77.0266 },
+  lucknow: { lat: 26.8467, lng: 80.9462 },
+  bengaluru: { lat: 12.9716, lng: 77.5946 },
+  hyderabad: { lat: 17.3850, lng: 78.4867 },
+  chennai: { lat: 13.0827, lng: 80.2707 },
+  kolkata: { lat: 22.5726, lng: 88.3639 },
+  patna: { lat: 25.5941, lng: 85.1376 }
+};
+
+/**
+ * Resolves a location string (e.g. "Kalol, Gandhinagar" or "Sanand, Ahmedabad, Gujarat") to { lat, lng, matchedKey }.
+ */
+export function resolveLocationCoordinates(locStr?: string | null): { lat: number; lng: number; matchedKey: string } | null {
+  if (!locStr || typeof locStr !== 'string') return null;
+  const cleaned = locStr.trim().toLowerCase();
+  if (!cleaned || cleaned === 'local area' || cleaned === 'nearby' || cleaned === 'all' || cleaned === 'india') {
+    return null;
+  }
+
+  // Split by comma/slash/hyphen from most specific (taluka/area) to least specific (district/state)
+  const parts = cleaned
+    .split(/[,/\-•|]+/)
+    .map((p) => p.replace(/\(.*?\)/g, '').trim())
+    .filter((p) => p && p !== 'gujarat' && p !== 'india' && p !== 'local area');
+
+  for (const part of parts) {
+    if (LOCATION_COORDINATES_MAP[part]) {
+      return { ...LOCATION_COORDINATES_MAP[part], matchedKey: part };
+    }
+    // Check partial token match (e.g., "kalol gidc" -> "kalol")
+    const words = part.split(/\s+/);
+    for (const w of words) {
+      if (w.length >= 3 && LOCATION_COORDINATES_MAP[w]) {
+        return { ...LOCATION_COORDINATES_MAP[w], matchedKey: w };
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Calculates the real Haversine distance in kilometers between two locations or coordinates.
+ * Returns null if peer location is unknown ("Local Area"), or 0 if both are in the exact same taluka/area without distinct GPS coordinates.
+ */
+export function calculateLocationDistanceKm(
+  userLocStr?: string | null,
+  peerLocStr?: string | null,
+  userGps?: { lat?: number | null; lng?: number | null },
+  peerGps?: { lat?: number | null; lng?: number | null }
+): number | null {
+  const haversine = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+    const R = 6371;
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos((lat1 * Math.PI) / 180) *
+        Math.cos((lat2 * Math.PI) / 180) *
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return Math.round(R * c * 10) / 10;
+  };
+
+  const hasValidUserGps =
+    userGps && typeof userGps.lat === 'number' && typeof userGps.lng === 'number' && !Number.isNaN(userGps.lat) && !Number.isNaN(userGps.lng);
+  const hasValidPeerGps =
+    peerGps && typeof peerGps.lat === 'number' && typeof peerGps.lng === 'number' && !Number.isNaN(peerGps.lat) && !Number.isNaN(peerGps.lng);
+
+  if (hasValidUserGps && hasValidPeerGps) {
+    const dist = haversine(userGps!.lat!, userGps!.lng!, peerGps!.lat!, peerGps!.lng!);
+    if (dist > 0.05) return dist;
+  }
+
+  const peerResolved = resolveLocationCoordinates(peerLocStr);
+  if (!peerResolved) return null;
+
+  let userResolved = resolveLocationCoordinates(userLocStr);
+  if (!userResolved) {
+    const regLoc = getProfileRegisteredLocation();
+    const fallbackStr = [regLoc.taluka, regLoc.district].filter(Boolean).join(', ');
+    userResolved = resolveLocationCoordinates(fallbackStr);
+  }
+
+  if (hasValidUserGps && peerResolved) {
+    return haversine(userGps!.lat!, userGps!.lng!, peerResolved.lat, peerResolved.lng);
+  }
+
+  if (userResolved && peerResolved) {
+    if (userResolved.matchedKey === peerResolved.matchedKey) {
+      return 0; // Same taluka/city
+    }
+    return haversine(userResolved.lat, userResolved.lng, peerResolved.lat, peerResolved.lng);
+  }
+
+  return null;
+}
+

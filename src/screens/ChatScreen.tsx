@@ -22,6 +22,11 @@ import { validateUploadedFile, sanitizeText } from '../lib/security';
 import { compressImageToWebP } from '../lib/imageCompression';
 import { uploadFileToFirebaseStorage } from '../lib/firebase';
 import { Ban } from 'lucide-react';
+import {
+  calculateLocationDistanceKm,
+  getProfileRegisteredLocation,
+  getSavedUserLocation
+} from '../data/panIndiaLocations';
 
 interface ChatScreenProps {
   intent: Intent | null;
@@ -785,7 +790,13 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
       if (res.success) {
         setIsChatBlocked(false);
         setBlockedByMe(false);
-        setReportStatusBanner('✅ यूज़र को अनब्लॉक कर दिया गया है। अब आप संदेश भेज सकते हैं।');
+        setReportStatusBanner(
+          tr(
+            '✅ User unblocked. You can now send messages.',
+            '✅ यूज़र को अनब्लॉक कर दिया गया है। अब आप संदेश भेज सकते हैं।',
+            '✅ યુઝરને અનબ્લોક કરી દેવામાં આવ્યા છે. હવે તમે મેસેજ મોકલી શકો છો.'
+          )
+        );
         setTimeout(() => setReportStatusBanner(null), 4000);
       }
     } else {
@@ -800,7 +811,13 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
       if (res.success) {
         setIsChatBlocked(true);
         setBlockedByMe(true);
-        setReportStatusBanner('🚫 इस यूज़र को ब्लॉक कर दिया गया है। अब यह आपको संदेश नहीं भेज सकेगा।');
+        setReportStatusBanner(
+          tr(
+            '🚫 User blocked. They can no longer send you messages.',
+            '🚫 इस यूज़र को ब्लॉक कर दिया गया है। अब यह आपको संदेश नहीं भेज सकेगा।',
+            '🚫 આ યુઝરને બ્લોક કરી દેવામાં આવ્યા છે. હવે તે તમને મેસેજ મોકલી શકશે નહીં.'
+          )
+        );
         setTimeout(() => setReportStatusBanner(null), 4000);
       }
     }
@@ -917,12 +934,24 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
       return;
     }
     if (isPostOwner && !selectedReplierId) {
-      setReportStatusBanner('⚠️ कृपया जवाब देने के लिए पहले ऊपर सूची से किसी हेल्पर (Responder) को चुनें।');
+      setReportStatusBanner(
+        tr(
+          '⚠️ Please select a person from the list above to reply.',
+          '⚠️ कृपया जवाब देने के लिए पहले ऊपर सूची से किसी व्यक्ति को चुनें।',
+          '⚠️ જવાબ આપવા માટે કૃપા કરીને પહેલા ઉપરની યાદીમાંથી વ્યક્તિ પસંદ કરો.'
+        )
+      );
       setTimeout(() => setReportStatusBanner(null), 4000);
       return;
     }
     if (isChatBlocked) {
-      setReportStatusBanner('🚫 यह चैट ब्लॉक है। संदेश भेजने के लिए पहले अनब्लॉक करें।');
+      setReportStatusBanner(
+        tr(
+          '🚫 This chat is blocked. Unblock first to send messages.',
+          '🚫 यह चैट ब्लॉक है। संदेश भेजने के लिए पहले अनब्लॉक करें।',
+          '🚫 આ ચેટ બ્લોક છે. મેસેજ મોકલવા માટે પહેલા અનબ્લોક કરો.'
+        )
+      );
       setTimeout(() => setReportStatusBanner(null), 4000);
       return;
     }
@@ -1159,7 +1188,15 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
     if (file) {
       const check = await validateUploadedFile(file, { allowPdf: true });
       if (!check.valid) {
-        setReportStatusBanner(`⚠️ ${check.errorHi || check.error || 'केवल सुरक्षित इमेज (JPEG, PNG, WebP) या PDF की अनुमति है।'}`);
+        setReportStatusBanner(
+          `⚠️ ${
+            language === 'GU'
+              ? 'માત્ર સુરક્ષિત ફોટા (JPEG, PNG, WebP) અથવા PDF ની જ મંજૂરી છે.'
+              : language === 'HI'
+              ? check.errorHi || 'केवल सुरक्षित इमेज (JPEG, PNG, WebP) या PDF की अनुमति है।'
+              : check.error || 'Only safe images (JPEG, PNG, WebP) or PDF are allowed.'
+          }`
+        );
         setTimeout(() => setReportStatusBanner(null), 4500);
         if (e.target) e.target.value = '';
         return;
@@ -1243,7 +1280,9 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
   const sendPhotoInChat = async () => {
     if (!photoCaptured) return;
     let imgToSend = photoCaptured;
-    const captionText = photoCaption.trim() || "📷 फोटो साझा की गई (Photo shared)";
+    const captionText =
+      photoCaption.trim() ||
+      tr('📷 Photo shared', '📷 फोटो साझा की गई', '📷 ફોટો મોકલ્યો');
     stopCamera();
     if (imgToSend.startsWith('data:')) {
       try {
@@ -1266,10 +1305,19 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
     setIsSharingLiveLocation(true);
     const sendFallbackPin = () => {
       const mapUrl = `https://www.google.com/maps?q=${encodeURIComponent(peerLocation)}`;
-      handleSend(`📍 लोकेशन साझा की गई: ${peerLocation} | ${mapUrl}`, 'pin');
+      handleSend(
+        `${tr('📍 Shared Location:', '📍 लोकेशन साझा की गई:', '📍 લોકેશન શેર કર્યું:')} ${peerLocation} | ${mapUrl}`,
+        'pin'
+      );
       setIsSharingLiveLocation(false);
       setIsMapModalOpen(false);
-      setReportStatusBanner('✅ लोकेशन पिन चैट में सफलतापूर्वक भेज दिया गया है!');
+      setReportStatusBanner(
+        tr(
+          '✅ Location pin sent in chat!',
+          '✅ लोकेशन पिन चैट में भेज दिया गया है!',
+          '✅ લોકેશન પિન ચેટમાં મોકલી દેવામાં આવ્યું છે!'
+        )
+      );
       setTimeout(() => setReportStatusBanner(null), 3500);
     };
 
@@ -1279,10 +1327,19 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
           const lat = pos.coords.latitude.toFixed(6);
           const lng = pos.coords.longitude.toFixed(6);
           const mapUrl = `https://www.google.com/maps?q=${lat},${lng}`;
-          handleSend(`📍 मेरी लाइव GPS लोकेशन (${peerLocation}) | ${mapUrl}`, 'pin');
+          handleSend(
+            `${tr('📍 Live GPS Location', '📍 मेरी लाइव GPS लोकेशन', '📍 મારું લાઈવ GPS લોકેશન')} (${peerLocation}) | ${mapUrl}`,
+            'pin'
+          );
           setIsSharingLiveLocation(false);
           setIsMapModalOpen(false);
-          setReportStatusBanner('✅ आपकी लाइव GPS लोकेशन चैट में भेज दी गई है!');
+          setReportStatusBanner(
+            tr(
+              '✅ Live GPS location sent in chat!',
+              '✅ आपकी लाइव GPS लोकेशन चैट में भेज दी गई है!',
+              '✅ તમારું લાઈવ GPS લોકેશન ચેટમાં મોકલી દેવામાં આવ્યું છે!'
+            )
+          );
           setTimeout(() => setReportStatusBanner(null), 3500);
         },
         () => {
@@ -1344,13 +1401,69 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
 
   const peerName = validSeller || (!isPostOwner ? savedProfileName : null) || "Community Peer";
   const peerBadge = (currentIntent as any)?.badge || "Verified Community Peer";
-  const peerDistance = currentIntent?.distance || 0.5;
-  const rawLocation = (currentIntent as any)?.location || (currentIntent as any)?.area || (currentIntent as any)?.city || (() => {
-    try { return localStorage.getItem('locohelp_profile_address'); } catch(e) { return null; }
-  })() || "Local Area";
-  const peerLocation = typeof rawLocation === 'string'
-    ? rawLocation.replace(/^,\s*|,\s*$|,+/g, ',').replace(/,\s*,/g, ',').replace(/^,\s*/, '').replace(/,\s*$/, '').trim() || "Local Area"
-    : "Local Area";
+
+  const matchedConvForPeer = React.useMemo(() => {
+    const targetPostId = String(currentIntent?.id || '').trim();
+    const targetHelperId = String(selectedReplierId || (currentIntent as any)?.helperId || '').trim().toLowerCase();
+    return inboxConversations.find((c: any) => {
+      const cPostId = String(c?.postId || c?.post_id || c?.id || '').trim();
+      const cHelperId = String(c?.helperId || c?.helper_id || c?.senderId || '').trim().toLowerCase();
+      if (targetPostId && cPostId === targetPostId) {
+        if (!targetHelperId || cHelperId === targetHelperId) return true;
+      }
+      return false;
+    });
+  }, [inboxConversations, currentIntent, selectedReplierId]);
+
+  const rawPeerLocation = React.useMemo(() => {
+    const candidates = [
+      (currentIntent as any)?.peerLocation,
+      isPostOwner ? matchedConvForPeer?.helperLocation : matchedConvForPeer?.posterLocation,
+      matchedConvForPeer?.location,
+      (currentIntent as any)?.location,
+      (currentIntent as any)?.area && (currentIntent as any)?.city
+        ? `${(currentIntent as any).area}, ${(currentIntent as any).city}`
+        : (currentIntent as any)?.area || (currentIntent as any)?.city
+    ];
+    for (const c of candidates) {
+      if (typeof c === 'string') {
+        const cleaned = c
+          .replace(/^,\s*|,\s*$|,+/g, ',')
+          .replace(/,\s*,/g, ',')
+          .replace(/^,\s*/, '')
+          .replace(/,\s*$/, '')
+          .trim();
+        if (cleaned && cleaned.toLowerCase() !== 'local area' && cleaned.toLowerCase() !== 'pan-india') {
+          return cleaned;
+        }
+      }
+    }
+    return '';
+  }, [currentIntent, isPostOwner, matchedConvForPeer]);
+
+  const myOwnLocationStr = React.useMemo(() => {
+    const reg = getProfileRegisteredLocation();
+    const saved = getSavedUserLocation();
+    const loc = reg || saved;
+    if (loc && (loc.taluka || loc.district)) {
+      return [loc.taluka, loc.district].filter(Boolean).join(', ');
+    }
+    try {
+      return localStorage.getItem('locohelp_profile_address') || '';
+    } catch {
+      return '';
+    }
+  }, []);
+
+  const computedPeerDistanceKm = React.useMemo(() => {
+    if (!rawPeerLocation || !myOwnLocationStr) return null;
+    return calculateLocationDistanceKm(myOwnLocationStr, rawPeerLocation);
+  }, [myOwnLocationStr, rawPeerLocation]);
+
+  const peerLocation = rawPeerLocation || tr('Local Area', 'लोकल एरिया', 'સ્થાનિક વિસ્તાર');
+  const peerDistance = computedPeerDistanceKm !== null
+    ? computedPeerDistanceKm
+    : (typeof currentIntent?.distance === 'number' && currentIntent.distance !== 0.5 ? currentIntent.distance : 0);
   const topicDesc = currentIntent?.description || (currentIntent as any)?.title || "LocoHelp Direct Broadcast & Service Inquiry";
 
   // Extract peer's 10-digit phone number (from intent or synthetic phone email) for Direct Call / WhatsApp
@@ -1731,12 +1844,17 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
                       setSelectedReplierEmail(isOwner ? resolvedHelperEmail : resolvedAuthorEmail);
                       setSelectedReplierAvatar(partnerAvatar || null);
 
+                      const partnerRealLocation = (isOwner
+                        ? (conv.helperLocation || conv.location)
+                        : (conv.posterLocation || conv.location)) || '';
+
                       const nextIntent = {
                         id: targetPostId,
                         authorId: resolvedAuthorId,
                         authorEmail: resolvedAuthorEmail,
                         authorName: isOwner ? (activeUser?.displayName || 'You') : partnerName,
-                        location: conv.location || 'Local Area',
+                        location: partnerRealLocation,
+                        peerLocation: partnerRealLocation,
                         description: postTopic || lastMsg,
                         helperId: resolvedHelperId,
                         selectedReplierId: resolvedHelperId,
@@ -1745,7 +1863,7 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
                         selectedReplierAvatar: partnerAvatar,
                         conversationId: convId,
                         isViewerPostOwner: isOwner,
-                        distance: 0.5,
+                        distance: 0,
                         tags: ['#General'],
                         status: 'open',
                         createdAt: new Date().toISOString(),
@@ -1874,15 +1992,20 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
                     e.stopPropagation();
                     setIsMapModalOpen(true);
                   }}
-                  className="text-indigo-600 dark:text-indigo-400 font-bold flex items-center gap-0.5 hover:underline cursor-pointer shrink-0"
-                  title="View on Map"
+                  className="text-indigo-600 dark:text-indigo-400 font-bold flex items-center gap-0.5 hover:underline cursor-pointer truncate"
+                  title={tr('View Location', 'लोकेशन देखें', 'લોકેશન જુઓ')}
                 >
                   <MapPin className="w-2.5 h-2.5 shrink-0" />
-                  <span>{peerLocation} ({peerDistance}km)</span>
-                </span>
-                <span className="text-slate-300 dark:text-slate-600 shrink-0">•</span>
-                <span className="truncate font-semibold text-slate-600 dark:text-slate-300" title={topicDesc}>
-                  {topicDesc}
+                  <span className="truncate">
+                    {peerLocation}
+                    {computedPeerDistanceKm !== null
+                      ? computedPeerDistanceKm === 0
+                        ? ` (${tr('Same Area', 'उसी क्षेत्र में', 'તમારા જ વિસ્તારમાં')})`
+                        : ` (${computedPeerDistanceKm} km)`
+                      : peerDistance > 0
+                        ? ` (${peerDistance} km)`
+                        : ''}
+                  </span>
                 </span>
               </div>
             </div>
@@ -2053,20 +2176,24 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
         </div>
       </div>
 
-      {/* Compact 1-Line Dismissible Safety Warning Strip */}
+      {/* Compact Very Small Safety Disclaimer Strip at Top of Chat */}
       {!isSafetyBannerDismissed && (
-        <div className="px-3 py-1 bg-amber-50/95 dark:bg-amber-950/70 border-b border-amber-200/80 dark:border-amber-800/80 flex items-center justify-between gap-2 text-[10px] font-bold text-amber-900 dark:text-amber-200">
-          <span className="truncate">
+        <div
+          style={{ fontSize: '8.5px', lineHeight: '1.2' }}
+          className="px-2 py-0.5 bg-amber-50/95 dark:bg-amber-950/70 border-b border-amber-200/80 dark:border-amber-800/80 flex items-center justify-between gap-1.5 font-medium text-amber-900 dark:text-amber-200"
+        >
+          <span style={{ fontSize: '8.5px', lineHeight: '1.2', display: 'block' }}>
             {language === 'EN'
-              ? '⚠️ Never pay advance online before work is done. Verify in person.'
+              ? 'LocoHelp is a free medium to connect community help and local information. We do not charge any direct money or commission for any work, service, or job. Please verify thoroughly on your own before doing any work or financial transaction with anyone.'
               : language === 'GU'
-              ? '⚠️ કામ પૂર્ણ થયા પહેલા ઓનલાઈન એડવાન્સ પૈસા આપશો નહીં.'
-              : '⚠️ काम पूरा होने से पहले ऑनलाइन एडवांस पैसे न दें।'}
+              ? 'લોકો હેલ્પ માત્ર જન સહાય અને સ્થાનિક માહિતી જોડવાનું એક નિશુલ્ક માધ્યમ છે અમે કોઈપણ કામ સર્વિસ કે નોકરી માટે કોઈની પાસેથી સીધા પૈસા કે કમિશન લેતા નથી કૃપા કરીને કોઈ પણ વ્યક્તિ સાથે કામ કે પૈસાની લેવડદેવડ કરતાં પહેલાં જાતે તેની પૂરી તપાસ કરી લો'
+              : 'लोको हेल्प केवल जन सहायता और स्थानीय जानकारी जोड़ने का एक निःशुल्क माध्यम है हम किसी भी काम सर्विस या नौकरी के लिए किसी से सीधे पैसे या कमीशन नहीं लेते हैं कृपया किसी भी व्यक्ति के साथ काम या पैसों का लेनदेन करने से पहले स्वयं पूरी जांच कर लें'}
           </span>
           <button
             type="button"
             onClick={() => setIsSafetyBannerDismissed(true)}
-            className="text-amber-700 dark:text-amber-300 hover:text-amber-950 px-1 font-black shrink-0 cursor-pointer"
+            style={{ fontSize: '9px', lineHeight: '1' }}
+            className="text-amber-700 dark:text-amber-300 hover:text-amber-950 px-1 font-bold shrink-0 cursor-pointer"
             title={tr('Dismiss', 'हटाएं', 'બંધ કરો')}
           >
             ✕
@@ -2139,21 +2266,18 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
         {isPostOwner && !selectedReplierId && visibleMessages.length === 0 ? (
           <div className="py-8 max-w-md mx-auto space-y-3">
             {distinctRepliers.length === 0 ? (
-              <div className="py-10 px-4 text-center space-y-3 bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 shadow-xs">
+              <div className="py-10 px-4 text-center space-y-2 bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 shadow-xs">
                 <div className="w-12 h-12 rounded-2xl bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 mx-auto flex items-center justify-center text-xl">
                   💬
                 </div>
                 <h4 className="text-sm font-black text-slate-900 dark:text-white">
-                  No responses yet / अभी तक कोई जवाब नहीं आया
+                  {tr('No responses yet', 'अभी तक कोई जवाब नहीं आया', 'હજુ કોઈ જવાબ આવ્યો નથી')}
                 </h4>
-                <p className="text-xs text-slate-500 dark:text-slate-400 font-medium leading-relaxed">
-                  No responses yet. When someone messages you about this post, their chat will appear here.
-                </p>
               </div>
             ) : (
               <div className="space-y-2.5">
                 <p className="text-xs font-black text-slate-700 dark:text-slate-200 px-1">
-                  💬 Select a person below to open your 1-on-1 chat (बातचीत शुरू करने के लिए किसी एक व्यक्ति को चुनें):
+                  💬 {tr('Select a person below to open chat:', 'बातचीत के लिए किसी एक व्यक्ति को चुनें:', 'વાતચીત કરવા માટે નીચેમાંથી વ્યક્તિ પસંદ કરો:')}
                 </p>
                 {distinctRepliers.map(rep => (
                   <div
@@ -2173,29 +2297,17 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
                       <div className="min-w-0">
                         <h4 className="text-xs font-black text-slate-900 dark:text-white truncate">{rep.name}</h4>
                         <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                          {rep.lastMessage || 'Tap to view 1-on-1 chat'}
+                          {rep.lastMessage || tr('Tap to open chat', 'चैट खोलने के लिए टैप करें', 'ચેટ ખોલવા માટે ક્લિક કરો')}
                         </p>
                       </div>
                     </div>
                     <span className="px-3 py-1.5 rounded-xl bg-emerald-600 text-white text-[11px] font-black shrink-0">
-                      Open Chat →
+                      {tr('Open Chat →', 'चैट खोलें →', 'ચેટ ખોલો →')}
                     </span>
                   </div>
                 ))}
               </div>
             )}
-          </div>
-        ) : visibleMessages.length === 0 ? (
-          <div className="py-12 text-center space-y-2">
-            <div className="w-12 h-12 rounded-2xl bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 mx-auto flex items-center justify-center text-xl shadow-inner">
-              💬
-            </div>
-            <p className="text-xs font-black text-slate-800 dark:text-slate-200">
-              Start 1-on-1 Conversation / बातचीत शुरू करें
-            </p>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 max-w-xs mx-auto font-medium">
-              Type your message below to start chatting privately with {peerName}.
-            </p>
           </div>
         ) : null}
         {visibleMessages.map((msg) => {
@@ -2252,7 +2364,7 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
                     }`}
                   >
                     <Navigation className="w-3.5 h-3.5" />
-                    <span>🗺️ Google Maps पर लोकेशन देखें</span>
+                    <span>{tr('🗺️ View Location on Google Maps', '🗺️ Google Maps पर लोकेशन देखें', '🗺️ Google Maps પર લોકેશન જુઓ')}</span>
                   </a>
                 </div>
               </div>
@@ -2638,22 +2750,13 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
                 </div>
               </label>
 
-              <div className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800/80 text-[10px] text-slate-600 dark:text-slate-300 font-semibold leading-relaxed">
-                🛡️ <strong>{tr('Safety Note:', 'सुरक्षा नोट:', 'સુરક્ષા નોંધ:')}</strong>{' '}
-                {tr(
-                  'Upon submitting a report, an evidence snapshot of this conversation is securely saved for Admin review.',
-                  'रिपोर्ट सबमिट करने पर इस चैट की संपूर्ण बातचीत का रिकॉर्ड (Evidence Snapshot) एडमिन के पास सुरक्षित सेव हो जाएगा, भले ही कोई यूज़र बाद में अपनी चैट या अकाउंट डिलीट कर दे।',
-                  'રિપોર્ટ સબમિટ કરવાથી આ ચેટનો સંપૂર્ણ રેકોર્ડ એડમિન પાસે સુરક્ષિત સેવ થઈ જશે.'
-                )}
-              </div>
-
               <div className="flex gap-2">
                 <button
                   type="button"
                   onClick={() => setIsReportChatModalOpen(false)}
                   className="flex-1 py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-extrabold cursor-pointer"
                 >
-                  {tr('Cancel', 'रद्द करें (Cancel)', 'રદ કરો')}
+                  {tr('Cancel', 'रद्द करें', 'રદ કરો')}
                 </button>
                 <button
                   type="button"

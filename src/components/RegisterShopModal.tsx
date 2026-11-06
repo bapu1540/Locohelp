@@ -652,17 +652,7 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
                     <Camera className="w-4 h-4 text-emerald-600" />
                     <span>{tr('📸 Owner Live Camera Selfie (Mandatory) *', '📸 दुकान मालिक की लाइव सेल्फी (अनिवार्य) *', '📸 દુકાન માલિકની લાઈવ સેલ્ફી (ફરજિયાત) *')}</span>
                   </label>
-                  <span className="text-[10px] bg-emerald-600 text-white px-2 py-0.5 rounded-full font-extrabold">
-                    {tr('Anti-Copy Shield', 'चोरी-रोधी सुरक्षा', 'કોપી-પ્રોટેક્ટેડ')}
-                  </span>
                 </div>
-                <p className="text-[11px] text-slate-600 dark:text-slate-300 font-medium">
-                  {tr(
-                    'To prevent fake listings without asking for Government IDs, a live camera selfie of the shop owner is mandatory. Protected against download & screenshots.',
-                    'फर्जी लिस्टिंग रोकने के लिए मालिक की लाइव सेल्फी अनिवार्य है। इसे कोई डाउनलोड या स्क्रीनशॉट नहीं कर सकता।',
-                    'બોગસ લિસ્ટિંગ રોકવા માટે માલિકની લાઈવ સેલ્ફી ફરજિયાત છે. તેને કોઈ ડાઉનલોડ કે સ્ક્રીનશોટ કરી શકશે નહીં.'
-                  )}
-                </p>
                 <div className="flex items-center gap-3">
                   {idDocumentWatermarked && (
                     <ProtectedSelfieCanvas

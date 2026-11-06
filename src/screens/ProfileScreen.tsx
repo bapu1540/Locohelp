@@ -683,7 +683,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
           try {
             localStorage.setItem('locohelp_profile_photo', base64String);
           } catch {}
-          setPhotoSavedMsg('✅ प्रोफाइल फोटो सेव हो गई!');
+          setPhotoSavedMsg(tr('✅ Profile photo saved!', '✅ प्रोफाइल फोटो सेव हो गई!', '✅ પ્રોફાઇલ ફોટો સેવ થઈ ગયો!'));
           setTimeout(() => setPhotoSavedMsg(null), 4000);
         };
         reader.readAsDataURL(file);
@@ -2120,7 +2120,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                 {/* 9. Mandatory Owner Live Camera Selfie */}
                 <div className="p-3 rounded-2xl bg-amber-50/70 dark:bg-slate-900 border-2 border-amber-300 dark:border-amber-700 space-y-2">
                   <label className="block text-xs font-black text-amber-950 dark:text-amber-300">
-                    {tr('📸 Owner Live Camera Selfie * (Mandatory • Anti-Download Protected)', '📸 मालिक की लाइव कैमरा सेल्फी * (वेरिफिकेशन के लिए अनिवार्य)', '📸 માલિકની લાઈવ કેમેરા સેલ્ફી * (ચકાસણી માટે ફરજિયાત)')}
+                    {tr('📸 Owner Live Camera Selfie *', '📸 मालिक की लाइव कैमरा सेल्फी *', '📸 માલિકની લાઈવ કેમેરા સેલ્ફી *')}
                   </label>
                   <input 
                     type="file" 
@@ -2141,10 +2141,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                       <div className="text-left space-y-0.5">
                         <p className="text-[11px] text-emerald-700 dark:text-emerald-300 font-black flex items-center gap-1">
                           <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                          {tr('Owner Live Selfie Protected & Ready', 'मालिक की लाइव सेल्फी सुरक्षित और तैयार है', 'માલિકની લાઈવ સેલ્ફી સુરક્ષિત અને તૈયાર છે')}
-                        </p>
-                        <p className="text-[10px] text-slate-500 font-semibold">
-                          🔒 {tr('Anti-Download & Watermark Active', 'एंटी-डाउनलोड और वॉटरमार्क सक्रिय', 'એન્ટી-ડાઉનલોડ અને વોટરમાર્ક સક્રિય')}
+                          {tr('Owner Live Selfie Ready', 'मालिक की लाइव सेल्फी तैयार है', 'માલિકની લાઈવ સેલ્ફી તૈયાર છે')}
                         </p>
                       </div>
                     </div>

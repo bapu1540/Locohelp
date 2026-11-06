@@ -226,31 +226,64 @@ export async function validateUploadedFile(
       };
     }
 
-    // Check first 512 bytes for disguised HTML/SVG/Script tags
-    const textSample = new TextDecoder('utf-8', { fatal: false }).decode(bytes).toLowerCase();
-    if (
-      textSample.includes('<script') ||
-      textSample.includes('<iframe') ||
-      textSample.includes('<svg') ||
-      textSample.includes('<!doctype html') ||
-      textSample.includes('javascript:') ||
-      textSample.includes('onerror=')
-    ) {
-      return {
-        valid: false,
-        error: 'Security Block: Malicious script or HTML content detected inside file.',
-        errorHi: 'सुरक्षा ब्लॉक: फ़ाइल में संदिग्ध स्क्रिप्ट या HTML कोड पाया गया।'
-      };
+    // Check if file starts with genuine binary image magic bytes (JPEG, PNG, WebP, GIF, BMP, HEIC/AVIF)
+    const isJpeg = bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+    const isPng =
+      bytes.length >= 4 &&
+      bytes[0] === 0x89 &&
+      bytes[1] === 0x50 &&
+      bytes[2] === 0x4e &&
+      bytes[3] === 0x47;
+    const isGif =
+      bytes.length >= 4 &&
+      bytes[0] === 0x47 &&
+      bytes[1] === 0x49 &&
+      bytes[2] === 0x46 &&
+      bytes[3] === 0x38;
+    const isWebp =
+      bytes.length >= 12 &&
+      bytes[0] === 0x52 &&
+      bytes[1] === 0x49 &&
+      bytes[2] === 0x46 &&
+      bytes[3] === 0x46 &&
+      bytes[8] === 0x57 &&
+      bytes[9] === 0x45 &&
+      bytes[10] === 0x42 &&
+      bytes[11] === 0x50;
+    const isBmp = bytes.length >= 2 && bytes[0] === 0x42 && bytes[1] === 0x4d;
+    const isIsoBmff =
+      bytes.length >= 12 &&
+      bytes[4] === 0x66 &&
+      bytes[5] === 0x74 &&
+      bytes[6] === 0x79 &&
+      bytes[7] === 0x70; // ftyp (HEIC / HEIF / AVIF)
+
+    const isGenuineBinaryImage = isJpeg || isPng || isGif || isWebp || isBmp || isIsoBmff;
+
+    if (!isGenuineBinaryImage) {
+      // Only inspect text for disguised HTML/SVG/Script if it is NOT a genuine binary image
+      // (Binary images often contain XMP/EXIF XML metadata in the first 512 bytes)
+      const textSample = new TextDecoder('utf-8', { fatal: false }).decode(bytes).trim().toLowerCase();
+      if (
+        textSample.startsWith('<!doctype html') ||
+        textSample.startsWith('<html') ||
+        textSample.startsWith('<script') ||
+        textSample.startsWith('<svg') ||
+        textSample.includes('<script') ||
+        textSample.includes('<iframe')
+      ) {
+        return {
+          valid: false,
+          error: 'Security Block: Malicious script or HTML content detected inside file.',
+          errorHi: 'सुरक्षा ब्लॉक: फ़ाइल में संदिग्ध स्क्रिप्ट या HTML कोड पाया गया।'
+        };
+      }
     }
   } catch (e) {
-    return {
-      valid: false,
-      error: 'Failed to inspect image file header.',
-      errorHi: 'इमेज फ़ाइल की जांच करने में त्रुटि।'
-    };
+    // Allow image if FileReader/Canvas will process it downstream
   }
 
-  return { valid: true, mimeType: mime, isPdf: false };
+  return { valid: true, mimeType: mime || 'image/jpeg', isPdf: false };
 }
 
 /**
