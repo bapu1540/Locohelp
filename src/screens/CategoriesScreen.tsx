@@ -678,6 +678,7 @@ export default function CategoriesScreen({
     return Boolean(saved?.district && String(saved.district).trim().toLowerCase() !== 'all');
   });
   const [reviewModalHelper, setReviewModalHelper] = useState<FreeHelperProfile | null>(null);
+  const [zoomedVisitingCard, setZoomedVisitingCard] = useState<{ url: string; name: string } | null>(null);
   const [helperReviewsList, setHelperReviewsList] = useState<HelperReviewItem[]>([]);
   const [reviewStarVal, setReviewStarVal] = useState<number>(5);
   const [reviewTextVal, setReviewTextVal] = useState<string>('');
@@ -716,6 +717,11 @@ export default function CategoriesScreen({
   // Handle hardware Back button inside CategoriesScreen modals & sub-categories
   useEffect(() => {
     const handleCloseActiveModal = (e: Event) => {
+      if (zoomedVisitingCard) {
+        e.preventDefault();
+        setZoomedVisitingCard(null);
+        return;
+      }
       if (reviewModalHelper) {
         e.preventDefault();
         setReviewModalHelper(null);
@@ -1349,8 +1355,8 @@ export default function CategoriesScreen({
                         </button>
                       </div>
 
-                      {/* Skills chips */}
-                      <div className="flex flex-wrap gap-1.5 my-2.5">
+                      {/* Skills chips & Visiting Card Badge */}
+                      <div className="flex flex-wrap items-center gap-1.5 my-2.5">
                         {helper.skills.map((skill, idx) => (
                           <span
                             key={idx}
@@ -1359,6 +1365,37 @@ export default function CategoriesScreen({
                             {skill}
                           </span>
                         ))}
+
+                        {Boolean(
+                          (helper as any).visitingCardUrl ||
+                          (helper as any).workPhotoUrl ||
+                          (helper as any).visiting_card_url
+                        ) && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setZoomedVisitingCard({
+                                url:
+                                  (helper as any).visitingCardUrl ||
+                                  (helper as any).workPhotoUrl ||
+                                  (helper as any).visiting_card_url,
+                                name: helper.name,
+                              })
+                            }
+                            className="inline-flex items-center gap-1 text-[11px] font-extrabold px-2.5 py-0.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 border border-emerald-300/80 dark:border-emerald-700/80 shadow-2xs transition-all cursor-pointer active:scale-95"
+                            title={tr(
+                              'View Visiting Card / Work Photo',
+                              'विजिटिंग कार्ड / काम का फोटो देखें',
+                              'વિઝિટિંગ કાર્ડ / કામનો ફોટો જુઓ'
+                            )}
+                          >
+                            <span>🪪</span>
+                            <span>
+                              {tr('Visiting Card', 'विजिटिंग कार्ड', 'વિઝિટિંગ કાર્ડ જુઓ')}
+                            </span>
+                            <span className="text-[10px] text-emerald-600 font-bold">🔍</span>
+                          </button>
+                        )}
                       </div>
                     </div>
 
@@ -1644,6 +1681,57 @@ export default function CategoriesScreen({
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Full-Screen Zoom Modal for Visiting Card / Work Photo */}
+      {zoomedVisitingCard && (
+        <div
+          onClick={() => setZoomedVisitingCard(null)}
+          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-4 animate-in fade-in"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-xl flex items-center justify-between text-white mb-2.5 px-1"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-xl">🪪</span>
+              <div className="truncate">
+                <span className="font-extrabold text-sm block truncate">
+                  {zoomedVisitingCard.name} — {tr('Visiting Card', 'विजिटिंग कार्ड', 'વિઝિટિંગ કાર્ડ')}
+                </span>
+                <span className="text-[11px] text-emerald-400 font-semibold block">
+                  {tr('Verified Service Expert Work Photo', 'वेरिफाइड सर्विस एक्सपर्ट फोटो', 'વેરિફાઈડ સર્વિસ એક્સપર્ટ કામનો ફોટો')}
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setZoomedVisitingCard(null)}
+              className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 text-white font-bold text-sm flex items-center justify-center cursor-pointer transition-colors shrink-0 ml-3"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="max-w-full max-h-[82vh] overflow-auto rounded-2xl border border-white/20 bg-slate-950 shadow-2xl flex items-center justify-center"
+          >
+            <img
+              src={zoomedVisitingCard.url}
+              alt="Visiting Card Zoomed"
+              className="max-w-full max-h-[82vh] object-contain rounded-xl select-none"
+            />
+          </div>
+
+          <p className="mt-3 text-xs text-slate-300 font-semibold text-center">
+            {tr(
+              'Tap anywhere to close',
+              'स्क्रीन पर कहीं भी टैप करके बंद करें',
+              'સ્ક્રીન પર ગમે ત્યાં ક્લિક કરીને બંધ કરો'
+            )}
+          </p>
         </div>
       )}
     </div>

@@ -79,6 +79,8 @@ export interface ShowcaseProviderItem {
   email?: string;
   isVerified?: boolean;
   isPhonePublic?: boolean;
+  visitingCardUrl?: string;
+  workPhotoUrl?: string;
 }
 
 export const DEFAULT_SHOWCASE_PROVIDERS: ShowcaseProviderItem[] = [];
@@ -143,6 +145,8 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
     photoUrl: '',
   });
   const [isSubmittingAd, setIsSubmittingAd] = useState<boolean>(false);
+
+  const [zoomedVisitingCardUrl, setZoomedVisitingCardUrl] = useState<string | null>(null);
 
   const [favoriteIds, setFavoriteIds] = useState<string[]>(() => {
     try {
@@ -343,6 +347,8 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
             avatarUrl: avatar,
             phone: isPhoneAvailable ? rawPhone : '',
             isPhonePublic: isPhoneAvailable,
+            visitingCardUrl: prov.visitingCardUrl || prov.workPhotoUrl || prov.visiting_card_url || '',
+            workPhotoUrl: prov.visitingCardUrl || prov.workPhotoUrl || prov.visiting_card_url || '',
             areaGu: prov.area || selectedCityName || 'ગાંધીનગર',
             areaHi: prov.area || selectedCityName || 'गांधीनगर',
             areaEn: prov.area || selectedCityName || 'Local Area',
@@ -1079,7 +1085,7 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
         )}
       </div>
 
-      {/* 3. Two Side-by-Side Action Banners: Urgent Service & Advertise Business (Opens Admin Email support@locohelp.com) */}
+      {/* 3. Two Side-by-Side Action Banners: Urgent Service & Advertise Business (Uniform Premium Light Theme) */}
       <div
         style={{
           display: 'grid',
@@ -1088,7 +1094,7 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
           width: '100%',
         }}
       >
-        {/* Left Blue Pill Banner: તાત્કાલિક સેવા જોઈએ? હમણાં બુક કરો -> */}
+        {/* Urgent Service Button */}
         <button
           type="button"
           onClick={onUrgentBookNow}
@@ -1097,39 +1103,40 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
             flexDirection: 'row',
             alignItems: 'center',
             gap: '8px',
-            padding: '10px',
-            borderRadius: '16px',
-            background: 'linear-gradient(90deg, #1d4ed8 0%, #2563eb 50%, #3b82f6 100%)',
-            color: '#ffffff',
-            border: '1px solid #60a5fa',
+            padding: '8px 10px',
+            borderRadius: '12px',
+            backgroundColor: '#eff6ff',
+            border: '1px solid #bfdbfe',
             cursor: 'pointer',
             textAlign: 'left',
             width: '100%',
           }}
+          title="Urgent Service Booking"
         >
           <div
             style={{
-              width: '32px',
-              height: '32px',
-              borderRadius: '10px',
-              backgroundColor: 'rgba(255,255,255,0.2)',
+              width: '28px',
+              height: '28px',
+              borderRadius: '8px',
+              backgroundColor: '#2563eb',
+              color: '#ffffff',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               flexShrink: 0,
             }}
           >
-            <Calendar className="w-4 h-4 text-white" />
+            <Calendar className="w-3.5 h-3.5" />
           </div>
-          <div style={{ minWidth: 0, flex: 1, lineHeight: 1.2 }}>
-            <div style={{ fontSize: '10.5px', fontWeight: 900 }}>
+          <div style={{ minWidth: 0, flex: 1, lineHeight: 1.15 }}>
+            <div style={{ fontSize: '10px', fontWeight: 900, color: '#1e3a8a' }}>
               {language === 'GU'
                 ? 'તાત્કાલિક સેવા જોઈએ?'
                 : language === 'HI'
                 ? 'तत्काल सेवा चाहिए?'
                 : 'Need Urgent Service?'}
             </div>
-            <div style={{ fontSize: '10px', fontWeight: 800, color: '#fef08a', marginTop: '2px' }}>
+            <div style={{ fontSize: '8.5px', fontWeight: 700, color: '#1d4ed8', marginTop: '2px' }}>
               {language === 'GU'
                 ? 'હમણાં બુક કરો →'
                 : language === 'HI'
@@ -1154,11 +1161,10 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
             flexDirection: 'row',
             alignItems: 'center',
             gap: '8px',
-            padding: '10px',
-            borderRadius: '16px',
-            background: 'linear-gradient(90deg, #bef264 0%, #a3e635 50%, #4ade80 100%)',
-            color: '#0f172a',
-            border: '1px solid #86efac',
+            padding: '8px 10px',
+            borderRadius: '12px',
+            backgroundColor: '#f0fdf4',
+            border: '1px solid #bbf7d0',
             cursor: 'pointer',
             textAlign: 'left',
             width: '100%',
@@ -1167,27 +1173,28 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
         >
           <div
             style={{
-              width: '32px',
-              height: '32px',
-              borderRadius: '10px',
-              backgroundColor: 'rgba(255,255,255,0.75)',
+              width: '28px',
+              height: '28px',
+              borderRadius: '8px',
+              backgroundColor: '#16a34a',
+              color: '#ffffff',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               flexShrink: 0,
             }}
           >
-            <Megaphone className="w-4 h-4 text-orange-600" />
+            <Megaphone className="w-3.5 h-3.5" />
           </div>
-          <div style={{ minWidth: 0, flex: 1, lineHeight: 1.2 }}>
-            <div style={{ fontSize: '10.5px', fontWeight: 900, color: '#0f172a' }}>
+          <div style={{ minWidth: 0, flex: 1, lineHeight: 1.15 }}>
+            <div style={{ fontSize: '10px', fontWeight: 900, color: '#14532d' }}>
               {language === 'GU'
                 ? 'તમારા વ્યવસાયની'
                 : language === 'HI'
                 ? 'अपने व्यवसाय का'
                 : 'Promote Your'}
             </div>
-            <div style={{ fontSize: '10px', fontWeight: 900, color: '#14532d', marginTop: '2px' }}>
+            <div style={{ fontSize: '8.5px', fontWeight: 700, color: '#15803d', marginTop: '2px' }}>
               {language === 'GU'
                 ? 'જાહેરાત આપો →'
                 : language === 'HI'
@@ -1768,6 +1775,105 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
                   </p>
                 </div>
 
+                {/* Visiting Card / Work Photo Display Section */}
+                {(selectedProviderProfile.visitingCardUrl || selectedProviderProfile.workPhotoUrl) && (
+                  <div
+                    style={{
+                      backgroundColor: '#f8fafc',
+                      border: '1.5px dashed #94a3b8',
+                      borderRadius: '14px',
+                      padding: '10px 12px',
+                      marginBottom: '14px',
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        marginBottom: '8px',
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: '11px',
+                          fontWeight: 900,
+                          color: '#0f766e',
+                          textTransform: 'uppercase',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                        }}
+                      >
+                        <span>🪪</span>
+                        <span>
+                          {language === 'GU'
+                            ? 'વિઝિટિંગ કાર્ડ / કામનો ફોટો'
+                            : language === 'HI'
+                            ? 'विजिटिंग कार्ड / काम का फोटो'
+                            : 'Visiting Card / Work Photo'}
+                        </span>
+                      </div>
+                      <span
+                        style={{
+                          fontSize: '9.5px',
+                          fontWeight: 700,
+                          color: '#0369a1',
+                          backgroundColor: '#e0f2fe',
+                          padding: '2px 6px',
+                          borderRadius: '6px',
+                        }}
+                      >
+                        {language === 'GU' ? 'મોટું જોવા ટચ કરો 🔍' : language === 'HI' ? 'बड़ा देखने के लिए टैप करें 🔍' : 'Tap to Zoom 🔍'}
+                      </span>
+                    </div>
+
+                    <div
+                      onClick={() => setZoomedVisitingCardUrl(selectedProviderProfile.visitingCardUrl || selectedProviderProfile.workPhotoUrl || null)}
+                      style={{
+                        position: 'relative',
+                        width: '100%',
+                        maxHeight: '220px',
+                        borderRadius: '10px',
+                        overflow: 'hidden',
+                        cursor: 'pointer',
+                        border: '1px solid #cbd5e1',
+                        backgroundColor: '#0f172a',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <img
+                        src={selectedProviderProfile.visitingCardUrl || selectedProviderProfile.workPhotoUrl}
+                        alt="Visiting Card"
+                        style={{
+                          maxWidth: '100%',
+                          maxHeight: '220px',
+                          objectFit: 'contain',
+                          display: 'block',
+                        }}
+                      />
+                      <div
+                        style={{
+                          position: 'absolute',
+                          bottom: '6px',
+                          right: '8px',
+                          backgroundColor: 'rgba(15, 23, 42, 0.75)',
+                          color: '#ffffff',
+                          fontSize: '10px',
+                          fontWeight: 800,
+                          padding: '3px 8px',
+                          borderRadius: '8px',
+                          backdropFilter: 'blur(4px)',
+                        }}
+                      >
+                        🔍 {language === 'GU' ? 'મોટો ફોટો જુઓ' : language === 'HI' ? 'ज़ूम करें' : 'Full Screen'}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Action Buttons: Call Now, Direct Chat, Favorite */}
                 <div
                   style={{
@@ -2209,6 +2315,114 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
                   )}
                 </div>
               </div>
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {/* Full-Screen Zoom Modal for Visiting Card / Work Photo */}
+      {zoomedVisitingCardUrl &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            onClick={() => setZoomedVisitingCardUrl(null)}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 100000,
+              backgroundColor: 'rgba(0, 0, 0, 0.92)',
+              backdropFilter: 'blur(8px)',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '16px',
+            }}
+          >
+            <div
+              style={{
+                width: '100%',
+                maxWidth: '650px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                color: '#ffffff',
+                marginBottom: '10px',
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '18px' }}>🪪</span>
+                <span style={{ fontSize: '14px', fontWeight: 900 }}>
+                  {language === 'GU'
+                    ? 'વિઝિટિંગ કાર્ડ / કામનો ફોટો'
+                    : language === 'HI'
+                    ? 'विजिटिंग कार्ड / काम का फोटो'
+                    : 'Visiting Card / Work Photo'}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setZoomedVisitingCardUrl(null)}
+                style={{
+                  backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                  border: 'none',
+                  color: '#ffffff',
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '9999px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  fontSize: '16px',
+                  fontWeight: 900,
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                maxWidth: '100%',
+                maxHeight: '82vh',
+                overflow: 'auto',
+                borderRadius: '16px',
+                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                backgroundColor: '#0f172a',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <img
+                src={zoomedVisitingCardUrl}
+                alt="Visiting Card Zoomed"
+                style={{
+                  maxWidth: '100%',
+                  maxHeight: '82vh',
+                  objectFit: 'contain',
+                  borderRadius: '14px',
+                }}
+              />
+            </div>
+
+            <div
+              style={{
+                marginTop: '12px',
+                color: '#cbd5e1',
+                fontSize: '11px',
+                fontWeight: 700,
+              }}
+            >
+              {language === 'GU'
+                ? 'સ્ક્રીન પર ગમે ત્યાં ક્લિક કરીને બંધ કરો'
+                : language === 'HI'
+                ? 'स्क्रीन पर कहीं भी टैप करके बंद करें'
+                : 'Tap anywhere to close'}
             </div>
           </div>,
           document.body

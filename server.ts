@@ -1044,7 +1044,7 @@ const postCooldowns = new Map<string, number>(); // key -> last post timestamp m
 const otpCooldowns = new Map<string, number>();  // identifier/ip -> last otp timestamp ms
 const otpCooldownByIdentifier = otpCooldowns;
 
-const POST_COOLDOWN_MS = 3 * 1000;  // 3 seconds between creating posts
+const POST_COOLDOWN_MS = 60 * 1000;  // 60 seconds (Anti-Spam 1 minute between posts)
 const OTP_COOLDOWN_MS = 15 * 1000;  // 15 seconds on OTP resend
 const OTP_RESEND_COOLDOWN_MS = OTP_COOLDOWN_MS;
 
@@ -2357,6 +2357,8 @@ async function initPostgresTables(pool: pg.Pool): Promise<string[]> {
   await execSafeDDL(pool, `ALTER TABLE helpers ADD COLUMN IF NOT EXISTS user_id TEXT`, "helpers.user_id");
   await execSafeDDL(pool, `ALTER TABLE helpers ADD COLUMN IF NOT EXISTS email TEXT`, "helpers.email");
   await execSafeDDL(pool, `ALTER TABLE helpers ADD COLUMN IF NOT EXISTS photo_url TEXT`, "helpers.photo_url");
+  await execSafeDDL(pool, `ALTER TABLE helpers ADD COLUMN IF NOT EXISTS visiting_card_url TEXT`, "helpers.visiting_card_url");
+  await execSafeDDL(pool, `ALTER TABLE helpers ADD COLUMN IF NOT EXISTS is_phone_public BOOLEAN DEFAULT false`, "helpers.is_phone_public");
   await execSafeDDL(pool, `ALTER TABLE helpers ADD COLUMN IF NOT EXISTS custom_category_name TEXT`, "helpers.custom_category_name");
   await execSafeDDL(pool, `ALTER TABLE helpers ADD COLUMN IF NOT EXISTS rating NUMERIC DEFAULT 5.0`, "helpers.rating");
   await execSafeDDL(pool, `ALTER TABLE helpers ADD COLUMN IF NOT EXISTS review_count INTEGER DEFAULT 0`, "helpers.review_count");
@@ -9754,7 +9756,16 @@ async function startServer() {
       );
 
       // Validate any chat attachment (Images <= 2MB, PDFs <= 5MB)
-      if (message.attachmentUrl) {
+      // Note: phone_shared messages store the 10-digit mobile number in attachmentUrl; do not treat it as a media file
+      const isPhoneSharedType = String(message.type || "").trim() === "phone_shared";
+      const isPlainPhoneNumber = Boolean(
+        message.attachmentUrl &&
+          !String(message.attachmentUrl).startsWith("data:") &&
+          !String(message.attachmentUrl).startsWith("http") &&
+          /^[6-9]\d{9}$/.test(String(message.attachmentUrl).replace(/\D/g, "").slice(-10))
+      );
+
+      if (message.attachmentUrl && !isPhoneSharedType && !isPlainPhoneNumber) {
         const attachCheck = validateServerUploadedData(message.attachmentUrl, { allowPdf: true });
         if (!attachCheck.valid) {
           return res.status(400).json({ error: attachCheck.error });
@@ -9908,9 +9919,9 @@ async function startServer() {
       // Enforce User-to-User Chat Block & upload any attachment in parallel
       const [blockCheck, uploadedChatAttachment] = await Promise.all([
         checkChatBlockState(postId, senderIdVal, resolvedReceiverId),
-        message.attachmentUrl
+        message.attachmentUrl && (String(message.attachmentUrl).startsWith("data:") || String(message.attachmentUrl).startsWith("http"))
           ? uploadDataToFirebaseServer(message.attachmentUrl, "chat_attachments")
-          : Promise.resolve(null)
+          : Promise.resolve(message.attachmentUrl || null)
       ]);
       if (blockCheck.isBlocked) {
         return res.status(403).json({
@@ -11107,6 +11118,9 @@ async function startServer() {
                 reviews: Array.isArray(r.reviews) ? r.reviews : (Array.isArray(localMatch.reviews) ? localMatch.reviews : []),
                 photoUrl: r.photo_url || localMatch.watermarkedSelfieUrl || localMatch.photoUrl || null,
                 watermarkedSelfieUrl: r.photo_url || localMatch.watermarkedSelfieUrl || localMatch.photoUrl || null,
+                visitingCardUrl: r.visiting_card_url || localMatch.visitingCardUrl || localMatch.workPhotoUrl || null,
+                workPhotoUrl: r.visiting_card_url || localMatch.visitingCardUrl || localMatch.workPhotoUrl || null,
+                isPhonePublic: r.is_phone_public !== undefined && r.is_phone_public !== null ? Boolean(r.is_phone_public) : Boolean(localMatch.isPhonePublic),
                 isVerified: isApproved,
                 status: isRejected ? 'rejected' : (isApproved ? 'approved' : 'pending'),
                 govtIdUploaded: Boolean(r.govt_id_uploaded || localMatch.govtIdUploaded),
@@ -11356,8 +11370,8 @@ async function startServer() {
       if (dbPool && isDbConnected) {
         try {
           await dbPool.query(`
-            INSERT INTO helpers (id, user_id, email, name, category_id, custom_category_name, phone, skills, area, experience, distance, photo_url, is_verified, status, govt_id_uploaded, id_doc_url, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+            INSERT INTO helpers (id, user_id, email, name, category_id, custom_category_name, phone, is_phone_public, skills, area, experience, distance, photo_url, visiting_card_url, is_verified, status, govt_id_uploaded, id_doc_url, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
             ON CONFLICT (id) DO UPDATE SET
               user_id = COALESCE(NULLIF(EXCLUDED.user_id, ''), helpers.user_id),
               email = COALESCE(NULLIF(EXCLUDED.email, ''), helpers.email),
@@ -11365,10 +11379,12 @@ async function startServer() {
               category_id = EXCLUDED.category_id,
               custom_category_name = EXCLUDED.custom_category_name,
               phone = EXCLUDED.phone,
+              is_phone_public = EXCLUDED.is_phone_public,
               skills = EXCLUDED.skills,
               area = EXCLUDED.area,
               experience = EXCLUDED.experience,
               photo_url = COALESCE(NULLIF(EXCLUDED.photo_url, ''), helpers.photo_url),
+              visiting_card_url = COALESCE(NULLIF(EXCLUDED.visiting_card_url, ''), helpers.visiting_card_url),
               is_verified = EXCLUDED.is_verified,
               status = EXCLUDED.status
           `, [
@@ -11379,11 +11395,13 @@ async function startServer() {
             newHelper.categoryId,
             newHelper.customCategoryName || '',
             newHelper.phone,
+            Boolean(newHelper.isPhonePublic),
             newHelper.skills,
             newHelper.area,
             newHelper.experience,
             newHelper.distance,
             newHelper.photoUrl || null,
+            newHelper.visitingCardUrl || null,
             autoApprove,
             newHelper.status,
             newHelper.govtIdUploaded,

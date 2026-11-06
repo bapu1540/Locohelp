@@ -264,7 +264,7 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
 
       // 2. Record cooldown & update feed across all phones
       recordPostCreatedTimestamp();
-      setCooldownRemaining(30);
+      setCooldownRemaining(60);
 
       if (onPostCreated) {
         onPostCreated(finalSavedPost);
@@ -407,9 +407,10 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
                     }
                     setIsUploadingAttachment(true);
                     try {
-                      if (attachmentUrl) {
+                      if (attachmentUrl && attachmentUrl.startsWith('http')) {
                         await deleteFileFromFirebaseStorage(attachmentUrl).catch(() => {});
                       }
+                      // 1. First compress using client-side WebP canvas (without watermark as user requested clean public photos)
                       const uploadedUrl = await compressImageToWebP(file, {
                         maxWidth: 1200,
                         quality: 0.75,
@@ -417,10 +418,25 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
                       });
                       setAttachmentUrl(uploadedUrl);
                     } catch {
+                      // 2. Reliable client-side FileReader fallback directly to Base64 Data URL (safely stored & uploaded on server)
                       try {
-                        const fallbackUrl = await uploadFileToFirebaseStorage(file, 'help_requests', file.name);
-                        setAttachmentUrl(fallbackUrl);
-                      } catch {}
+                        const reader = new FileReader();
+                        reader.onload = (ev) => {
+                          const resultStr = String(ev.target?.result || '');
+                          if (resultStr) {
+                            setAttachmentUrl(resultStr);
+                          }
+                          setIsUploadingAttachment(false);
+                        };
+                        reader.onerror = () => {
+                          setIsUploadingAttachment(false);
+                        };
+                        reader.readAsDataURL(file);
+                        e.target.value = '';
+                        return;
+                      } catch {
+                        setIsUploadingAttachment(false);
+                      }
                     } finally {
                       setIsUploadingAttachment(false);
                       e.target.value = '';

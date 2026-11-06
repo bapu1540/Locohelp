@@ -1113,7 +1113,17 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
     }
   }, [currentIntent]);
 
+  const pendingPhoneTargetMsgRef = useRef<any>(null);
+
   const handleApprovePhoneRequest = async (targetMsg?: any) => {
+    if (targetMsg) {
+      pendingPhoneTargetMsgRef.current = targetMsg;
+      if (isPostOwner && targetMsg.sender_id && targetMsg.sender_id !== selectedReplierId) {
+        setSelectedReplierId(targetMsg.sender_id);
+        if (targetMsg.sender_name) setSelectedReplierName(targetMsg.sender_name);
+        if (targetMsg.sender_email) setSelectedReplierEmail(targetMsg.sender_email);
+      }
+    }
     const activeUser = getCurrentUser();
     const myStoredPhone =
       activeUser?.phone ||
@@ -2263,6 +2273,64 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
 
       {/* 2. MESSAGES VIEWPORT (Or Responder Selection Inbox if Post Owner hasn't picked a Helper) */}
       <div ref={messagesContainerRef} onScroll={handleContainerScroll} className="flex-1 overflow-y-auto p-4 space-y-3.5 bg-[#F8F6F0] dark:bg-slate-950 relative">
+        {/* Post Topic & Attached Photo Card (Pinned at top of conversation) */}
+        {currentIntent && (
+          <div className="max-w-2xl mx-auto p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs mb-3 space-y-2">
+            <div className="flex items-start justify-between gap-2.5">
+              <div className="min-w-0 flex-1 space-y-1">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="px-2 py-0.5 rounded-md bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 text-[10px] font-black uppercase tracking-wider">
+                    📢 {language === 'GU' ? 'પોસ્ટની જરૂરિયાત' : language === 'HI' ? 'पोस्ट आवश्यकता' : 'Post Requirement'}
+                  </span>
+                  {currentIntent.category && (
+                    <span className="px-2 py-0.5 rounded-md bg-orange-100 dark:bg-orange-950 text-orange-700 dark:text-orange-300 text-[10px] font-black">
+                      {currentIntent.category}
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs font-black text-slate-900 dark:text-white leading-relaxed">
+                  {topicDesc}
+                </p>
+              </div>
+
+              {/* Attached Photo Thumbnail (Tap to Zoom) */}
+              {Boolean(
+                (currentIntent as any).imageUrl ||
+                (currentIntent as any).attachmentUrl ||
+                (currentIntent as any).image_url ||
+                (currentIntent as any).photoUrl
+              ) && (
+                <div
+                  onClick={() =>
+                    setZoomedImage(
+                      (currentIntent as any).imageUrl ||
+                      (currentIntent as any).attachmentUrl ||
+                      (currentIntent as any).image_url ||
+                      (currentIntent as any).photoUrl
+                    )
+                  }
+                  className="relative w-16 h-16 rounded-xl overflow-hidden shrink-0 border-2 border-indigo-200 dark:border-indigo-800 shadow-xs cursor-pointer group bg-slate-100 dark:bg-slate-800"
+                  title={language === 'GU' ? 'ફોટો મોટો જોવા ક્લિક કરો' : 'Tap to zoom photo'}
+                >
+                  <img
+                    src={
+                      (currentIntent as any).imageUrl ||
+                      (currentIntent as any).attachmentUrl ||
+                      (currentIntent as any).image_url ||
+                      (currentIntent as any).photoUrl
+                    }
+                    alt="Post photo"
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                    loading="lazy"
+                  />
+                  <div className="absolute inset-x-0 bottom-0 bg-slate-950/70 text-[8px] font-black text-white text-center py-0.5">
+                    🔍 {language === 'GU' ? 'જુઓ' : 'Zoom'}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
         {isPostOwner && !selectedReplierId && visibleMessages.length === 0 ? (
           <div className="py-8 max-w-md mx-auto space-y-3">
             {distinctRepliers.length === 0 ? (

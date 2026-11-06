@@ -651,6 +651,18 @@ export default function FixedBottomNavBar({
                           {post.description}
                         </p>
 
+                        {/* Attached Photo Display */}
+                        {Boolean(post.imageUrl || post.attachmentUrl || post.image_url) && (
+                          <div className="relative w-full max-h-48 rounded-xl overflow-hidden border border-slate-200 bg-slate-100 flex items-center justify-center">
+                            <img
+                              src={post.imageUrl || post.attachmentUrl || post.image_url}
+                              alt="Post attachment"
+                              className="w-full max-h-48 object-cover rounded-xl"
+                              loading="lazy"
+                            />
+                          </div>
+                        )}
+
                         <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-slate-200/80">
                           <p className="text-[11px] font-bold text-slate-500 flex items-center gap-1 truncate">
                             <MapPin className="w-3 h-3 text-orange-600 shrink-0" />
