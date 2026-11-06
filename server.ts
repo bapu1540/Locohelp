@@ -66,6 +66,7 @@ const VERIFICATIONS_FILE = path.join(DATA_DIR, "verifications.json");
 const CATEGORY_IMAGES_FILE = path.join(DATA_DIR, "category_images.json");
 const AUTH_USERS_FILE = path.join(DATA_DIR, "auth_users.json");
 const SECURITY_VAULT_FILE = path.join(DATA_DIR, "security_vault.enc");
+const ADMIN_GLOBAL_BLOCKS_FILE = path.join(DATA_DIR, "admin_global_blocks.json");
 
 const inMemoryJsonCache = new Map<string, any>();
 
@@ -4302,16 +4303,32 @@ async function startServer() {
               : 'pending'
           );
       const isApprovedStatus = requestedStatus === 'approved';
+      const existingHelperInDb = existingLocalOrDb?.my_helper_profile || existingLocalOrDb?.myHelperProfile || null;
+      const wasExistingHelperApproved = Boolean(
+        existingHelperInDb &&
+          (existingHelperInDb.isVerified === true ||
+            existingHelperInDb.is_verified === true ||
+            existingHelperInDb.status === 'approved')
+      );
+      const isMyHelperApproved = Boolean(
+        wasExistingHelperApproved ||
+          myHelper?.isVerified === true ||
+          myHelper?.is_verified === true ||
+          myHelper?.status === 'approved'
+      );
       const normalizedHelper = myHelper
         ? {
+            ...existingHelperInDb,
             ...myHelper,
             isVerified:
               requestedStatus === 'deletion_requested'
                 ? false
-                : Boolean(myHelper.isVerified ?? myHelper.is_verified ?? false),
+                : isMyHelperApproved,
             status:
               requestedStatus === 'deletion_requested'
                 ? 'deletion_requested'
+                : isMyHelperApproved
+                ? 'approved'
                 : (myHelper.status || 'pending')
           }
         : null;
@@ -5261,12 +5278,100 @@ async function startServer() {
     ...ALLOWED_ADMIN_OTP_EMAILS
   ];
 
+  // ==========================================
+  // GLOBAL ADMIN BLOCKLIST (100% LOCKDOWN ON UID, MOBILE NUMBER & EMAIL)
+  // Prevents blocked users from viewing profiles, posting, chatting, or creating a new account with the same mobile/email
+  // ==========================================
+  interface AdminGlobalBlockRecord {
+    id: string;
+    userId: string;
+    name: string;
+    email: string;
+    phone: string;
+    reason: string;
+    reportId?: string;
+    blockedBy: string;
+    blockedAt: string;
+  }
+
+  let hasLoadedGlobalBlocksFromDb = false;
+  const loadAdminGlobalBlocks = async (): Promise<AdminGlobalBlockRecord[]> => {
+    const localList = readJsonFile<AdminGlobalBlockRecord[]>(ADMIN_GLOBAL_BLOCKS_FILE, []);
+    if (!hasLoadedGlobalBlocksFromDb && dbPool && isDbConnected) {
+      hasLoadedGlobalBlocksFromDb = true;
+      try {
+        const r = await dbPool.query(`SELECT value FROM app_settings WHERE key = 'admin_global_blocks_v1' LIMIT 1`);
+        if (r.rows.length > 0 && Array.isArray(r.rows[0].value)) {
+          const mergedMap = new Map<string, AdminGlobalBlockRecord>();
+          localList.forEach(item => {
+            if (item && item.id) mergedMap.set(item.id, item);
+          });
+          r.rows[0].value.forEach((item: any) => {
+            if (item && item.id) mergedMap.set(item.id, item);
+          });
+          const merged = Array.from(mergedMap.values());
+          writeJsonFile(ADMIN_GLOBAL_BLOCKS_FILE, merged);
+          return merged;
+        }
+      } catch {}
+    }
+    return Array.isArray(localList) ? localList : [];
+  };
+
+  const saveAdminGlobalBlocks = async (list: AdminGlobalBlockRecord[]) => {
+    writeJsonFile(ADMIN_GLOBAL_BLOCKS_FILE, list);
+    if (dbPool && isDbConnected) {
+      try {
+        await dbPool.query(
+          `INSERT INTO app_settings (key, value, updated_at)
+           VALUES ('admin_global_blocks_v1', $1::jsonb, NOW())
+           ON CONFLICT (key) DO UPDATE SET value = $1::jsonb, updated_at = NOW()`,
+          [JSON.stringify(list)]
+        );
+      } catch {}
+    }
+  };
+
+  const findAdminGlobalBlock = async (
+    rawUid?: string,
+    rawEmail?: string,
+    rawPhone?: string,
+    extraIds: string[] = []
+  ): Promise<AdminGlobalBlockRecord | null> => {
+    const blocks = await loadAdminGlobalBlocks();
+    if (!blocks || blocks.length === 0) return null;
+
+    const uid = String(rawUid || "").trim().toLowerCase();
+    const email = String(rawEmail || "").trim().toLowerCase();
+    const phoneDigits = normalizePhoneDigitsServer(rawPhone || "");
+    const candidateSet = new Set<string>(
+      [
+        uid,
+        email,
+        phoneDigits ? `phone_${phoneDigits}` : "",
+        phoneDigits ? `${phoneDigits}@phone.locohelp.com` : "",
+        ...extraIds.map(x => String(x || "").trim().toLowerCase())
+      ].filter(Boolean)
+    );
+
+    for (const b of blocks) {
+      if (!b) continue;
+      const bUid = String(b.userId || "").trim().toLowerCase();
+      const bEmail = String(b.email || "").trim().toLowerCase();
+      const bPhone = normalizePhoneDigitsServer(b.phone || "");
+      if (bUid && candidateSet.has(bUid)) return b;
+      if (bEmail && (bEmail === email || candidateSet.has(bEmail))) return b;
+      if (bPhone && bPhone.length === 10 && phoneDigits && bPhone === phoneDigits) return b;
+    }
+    return null;
+  };
+
   // Helper: Check if a user account is approved by Admin (from profiles, verification_requests, helpers, or admin emails)
   const getUserApprovalState = async (
     rawUid?: string,
     rawEmail?: string,
     rawPhone?: string
-  ): Promise<{ isApproved: boolean; status: string }> => {
+  ): Promise<{ isApproved: boolean; status: string; isBlocked?: boolean; blockReason?: string; blockedAt?: string }> => {
     const uid = String(rawUid || "").trim();
     let email = String(rawEmail || "").trim().toLowerCase();
     const uidPhone = uid.toLowerCase().startsWith("phone_") ? normalizePhoneDigitsServer(uid) : "";
@@ -5326,6 +5431,18 @@ async function startServer() {
       isPlayStoreReviewerAccount(uid, email, phoneDigits)
     ) {
       return { isApproved: true, status: "approved" };
+    }
+
+    // Check Global Admin Blocklist first (100% Lockdown across UID, Email, and Mobile Number)
+    const matchedGlobalBlock = await findAdminGlobalBlock(uid, email, phoneDigits, extraLinkedIds);
+    if (matchedGlobalBlock) {
+      return {
+        isApproved: false,
+        status: "blocked",
+        isBlocked: true,
+        blockReason: matchedGlobalBlock.reason || "એડમિન દ્વારા નિયમોના ઉલ્લંઘન બદલ એકાઉન્ટ બ્લોક કરવામાં આવ્યું છે.",
+        blockedAt: matchedGlobalBlock.blockedAt
+      };
     }
 
     const idCandidates = Array.from(
@@ -5660,30 +5777,9 @@ async function startServer() {
           exists: false,
           phone: parsed.formattedPhone || rawPhone,
           hasPassword: false,
-          hasBiometric: false,
           isApproved: false,
           approvalStatus: "pending"
         });
-      }
-
-      let hasBiometric = false;
-      let credentialId = "";
-      if (dbPool && isDbConnected) {
-        try {
-          const bioRes = await dbPool.query(
-            `SELECT credential_id FROM user_biometric_credentials
-             WHERE uid = $1
-                OR ($2 <> '' AND LOWER(COALESCE(email, '')) = LOWER($2))
-                OR ($3 <> '' AND REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE '%' || $3)
-             ORDER BY last_used_at DESC NULLS LAST
-             LIMIT 1`,
-            [existing.uid || "", existing.email || "", parsed.tenDigits || ""]
-          );
-          if (bioRes.rows.length > 0 && bioRes.rows[0].credential_id) {
-            hasBiometric = true;
-            credentialId = String(bioRes.rows[0].credential_id);
-          }
-        } catch {}
       }
 
       const approval = await getUserApprovalState(
@@ -5700,8 +5796,6 @@ async function startServer() {
         email: existing.email || parsed.cleanEmail,
         phone: existing.phone || parsed.formattedPhone,
         hasPassword: Boolean(existing.passwordHash),
-        hasBiometric,
-        credentialId,
         isApproved: approval.isApproved,
         approvalStatus: approval.status
       });
@@ -5802,7 +5896,10 @@ async function startServer() {
         console.warn("[PostgreSQL] saveAccountWithPassword note:", e);
       }
     }
-    void ensureUserPendingVerification(uid, displayName, cleanEmail, phone || '').catch(() => {});
+    const currentApproval = await getUserApprovalState(uid, cleanEmail, phone || '').catch(() => ({ isApproved: false }));
+    if (!currentApproval.isApproved) {
+      void ensureUserPendingVerification(uid, displayName, cleanEmail, phone || '').catch(() => {});
+    }
   };
 
   // Smart Unified Phone + PIN/Password Login & First-Time Registration (PostgreSQL permanent storage + 365d HttpOnly cookie)
@@ -5825,6 +5922,20 @@ async function startServer() {
       if (!parsed.isPhone && !rawIdentifier.includes("@")) {
         return res.status(400).json({
           error: "Please enter a valid 10-digit mobile number / સાચો 10 અંકનો મોબાઇલ નંબર લખો"
+        });
+      }
+
+      const preBlockCheck = await findAdminGlobalBlock(
+        parsed.isPhone ? `phone_${parsed.tenDigits}` : "",
+        parsed.cleanEmail,
+        parsed.tenDigits
+      );
+      if (preBlockCheck) {
+        return res.status(403).json({
+          success: false,
+          isBlocked: true,
+          approvalStatus: "blocked",
+          error: "🚫 આ મોબાઇલ નંબર અથવા ઇમેઇલ એડમિન દ્વારા બ્લોક કરવામાં આવેલ છે. જ્યાં સુધી એડમિન ફરી મંજૂરી ન આપે ત્યાં સુધી લોગિન કે નવું એકાઉન્ટ બનાવી શકાશે નહીં."
         });
       }
 
@@ -6216,6 +6327,16 @@ async function startServer() {
           dailyLimitReached: false
         });
       }
+
+      const otpGuardBlock = await findAdminGlobalBlock(`phone_${tenDigits}`, `${tenDigits}@phone.locohelp.com`, tenDigits);
+      if (otpGuardBlock) {
+        return res.status(403).json({
+          success: false,
+          allowed: false,
+          isBlocked: true,
+          error: "🚫 આ મોબાઇલ નંબર એડમિન દ્વારા બ્લોક કરવામાં આવેલ છે. જ્યાં સુધી એડમિન ફરી મંજૂરી ન આપે ત્યાં સુધી આ નંબરથી એકાઉન્ટ બનાવી શકાશે નહીં."
+        });
+      }
       const clientIp = getClientIp(req);
       const dayKey = getCurrentIstDayKey();
       const memKey = `${tenDigits}:${dayKey}`;
@@ -6394,6 +6515,16 @@ async function startServer() {
         });
       }
 
+      const phoneBlock = await findAdminGlobalBlock(`phone_${parsed.tenDigits}`, parsed.syntheticEmail, parsed.tenDigits);
+      if (phoneBlock) {
+        return res.status(403).json({
+          success: false,
+          isBlocked: true,
+          approvalStatus: "blocked",
+          error: "🚫 આ મોબાઇલ નંબર એડમિન દ્વારા બ્લોક કરવામાં આવેલ છે. જ્યાં સુધી એડમિન ફરી મંજૂરી ન આપે ત્યાં સુધી લોગિન કે નવું એકાઉન્ટ બનાવી શકાશે નહીં."
+        });
+      }
+
       const existing = await findExistingAccount(parsed.tenDigits);
       const uid = existing?.uid || `phone_${parsed.tenDigits}`;
       const accountEmail = existing?.email || parsed.syntheticEmail;
@@ -6474,8 +6605,10 @@ async function startServer() {
         }
       }
 
-      await ensureUserPendingVerification(uid, displayName, accountEmail, finalPhone);
       const approval = await getUserApprovalState(uid, accountEmail, finalPhone);
+      if (!approval.isApproved) {
+        await ensureUserPendingVerification(uid, displayName, accountEmail, finalPhone);
+      }
       await logSecurityAudit(uid, existing ? "LOGIN" : "SIGNUP", req);
 
       const user = {
@@ -6502,142 +6635,11 @@ async function startServer() {
     }
   });
 
-  // Biometric / Fingerprint / Face Lock (WebAuthn Passkey) Registration & 1-Tap Login
-  const memoryBiometricCredentials = new Map<string, any>();
-
-  app.post("/api/auth/biometric/register", authLimiter, async (req, res) => {
-    try {
-      const caller = extractRequestUser(req);
-      const { credentialId, uid, email, phone, name, publicKey, deviceLabel } = req.body || {};
-      const cleanCredId = String(credentialId || '').trim();
-      if (!cleanCredId) {
-        return res.status(400).json({ error: "Biometric credentialId is required" });
-      }
-
-      const targetUid = sanitizeServerText(caller?.uid || uid || '', 150);
-      const targetEmail = sanitizeServerText(caller?.email || email || '', 150).toLowerCase();
-      const targetPhone = sanitizeServerText(phone || '', 30);
-      const targetName = sanitizeServerText(caller?.name || name || 'Community Member', 120);
-      const cleanPubKey = String(publicKey || '').slice(0, 2000);
-      const cleanDevice = sanitizeServerText(deviceLabel || getClientUserAgent(req).slice(0, 120), 150);
-
-      if (!targetUid) {
-        return res.status(401).json({ error: "Please log in first to enable Fingerprint / Face Lock" });
-      }
-
-      const credRecord = {
-        credentialId: cleanCredId,
-        uid: targetUid,
-        email: targetEmail,
-        phone: targetPhone,
-        name: targetName,
-        publicKey: cleanPubKey,
-        deviceLabel: cleanDevice,
-        createdAt: new Date().toISOString()
-      };
-      memoryBiometricCredentials.set(cleanCredId, credRecord);
-
-      if (dbPool && isDbConnected) {
-        await dbPool.query(
-          `INSERT INTO user_biometric_credentials (credential_id, uid, email, phone, name, public_key, device_label, created_at, last_used_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
-           ON CONFLICT (credential_id) DO UPDATE SET
-             uid = EXCLUDED.uid,
-             email = COALESCE(NULLIF(EXCLUDED.email, ''), user_biometric_credentials.email),
-             phone = COALESCE(NULLIF(EXCLUDED.phone, ''), user_biometric_credentials.phone),
-             name = COALESCE(NULLIF(EXCLUDED.name, ''), user_biometric_credentials.name),
-             public_key = COALESCE(NULLIF(EXCLUDED.public_key, ''), user_biometric_credentials.public_key),
-             device_label = EXCLUDED.device_label,
-             last_used_at = NOW()`,
-          [cleanCredId, targetUid, targetEmail, targetPhone, targetName, cleanPubKey, cleanDevice]
-        ).catch((err) => {
-          console.warn("[PostgreSQL] user_biometric_credentials upsert note:", err?.message);
-        });
-      }
-
-      return res.json({
-        success: true,
-        credentialId: cleanCredId,
-        message: "Fingerprint / Face Lock registered successfully!"
-      });
-    } catch (e: any) {
-      return res.status(500).json({ error: e.message || "Failed to register biometric passkey" });
-    }
-  });
-
-  app.post("/api/auth/biometric/login", authLimiter, async (req, res) => {
-    try {
-      const { credentialId, uid: fallbackUid, email: fallbackEmail } = req.body || {};
-      const cleanCredId = String(credentialId || '').trim();
-      if (!cleanCredId) {
-        return res.status(400).json({ error: "Biometric credentialId is required" });
-      }
-
-      let matchedCred: any = memoryBiometricCredentials.get(cleanCredId) || null;
-
-      if (dbPool && isDbConnected) {
-        try {
-          const cRes = await dbPool.query(
-            `SELECT * FROM user_biometric_credentials WHERE credential_id = $1 LIMIT 1`,
-            [cleanCredId]
-          );
-          if (cRes.rows.length > 0) {
-            const row = cRes.rows[0];
-            matchedCred = {
-              credentialId: row.credential_id,
-              uid: row.uid,
-              email: row.email || '',
-              phone: row.phone || '',
-              name: row.name || 'Community Member'
-            };
-            await dbPool.query(
-              `UPDATE user_biometric_credentials SET last_used_at = NOW() WHERE credential_id = $1`,
-              [cleanCredId]
-            ).catch(() => {});
-          }
-        } catch {}
-      }
-
-      if (!matchedCred || !matchedCred.uid) {
-        return res.status(404).json({
-          error: "Biometric passkey not found in database. Please log in once using Mobile OTP or Password to register Fingerprint Lock."
-        });
-      }
-
-      const existingAcc = await findExistingAccount(matchedCred.email || matchedCred.phone || matchedCred.uid);
-      const finalUid = existingAcc?.uid || matchedCred.uid;
-      const finalEmail = existingAcc?.email || matchedCred.email || '';
-      const finalName = existingAcc?.name || matchedCred.name || 'Community Member';
-      const finalPhone = existingAcc?.phone || matchedCred.phone || '';
-
-      await logSecurityAudit(finalUid, "LOGIN", req);
-
-      const user = {
-        uid: finalUid,
-        id: finalUid,
-        name: finalName,
-        displayName: finalName,
-        email: finalEmail,
-        phone: finalPhone,
-        termsAccepted: true,
-        isGuest: false
-      };
-
-      const token = createSessionToken({ uid: finalUid, email: finalEmail, name: finalName });
-      res.setHeader('Set-Cookie', `locohelp_token=${token}; Path=/; Max-Age=${365 * 24 * 3600}; SameSite=Lax`);
-
-      return res.json({ success: true, token, user });
-    } catch (e: any) {
-      return res.status(500).json({ error: e.message || "Biometric login failed" });
-    }
-  });
-
-  // Verify user's database password (bcrypt) or registered biometric passkey (user_biometric_credentials)
-  // before unlocking sensitive settings like making their phone number public
+  // Verify user's database password (bcrypt) before unlocking sensitive settings like making their phone number public
   app.post("/api/auth/verify-reauth", requireAuth, async (req, res) => {
     try {
       const caller = extractRequestUser(req);
-      const { mode, password, credentialId, setNewPassword, email, phone, uid } = req.body || {};
+      const { mode, password, setNewPassword, email, phone, uid } = req.body || {};
       const targetUid = String(caller?.uid || uid || "").trim();
       const targetEmail = String(caller?.email || email || "").trim().toLowerCase();
       const targetPhone = normalizePhoneDigitsServer(phone || caller?.phone || "");
@@ -6645,7 +6647,7 @@ async function startServer() {
       const lookupKey = targetEmail || (targetPhone ? `+91${targetPhone}` : "") || targetUid;
       const existingAcc = await findExistingAccount(lookupKey);
 
-      if (mode === "password") {
+      if (mode === "password" || !mode) {
         const cleanPass = String(password || "").trim();
         if (cleanPass.length < 6) {
           return res.status(400).json({ error: "Password must be at least 6 characters." });
@@ -6681,35 +6683,6 @@ async function startServer() {
           return res.status(401).json({
             success: false,
             error: "Incorrect password! Please enter your registered LocoHelp password."
-          });
-        }
-
-        return res.json({ success: true });
-      }
-
-      if (mode === "biometric") {
-        const cleanCredId = String(credentialId || "").trim();
-        if (!cleanCredId) {
-          return res.status(400).json({ error: "Biometric credentialId is required." });
-        }
-
-        let matched = memoryBiometricCredentials.get(cleanCredId) || null;
-        if (dbPool && isDbConnected) {
-          try {
-            const cRes = await dbPool.query(
-              `SELECT * FROM user_biometric_credentials WHERE credential_id = $1 LIMIT 1`,
-              [cleanCredId]
-            );
-            if (cRes.rows.length > 0) {
-              matched = cRes.rows[0];
-            }
-          } catch {}
-        }
-
-        if (!matched) {
-          return res.status(404).json({
-            success: false,
-            error: "Biometric passkey not found in database."
           });
         }
 
@@ -8078,6 +8051,7 @@ async function startServer() {
           if (r.id) {
             const hid = String(r.id).trim().toLowerCase();
             expanded.add(hid);
+            expanded.add(ensureServerValidUUID(hid));
             expanded.add(`provider_chat_${hid}`);
             expanded.add(`direct_chat_${hid}`);
             expanded.add(`helper_${hid}`);
@@ -8113,6 +8087,7 @@ async function startServer() {
         ) {
           if (hid) {
             expanded.add(hid);
+            expanded.add(ensureServerValidUUID(hid));
             expanded.add(`provider_chat_${hid}`);
             expanded.add(`direct_chat_${hid}`);
             expanded.add(`helper_${hid}`);
@@ -8120,6 +8095,31 @@ async function startServer() {
           if (huid) buildServerIdentitySet(huid, hem).forEach((v) => expanded.add(v));
           if (hem) buildServerIdentitySet("", hem).forEach((v) => expanded.add(v));
           if (hPhone) buildServerIdentitySet(`phone_${hPhone}`, `${hPhone}@phone.locohelp.com`).forEach((v) => expanded.add(v));
+        }
+      });
+
+      const localShops = readJsonFile<any[]>(SHOPS_FILE, []);
+      localShops.forEach((s: any) => {
+        if (!s) return;
+        const sid = String(s.id || "").trim().toLowerCase();
+        const suid = String(s.userId || "").trim().toLowerCase();
+        const sem = String(s.ownerEmail || s.email || "").trim().toLowerCase();
+        const sPhone = normalizePhoneDigitsServer(s.phone || "");
+        if (
+          (sid && expanded.has(sid)) ||
+          (suid && expanded.has(suid)) ||
+          (sem && expanded.has(sem)) ||
+          (sPhone && (expanded.has(sPhone) || expanded.has(`phone_${sPhone}`) || phonesLocal.includes(sPhone)))
+        ) {
+          if (sid) {
+            expanded.add(sid);
+            expanded.add(ensureServerValidUUID(sid));
+            expanded.add(`provider_chat_${sid}`);
+            expanded.add(`direct_chat_${sid}`);
+          }
+          if (suid) buildServerIdentitySet(suid, sem).forEach((v) => expanded.add(v));
+          if (sem) buildServerIdentitySet("", sem).forEach((v) => expanded.add(v));
+          if (sPhone) buildServerIdentitySet(`phone_${sPhone}`, `${sPhone}@phone.locohelp.com`).forEach((v) => expanded.add(v));
         }
       });
     } catch {}
@@ -9819,11 +9819,15 @@ async function startServer() {
         resolvePostOwnerInfo(postId)
       ]);
 
-      if (!isAdminReq && (senderApproval.status === "deleted" || senderApproval.status === "rejected")) {
+      if (!isAdminReq && (senderApproval.status === "blocked" || senderApproval.status === "deleted" || senderApproval.status === "rejected")) {
         return res.status(403).json({
-          error: "आपका अकाउंट एडमिन द्वारा रोक दिया गया है। (Your account is restricted by Admin.)",
-          code: "ACCOUNT_PENDING_APPROVAL",
-          approvalStatus: senderApproval.status
+          error:
+            senderApproval.status === "blocked"
+              ? "🚫 તમારું એકાઉન્ટ એડમિન દ્વારા બ્લોક કરવામાં આવ્યું છે. જ્યાં સુધી એડમિન ફરી મંજૂરી ન આપે ત્યાં સુધી તમે મેસેજ કરી શકતા નથી."
+              : "आपका अकाउंट एडमिन द्वारा रोक दिया गया है। (Your account is restricted by Admin.)",
+          code: senderApproval.status === "blocked" ? "ACCOUNT_BLOCKED_BY_ADMIN" : "ACCOUNT_PENDING_APPROVAL",
+          approvalStatus: senderApproval.status,
+          isBlocked: senderApproval.status === "blocked"
         });
       }
 
@@ -10144,7 +10148,7 @@ async function startServer() {
         await Promise.all(dbWriteTasks);
       }
 
-      // 2. Local file backup keyed by 1-on-1 conversationId (non-blocking)
+      // 2. Local file backup keyed by 1-on-1 conversationId + Permanent Blackbox Vault Archive (non-blocking)
       setImmediate(() => {
         try {
           const allMessages = readJsonFile<Record<string, any[]>>(MESSAGES_FILE, {});
@@ -10155,6 +10159,21 @@ async function startServer() {
             writeJsonFile(MESSAGES_FILE, allMessages);
           }
         } catch {}
+        void archiveToSecurityVault(
+          "help_post",
+          newMsg.id,
+          {
+            ...newMsg,
+            name: `${newMsg.authorName || "User"} (Chat Message)`,
+            email: newMsg.senderEmail || "",
+            phone: resolvedPhone || "",
+            category: `Chat -> ${newMsg.receiverId || postId}`,
+            postContent: newMsg.text || (newMsg.attachmentUrl ? "[Attachment Sent]" : ""),
+            photoUrl: newMsg.attachmentUrl || newMsg.senderAvatar || ""
+          },
+          "ACTIVE_REGISTERED",
+          req
+        ).catch(() => {});
       });
 
       // Refresh post interaction timestamp & compute updated response_count / repliers for this post from conversations
@@ -10389,24 +10408,55 @@ async function startServer() {
   app.post("/api/messages", chatMessageLimiter, sendChatMessageHandler);
   app.post("/api/messages/:id", chatMessageLimiter, sendChatMessageHandler);
 
-  // Delete a chat message and clean up any Firebase Storage attachment
+  // Delete a chat message from user view while permanently retaining message & attachment in Blackbox Security Vault
   app.delete("/api/messages/:id", requireAuth, async (req, res) => {
     try {
       const { id } = req.params;
       if (dbPool && isDbConnected) {
-        const msgRes = await dbPool.query("SELECT attachment_url FROM messages WHERE id = $1", [id]).catch(() => ({ rows: [] as any[] }));
-        if (msgRes.rows.length > 0 && msgRes.rows[0].attachment_url) {
-          await deleteFilesFromFirebaseStorage(msgRes.rows[0].attachment_url);
+        const msgRes = await dbPool.query("SELECT * FROM messages WHERE id = $1 LIMIT 1", [id]).catch(() => ({ rows: [] as any[] }));
+        if (msgRes.rows.length > 0) {
+          const m = msgRes.rows[0];
+          await archiveToSecurityVault(
+            "help_post",
+            String(m.id || id),
+            {
+              ...m,
+              id: m.id || id,
+              name: `${m.sender_name || "User"} (Deleted Chat Message)`,
+              email: m.sender_email || "",
+              category: `Deleted Chat -> ${m.receiver_id || m.post_id || ""}`,
+              postContent: m.text || m.content || "",
+              photoUrl: m.attachment_url || ""
+            },
+            "DELETED_BY_USER",
+            req
+          ).catch(() => {});
         }
+        // NOTE: Never delete chat attachments from Firebase Storage so Admin Blackbox Record retains 100% of photos/messages
         await dbPool.query("DELETE FROM messages WHERE id = $1", [id]).catch(() => {});
         await dbPool.query("DELETE FROM chats WHERE id = $1", [id]).catch(() => {});
       }
-      // Also remove from local JSON backup so it doesn't reappear on poll
+      // Also remove from local JSON public thread so it doesn't reappear in user's chat screen
       try {
         const allMessages = readJsonFile<Record<string, any[]>>(MESSAGES_FILE, {});
         let modified = false;
         Object.keys(allMessages).forEach(convKey => {
           const before = allMessages[convKey]?.length || 0;
+          const deletedTarget = (allMessages[convKey] || []).find((m: any) => m && m.id === id);
+          if (deletedTarget) {
+            void archiveToSecurityVault(
+              "help_post",
+              String(deletedTarget.id || id),
+              {
+                ...deletedTarget,
+                name: `${deletedTarget.senderName || "User"} (Deleted Chat Message)`,
+                email: deletedTarget.senderEmail || "",
+                postContent: deletedTarget.text || deletedTarget.content || ""
+              },
+              "DELETED_BY_USER",
+              req
+            ).catch(() => {});
+          }
           allMessages[convKey] = (allMessages[convKey] || []).filter((m: any) => m && m.id !== id);
           if ((allMessages[convKey]?.length || 0) !== before) modified = true;
         });
@@ -10577,9 +10627,14 @@ async function startServer() {
         const item = redactBulkItemForPrivacy(s, isAuthenticated, isAdmin, caller);
         if (isAdmin) {
           const matchedVerif = verifs.find(v => v.entityId === s.id);
-          if (matchedVerif && matchedVerif.idDocumentWatermarked) {
+          if (s.rawSelfieUrl) {
+            item.idDocumentWatermarked = s.rawSelfieUrl;
+          } else if (matchedVerif && matchedVerif.idDocumentWatermarked) {
             item.idDocumentWatermarked = matchedVerif.idDocumentWatermarked;
           }
+        } else {
+          delete item.rawSelfieUrl;
+          delete item.idDocumentWatermarked;
         }
         return item;
       });
@@ -10638,11 +10693,31 @@ async function startServer() {
         }
       }
       if (shop.idDocumentWatermarked) {
-        const docCheck = validateServerUploadedDataUrl(shop.idDocumentWatermarked, { allowPdf: true });
-        if (!docCheck.valid) {
-          return res.status(400).json({ error: docCheck.error });
+        if (String(shop.idDocumentWatermarked).startsWith('data:')) {
+          const docCheck = validateServerUploadedDataUrl(shop.idDocumentWatermarked, { allowPdf: true });
+          if (!docCheck.valid) {
+            return res.status(400).json({ error: docCheck.error });
+          }
         }
         shop.idDocumentWatermarked = await uploadDataToFirebaseServer(shop.idDocumentWatermarked, "verifications");
+      }
+      if (shop.rawSelfieUrl) {
+        if (String(shop.rawSelfieUrl).startsWith('data:')) {
+          const rawCheck = validateServerUploadedDataUrl(shop.rawSelfieUrl, { allowPdf: false });
+          if (!rawCheck.valid) {
+            return res.status(400).json({ error: rawCheck.error });
+          }
+        }
+        shop.rawSelfieUrl = await uploadDataToFirebaseServer(shop.rawSelfieUrl, "verifications");
+      }
+      if (shop.watermarkedSelfieUrl) {
+        if (String(shop.watermarkedSelfieUrl).startsWith('data:')) {
+          const wmCheck = validateServerUploadedDataUrl(shop.watermarkedSelfieUrl, { allowPdf: false });
+          if (!wmCheck.valid) {
+            return res.status(400).json({ error: wmCheck.error });
+          }
+        }
+        shop.watermarkedSelfieUrl = await uploadDataToFirebaseServer(shop.watermarkedSelfieUrl, "businesses");
       }
 
       const isAdminCaller = isRequestAdmin(req);
@@ -10709,8 +10784,25 @@ async function startServer() {
           ? shop.isPhonePublic
           : existingShop?.isPhonePublic ?? false
       );
+      const isAdminCreatedShop = Boolean(
+        (isAdminCaller && shop.adminDirectCreate === true) ||
+        existingShop?.adminDirectCreate === true ||
+        existingShop?.registeredByAdmin === true ||
+        String(shop.id || existingShop?.id || '').startsWith('shop_admin_')
+      );
+      const resolvedAdminShopSelfie =
+        shop.rawSelfieUrl ||
+        shop.idDocumentWatermarked ||
+        existingShop?.rawSelfieUrl ||
+        existingShop?.idDocumentWatermarked ||
+        null;
+      const resolvedPublicShopSelfie =
+        shop.watermarkedSelfieUrl ||
+        existingShop?.watermarkedSelfieUrl ||
+        shop.idDocumentWatermarked ||
+        null;
       const newShop = {
-        id: shop.id || 'shop_' + Date.now().toString(36),
+        id: shop.id || (isAdminCreatedShop ? 'shop_admin_' : 'shop_') + Date.now().toString(36),
         name: sanitizeStringServer(bName.trim(), 200),
         businessName: sanitizeStringServer(bName.trim(), 200),
         business_name: sanitizeStringServer(bName.trim(), 200),
@@ -10727,12 +10819,17 @@ async function startServer() {
         area: sanitizeStringServer(shop.area || shop.address || 'Local Area', 200),
         address: sanitizeStringServer(shop.address || shop.area || 'Market Area', 300),
         description: sanitizeStringServer(shop.description || '', 1500),
-        photoUrl: validatedPhotos[0] || shop.photoUrl || shop.photo_url || existingShop?.photoUrl || null,
+        photoUrl: validatedPhotos[0] || shop.photoUrl || shop.photo_url || existingShop?.photoUrl || resolvedPublicShopSelfie || null,
         photos: validatedPhotos.length > 0 ? validatedPhotos : (Array.isArray(existingShop?.photos) ? existingShop.photos : []),
+        watermarkedSelfieUrl: resolvedPublicShopSelfie,
+        rawSelfieUrl: resolvedAdminShopSelfie,
+        idDocumentWatermarked: resolvedAdminShopSelfie,
         rating: typeof shop.rating === 'number' ? shop.rating : (typeof existingShop?.rating === 'number' ? existingShop.rating : 5.0),
         reviewCount: typeof shop.reviewCount === 'number' ? shop.reviewCount : (typeof existingShop?.reviewCount === 'number' ? existingShop.reviewCount : 1),
         isVerified: autoApprove,
         status: autoApprove ? 'approved' : 'pending',
+        adminDirectCreate: isAdminCreatedShop,
+        registeredByAdmin: isAdminCreatedShop,
         createdAt: shop.createdAt || existingShop?.createdAt || new Date().toISOString()
       };
 
@@ -11008,11 +11105,15 @@ async function startServer() {
                 rating: Number((r.review_count ?? localMatch.reviewCount ?? 0) > 0 ? (r.rating || localMatch.rating || 5.0) : 0),
                 reviewCount: Number(r.review_count ?? localMatch.reviewCount ?? 0),
                 reviews: Array.isArray(r.reviews) ? r.reviews : (Array.isArray(localMatch.reviews) ? localMatch.reviews : []),
-                photoUrl: r.photo_url || localMatch.photoUrl || null,
+                photoUrl: r.photo_url || localMatch.watermarkedSelfieUrl || localMatch.photoUrl || null,
+                watermarkedSelfieUrl: r.photo_url || localMatch.watermarkedSelfieUrl || localMatch.photoUrl || null,
                 isVerified: isApproved,
                 status: isRejected ? 'rejected' : (isApproved ? 'approved' : 'pending'),
                 govtIdUploaded: Boolean(r.govt_id_uploaded || localMatch.govtIdUploaded),
-                idDocUrl: r.id_doc_url || localMatch.idDocUrl || null,
+                idDocUrl: r.id_doc_url || localMatch.rawSelfieUrl || localMatch.idDocUrl || null,
+                rawSelfieUrl: r.id_doc_url || localMatch.rawSelfieUrl || localMatch.idDocUrl || null,
+                adminDirectCreate: Boolean(localMatch.adminDirectCreate || localMatch.registeredByAdmin || String(r.id || '').startsWith('helper_admin_')),
+                registeredByAdmin: Boolean(localMatch.registeredByAdmin || localMatch.adminDirectCreate || String(r.id || '').startsWith('helper_admin_')),
                 createdAt: r.created_at || localMatch.createdAt
               });
             });
@@ -11072,9 +11173,14 @@ async function startServer() {
       const sanitizedHelpers = allHelpers.map(h => {
         const redacted = redactBulkItemForPrivacy(h, isAuthenticated, isAdmin, caller);
         if (!isAdmin) {
-          // Never expose raw live verification selfies / ID documents in public helper listings
+          // Never expose raw unwatermarked live verification selfies / ID documents in public helper listings
           delete redacted.idDocUrl;
           delete redacted.id_doc_url;
+          delete redacted.rawSelfieUrl;
+          delete redacted.idDocumentWatermarked;
+          if (h.watermarkedSelfieUrl) {
+            redacted.photoUrl = h.watermarkedSelfieUrl;
+          }
         }
         return redacted;
       });
@@ -11110,6 +11216,18 @@ async function startServer() {
         const uploadedHelperPhoto = await uploadDataToFirebaseServer(pUrl, "service_providers");
         helper.photoUrl = uploadedHelperPhoto;
         helper.photo_url = uploadedHelperPhoto;
+      }
+
+      if (helper.watermarkedSelfieUrl && String(helper.watermarkedSelfieUrl).startsWith('data:')) {
+        helper.watermarkedSelfieUrl = await uploadDataToFirebaseServer(helper.watermarkedSelfieUrl, "service_providers");
+      }
+
+      if (helper.visitingCardUrl && String(helper.visitingCardUrl).startsWith('data:')) {
+        helper.visitingCardUrl = await uploadDataToFirebaseServer(helper.visitingCardUrl, "service_providers");
+      }
+
+      if (helper.rawSelfieUrl && String(helper.rawSelfieUrl).startsWith('data:')) {
+        helper.rawSelfieUrl = await uploadDataToFirebaseServer(helper.rawSelfieUrl, "verifications");
       }
 
       if (helper.idDocUrl || helper.id_doc_url) {
@@ -11183,8 +11301,30 @@ async function startServer() {
           ? helper.isPhonePublic
           : existingHelper?.isPhonePublic ?? false
       );
+      const isAdminCreatedHelper = Boolean(
+        (isAdminCaller && helper.adminDirectCreate === true) ||
+        existingHelper?.adminDirectCreate === true ||
+        existingHelper?.registeredByAdmin === true ||
+        String(helper.id || existingHelper?.id || '').startsWith('helper_admin_')
+      );
+      const resolvedAdminSelfie =
+        helper.rawSelfieUrl ||
+        helper.idDocUrl ||
+        helper.id_doc_url ||
+        existingHelper?.rawSelfieUrl ||
+        existingHelper?.idDocUrl ||
+        existingHelper?.id_doc_url ||
+        null;
+      const resolvedPublicWatermarked =
+        helper.watermarkedSelfieUrl ||
+        helper.photoUrl ||
+        helper.photo_url ||
+        existingHelper?.watermarkedSelfieUrl ||
+        existingHelper?.photoUrl ||
+        existingHelper?.photo_url ||
+        null;
       const newHelper = {
-        id: helper.id || 'helper_' + Date.now().toString(36),
+        id: helper.id || (isAdminCreatedHelper ? 'helper_admin_' : 'helper_') + Date.now().toString(36),
         userId,
         email: sanitizeStringServer(userEmail, 150),
         name: sanitizeStringServer(helper.name.trim(), 150),
@@ -11200,11 +11340,16 @@ async function startServer() {
         rating: Number(helper.reviewCount || existingHelper?.review_count || existingHelper?.reviewCount || 0) > 0 ? Number(helper.rating || existingHelper?.rating || 5.0) : Number(existingHelper?.rating || 0),
         reviewCount: Number(helper.reviewCount || existingHelper?.review_count || existingHelper?.reviewCount || 0),
         completedTasks: Number(helper.completedTasks || existingHelper?.completed_tasks || existingHelper?.completedTasks || 0),
-        photoUrl: helper.photoUrl || helper.photo_url || helper.workPhotoUrl || existingHelper?.photoUrl || existingHelper?.photo_url || null,
+        photoUrl: resolvedPublicWatermarked,
+        watermarkedSelfieUrl: resolvedPublicWatermarked,
+        visitingCardUrl: helper.visitingCardUrl || helper.workPhotoUrl || existingHelper?.visitingCardUrl || null,
         isVerified: autoApprove,
         status: autoApprove ? 'approved' : 'pending',
+        adminDirectCreate: isAdminCreatedHelper,
+        registeredByAdmin: isAdminCreatedHelper,
         govtIdUploaded: !!(helper.govtIdUploaded || existingHelper?.govt_id_uploaded || existingHelper?.govtIdUploaded),
-        idDocUrl: helper.idDocUrl || helper.id_doc_url || existingHelper?.idDocUrl || existingHelper?.id_doc_url || null,
+        idDocUrl: resolvedAdminSelfie,
+        rawSelfieUrl: resolvedAdminSelfie,
         createdAt: existingHelper?.created_at || existingHelper?.createdAt || helper.createdAt || new Date().toISOString()
       };
 
@@ -11600,7 +11745,7 @@ async function startServer() {
   });
 
   // 7. Community & Direct Chat Reports (Persisted in PostgreSQL admin_reports table with Immutable Chat Evidence Snapshot)
-  const memoryAdminReports: any[] = [];
+  const memoryAdminReports: any[] = readJsonFile<any[]>(REPORTS_FILE, []);
 
   app.post("/api/reports", async (req, res) => {
     try {
@@ -11894,7 +12039,7 @@ async function startServer() {
                 [reportedUserId]
               ).catch(() => {});
               await dbPool.query(
-                `UPDATE helpers SET is_flagged = true, hidden = true, is_verified = false WHERE id = $1`,
+                `UPDATE helpers SET is_flagged = true, hidden = true, is_verified = false, status = 'flagged' WHERE id = $1 OR user_id = $1 OR email = $1`,
                 [reportedUserId]
               ).catch(() => {});
               await dbPool.query(
@@ -11923,6 +12068,7 @@ async function startServer() {
       }
 
       memoryAdminReports.unshift(record);
+      writeJsonFile(REPORTS_FILE, memoryAdminReports);
 
       // In-memory fallback check for 3 unique reports
       if (reportedPostId && !autoFlaggedPost) {
@@ -11931,6 +12077,7 @@ async function startServer() {
             .filter(r => r.reportedPostId === reportedPostId && String(r.status).toUpperCase() !== 'DISMISSED')
             .map(r => r.reporterId)
         );
+        postReportCount = Math.max(postReportCount, uniquePostReporters.size);
         if (uniquePostReporters.size >= 3) {
           autoFlaggedPost = true;
         }
@@ -11941,6 +12088,7 @@ async function startServer() {
             .filter(r => r.reportedUserId === reportedUserId && String(r.status).toUpperCase() !== 'DISMISSED')
             .map(r => r.reporterId)
         );
+        userReportCount = Math.max(userReportCount, uniqueUserReporters.size);
         if (uniqueUserReporters.size >= 3) {
           autoFlaggedUser = true;
         }
@@ -11964,30 +12112,64 @@ async function startServer() {
             writeJsonFile(INTENTS_FILE, updatedIntents);
           }
         } catch {}
+
+        if (autoFlaggedUser && reportedUserId) {
+          try {
+            const currentHelpers = readJsonFile<any[]>(HELPERS_FILE, []);
+            let hChanged = false;
+            const updatedHelpers = currentHelpers.map(h => {
+              if (h && (h.id === reportedUserId || h.userId === reportedUserId || (h.email && h.email.toLowerCase() === reportedUserId.toLowerCase()))) {
+                hChanged = true;
+                return { ...h, is_flagged: true, hidden: true, isVerified: false, status: 'flagged' };
+              }
+              return h;
+            });
+            if (hChanged) {
+              writeJsonFile(HELPERS_FILE, updatedHelpers);
+              invalidatePublicCache('public_helpers');
+            }
+          } catch {}
+
+          try {
+            const currentShops = readJsonFile<any[]>(SHOPS_FILE, []);
+            let sChanged = false;
+            const updatedShops = currentShops.map(s => {
+              if (s && (s.id === reportedUserId || s.userId === reportedUserId || s.owner_id === reportedUserId)) {
+                sChanged = true;
+                return { ...s, is_flagged: true, hidden: true, isVerified: false, status: 'flagged' };
+              }
+              return s;
+            });
+            if (sChanged) {
+              writeJsonFile(SHOPS_FILE, updatedShops);
+              invalidatePublicCache('public_shops');
+            }
+          } catch {}
+        }
       }
 
-      // Permanently archive chat report & full message transcript in Encrypted Security Vault so it can never be lost even if accounts are deleted
-      if (reportType === 'chat_report') {
-        await archiveToSecurityVault(
-          "help_post",
-          record.id,
-          {
-            id: record.id,
-            name: `Chat Report: ${reporterName} -> ${reportedUserName || 'Peer'}`,
-            email: reporterEmail,
-            reason: record.reason,
-            details: record.details,
-            chatId: record.chatId,
-            reportedUserId: record.reportedUserId,
-            reportedUserName: record.reportedUserName,
-            reportedPostId: record.reportedPostId,
-            chatMessagesCount: finalChatSnapshot.length,
-            chatSnapshot: finalChatSnapshot,
-            createdAt: record.createdAt
-          },
-          "ACTIVE_REGISTERED"
-        ).catch(() => {});
-      }
+      // Permanently archive ALL reports & message transcripts in Encrypted Security Vault so nothing is ever lost
+      await archiveToSecurityVault(
+        "help_post",
+        record.id,
+        {
+          id: record.id,
+          name: `Report: ${reporterName} -> ${reportedUserName || reportedPostId || 'Target'}`,
+          email: reporterEmail,
+          reason: record.reason,
+          details: record.details,
+          chatId: record.chatId,
+          reportedUserId: record.reportedUserId,
+          reportedUserName: record.reportedUserName,
+          reportedPostId: record.reportedPostId,
+          postContent: `${record.reason}${record.details ? ' — ' + record.details : ''}`,
+          chatMessagesCount: finalChatSnapshot.length,
+          chatSnapshot: finalChatSnapshot,
+          createdAt: record.createdAt
+        },
+        "ACTIVE_REGISTERED",
+        req
+      ).catch(() => {});
 
       res.status(201).json({
         success: true,
@@ -12015,6 +12197,7 @@ async function startServer() {
           reporterEmail: r.reporter_email || '',
           reportedUserId: r.reported_user_id || '',
           reportedUserName: r.reported_user_name || '',
+          reportedPostId: r.reported_post_id || '',
           chatId: r.chat_id || '',
           reportType: r.report_type || (Array.isArray(r.chat_snapshot) && r.chat_snapshot.length > 0 ? 'chat_report' : 'general'),
           reason: r.reason || '',
@@ -12030,6 +12213,685 @@ async function startServer() {
       res.json(memoryAdminReports);
     } catch (e) {
       res.status(500).json({ error: "Failed to fetch reports" });
+    }
+  });
+
+  // ==========================================
+  // ADMIN GLOBAL BLOCK / UNBLOCK & FULL USER RECORD API
+  // ==========================================
+  app.get("/api/admin/global-blocks", requireAdmin, async (_req, res) => {
+    try {
+      const blocks = await loadAdminGlobalBlocks();
+      return res.json({ success: true, blocks });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message || "Failed to load global blocks" });
+    }
+  });
+
+  app.post("/api/admin/global-block", requireAdmin, async (req, res) => {
+    try {
+      const { userId, name, email, phone, reason, reportId, postId } = req.body || {};
+      let targetUid = String(userId || "").trim();
+      let targetName = String(name || "").trim();
+      let targetEmail = String(email || "").trim().toLowerCase();
+      let targetPhone = normalizePhoneDigitsServer(phone || "");
+
+      // Enrich missing email / phone / uid from database or JSON files so the block locks down both their mobile AND email
+      if (dbPool && isDbConnected && (targetUid || targetEmail || targetPhone || postId)) {
+        try {
+          if (postId && !targetUid) {
+            const pRow = await dbPool.query("SELECT user_id, author_name, raw_json FROM posts WHERE id = $1 LIMIT 1", [postId]).catch(() => ({ rows: [] as any[] }));
+            if (pRow.rows.length > 0) {
+              targetUid = pRow.rows[0].user_id || targetUid;
+              targetName = targetName || pRow.rows[0].author_name || "";
+              const rj = pRow.rows[0].raw_json || {};
+              if (!targetEmail && rj.authorEmail) targetEmail = String(rj.authorEmail).toLowerCase();
+              if (!targetPhone && rj.authorPhone) targetPhone = normalizePhoneDigitsServer(rj.authorPhone);
+            }
+          }
+          const [uRes, profRes, hlpRes] = await Promise.all([
+            dbPool.query(
+              `SELECT id::text AS id, name, email, phone FROM users
+               WHERE ($1 <> '' AND (LOWER(id::text) = LOWER($1) OR LOWER(COALESCE(email, '')) = LOWER($1)))
+                  OR ($2 <> '' AND LOWER(COALESCE(email, '')) = LOWER($2))
+                  OR ($3 <> '' AND REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE '%' || $3)
+               LIMIT 2`,
+              [targetUid, targetEmail, targetPhone]
+            ).catch(() => ({ rows: [] as any[] })),
+            dbPool.query(
+              `SELECT uid, id, name, full_name, email, phone FROM profiles
+               WHERE ($1 <> '' AND (LOWER(COALESCE(uid, '')) = LOWER($1) OR LOWER(COALESCE(id, '')) = LOWER($1)))
+                  OR ($2 <> '' AND LOWER(COALESCE(email, '')) = LOWER($2))
+                  OR ($3 <> '' AND REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE '%' || $3)
+               LIMIT 2`,
+              [targetUid, targetEmail, targetPhone]
+            ).catch(() => ({ rows: [] as any[] })),
+            dbPool.query(
+              `SELECT id, user_id, name, email, phone FROM helpers
+               WHERE ($1 <> '' AND (LOWER(COALESCE(id, '')) = LOWER($1) OR LOWER(COALESCE(user_id, '')) = LOWER($1)))
+                  OR ($2 <> '' AND LOWER(COALESCE(email, '')) = LOWER($2))
+                  OR ($3 <> '' AND REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE '%' || $3)
+               LIMIT 2`,
+              [targetUid, targetEmail, targetPhone]
+            ).catch(() => ({ rows: [] as any[] }))
+          ]);
+          for (const r of [...uRes.rows, ...profRes.rows, ...hlpRes.rows]) {
+            if (!targetUid && (r.uid || r.user_id || r.id)) targetUid = String(r.uid || r.user_id || r.id).trim();
+            if (!targetName && (r.full_name || r.name)) targetName = String(r.full_name || r.name).trim();
+            if (!targetEmail && r.email) targetEmail = String(r.email).trim().toLowerCase();
+            if (!targetPhone && r.phone) targetPhone = normalizePhoneDigitsServer(r.phone);
+          }
+        } catch {}
+      }
+
+      // Also check JSON files for enrichment
+      try {
+        const helpersList = readJsonFile<any[]>(HELPERS_FILE, []);
+        const matchedH = helpersList.find(h => h && (h.id === targetUid || h.userId === targetUid || (targetEmail && String(h.email || '').toLowerCase() === targetEmail)));
+        if (matchedH) {
+          if (!targetName && matchedH.name) targetName = matchedH.name;
+          if (!targetEmail && matchedH.email) targetEmail = String(matchedH.email).toLowerCase();
+          if (!targetPhone && matchedH.phone) targetPhone = normalizePhoneDigitsServer(matchedH.phone);
+        }
+        const profilesMap = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
+        for (const p of Object.values(profilesMap)) {
+          if (!p) continue;
+          if (p.uid === targetUid || p.id === targetUid || (targetEmail && String(p.email || '').toLowerCase() === targetEmail)) {
+            if (!targetName && (p.full_name || p.name)) targetName = p.full_name || p.name;
+            if (!targetEmail && p.email) targetEmail = String(p.email).toLowerCase();
+            if (!targetPhone && p.phone) targetPhone = normalizePhoneDigitsServer(p.phone);
+          }
+        }
+      } catch {}
+
+      if (!targetUid && !targetEmail && !targetPhone) {
+        return res.status(400).json({ error: "User ID, Mobile Number, or Email is required to block user." });
+      }
+
+      const blocks = await loadAdminGlobalBlocks();
+      const blockId = `gblk_${(targetUid || targetPhone || targetEmail).replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+      const newBlock: AdminGlobalBlockRecord = {
+        id: blockId,
+        userId: targetUid || (targetPhone ? `phone_${targetPhone}` : targetEmail),
+        name: targetName || "Blocked User",
+        email: targetEmail,
+        phone: targetPhone ? `+91 ${targetPhone}` : "",
+        reason: String(reason || "એડમિન દ્વારા રિપોર્ટના આધારે એકાઉન્ટ બ્લોક કરવામાં આવ્યું છે.").trim(),
+        reportId: reportId ? String(reportId) : undefined,
+        blockedBy: "Admin",
+        blockedAt: new Date().toISOString()
+      };
+
+      const filtered = blocks.filter(
+        b =>
+          b.id !== blockId &&
+          !(targetUid && b.userId && b.userId.toLowerCase() === targetUid.toLowerCase()) &&
+          !(targetPhone && normalizePhoneDigitsServer(b.phone) === targetPhone) &&
+          !(targetEmail && b.email && b.email.toLowerCase() === targetEmail)
+      );
+      filtered.unshift(newBlock);
+      await saveAdminGlobalBlocks(filtered);
+
+      // Immediately hide all posts, helper profiles, business listings, and user profiles of this blocked user
+      if (dbPool && isDbConnected) {
+        await Promise.all([
+          dbPool.query(
+            `UPDATE profiles SET status = 'rejected', is_verified = false, verified = false, is_flagged = true, hidden = true, updated_at = NOW()
+             WHERE ($1 <> '' AND (LOWER(COALESCE(uid, '')) = LOWER($1) OR LOWER(COALESCE(id, '')) = LOWER($1) OR LOWER(COALESCE(user_id, '')) = LOWER($1)))
+                OR ($2 <> '' AND LOWER(COALESCE(email, '')) = LOWER($2))
+                OR ($3 <> '' AND REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE '%' || $3)`,
+            [targetUid, targetEmail, targetPhone]
+          ).catch(() => {}),
+          dbPool.query(
+            `UPDATE helpers SET status = 'rejected', is_verified = false, is_flagged = true, hidden = true
+             WHERE ($1 <> '' AND (LOWER(COALESCE(id, '')) = LOWER($1) OR LOWER(COALESCE(user_id, '')) = LOWER($1)))
+                OR ($2 <> '' AND LOWER(COALESCE(email, '')) = LOWER($2))
+                OR ($3 <> '' AND REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE '%' || $3)`,
+            [targetUid, targetEmail, targetPhone]
+          ).catch(() => {}),
+          dbPool.query(
+            `UPDATE businesses SET is_approved = false, is_verified = false, is_flagged = true, hidden = true
+             WHERE ($1 <> '' AND (LOWER(COALESCE(id, '')) = LOWER($1) OR LOWER(COALESCE(user_id, '')) = LOWER($1) OR LOWER(COALESCE(owner_id, '')) = LOWER($1)))`,
+            [targetUid]
+          ).catch(() => {}),
+          dbPool.query(
+            `UPDATE posts SET is_flagged = true, hidden = true, status = 'rejected'
+             WHERE ($1 <> '' AND LOWER(COALESCE(user_id, '')) = LOWER($1))
+                OR ($2 <> '' AND id = $2)`,
+            [targetUid, postId || ""]
+          ).catch(() => {}),
+          dbPool.query(
+            `UPDATE broadcast_posts SET is_flagged = true, hidden = true, status = 'rejected'
+             WHERE ($1 <> '' AND LOWER(COALESCE(author_id, '')) = LOWER($1))
+                OR ($2 <> '' AND id = $2)`,
+            [targetUid, postId || ""]
+          ).catch(() => {}),
+          dbPool.query(
+            `UPDATE verification_requests SET status = 'rejected', reviewed_at = NOW()
+             WHERE ($1 <> '' AND (LOWER(COALESCE(entity_id, '')) = LOWER($1) OR LOWER(COALESCE(user_id, '')) = LOWER($1)))
+                OR ($2 <> '' AND LOWER(COALESCE(user_email, '')) = LOWER($2))
+                OR ($3 <> '' AND REGEXP_REPLACE(COALESCE(user_phone, ''), '\\D', '', 'g') LIKE '%' || $3)`,
+            [targetUid, targetEmail, targetPhone]
+          ).catch(() => {}),
+          reportId
+            ? dbPool.query(
+                `UPDATE admin_reports SET status = 'resolved', is_user_blocked = true WHERE id = $1`,
+                [reportId]
+              ).catch(() => {})
+            : Promise.resolve(),
+          targetUid
+            ? dbPool.query(
+                `UPDATE admin_reports SET status = 'resolved', is_user_blocked = true WHERE reported_user_id = $1`,
+                [targetUid]
+              ).catch(() => {})
+            : Promise.resolve()
+        ]);
+      }
+
+      // Sync JSON fallback files
+      try {
+        const intentsList = readJsonFile<any[]>(INTENTS_FILE, []);
+        writeJsonFile(
+          INTENTS_FILE,
+          intentsList.map(i =>
+            (targetUid && (i.authorId === targetUid || i.userId === targetUid)) || (postId && i.id === postId)
+              ? { ...i, status: 'rejected', is_flagged: true, hidden: true }
+              : i
+          )
+        );
+      } catch {}
+      try {
+        const helpersList = readJsonFile<any[]>(HELPERS_FILE, []);
+        writeJsonFile(
+          HELPERS_FILE,
+          helpersList.map(h =>
+            (targetUid && (h.id === targetUid || h.userId === targetUid)) ||
+            (targetEmail && String(h.email || '').toLowerCase() === targetEmail) ||
+            (targetPhone && normalizePhoneDigitsServer(h.phone) === targetPhone)
+              ? { ...h, status: 'rejected', isVerified: false, is_flagged: true, hidden: true }
+              : h
+          )
+        );
+      } catch {}
+      try {
+        const profilesMap = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
+        Object.keys(profilesMap).forEach(k => {
+          const p = profilesMap[k];
+          if (!p) return;
+          if (
+            k === targetUid ||
+            p.uid === targetUid ||
+            (targetEmail && String(p.email || '').toLowerCase() === targetEmail) ||
+            (targetPhone && normalizePhoneDigitsServer(p.phone) === targetPhone)
+          ) {
+            p.status = 'rejected';
+            p.isVerified = false;
+            p.is_verified = false;
+            p.isBlocked = true;
+          }
+        });
+        writeJsonFile(PROFILES_FILE, profilesMap);
+      } catch {}
+      try {
+        memoryAdminReports.forEach(r => {
+          if ((reportId && r.id === reportId) || (targetUid && r.reportedUserId === targetUid)) {
+            r.status = 'resolved';
+            r.isUserBlocked = true;
+          }
+        });
+        writeJsonFile(REPORTS_FILE, memoryAdminReports);
+      } catch {}
+
+      await archiveToSecurityVault(
+        "user_profile",
+        newBlock.id,
+        {
+          ...newBlock,
+          category: "ADMIN_BLOCKED_ACCOUNT",
+          postContent: `Blocked by Admin: ${newBlock.reason}`
+        },
+        "ADMIN_REMOVED_PUBLIC",
+        req
+      ).catch(() => {});
+
+      invalidatePublicCache(['public_helpers', 'public_shops']);
+      return res.json({ success: true, block: newBlock, blocks: filtered });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message || "Failed to block user" });
+    }
+  });
+
+  app.post("/api/admin/global-unblock", requireAdmin, async (req, res) => {
+    try {
+      const { blockId, userId, email, phone } = req.body || {};
+      const targetUid = String(userId || "").trim();
+      const targetEmail = String(email || "").trim().toLowerCase();
+      const targetPhone = normalizePhoneDigitsServer(phone || "");
+
+      const blocks = await loadAdminGlobalBlocks();
+      const matched = blocks.find(
+        b =>
+          (blockId && b.id === blockId) ||
+          (targetUid && b.userId && b.userId.toLowerCase() === targetUid.toLowerCase()) ||
+          (targetEmail && b.email && b.email.toLowerCase() === targetEmail) ||
+          (targetPhone && normalizePhoneDigitsServer(b.phone) === targetPhone)
+      );
+
+      const finalUid = targetUid || matched?.userId || "";
+      const finalEmail = targetEmail || (matched?.email || "").toLowerCase();
+      const finalPhone = targetPhone || normalizePhoneDigitsServer(matched?.phone || "");
+
+      const remaining = blocks.filter(
+        b =>
+          !(blockId && b.id === blockId) &&
+          !(finalUid && b.userId && b.userId.toLowerCase() === finalUid.toLowerCase()) &&
+          !(finalEmail && b.email && b.email.toLowerCase() === finalEmail) &&
+          !(finalPhone && normalizePhoneDigitsServer(b.phone) === finalPhone)
+      );
+      await saveAdminGlobalBlocks(remaining);
+
+      if (dbPool && isDbConnected && (finalUid || finalEmail || finalPhone)) {
+        await Promise.all([
+          dbPool.query(
+            `UPDATE profiles SET status = 'approved', is_verified = true, verified = true, is_flagged = false, hidden = false, is_deleted = false, updated_at = NOW()
+             WHERE ($1 <> '' AND (LOWER(COALESCE(uid, '')) = LOWER($1) OR LOWER(COALESCE(id, '')) = LOWER($1) OR LOWER(COALESCE(user_id, '')) = LOWER($1)))
+                OR ($2 <> '' AND LOWER(COALESCE(email, '')) = LOWER($2))
+                OR ($3 <> '' AND REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE '%' || $3)`,
+            [finalUid, finalEmail, finalPhone]
+          ).catch(() => {}),
+          dbPool.query(
+            `UPDATE helpers SET status = 'approved', is_verified = true, is_flagged = false, hidden = false, is_deleted = false
+             WHERE ($1 <> '' AND (LOWER(COALESCE(id, '')) = LOWER($1) OR LOWER(COALESCE(user_id, '')) = LOWER($1)))
+                OR ($2 <> '' AND LOWER(COALESCE(email, '')) = LOWER($2))
+                OR ($3 <> '' AND REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE '%' || $3)`,
+            [finalUid, finalEmail, finalPhone]
+          ).catch(() => {}),
+          dbPool.query(
+            `UPDATE verification_requests SET status = 'approved', reviewed_at = NOW()
+             WHERE ($1 <> '' AND (LOWER(COALESCE(entity_id, '')) = LOWER($1) OR LOWER(COALESCE(user_id, '')) = LOWER($1)))
+                OR ($2 <> '' AND LOWER(COALESCE(user_email, '')) = LOWER($2))
+                OR ($3 <> '' AND REGEXP_REPLACE(COALESCE(user_phone, ''), '\\D', '', 'g') LIKE '%' || $3)`,
+            [finalUid, finalEmail, finalPhone]
+          ).catch(() => {}),
+          finalUid
+            ? dbPool.query(
+                `UPDATE admin_reports SET is_user_blocked = false WHERE reported_user_id = $1`,
+                [finalUid]
+              ).catch(() => {})
+            : Promise.resolve()
+        ]);
+      }
+
+      try {
+        const helpersList = readJsonFile<any[]>(HELPERS_FILE, []);
+        writeJsonFile(
+          HELPERS_FILE,
+          helpersList.map(h =>
+            (finalUid && (h.id === finalUid || h.userId === finalUid)) ||
+            (finalEmail && String(h.email || '').toLowerCase() === finalEmail) ||
+            (finalPhone && normalizePhoneDigitsServer(h.phone) === finalPhone)
+              ? { ...h, status: 'approved', isVerified: true, is_flagged: false, hidden: false }
+              : h
+          )
+        );
+      } catch {}
+      try {
+        const profilesMap = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
+        Object.keys(profilesMap).forEach(k => {
+          const p = profilesMap[k];
+          if (!p) return;
+          if (
+            k === finalUid ||
+            p.uid === finalUid ||
+            (finalEmail && String(p.email || '').toLowerCase() === finalEmail) ||
+            (finalPhone && normalizePhoneDigitsServer(p.phone) === finalPhone)
+          ) {
+            p.status = 'approved';
+            p.isVerified = true;
+            p.is_verified = true;
+            p.isBlocked = false;
+          }
+        });
+        writeJsonFile(PROFILES_FILE, profilesMap);
+      } catch {}
+
+      invalidatePublicCache(['public_helpers', 'public_shops']);
+      return res.json({ success: true, blocks: remaining });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message || "Failed to unblock user" });
+    }
+  });
+
+  // Complete User Activity & Record Sheet (સંપૂર્ણ યુઝર રેકોર્ડ) for Admin Review
+  app.get("/api/admin/user-full-record", requireAdmin, async (req, res) => {
+    try {
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      let uid = String(req.query.userId || req.query.uid || "").trim();
+      let email = String(req.query.email || "").trim().toLowerCase();
+      let phoneDigits = normalizePhoneDigitsServer(String(req.query.phone || ""));
+      const postId = String(req.query.postId || "").trim();
+
+      let profileData: any = null;
+      let helperData: any = null;
+      const userPosts: any[] = [];
+      const userMessages: any[] = [];
+      const userReports: any[] = [];
+      const vaultEntries: any[] = [];
+
+      // 1. Inspect Security Vault for deleted/active records, original unwatermarked selfie, IP address & device logs
+      const vaultMap = readJsonFile<Record<string, string>>(SECURITY_VAULT_FILE, {});
+      Object.values(vaultMap).forEach(enc => {
+        const rec = decryptVaultPayload(enc);
+        if (rec) vaultEntries.push(rec);
+      });
+      if (dbPool && isDbConnected) {
+        try {
+          const vRes = await dbPool.query("SELECT encrypted_payload FROM security_vault ORDER BY updated_at DESC LIMIT 500");
+          vRes.rows.forEach((r: any) => {
+            const dec = decryptVaultPayload(r.encrypted_payload);
+            if (dec) vaultEntries.push(dec);
+          });
+        } catch {}
+      }
+
+      if (postId && !uid) {
+        const localIntents = readJsonFile<any[]>(INTENTS_FILE, []);
+        const matchedPost = localIntents.find(i => i && i.id === postId);
+        if (matchedPost) {
+          uid = matchedPost.authorId || matchedPost.userId || "";
+          email = email || String(matchedPost.authorEmail || "").toLowerCase();
+          phoneDigits = phoneDigits || normalizePhoneDigitsServer(matchedPost.authorPhone || "");
+        }
+        if (dbPool && isDbConnected && !uid) {
+          const pRes = await dbPool.query("SELECT user_id, raw_json FROM posts WHERE id = $1 LIMIT 1", [postId]).catch(() => ({ rows: [] as any[] }));
+          if (pRes.rows.length > 0) {
+            uid = pRes.rows[0].user_id || "";
+            const rj = pRes.rows[0].raw_json || {};
+            email = email || String(rj.authorEmail || "").toLowerCase();
+            phoneDigits = phoneDigits || normalizePhoneDigitsServer(rj.authorPhone || "");
+          }
+        }
+      }
+
+      // 2. Lookup Profile & Helper record
+      const profilesMap = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
+      for (const p of Object.values(profilesMap)) {
+        if (!p) continue;
+        if (
+          (uid && (p.uid === uid || p.id === uid)) ||
+          (email && String(p.email || "").toLowerCase() === email) ||
+          (phoneDigits && normalizePhoneDigitsServer(p.phone) === phoneDigits)
+        ) {
+          profileData = { ...p };
+          uid = uid || p.uid || p.id || "";
+          email = email || String(p.email || "").toLowerCase();
+          phoneDigits = phoneDigits || normalizePhoneDigitsServer(p.phone);
+          break;
+        }
+      }
+
+      const helpersList = readJsonFile<any[]>(HELPERS_FILE, []);
+      for (const h of helpersList) {
+        if (!h) continue;
+        if (
+          (uid && (h.id === uid || h.userId === uid)) ||
+          (email && String(h.email || "").toLowerCase() === email) ||
+          (phoneDigits && normalizePhoneDigitsServer(h.phone) === phoneDigits)
+        ) {
+          helperData = { ...h };
+          uid = uid || h.userId || h.id || "";
+          email = email || String(h.email || "").toLowerCase();
+          phoneDigits = phoneDigits || normalizePhoneDigitsServer(h.phone);
+          break;
+        }
+      }
+
+      if (dbPool && isDbConnected && (uid || email || phoneDigits)) {
+        try {
+          const [pDb, hDb] = await Promise.all([
+            dbPool.query(
+              `SELECT * FROM profiles
+               WHERE ($1 <> '' AND (LOWER(COALESCE(uid, '')) = LOWER($1) OR LOWER(COALESCE(id, '')) = LOWER($1)))
+                  OR ($2 <> '' AND LOWER(COALESCE(email, '')) = LOWER($2))
+                  OR ($3 <> '' AND REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE '%' || $3)
+               LIMIT 1`,
+              [uid, email, phoneDigits]
+            ).catch(() => ({ rows: [] as any[] })),
+            dbPool.query(
+              `SELECT * FROM helpers
+               WHERE ($1 <> '' AND (LOWER(COALESCE(id, '')) = LOWER($1) OR LOWER(COALESCE(user_id, '')) = LOWER($1)))
+                  OR ($2 <> '' AND LOWER(COALESCE(email, '')) = LOWER($2))
+                  OR ($3 <> '' AND REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE '%' || $3)
+               LIMIT 1`,
+              [uid, email, phoneDigits]
+            ).catch(() => ({ rows: [] as any[] }))
+          ]);
+          if (pDb.rows.length > 0) {
+            profileData = { ...pDb.rows[0], ...(profileData || {}) };
+            uid = uid || pDb.rows[0].uid || pDb.rows[0].id || "";
+            email = email || String(pDb.rows[0].email || "").toLowerCase();
+            phoneDigits = phoneDigits || normalizePhoneDigitsServer(pDb.rows[0].phone);
+          }
+          if (hDb.rows.length > 0) {
+            helperData = { ...hDb.rows[0], ...(helperData || {}) };
+            uid = uid || hDb.rows[0].user_id || hDb.rows[0].id || "";
+            email = email || String(hDb.rows[0].email || "").toLowerCase();
+            phoneDigits = phoneDigits || normalizePhoneDigitsServer(hDb.rows[0].phone);
+          }
+        } catch {}
+      }
+
+      const idCandidates = new Set<string>(
+        [
+          uid.toLowerCase(),
+          email,
+          phoneDigits ? `phone_${phoneDigits}` : "",
+          phoneDigits ? `${phoneDigits}@phone.locohelp.com` : "",
+          helperData?.id ? String(helperData.id).toLowerCase() : "",
+          helperData?.userId ? String(helperData.userId).toLowerCase() : ""
+        ].filter(Boolean)
+      );
+
+      // 3. Collect all Posts (including hidden/flagged/deleted)
+      const seenPostIds = new Set<string>();
+      const localIntents = readJsonFile<any[]>(INTENTS_FILE, []);
+      localIntents.forEach(p => {
+        if (!p || !p.id) return;
+        const aId = String(p.authorId || p.userId || "").toLowerCase();
+        const aEm = String(p.authorEmail || "").toLowerCase();
+        const aPh = normalizePhoneDigitsServer(p.authorPhone || "");
+        if (
+          (postId && p.id === postId) ||
+          (aId && idCandidates.has(aId)) ||
+          (aEm && idCandidates.has(aEm)) ||
+          (phoneDigits && aPh === phoneDigits)
+        ) {
+          seenPostIds.add(p.id);
+          userPosts.push(p);
+        }
+      });
+
+      if (dbPool && isDbConnected && idCandidates.size > 0) {
+        try {
+          const pRes = await dbPool.query(
+            `SELECT * FROM posts
+             WHERE LOWER(COALESCE(user_id, '')) = ANY($1::text[])
+                OR ($2 <> '' AND id = $2)
+             ORDER BY created_at DESC LIMIT 100`,
+            [Array.from(idCandidates), postId]
+          ).catch(() => ({ rows: [] as any[] }));
+          pRes.rows.forEach((r: any) => {
+            if (!seenPostIds.has(r.id)) {
+              seenPostIds.add(r.id);
+              userPosts.push({
+                id: r.id,
+                authorId: r.user_id,
+                authorName: r.author_name,
+                description: r.content,
+                category: r.category,
+                city: r.city,
+                imageUrl: r.image_url,
+                status: r.status,
+                is_flagged: r.is_flagged,
+                hidden: r.hidden,
+                createdAt: r.created_at
+              });
+            }
+          });
+        } catch {}
+      }
+
+      // 4. Collect all Chat Messages (active + deleted from Security Vault)
+      const seenMsgIds = new Set<string>();
+      const allLocalMsgs = readJsonFile<Record<string, any[]>>(MESSAGES_FILE, {});
+      Object.values(allLocalMsgs).forEach(arr => {
+        if (!Array.isArray(arr)) return;
+        arr.forEach(m => {
+          if (!m || !m.id) return;
+          const sId = String(m.senderId || m.authorId || "").toLowerCase();
+          const rId = String(m.receiverId || "").toLowerCase();
+          const sEm = String(m.senderEmail || "").toLowerCase();
+          if (
+            (sId && idCandidates.has(sId)) ||
+            (rId && idCandidates.has(rId)) ||
+            (sEm && idCandidates.has(sEm))
+          ) {
+            seenMsgIds.add(m.id);
+            userMessages.push(m);
+          }
+        });
+      });
+
+      if (dbPool && isDbConnected && idCandidates.size > 0) {
+        try {
+          const mRes = await dbPool.query(
+            `SELECT * FROM messages
+             WHERE LOWER(COALESCE(sender_id, '')) = ANY($1::text[])
+                OR LOWER(COALESCE(receiver_id, '')) = ANY($1::text[])
+                OR LOWER(COALESCE(sender_email, '')) = ANY($1::text[])
+             ORDER BY created_at DESC LIMIT 200`,
+            [Array.from(idCandidates)]
+          ).catch(() => ({ rows: [] as any[] }));
+          mRes.rows.forEach((r: any) => {
+            if (!seenMsgIds.has(r.id)) {
+              seenMsgIds.add(r.id);
+              userMessages.push({
+                id: r.id,
+                postId: r.post_id || r.intent_id,
+                senderId: r.sender_id,
+                senderName: r.sender_name,
+                senderEmail: r.sender_email,
+                receiverId: r.receiver_id,
+                text: r.text || r.content,
+                attachmentUrl: r.attachment_url,
+                createdAt: r.created_at
+              });
+            }
+          });
+        } catch {}
+      }
+
+      // Check Security Vault for deleted messages, deleted posts, IP addresses, and unwatermarked selfies
+      const matchedVaultRecords = vaultEntries.filter(v => {
+        if (!v) return false;
+        const vRecId = String(v.recordId || "").toLowerCase();
+        const vEmail = String(v.email || v.realAccountEmail || "").toLowerCase();
+        const vPhone = normalizePhoneDigitsServer(v.phone || v.realAccountPhone || "");
+        const vRaw = v.rawPayload || {};
+        const vSender = String(vRaw.senderId || vRaw.sender_id || vRaw.authorId || vRaw.userId || "").toLowerCase();
+        return (
+          (vRecId && idCandidates.has(vRecId)) ||
+          (vEmail && idCandidates.has(vEmail)) ||
+          (phoneDigits && vPhone === phoneDigits) ||
+          (vSender && idCandidates.has(vSender))
+        );
+      });
+
+      matchedVaultRecords.forEach(v => {
+        const raw = v.rawPayload || {};
+        if (v.entityType === "help_post" && (raw.senderId || raw.sender_id) && !seenMsgIds.has(v.recordId)) {
+          seenMsgIds.add(v.recordId);
+          userMessages.push({
+            id: v.recordId,
+            senderId: raw.senderId || raw.sender_id,
+            senderName: raw.senderName || raw.sender_name || v.name,
+            receiverId: raw.receiverId || raw.receiver_id || "",
+            text: raw.text || raw.content || v.postContent || "",
+            attachmentUrl: raw.attachmentUrl || raw.attachment_url || v.photoUrl || null,
+            isDeletedByUser: Boolean(v.isDeletedFromPublic || String(v.actionStatus || "").includes("DELETED")),
+            createdAt: raw.createdAt || raw.created_at || v.firstRegisteredAt
+          });
+        }
+      });
+
+      // 5. Collect all Reports against this user or post
+      memoryAdminReports.forEach(r => {
+        if (!r) return;
+        const rUid = String(r.reportedUserId || "").toLowerCase();
+        if ((rUid && idCandidates.has(rUid)) || (postId && r.reportedPostId === postId)) {
+          userReports.push(r);
+        }
+      });
+
+      const activeBlock = await findAdminGlobalBlock(uid, email, phoneDigits, Array.from(idCandidates));
+      const ipAddresses = Array.from(
+        new Set(matchedVaultRecords.map(v => v.ipAddress).filter(Boolean))
+      );
+      const userAgents = Array.from(
+        new Set(matchedVaultRecords.map(v => v.userAgent).filter(Boolean))
+      );
+      const liveSelfieUrl =
+        helperData?.rawSelfieUrl ||
+        helperData?.idDocUrl ||
+        helperData?.id_doc_url ||
+        profileData?.rawSelfieUrl ||
+        profileData?.avatar_url ||
+        profileData?.avatarUrl ||
+        matchedVaultRecords.find(v => v.idDocumentWatermarked || v.photoUrl)?.idDocumentWatermarked ||
+        matchedVaultRecords.find(v => v.photoUrl)?.photoUrl ||
+        "";
+
+      return res.json({
+        success: true,
+        userSummary: {
+          userId: uid || helperData?.id || profileData?.uid || "Unknown",
+          name:
+            helperData?.name ||
+            profileData?.full_name ||
+            profileData?.name ||
+            matchedVaultRecords[0]?.realAccountName ||
+            matchedVaultRecords[0]?.name ||
+            userPosts[0]?.authorName ||
+            "User",
+          email: email || helperData?.email || profileData?.email || matchedVaultRecords[0]?.realAccountEmail || "",
+          phone:
+            helperData?.phone ||
+            profileData?.phone ||
+            (phoneDigits ? `+91 ${phoneDigits}` : "") ||
+            matchedVaultRecords[0]?.realAccountPhone ||
+            "",
+          area:
+            helperData?.area ||
+            profileData?.sector ||
+            profileData?.city ||
+            matchedVaultRecords[0]?.area ||
+            userPosts[0]?.location ||
+            "",
+          category: helperData?.categoryId || helperData?.category_id || profileData?.account_type || "User",
+          liveSelfieUrl,
+          visitingCardUrl: helperData?.visitingCardUrl || "",
+          ipAddresses,
+          userAgents,
+          isBlocked: Boolean(activeBlock),
+          blockDetails: activeBlock
+        },
+        posts: userPosts,
+        messages: userMessages.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()),
+        reports: userReports,
+        vaultRecordsCount: matchedVaultRecords.length
+      });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message || "Failed to load full user record" });
     }
   });
 
@@ -14419,6 +15281,19 @@ async function startServer() {
       }
 
       const cleanIdentifier = String(identifier).trim().toLowerCase();
+      const parsedOtpTarget = parseIdentifierForAuth(cleanIdentifier);
+      const otpSendBlock = await findAdminGlobalBlock(
+        parsedOtpTarget.isPhone ? `phone_${parsedOtpTarget.tenDigits}` : "",
+        parsedOtpTarget.cleanEmail,
+        parsedOtpTarget.tenDigits
+      );
+      if (otpSendBlock) {
+        return res.status(403).json({
+          success: false,
+          isBlocked: true,
+          error: "🚫 આ મોબાઇલ નંબર અથવા ઇમેઇલ એડમિન દ્વારા બ્લોક કરવામાં આવેલ છે. જ્યાં સુધી એડમિન ફરી મંજૂરી ન આપે ત્યાં સુધી આ નંબર/ઇમેઇલથી એકાઉન્ટ બનાવી શકાશે નહીં."
+        });
+      }
 
       // 60-second cooldown between OTP requests for the same email/mobile identifier
       const lastSentId = otpCooldownByIdentifier.get(cleanIdentifier) || 0;
@@ -14690,7 +15565,11 @@ async function startServer() {
             INSERT INTO "user" (id, name, phone, email, is_deleted, hidden, terms_accepted, terms_accepted_at, created_at)
             VALUES ($1, $2, $3, $4, false, false, true, NOW(), NOW())
             ON CONFLICT (id) DO UPDATE SET
-              name = EXCLUDED.name,
+              name = CASE
+                WHEN "user".name IS NULL OR "user".name = '' OR "user".name LIKE 'User %' OR "user".name LIKE 'Member %'
+                THEN EXCLUDED.name
+                ELSE "user".name
+              END,
               phone = COALESCE(NULLIF(EXCLUDED.phone, ''), "user".phone),
               email = COALESCE(NULLIF(EXCLUDED.email, ''), "user".email),
               is_deleted = false,
@@ -14703,8 +15582,16 @@ async function startServer() {
             INSERT INTO profiles (uid, id, user_id, name, full_name, email, phone, verified, is_verified, status, is_deleted, hidden, terms_accepted, terms_accepted_at, updated_at)
             VALUES ($1, $1, $1, $2, $2, $3, $4, false, false, 'pending', false, false, true, NOW(), NOW())
             ON CONFLICT (uid) DO UPDATE SET
-              name = EXCLUDED.name,
-              full_name = EXCLUDED.full_name,
+              name = CASE
+                WHEN profiles.name IS NULL OR profiles.name = '' OR profiles.name LIKE 'User %' OR profiles.name LIKE 'Member %'
+                THEN EXCLUDED.name
+                ELSE profiles.name
+              END,
+              full_name = CASE
+                WHEN profiles.full_name IS NULL OR profiles.full_name = '' OR profiles.full_name LIKE 'User %' OR profiles.full_name LIKE 'Member %'
+                THEN EXCLUDED.full_name
+                ELSE profiles.full_name
+              END,
               email = COALESCE(NULLIF(EXCLUDED.email, ''), profiles.email),
               phone = COALESCE(NULLIF(EXCLUDED.phone, ''), profiles.phone),
               is_deleted = false,
@@ -14719,8 +15606,10 @@ async function startServer() {
         }
       }
 
-      await ensureUserPendingVerification(user.uid, user.displayName, user.email, user.phone);
       const approval = await getUserApprovalState(user.uid, user.email, user.phone);
+      if (!approval.isApproved) {
+        await ensureUserPendingVerification(user.uid, user.displayName, user.email, user.phone);
+      }
 
       // Log IP Address & User-Agent in security_audit_logs for 180-day compliance
       await logSecurityAudit(user.uid, existingAcc ? "LOGIN" : "SIGNUP", req);

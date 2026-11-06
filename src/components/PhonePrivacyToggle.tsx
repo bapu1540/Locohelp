@@ -86,31 +86,27 @@ export const PhonePrivacyToggle: React.FC<PhonePrivacyToggleProps> = ({
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           {isPhonePublic ? (
-            <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
-              <Globe className="w-4 h-4" />
+            <div className="w-7 h-7 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+              <Globe className="w-3.5 h-3.5" />
             </div>
           ) : (
-            <div className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
-              <Lock className="w-4 h-4" />
+            <div className="w-7 h-7 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
+              <Lock className="w-3.5 h-3.5" />
             </div>
           )}
-          <div>
+          <div className="flex items-center gap-2 flex-wrap">
             <p className="text-xs font-extrabold text-slate-800">
               {language === 'HI'
-                ? 'मोबाइल नंबर गोपनीयता (Phone Privacy)'
+                ? 'मोबाइल नंबर'
                 : language === 'GU'
-                ? 'મોબાઇલ નંબર ગોપનીયતા (Phone Privacy)'
-                : 'Mobile Number Privacy'}
+                ? 'મોબાઇલ નંબર'
+                : 'Mobile Number'}
             </p>
-            <p className="text-[11px] font-semibold text-slate-500">
-              {phoneDisplay
-                ? `${language === 'HI' ? 'लॉगिन नंबर:' : language === 'GU' ? 'લોગિન નંબર:' : 'Linked:'} ${phoneDisplay}`
-                : language === 'HI'
-                ? 'डिफ़ॉल्ट रूप से आपका नंबर प्राइवेट और सुरक्षित रहता है'
-                : language === 'GU'
-                ? 'ડિફોલ્ટ રૂપે તમારો નંબર પ્રાઇવેટ અને સુરક્ષિત રહે છે'
-                : 'Your number is private and protected by default'}
-            </p>
+            {phoneDisplay ? (
+              <span className="text-[11px] font-bold text-slate-500">
+                ({phoneDisplay})
+              </span>
+            ) : null}
           </div>
         </div>
       </div>
@@ -129,10 +125,10 @@ export const PhonePrivacyToggle: React.FC<PhonePrivacyToggleProps> = ({
           <Lock className="w-3.5 h-3.5 shrink-0" />
           <span>
             {language === 'HI'
-              ? 'प्राइवेट (सिर्फ ऐप चैट)'
+              ? 'प्राइवेट (सिर्फ चैट)'
               : language === 'GU'
-              ? 'પ્રાઇવેટ (ફક્ત એપ ચેટ)'
-              : 'Private (App Chat Only)'}
+              ? 'પ્રાઇવેટ (ફક્ત ચેટ)'
+              : 'Private (Chat Only)'}
           </span>
         </button>
 
@@ -155,20 +151,6 @@ export const PhonePrivacyToggle: React.FC<PhonePrivacyToggleProps> = ({
           </span>
         </button>
       </div>
-
-      <p className="text-[11px] font-medium text-slate-600 leading-relaxed">
-        {isPhonePublic
-          ? language === 'HI'
-            ? '✅ पब्लिक मोड चालू है: ग्राहक आपको सीधे कॉल या WhatsApp कर सकेंगे।'
-            : language === 'GU'
-            ? '✅ પબ્લિક મોડ ચાલુ છે: ગ્રાહકો તમને સીધો કોલ કે WhatsApp કરી શકશે.'
-            : '✅ Public Mode Active: Users can contact you directly via Call or WhatsApp.'
-          : language === 'HI'
-          ? '🔒 प्राइवेट मोड (Default): आपका मोबाइल नंबर किसी को नहीं दिखेगा। लोग सिर्फ ऐप के अंदर सुरक्षित चैट कर सकेंगे।'
-          : language === 'GU'
-          ? '🔒 પ્રાઇવેટ મોડ (Default): તમારો મોબાઇલ નંબર કોઈને દેખાશે નહીં. લોકો ફક્ત એપમાં સુરક્ષિત ચેટ કરી શકશે.'
-          : '🔒 Private Mode (Default): Your phone number stays hidden. People can contact you safely via in-app chat.'}
-      </p>
 
       {/* Database Security Re-Authentication Modal */}
       {showReauthModal && (

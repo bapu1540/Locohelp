@@ -31,6 +31,13 @@ import {
   deleteIntentOnServer
 } from '../api';
 import { DEFAULT_SHOWCASE_PROVIDERS, ShowcaseProviderItem } from './HomeBelowCategorySection';
+import {
+  getSavedUserLocation,
+  getLocalizedLocationButtonText,
+  saveUserLocationPermanently,
+  matchesUserLocationFilter,
+  UserManualLocation
+} from '../data/panIndiaLocations';
 
 interface FixedBottomNavBarProps {
   currentScreen: Screen;
@@ -65,6 +72,23 @@ export default function FixedBottomNavBar({
   const [myRepliedChatsList, setMyRepliedChatsList] = useState<any[]>([]);
   const [isLoadingBookings, setIsLoadingBookings] = useState(false);
   const [favoriteProviders, setFavoriteProviders] = useState<ShowcaseProviderItem[]>([]);
+  const [activeLocation, setActiveLocation] = useState<UserManualLocation>(() => getSavedUserLocation());
+
+  useEffect(() => {
+    const syncLoc = (e?: any) => {
+      if (e?.detail?.district) {
+        setActiveLocation(e.detail);
+      } else {
+        setActiveLocation(getSavedUserLocation());
+      }
+    };
+    window.addEventListener('locohelp_location_changed', syncLoc);
+    window.addEventListener('storage', syncLoc);
+    return () => {
+      window.removeEventListener('locohelp_location_changed', syncLoc);
+      window.removeEventListener('storage', syncLoc);
+    };
+  }, []);
 
   useEffect(() => {
     const handleCloseAll = () => {
@@ -344,8 +368,19 @@ export default function FixedBottomNavBar({
     (['profile', 'notifications', 'settings', 'guidelines'] as Screen[]).includes(currentScreen);
 
   const myOwnPostIdsSet = new Set(filterMyOwnPosts(allLivePostsList).map(p => String(p.id)));
+  const selectedDistLower = (activeLocation?.district || '').trim().toLowerCase();
+  const isAllCitiesMode = !selectedDistLower || selectedDistLower === 'all';
+
   const filteredLivePosts = allLivePostsList.filter((post: any) => {
     if (!post || !post.id) return false;
+    if (post.is_flagged || post.hidden || post.is_deleted) return false;
+
+    const isMyOwn = myOwnPostIdsSet.has(String(post.id));
+    if (!isMyOwn && !isAllCitiesMode && !postsSearchQuery.trim()) {
+      const postLocText = `${post.city || ''} ${post.area || ''} ${post.location || ''} ${post.resolvedLocationBadge || ''} ${post.description || ''}`;
+      if (!matchesUserLocationFilter(postLocText, activeLocation)) return false;
+    }
+
     if (!postsSearchQuery.trim()) return true;
     const q = postsSearchQuery.toLowerCase().trim();
     return (
@@ -428,10 +463,10 @@ export default function FixedBottomNavBar({
                   <div style={{ minWidth: 0 }}>
                     <h3 className="text-sm sm:text-base font-black leading-tight m-0 truncate">
                       {language === 'GU'
-                        ? `લાઈવ બ્રોડકાસ્ટ પોસ્ટ્સ (${allLivePostsList.length})`
+                        ? `લાઈવ પોસ્ટ્સ - ${getLocalizedLocationButtonText(activeLocation, language)} (${filteredLivePosts.length})`
                         : language === 'HI'
-                        ? `लाइव ब्रॉडकास्ट पोस्ट (${allLivePostsList.length})`
-                        : `Live Broadcast Posts (${allLivePostsList.length})`}
+                        ? `लाइव पोस्ट - ${getLocalizedLocationButtonText(activeLocation, language)} (${filteredLivePosts.length})`
+                        : `Live Posts - ${getLocalizedLocationButtonText(activeLocation, language)} (${filteredLivePosts.length})`}
                     </h3>
                     <p className="text-[10px] text-orange-100 font-medium m-0 truncate">
                       {language === 'GU'
@@ -516,33 +551,53 @@ export default function FixedBottomNavBar({
                     </div>
                     <h4 className="text-sm font-black text-slate-900">
                       {language === 'GU'
-                        ? 'હાલ કોઈ લાઈવ પોસ્ટ નથી'
+                        ? `હાલ ${getLocalizedLocationButtonText(activeLocation, language)} માં કોઈ લાઈવ પોસ્ટ નથી`
                         : language === 'HI'
-                        ? 'अभी कोई लाइव पोस्ट नहीं है'
-                        : 'No Live Posts Found'}
+                        ? `अभी ${getLocalizedLocationButtonText(activeLocation, language)} में कोई लाइव पोस्ट नहीं है`
+                        : `No Live Posts in ${getLocalizedLocationButtonText(activeLocation, language)}`}
                     </h4>
                     <p className="text-xs text-slate-500 max-w-xs mx-auto">
                       {language === 'GU'
-                        ? 'તમારે કોઈ કારીગર કે સેવાની જરૂર હોય તો હમણાં જ ફ્રી પોસ્ટ મૂકો!'
+                        ? 'તમારે કોઈ કારીગર કે સેવાની જરૂર હોય તો હમણાં જ ફ્રી પોસ્ટ મૂકો અથવા બધા શહેરોની પોસ્ટ જુઓ!'
                         : language === 'HI'
-                        ? 'किसी कारीगर या सेवा की जरूरत हो तो अभी फ्री पोस्ट डालें!'
-                        : 'Need a service expert or help? Create a free broadcast post right now!'}
+                        ? 'किसी कारीगर या सेवा की जरूरत हो तो अभी फ्री पोस्ट डालें या सभी शहरों की पोस्ट देखें!'
+                        : 'Need a service expert? Create a free post right now or view posts from all cities!'}
                     </p>
-                    <button
-                      type="button"
-                      onClick={handleTriggerCreatePost}
-                      style={{ backgroundColor: '#EA580C', color: '#ffffff' }}
-                      className="px-4 py-2.5 rounded-xl text-xs font-black shadow-sm cursor-pointer inline-flex items-center gap-1.5"
-                    >
-                      <Plus className="w-4 h-4" />
-                      <span>
-                        {language === 'GU'
-                          ? 'નવી પોસ્ટ બનાવો'
-                          : language === 'HI'
-                          ? 'नई पोस्ट बनाएं'
-                          : 'Create New Post'}
-                      </span>
-                    </button>
+                    <div className="flex flex-wrap items-center justify-center gap-2">
+                      {!isAllCitiesMode && allLivePostsList.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            saveUserLocationPermanently({ state: 'All', district: 'All', taluka: '', area: '' });
+                          }}
+                          className="px-3.5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-black shadow-sm cursor-pointer inline-flex items-center gap-1.5"
+                        >
+                          <span>🌐</span>
+                          <span>
+                            {language === 'GU'
+                              ? `બધા શહેરોની પોસ્ટ જુઓ (${allLivePostsList.length})`
+                              : language === 'HI'
+                              ? `सभी शहरों की पोस्ट देखें (${allLivePostsList.length})`
+                              : `View All Cities (${allLivePostsList.length})`}
+                          </span>
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handleTriggerCreatePost}
+                        style={{ backgroundColor: '#EA580C', color: '#ffffff' }}
+                        className="px-4 py-2.5 rounded-xl text-xs font-black shadow-sm cursor-pointer inline-flex items-center gap-1.5"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>
+                          {language === 'GU'
+                            ? 'નવી પોસ્ટ બનાવો'
+                            : language === 'HI'
+                            ? 'नई पोस्ट बनाएं'
+                            : 'Create New Post'}
+                        </span>
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   filteredLivePosts.map((post: any) => {
@@ -1535,7 +1590,7 @@ export default function FixedBottomNavBar({
                   strokeWidth: isPostsActive ? 2.5 : 2
                 }}
               />
-              {allLivePostsList.length > 0 && (
+              {filteredLivePosts.length > 0 && (
                 <span
                   style={{
                     position: 'absolute',
@@ -1556,7 +1611,7 @@ export default function FixedBottomNavBar({
                     border: '1.5px solid #ffffff'
                   }}
                 >
-                  {allLivePostsList.length > 99 ? '99+' : allLivePostsList.length}
+                  {filteredLivePosts.length > 99 ? '99+' : filteredLivePosts.length}
                 </span>
               )}
             </div>
@@ -1730,7 +1785,7 @@ export default function FixedBottomNavBar({
             </span>
           </button>
 
-          {/* 5. વધુ (More — opens the menu with My Chats, Profile, Notifications, Settings, Login/Logout) */}
+          {/* 6. પ્રોફાઈલ (Profile — opens the menu with Profile, Notifications, Settings, Login/Logout) */}
           <button
             type="button"
             onClick={() => {
@@ -1748,7 +1803,7 @@ export default function FixedBottomNavBar({
               cursor: 'pointer'
             }}
           >
-            <LayoutGrid
+            <User
               style={{
                 width: '20px',
                 height: '20px',
@@ -1766,7 +1821,7 @@ export default function FixedBottomNavBar({
                 whiteSpace: 'nowrap'
               }}
             >
-              {language === 'GU' ? 'વધુ' : language === 'HI' ? 'अधिक' : 'More'}
+              {language === 'GU' ? 'પ્રોફાઈલ' : language === 'HI' ? 'प्रोफ़ाइल' : 'Profile'}
             </span>
           </button>
         </div>

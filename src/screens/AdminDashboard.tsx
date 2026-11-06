@@ -577,6 +577,142 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
   // Action Loading States
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
+  // Global Blocked Users List & Complete User Activity Record Modal
+  const [globalBlocks, setGlobalBlocks] = useState<any[]>([]);
+  const [fullUserRecordModal, setFullUserRecordModal] = useState<{
+    loading: boolean;
+    data: any | null;
+  } | null>(null);
+
+  const findBlockForItem = (item: any) => {
+    if (!item) return null;
+    const rawIds = [
+      item.reportedUserId,
+      item.authorId,
+      item.author_id,
+      item.userId,
+      item.user_id,
+      item.uid,
+      item.id
+    ]
+      .filter(Boolean)
+      .map((x) => String(x).trim().toLowerCase());
+    const rawEmail = String(
+      item.reportedUserEmail || item.authorEmail || item.author_email || item.userEmail || item.email || ''
+    )
+      .trim()
+      .toLowerCase();
+    const rawPhone = String(
+      item.reportedUserPhone || item.authorPhone || item.author_phone || item.userPhone || item.phone || item.whatsapp || ''
+    )
+      .replace(/\D/g, '')
+      .slice(-10);
+
+    return (
+      globalBlocks.find((b) => {
+        if (!b || b.isActive === false) return false;
+        const bUid = String(b.userId || '').trim().toLowerCase();
+        const bEmail = String(b.email || '').trim().toLowerCase();
+        const bPhone = String(b.phone || '').replace(/\D/g, '').slice(-10);
+        if (bUid && rawIds.includes(bUid)) return true;
+        if (bEmail && rawEmail && bEmail === rawEmail) return true;
+        if (bPhone && rawPhone && bPhone.length === 10 && bPhone === rawPhone) return true;
+        if (rawIds.some((id) => bPhone && bPhone.length === 10 && id.includes(bPhone))) return true;
+        return false;
+      }) || null
+    );
+  };
+
+  const handleGlobalBlockUser = async (params: {
+    userId?: string;
+    name?: string;
+    email?: string;
+    phone?: string;
+    reason?: string;
+    reportId?: string;
+    postId?: string;
+  }) => {
+    const busyKey = params.reportId || params.userId || params.postId || params.phone || 'block';
+    setActionLoadingId(busyKey);
+    try {
+      const res = await fetch('/api/admin/global-block', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify(params)
+      });
+      const data = await res.json();
+      if (data?.success) {
+        if (Array.isArray(data.blocks)) setGlobalBlocks(data.blocks);
+        showToast('🚫 યુઝરને તાત્કાલિક બ્લોક કરવામાં આવ્યો છે (૧૦૦% પ્રતિબંધ લાગુ)!');
+        await loadAllData();
+      } else {
+        showToast(data?.error || 'બ્લોક કરવામાં ક્ષતિ આવી');
+      }
+    } catch (e: any) {
+      showToast(e?.message || 'Error blocking user');
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const handleGlobalUnblockUser = async (params: {
+    blockId?: string;
+    userId?: string;
+    email?: string;
+    phone?: string;
+  }) => {
+    const busyKey = params.blockId || params.userId || params.phone || 'unblock';
+    setActionLoadingId(busyKey);
+    try {
+      const res = await fetch('/api/admin/global-unblock', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify(params)
+      });
+      const data = await res.json();
+      if (data?.success) {
+        if (Array.isArray(data.blocks)) setGlobalBlocks(data.blocks);
+        showToast('✅ યુઝરને અનબ્લોક કરી ફરીથી મંજૂરી આપવામાં આવી છે!');
+        await loadAllData();
+      } else {
+        showToast(data?.error || 'અનબ્લોક કરવામાં ક્ષતિ આવી');
+      }
+    } catch (e: any) {
+      showToast(e?.message || 'Error unblocking user');
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const openFullUserRecordModal = async (params: {
+    userId?: string;
+    email?: string;
+    phone?: string;
+    postId?: string;
+  }) => {
+    setFullUserRecordModal({ loading: true, data: null });
+    try {
+      const qs = new URLSearchParams();
+      if (params.userId) qs.set('userId', params.userId);
+      if (params.email) qs.set('email', params.email);
+      if (params.phone) qs.set('phone', params.phone);
+      if (params.postId) qs.set('postId', params.postId);
+      const res = await fetch(`/api/admin/user-full-record?${qs.toString()}`, {
+        headers: getAuthHeaders()
+      });
+      const data = await res.json();
+      if (data?.success) {
+        setFullUserRecordModal({ loading: false, data });
+      } else {
+        setFullUserRecordModal(null);
+        showToast(data?.error || 'રેકોર્ડ લોડ કરવામાં ક્ષતિ આવી');
+      }
+    } catch (e: any) {
+      setFullUserRecordModal(null);
+      showToast(e?.message || 'Error loading user record');
+    }
+  };
+
   // View Full Details / ID Document Modal State
   const [viewingItem, setViewingItem] = useState<{ module: AdminModuleId; data: any } | null>(null);
 
@@ -1081,12 +1217,19 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         setJobPortalItems(liveJobs);
       }
 
-      // 7. User Feedback & Reports
+      // 7. User Feedback & Reports + Admin Global Blocklist
       try {
-        const res = await fetch('/api/reports', { headers: getAuthHeaders() });
-        if (res.ok) {
-          const data = await res.json();
+        const [resReports, resBlocks] = await Promise.all([
+          fetch('/api/reports', { headers: getAuthHeaders() }),
+          fetch('/api/admin/global-blocks', { headers: getAuthHeaders() })
+        ]);
+        if (resReports.ok) {
+          const data = await resReports.json();
           if (Array.isArray(data)) setReports(data);
+        }
+        if (resBlocks.ok) {
+          const bData = await resBlocks.json();
+          if (Array.isArray(bData)) setGlobalBlocks(bData);
         }
       } catch {}
 
@@ -1292,9 +1435,10 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         s.startsWith('/uploads/')
       );
     };
+    if (isRealDocUrl(item?.rawSelfieUrl)) return item.rawSelfieUrl;
+    if (isRealDocUrl(item?.idDocUrl)) return item.idDocUrl;
     if (isRealDocUrl(item?.idDocumentWatermarked)) return item.idDocumentWatermarked;
     if (isRealDocUrl(item?.liveSelfieUrl)) return item.liveSelfieUrl;
-    if (isRealDocUrl(item?.idDocUrl)) return item.idDocUrl;
     if (isRealDocUrl(item?.avatarUrl)) return item.avatarUrl;
     if (isRealDocUrl(item?.avatar_url)) return item.avatar_url;
     if (isRealDocUrl(item?.profilePhoto)) return item.profilePhoto;
@@ -1325,7 +1469,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
       item?.visitingCardUrl,
       item?.visiting_card_url,
       item?.workPhotoUrl,
-      item?.photoUrl,
+      item?.watermarkedSelfieUrl ? undefined : item?.photoUrl,
       item?.image_url
     ];
     for (const c of candidates) {
@@ -1779,7 +1923,8 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
           photos: creatingItem.photos,
           isVerified: true,
           status: 'approved',
-          adminDirectCreate: true
+          adminDirectCreate: true,
+          registeredByAdmin: true
         };
         const res = await fetch('/api/shops', {
           method: 'POST',
@@ -1823,7 +1968,8 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
           photoUrl: creatingItem.photoUrl || '',
           isVerified: true,
           status: 'approved',
-          adminDirectCreate: true
+          adminDirectCreate: true,
+          registeredByAdmin: true
         };
         const res = await fetch('/api/helpers', {
           method: 'POST',
@@ -1832,17 +1978,24 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Failed to add Profile');
-        setHelpers(prev => [data, ...prev.filter(h => h.id !== data.id)]);
-        saveFreeHelperProfile({
+        const enrichedData = {
           ...data,
+          adminDirectCreate: true,
+          registeredByAdmin: true
+        };
+        setHelpers(prev => [enrichedData, ...prev.filter(h => h.id !== data.id)]);
+        saveFreeHelperProfile({
+          ...enrichedData,
           categoryId: norm.categoryId,
           customCategoryName: norm.customCategoryName,
           isVerified: true,
-          status: 'approved'
-        });
+          status: 'approved',
+          adminDirectCreate: true,
+          registeredByAdmin: true
+        } as any);
 
         if (mod === 'simple_users') {
-          const uid = data.id || 'user_' + Date.now();
+          const uid = data.id || 'user_admin_' + Date.now();
           const userPayload = {
             uid,
             id: uid,
@@ -1858,7 +2011,8 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
             status: 'approved',
             isVerified: true,
             adminDirectCreate: true,
-            myHelperProfile: data
+            registeredByAdmin: true,
+            myHelperProfile: enrichedData
           };
           await fetch('/api/profiles', {
             method: 'POST',
@@ -3219,6 +3373,243 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                     <span>Security Vault ({securityVaultRecords.length})</span>
                   </button>
                 </div>
+              </div>
+
+              {/* Dedicated Admin Direct Registration Banner (No Selfie Required + Admin Verified Badge) */}
+              <div className="rounded-2xl bg-gradient-to-r from-indigo-950/90 via-slate-900 to-emerald-950/90 border-2 border-indigo-500/50 p-4 sm:p-5 shadow-xl">
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="px-2.5 py-0.5 rounded-full bg-indigo-600 text-white text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
+                        <ShieldCheck className="w-3 h-3" /> 🛡️ Admin Verified બેજ સાથે
+                      </span>
+                      <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-[10px] font-black">
+                        📸 સેલ્ફીની જરૂર નથી (No Selfie Required)
+                      </span>
+                    </div>
+                    <h3 className="text-sm sm:text-base font-black text-white">
+                      ➕ એડમિન ડાયરેક્ટ રજિસ્ટ્રેશન બેનર (Admin Direct Profile / Expert / Business Registration)
+                    </h3>
+                    <p className="text-xs text-slate-300">
+                      અહીંથી તમે જાતે જ કોઈપણ સામાન્ય પ્રોફાઈલ, સર્વિસ એક્સપર્ટ કે બિઝનેસ રજિસ્ટર કરી શકો છો — સેલ્ફી કે OTP વગર સીધું જ Live થશે અને ઉપર <strong>🛡️ એડમિન વેરિફાઈડ</strong> લખેલું આવશે.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => openAdminCreateModal('simple_users', true)}
+                      className="px-3.5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black flex items-center justify-center gap-1.5 shadow-md cursor-pointer transition-all"
+                    >
+                      <UserCheck className="w-4 h-4 shrink-0" />
+                      <span>+ સામાન્ય પ્રોફાઈલ</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openAdminCreateModal('helpers', true)}
+                      className="px-3.5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black flex items-center justify-center gap-1.5 shadow-md cursor-pointer transition-all"
+                    >
+                      <Wrench className="w-4 h-4 shrink-0" />
+                      <span>+ સર્વિસ એક્સપર્ટ</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openAdminCreateModal('businesses', true)}
+                      className="px-3.5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-black flex items-center justify-center gap-1.5 shadow-md cursor-pointer transition-all"
+                    >
+                      <Store className="w-4 h-4 shrink-0" />
+                      <span>+ બિઝનેસ રજિ.</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Dedicated Report Alert & Instant Block Banner (રિપોર્ટ એલર્ટ અને તાત્કાલિક બ્લોક બેનર) */}
+              <div className="rounded-2xl bg-gradient-to-r from-rose-950/95 via-slate-900 to-red-950/90 border-2 border-rose-500/60 p-4 sm:p-5 shadow-xl space-y-3.5">
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="px-2.5 py-0.5 rounded-full bg-rose-600 text-white text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
+                        🚨 રિપોર્ટ એલર્ટ અને તાત્કાલિક બ્લોક બેનર
+                      </span>
+                      <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px] font-black">
+                        🛡️ ઓટો-સેફ્ટી હાઈડ (3+ રિપોર્ટ પર આપમેળે હાઈડ)
+                      </span>
+                      <span className="px-2.5 py-0.5 rounded-full bg-red-500/20 border border-red-500/40 text-red-300 text-[10px] font-black">
+                        🚫 બ્લોક કરેલા યુઝર્સ: {globalBlocks.length}
+                      </span>
+                    </div>
+                    <h3 className="text-sm sm:text-base font-black text-white">
+                      🚨 પોસ્ટ અને સર્વિસ એક્સપર્ટ રિપોર્ટ કંટ્રોલ ({reports.length} રિપોર્ટ્સ)
+                    </h3>
+                    <p className="text-xs text-slate-300">
+                      કોઈપણ ખરાબ પોસ્ટ કે સર્વિસ આપનાર યુઝરને અહીંથી ૧-ક્લિકમાં બ્લોક કરો (૧૦૦% પ્રતિબંધ: પોસ્ટ, ચેટ કે પ્રોફાઈલ જોઈ શકશે નહીં અને તે મોબાઈલ/ઈમેલથી ફરી એકાઉન્ટ બનાવી શકશે નહીં).
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => openModule('feedback_categories')}
+                      className="px-3.5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-black flex items-center gap-1.5 shadow-md cursor-pointer transition-all"
+                    >
+                      <Flag className="w-4 h-4 shrink-0" />
+                      <span>બધા રિપોર્ટ જુઓ ({reports.length})</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openModule('security_vault')}
+                      className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-500/40 text-xs font-black flex items-center gap-1.5 shadow-md cursor-pointer transition-all"
+                    >
+                      <Shield className="w-4 h-4 shrink-0" />
+                      <span>બ્લેકબોક્સ ડેટાબેઝ ({securityVaultRecords.length})</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Live Recent Reports Quick Action List */}
+                {reports.length > 0 && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 pt-2 border-t border-rose-500/30">
+                    {reports.slice(0, 4).map((rep: any) => {
+                      const activeBlk = findBlockForItem(rep);
+                      const isBlockedNow = Boolean(activeBlk || rep.isUserBlocked);
+                      return (
+                        <div
+                          key={rep.id}
+                          className="p-3 rounded-xl bg-slate-950/90 border border-rose-500/40 flex flex-col justify-between gap-2.5"
+                        >
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                              <span className="text-xs font-black text-rose-300">
+                                ⚠️ {rep.reason || 'User Report'}
+                              </span>
+                              <div className="flex items-center gap-1.5">
+                                {(rep.autoFlaggedPost || rep.autoFlaggedUser || Number(rep.uniquePostReportCount) >= 3 || Number(rep.uniqueUserReportCount) >= 3) && (
+                                  <span className="px-2 py-0.5 rounded-full bg-amber-500/25 border border-amber-400/50 text-amber-300 text-[10px] font-black">
+                                    🛡️ Auto-Hidden (3+ Reports)
+                                  </span>
+                                )}
+                                {isBlockedNow && (
+                                  <span className="px-2 py-0.5 rounded-full bg-red-600 text-white text-[10px] font-black">
+                                    🚫 Blocked
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <p className="text-xs font-bold text-white break-words">
+                              રિપોર્ટ થયેલ યુઝર/પોસ્ટ:{' '}
+                              <span className="text-amber-300">
+                                {rep.reportedUserName || rep.reportedPostTitle || rep.reportedUserId || rep.reportedPostId || 'Unknown'}
+                              </span>
+                            </p>
+                            {rep.details && (
+                              <p className="text-[11px] text-slate-300 line-clamp-2 break-words">{rep.details}</p>
+                            )}
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-1.5 pt-1.5 border-t border-slate-800">
+                            {isBlockedNow ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleGlobalUnblockUser({
+                                    blockId: activeBlk?.id,
+                                    userId: rep.reportedUserId || activeBlk?.userId,
+                                    email: activeBlk?.email,
+                                    phone: activeBlk?.phone
+                                  })
+                                }
+                                className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-black cursor-pointer"
+                              >
+                                ✅ અનબ્લોક / ફરી મંજૂરી આપો
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleGlobalBlockUser({
+                                    userId: rep.reportedUserId,
+                                    name: rep.reportedUserName || rep.reportedPostTitle,
+                                    reason: `રિપોર્ટ: ${rep.reason || 'Policy Violation'}`,
+                                    reportId: rep.id,
+                                    postId: rep.reportedPostId
+                                  })
+                                }
+                                className="px-2.5 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-[11px] font-black cursor-pointer"
+                              >
+                                🚫 તાત્કાલિક બ્લોક કરો
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() =>
+                                openFullUserRecordModal({
+                                  userId: rep.reportedUserId,
+                                  postId: rep.reportedPostId
+                                })
+                              }
+                              className="px-2.5 py-1.5 rounded-lg bg-indigo-600/30 hover:bg-indigo-600/50 border border-indigo-400/40 text-indigo-200 text-[11px] font-black cursor-pointer"
+                            >
+                              📄 સંપૂર્ણ યુઝર રેકોર્ડ
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Currently Blocked Users Quick Unblock Bar */}
+                {globalBlocks.length > 0 && (
+                  <div className="pt-2 border-t border-rose-500/30 space-y-2">
+                    <p className="text-xs font-black text-rose-300">
+                      🚫 હાલમાં બ્લોક કરેલા યુઝર્સ ({globalBlocks.length}) — જ્યાં સુધી તમે અનબ્લોક નહીં કરો ત્યાં સુધી ૧૦૦% પ્રતિબંધ:
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {globalBlocks.map((b: any) => (
+                        <div
+                          key={b.id}
+                          className="px-3 py-1.5 rounded-xl bg-slate-950 border border-red-500/50 flex items-center gap-2 text-xs"
+                        >
+                          <span className="font-black text-white">
+                            {b.name || 'Blocked User'}
+                          </span>
+                          {b.phone && <span className="text-emerald-300 font-bold">+91 {b.phone}</span>}
+                          {b.email && !String(b.email).endsWith('@phone.locohelp.com') && (
+                            <span className="text-cyan-300">{b.email}</span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleGlobalUnblockUser({
+                                blockId: b.id,
+                                userId: b.userId,
+                                email: b.email,
+                                phone: b.phone
+                              })
+                            }
+                            className="px-2 py-0.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-black cursor-pointer"
+                          >
+                            ✅ અનબ્લોક કરો
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openFullUserRecordModal({
+                                userId: b.userId,
+                                email: b.email,
+                                phone: b.phone
+                              })
+                            }
+                            className="px-2 py-0.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-indigo-300 text-[10px] font-black cursor-pointer"
+                          >
+                            📄 રેકોર્ડ
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Clean Ordered List of Small Clickable Banners */}
@@ -4687,6 +5078,85 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                           </button>
                         )}
 
+                        {/* Instant Global Block / Unblock & Complete User Record buttons */}
+                        {(() => {
+                          const existingBlk = findBlockForItem(item);
+                          const isUserBlk = Boolean(existingBlk || item.isUserBlocked);
+                          const targetUid =
+                            item.reportedUserId ||
+                            item.authorId ||
+                            item.author_id ||
+                            item.userId ||
+                            item.user_id ||
+                            item.uid ||
+                            (activeModule === 'simple_users' || activeModule === 'helpers' ? item.id : '');
+                          return (
+                            <>
+                              {isUserBlk ? (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleGlobalUnblockUser({
+                                      blockId: existingBlk?.id,
+                                      userId: targetUid || existingBlk?.userId,
+                                      email: email || existingBlk?.email,
+                                      phone: phone || existingBlk?.phone
+                                    })
+                                  }
+                                  disabled={isBusy}
+                                  className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black flex items-center gap-1 shadow-sm cursor-pointer disabled:opacity-50"
+                                >
+                                  <span>✅ અનબ્લોક કરો</span>
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleGlobalBlockUser({
+                                      userId: targetUid,
+                                      name: item.reportedUserName || title,
+                                      email,
+                                      phone,
+                                      reason:
+                                        activeModule === 'feedback_categories'
+                                          ? `રિપોર્ટ: ${item.reason || 'Policy Violation'}`
+                                          : 'એડમિન દ્વારા તાત્કાલિક બ્લોક',
+                                      reportId: activeModule === 'feedback_categories' ? item.id : undefined,
+                                      postId:
+                                        activeModule === 'help_posts'
+                                          ? item.id
+                                          : item.reportedPostId || undefined
+                                    })
+                                  }
+                                  disabled={isBusy}
+                                  className="px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-black flex items-center gap-1 shadow-sm cursor-pointer disabled:opacity-50"
+                                >
+                                  <span>🚫 બ્લોક કરો</span>
+                                </button>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  openFullUserRecordModal({
+                                    userId: targetUid,
+                                    email,
+                                    phone,
+                                    postId:
+                                      activeModule === 'help_posts'
+                                        ? item.id
+                                        : item.reportedPostId || undefined
+                                  })
+                                }
+                                className="px-3 py-2 rounded-xl bg-indigo-600/25 hover:bg-indigo-600/40 text-indigo-200 border border-indigo-500/40 text-xs font-black flex items-center gap-1 cursor-pointer"
+                              >
+                                <FileText className="w-3.5 h-3.5" />
+                                <span>📄 સંપૂર્ણ યુઝર રેકોર્ડ</span>
+                              </button>
+                            </>
+                          );
+                        })()}
+
                         <button
                           onClick={() => openEditModal(activeModule, item)}
                           disabled={isBusy}
@@ -5742,32 +6212,33 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                   </div>
                 </div>
 
-                {/* Mandatory Live Selfie Verification Section */}
-                {(viewingItem.data.idDocumentWatermarked || viewingItem.data.liveSelfieUrl || viewingItem.data.avatarUrl) ? (
+                {/* Mandatory Live Selfie Verification Section (Clean Unwatermarked for Admin) */}
+                {(viewingItem.data.rawSelfieUrl || viewingItem.data.idDocumentWatermarked || viewingItem.data.liveSelfieUrl || viewingItem.data.avatarUrl) ? (
                   <div className="p-3.5 rounded-2xl bg-slate-950 border-2 border-emerald-500/40">
                     <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
                       <p className="text-xs sm:text-sm font-black text-emerald-400">
-                        📸 Mandatory Live Selfie (लाइव सेल्फी वेरिफिकेशन फ़ोटो):
+                        📸 ઓરિજિનલ લાઈવ સેલ્ફી (વોટરમાર્ક વગર • ફક્ત એડમિન માટે):
                       </p>
                       <span className="px-2 py-0.5 rounded-md bg-emerald-500/20 border border-emerald-500/40 text-[10px] font-black text-emerald-300">
-                        VERIFIED LIVE SELFIE • WATERMARKED
+                        ✨ CLEAR ORIGINAL • NO WATERMARK
                       </span>
                     </div>
-                    <div className="relative select-none overflow-hidden rounded-xl border border-slate-800 bg-slate-900 p-2 text-center">
+                    <div className="relative overflow-hidden rounded-xl border border-slate-800 bg-slate-900 p-2 text-center">
                       <img
-                        src={viewingItem.data.idDocumentWatermarked || viewingItem.data.liveSelfieUrl || viewingItem.data.avatarUrl}
-                        alt="User Live Selfie"
+                        src={viewingItem.data.rawSelfieUrl || viewingItem.data.idDocumentWatermarked || viewingItem.data.liveSelfieUrl || viewingItem.data.avatarUrl}
+                        alt="User Original Live Selfie"
                         loading="lazy"
                         decoding="async"
-                        onContextMenu={(e) => e.preventDefault()}
-                        draggable={false}
-                        className="max-h-80 w-auto mx-auto object-contain rounded-lg"
+                        className="max-h-96 w-auto mx-auto object-contain rounded-lg"
                       />
-                      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                        <span className="rotate-[-18deg] bg-black/55 text-white/85 border border-white/25 px-3 py-1 rounded-lg text-[10px] sm:text-xs font-black tracking-wider uppercase shadow-lg">
-                          LOCOHELP SECURITY VAULT • DO NOT REUSE OR VIRAL
-                        </span>
-                      </div>
+                      <a
+                        href={viewingItem.data.rawSelfieUrl || viewingItem.data.idDocumentWatermarked || viewingItem.data.liveSelfieUrl || viewingItem.data.avatarUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-block mt-2.5 px-3 py-1.5 rounded-lg bg-emerald-600/20 border border-emerald-500/40 text-xs font-black text-emerald-300 hover:bg-emerald-600/30"
+                      >
+                        🔍 પૂરી સાઈઝમાં ફોટો જુઓ (Full Size Zoom) ↗
+                      </a>
                     </div>
                   </div>
                 ) : (
@@ -6227,7 +6698,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                       : 'Register Employer Job Vacancy (Direct Publish)'}
                   </h3>
                   <p className="text-[11px] text-emerald-400 font-bold mt-0.5">
-                    ✓ Email &amp; Mobile Number are 100% Optional • No OTP Required • Auto-Approved Live
+                    🛡️ Admin Verified બેજ • 📸 લાઈવ સેલ્ફીની જરૂર નથી (No Selfie Required) • સીધું જ Live (Auto-Approved)
                   </p>
                 </div>
                 <button
@@ -6813,6 +7284,201 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                   </button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+
+        {/* ============================================================ */}
+        {/* MODAL: 📄 સંપૂર્ણ યુઝર રેકોર્ડ (User Activity & Record)        */}
+        {/* ============================================================ */}
+        {fullUserRecordModal && (
+          <div
+            className="fixed inset-x-0 bottom-0 top-[52px] z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4"
+            style={{ position: 'fixed', top: '52px', left: 0, right: 0, bottom: 0, zIndex: 5200 }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-3xl bg-[#111827] border-2 border-indigo-500/50 rounded-3xl shadow-2xl overflow-hidden max-h-[86vh] flex flex-col"
+            >
+              <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between gap-3 bg-slate-900/90">
+                <div className="flex items-center gap-2.5">
+                  <FileText className="w-5 h-5 text-indigo-400 shrink-0" />
+                  <div>
+                    <h3 className="text-sm sm:text-base font-black text-white">
+                      📄 સંપૂર્ણ યુઝર રેકોર્ડ (User Activity &amp; Record)
+                    </h3>
+                    <p className="text-[11px] text-slate-400">
+                      રજિસ્ટર વિગતો, ઓરિજિનલ લાઈવ સેલ્ફી, પોસ્ટ્સ અને ચેટ મેસેજ (ડિલીટ કરેલા મેસેજ સહિતનો કાયમી રેકોર્ડ)
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {!fullUserRecordModal.loading && fullUserRecordModal.data && (
+                    <button
+                      type="button"
+                      onClick={() => window.print()}
+                      className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black cursor-pointer"
+                    >
+                      🖨️ Print / Save PDF
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setFullUserRecordModal(null)}
+                    className="w-8 h-8 rounded-full bg-slate-800 text-slate-300 hover:text-white flex items-center justify-center cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-5 overflow-y-auto space-y-4 text-xs">
+                {fullUserRecordModal.loading ? (
+                  <div className="py-12 text-center text-slate-300 font-bold">
+                    ⏳ સંપૂર્ણ યુઝર રેકોર્ડ લોડ થઈ રહ્યો છે...
+                  </div>
+                ) : fullUserRecordModal.data ? (
+                  <>
+                    {/* User Identity & Status Summary */}
+                    <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row gap-4 items-start">
+                      {fullUserRecordModal.data.userSummary?.liveSelfieUrl && (
+                        <div className="w-24 h-24 rounded-2xl overflow-hidden border-2 border-emerald-500 shrink-0 bg-slate-950">
+                          <img
+                            src={fullUserRecordModal.data.userSummary.liveSelfieUrl}
+                            alt="Original Live Selfie"
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                      )}
+                      <div className="flex-1 space-y-2 min-w-0">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <h4 className="text-base font-black text-white">
+                            {fullUserRecordModal.data.userSummary?.name || 'User Record'}
+                          </h4>
+                          {fullUserRecordModal.data.userSummary?.isBlocked ? (
+                            <span className="px-2.5 py-1 rounded-full bg-red-600 text-white text-[10px] font-black">
+                              🚫 હાલમાં બ્લોક કરેલ છે (100% Restricted)
+                            </span>
+                          ) : (
+                            <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-[10px] font-black">
+                              ✓ Active Account
+                            </span>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                          <div className="p-2 rounded-xl bg-slate-950 border border-slate-800">
+                            <span className="text-[10px] text-slate-400 block">મોબાઈલ નંબર</span>
+                            <span className="font-black text-emerald-300">
+                              {fullUserRecordModal.data.userSummary?.phone
+                                ? `+91 ${fullUserRecordModal.data.userSummary.phone}`
+                                : 'N/A'}
+                            </span>
+                          </div>
+                          <div className="p-2 rounded-xl bg-slate-950 border border-slate-800">
+                            <span className="text-[10px] text-slate-400 block">રજિસ્ટર્ડ ઈમેલ</span>
+                            <span className="font-black text-cyan-300 break-all">
+                              {fullUserRecordModal.data.userSummary?.email || 'N/A'}
+                            </span>
+                          </div>
+                          <div className="p-2 rounded-xl bg-slate-950 border border-slate-800">
+                            <span className="text-[10px] text-slate-400 block">લોકેશન / વિસ્તાર</span>
+                            <span className="font-bold text-white">
+                              {fullUserRecordModal.data.userSummary?.area || 'N/A'}
+                            </span>
+                          </div>
+                          <div className="p-2 rounded-xl bg-slate-950 border border-slate-800">
+                            <span className="text-[10px] text-slate-400 block">IP Addresses</span>
+                            <span className="font-mono font-bold text-amber-300 break-all">
+                              {(fullUserRecordModal.data.userSummary?.ipAddresses || []).join(', ') || 'Recorded in Server'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Reports Against User */}
+                    <div className="p-4 rounded-2xl bg-slate-900 border border-rose-500/30 space-y-2">
+                      <h5 className="text-xs font-black text-rose-400">
+                        🚨 રિપોર્ટ્સ ({(fullUserRecordModal.data.reports || []).length})
+                      </h5>
+                      {(fullUserRecordModal.data.reports || []).length === 0 ? (
+                        <p className="text-slate-400">આ યુઝર પર કોઈ રિપોર્ટ નથી.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {(fullUserRecordModal.data.reports || []).map((r: any, idx: number) => (
+                            <div key={r.id || idx} className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+                              <div className="flex items-center justify-between text-[11px] font-bold text-rose-300">
+                                <span>કારણ: {r.reason}</span>
+                                <span className="text-slate-400">
+                                  {r.createdAt ? new Date(r.createdAt).toLocaleString('en-IN') : ''}
+                                </span>
+                              </div>
+                              {r.details && <p className="text-slate-200 mt-1">{r.details}</p>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* All Posts (Including Deleted / Archived Posts) */}
+                    <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-2">
+                      <h5 className="text-xs font-black text-amber-300">
+                        📢 યુઝરની તમામ પોસ્ટ્સ — ડિલીટ કરેલી પોસ્ટ સહિત ({(fullUserRecordModal.data.posts || []).length})
+                      </h5>
+                      {(fullUserRecordModal.data.posts || []).length === 0 ? (
+                        <p className="text-slate-400">કોઈ પોસ્ટ મળી નથી.</p>
+                      ) : (
+                        <div className="space-y-2 max-h-48 overflow-y-auto">
+                          {(fullUserRecordModal.data.posts || []).map((p: any, idx: number) => (
+                            <div key={p.id || idx} className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-black text-white">{p.title || p.category || 'Post'}</span>
+                                <span className="text-[10px] text-slate-400">
+                                  {p.createdAt ? new Date(p.createdAt).toLocaleString('en-IN') : ''}
+                                </span>
+                              </div>
+                              <p className="text-slate-300 mt-1 break-words">{p.description}</p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* All Chat Messages (Including Deleted Messages) */}
+                    <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-2">
+                      <h5 className="text-xs font-black text-cyan-300">
+                        💬 તમામ ચેટ મેસેજ — ડિલીટ કરેલા મેસેજ સહિત ({(fullUserRecordModal.data.messages || []).length})
+                      </h5>
+                      {(fullUserRecordModal.data.messages || []).length === 0 ? (
+                        <p className="text-slate-400">કોઈ ચેટ મેસેજ મળ્યા નથી.</p>
+                      ) : (
+                        <div className="space-y-2 max-h-60 overflow-y-auto">
+                          {(fullUserRecordModal.data.messages || []).map((m: any, idx: number) => (
+                            <div key={m.id || idx} className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+                              <div className="flex items-center justify-between gap-2 text-[11px]">
+                                <span className="font-black text-emerald-300">
+                                  {m.senderName || m.senderId || 'User'}
+                                  {m.deletedByUser && (
+                                    <span className="ml-2 px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 text-[10px]">
+                                      યુઝરે ડિલીટ કરેલ (બ્લેકબોક્સમાં સેવ)
+                                    </span>
+                                  )}
+                                </span>
+                                <span className="text-slate-400">
+                                  {m.createdAt ? new Date(m.createdAt).toLocaleString('en-IN') : ''}
+                                </span>
+                              </div>
+                              <p className="text-slate-200 mt-1 break-words">{m.text}</p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                ) : null}
+              </div>
             </motion.div>
           </div>
         )}

@@ -7,7 +7,7 @@ import { isGuestUser } from './lib/authUtils';
 import LocoHelpLogo from './components/LocoHelpLogo';
 import PanIndiaLocationModal from './components/PanIndiaLocationModal';
 import LoginPromptModal from './components/LoginPromptModal';
-import { getSavedUserLocation, UserManualLocation } from './data/panIndiaLocations';
+import { getSavedUserLocation, getLocalizedLocationButtonText, UserManualLocation } from './data/panIndiaLocations';
 import { motion, AnimatePresence } from 'motion/react';
 import HomeScreen from './screens/HomeScreen';
 import ChatScreen from './screens/ChatScreen';
@@ -82,6 +82,11 @@ function AppContent() {
   const [globalUserLocation, setGlobalUserLocation] = useState<UserManualLocation>(() => getSavedUserLocation());
   const [, setAuthTick] = useState(0);
   const [unreadChatCount, setUnreadChatCount] = useState(0);
+  const [blockedAccountState, setBlockedAccountState] = useState<{
+    isBlocked: boolean;
+    reason?: string;
+    blockedAt?: string;
+  }>({ isBlocked: false });
   const [globalPushToast, setGlobalPushToast] = useState<{
     title: string;
     body: string;
@@ -89,6 +94,55 @@ function AppContent() {
   } | null>(null);
 
   const currentLangObj = SUPPORTED_LANGUAGES.find(l => l.code === language) || SUPPORTED_LANGUAGES[0];
+
+  // Poll /api/users/approval-status to enforce immediate 100% Total Account Lockdown if Admin blocks this user/mobile/email
+  useEffect(() => {
+    let active = true;
+    const checkBlockStatus = async () => {
+      try {
+        const u = getCurrentUser();
+        const uid = String(u?.uid && !u.isGuest ? u.uid : '').trim();
+        const email = String(u?.email || localStorage.getItem('locohelp_last_logged_in_email') || '').trim();
+        const phone = String(
+          u?.phone ||
+            localStorage.getItem('locohelp_profile_phone') ||
+            localStorage.getItem('locohelp_last_logged_in_phone') ||
+            ''
+        ).trim();
+        if (!uid && !email && !phone) {
+          if (active) setBlockedAccountState({ isBlocked: false });
+          return;
+        }
+        const qs = new URLSearchParams();
+        if (uid) qs.set('uid', uid);
+        if (email) qs.set('email', email);
+        if (phone) qs.set('phone', phone);
+        const res = await fetch(`/api/users/approval-status?${qs.toString()}`);
+        if (!res.ok || !active) return;
+        const data = await res.json();
+        if (!active) return;
+        if (data?.isBlocked || data?.status === 'blocked') {
+          setBlockedAccountState({
+            isBlocked: true,
+            reason:
+              data.blockReason ||
+              'સમુદાયના નિયમોના ઉલ્લંઘન અથવા રિપોર્ટને કારણે એડમિન દ્વારા તમારું એકાઉન્ટ બ્લોક કરવામાં આવ્યું છે.',
+            blockedAt: data.blockedAt
+          });
+        } else {
+          setBlockedAccountState({ isBlocked: false });
+        }
+      } catch {}
+    };
+    checkBlockStatus();
+    const timer = setInterval(checkBlockStatus, 5000);
+    window.addEventListener('storage', checkBlockStatus);
+    return () => {
+      active = false;
+      clearInterval(timer);
+      window.removeEventListener('storage', checkBlockStatus);
+    };
+  }, []);
 
   // Automatically request Web Notification permission on first user interaction so Android TWA & Chrome can show system notifications
   useEffect(() => {
@@ -708,58 +762,28 @@ function AppContent() {
           <LocoHelpLogo size={24} showText={true} textSize="sm" className="flex-shrink-0" />
         </div>
 
-        {/* Right Side: Logged-in User Profile Chip OR Tagline/Login Button */}
+        {/* Right Side: 1-Click Location Selector Button (Replaces duplicate Profile chip) */}
         <div className="flex items-center justify-end flex-1 sm:flex-initial min-w-[70px] sm:min-w-[100px] gap-1.5" style={{ overflow: 'visible' }}>
-          {(() => {
-            const activeUser = !isGuestUser() ? getCurrentUser() : null;
-            const savedName =
-              activeUser?.displayName ||
-              localStorage.getItem('locohelp_profile_name') ||
-              localStorage.getItem('locohelp_last_logged_in_name') ||
-              '';
-            const cleanDisplayName =
-              savedName && !['guest', 'guest user', 'community member'].includes(savedName.trim().toLowerCase())
-                ? savedName.trim()
-                : activeUser?.phone
-                ? `+91 ${String(activeUser.phone).slice(-10)}`
-                : activeUser?.email && !activeUser.email.endsWith('@phone.locohelp.com')
-                ? activeUser.email.split('@')[0]
-                : '';
-
-            if (activeUser && cleanDisplayName) {
-              return (
-                <button
-                  type="button"
-                  onClick={handleGlobalProfileClick}
-                  className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/80 border border-emerald-300 dark:border-emerald-700 text-emerald-900 dark:text-emerald-200 hover:bg-emerald-100 transition-all cursor-pointer shadow-2xs max-w-[135px] sm:max-w-[180px]"
-                  title={tr('My Profile', 'मेरी प्रोफाइल', 'મારી પ્રોફાઈલ')}
-                >
-                  <span className="w-5 h-5 rounded-full bg-emerald-600 text-white text-[10px] font-black flex items-center justify-center shrink-0">
-                    {cleanDisplayName.slice(0, 1).toUpperCase()}
-                  </span>
-                  <span className="text-[10px] sm:text-xs font-extrabold truncate">
-                    {cleanDisplayName}
-                  </span>
-                </button>
-              );
-            }
-
-            return (
-              <div
-                onClick={handleGlobalProfileClick}
-                className="loco-tagline-singleline-box cursor-pointer"
-                title={tr('Login / My Profile', 'लॉगिन / मेरी प्रोफाइल', 'લોગિન / મારી પ્રોફાઈલ')}
-              >
-                <span className="loco-tagline-singleline-text">
-                  {tr(
-                    'Find local helpers Near You',
-                    'आस-पास के लोकल मददगार खोजें',
-                    'નજીકના લોકલ મદદગારો શોધો'
-                  )}
-                </span>
-              </div>
-            );
-          })()}
+          <button
+            type="button"
+            onClick={() => {
+              setIsGlobalLangOpen(false);
+              setIsGlobalMenuOpen(false);
+              setIsGlobalLocationOpen(true);
+            }}
+            className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 md:px-3 py-1 md:py-1.5 rounded-full bg-teal-50 dark:bg-teal-950/80 border border-teal-300 dark:border-teal-700 text-teal-900 dark:text-teal-200 hover:bg-teal-100 dark:hover:bg-teal-900 transition-all cursor-pointer shadow-2xs max-w-[145px] sm:max-w-[190px] active:scale-95"
+            title={tr(
+              'Change Location (View Posts, Service Experts & Businesses of any city)',
+              'लोकेशन बदलें (किसी भी शहर की पोस्ट, सर्विस एक्सपर्ट और दुकानें देखें)',
+              'લોકેશન બદલો (ગમે તે શહેરની પોસ્ટ, સર્વિસ એક્સપર્ટ અને દુકાનો જુઓ)'
+            )}
+          >
+            <MapPin className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
+            <span className="text-[10px] sm:text-xs font-extrabold truncate">
+              {getLocalizedLocationButtonText(globalUserLocation, language)}
+            </span>
+            <span className="text-[9px] sm:text-[10px] text-teal-700 dark:text-teal-300 leading-none shrink-0">▾</span>
+          </button>
         </div>
       </header>
 
@@ -801,97 +825,129 @@ function AppContent() {
             : undefined
         }
       >
-        {currentScreen === 'home' && (
-          <HomeScreen 
-            onNavigate={navigate} 
-            onOpenChat={(intent) => { setActiveIntent(intent); navigate('chat'); }} 
-            selectedCategory={selectedCategory}
-            onSelectCategory={handleSelectCategory}
-          />
-        )}
-        {currentScreen === 'categories' && (
-          <CategoriesScreen 
-            onBack={() => navigate('home')}
-            selectedCategory={selectedCategory}
-            onSelectCategory={handleSelectCategory}
-            onOpenChat={(intent) => { setActiveIntent(intent); navigate('chat'); }}
-          />
-        )}
-        {currentScreen === 'directory' && <SearchDirectoryScreen onBack={() => navigate('home')} onOpenChat={() => navigate('chat')} />}
-        {currentScreen === 'chat' && (
-          <ChatScreen
-            intent={activeIntent}
-            onIntentChange={setActiveIntent}
-            onBack={() => navigate(prevScreen === 'profile' ? 'profile' : 'home')}
-            onReport={() => setIsReportModalOpen(true)}
-          />
-        )}
-        {currentScreen === 'notifications' && (
-          <NotificationsScreen
-            onBack={() => navigate('home')}
-            onOpenChat={(intent) => {
-              setActiveIntent(intent);
-              navigate('chat');
-            }}
-          />
-        )}
-        {currentScreen === 'pro' && <ProScreen onBack={() => navigate('home')} />}
-        {currentScreen === 'settings' && <SettingsMenu onNavigate={navigate} onBack={() => navigate('home')} />}
-        {currentScreen === 'guidelines' && (
-          <GuidelinesScreen
-            onBack={() => navigate(prevScreen === 'settings' ? 'settings' : 'home')}
-            onReport={() => setIsReportModalOpen(true)}
-          />
-        )}
-        {currentScreen === 'privacy' && (
-          <PrivacyPolicyScreen
-            onBack={() => {
-              try {
-                window.history.pushState({ locohelpScreen: prevScreen === 'settings' ? 'settings' : 'home' }, '', '/');
-              } catch (e) {}
-              navigate(prevScreen === 'settings' ? 'settings' : 'home');
-            }}
-          />
-        )}
-        {currentScreen === 'roadmap' && <RoadmapScreen onBack={() => navigate('home')} />}
-        {currentScreen === 'support' && <SupportScreen onBack={() => navigate('home')} />}
-        {currentScreen === 'profile' && (
-          <ProfileScreen
-            onBack={() => navigate('home')}
-            onNavigate={navigate}
-            onOpenChat={(intent) => {
-              setActiveIntent(intent);
-              navigate('chat');
-            }}
-          />
-        )}
-        {currentScreen === 'mesh' && <MeshScreen onBack={() => navigate('settings')} />}
-        {currentScreen === 'leaderboard' && <LeaderboardScreen onBack={() => navigate('home')} />}
-        {currentScreen === 'professionals' && <ProfessionalsScreen onBack={() => navigate('home')} onHire={() => navigate('chat')} />}
-        {currentScreen === 'admin' && (
-          <AdminDashboard
-            onBack={() => {
-              try {
-                window.history.pushState({ locohelpScreen: 'home' }, '', '/');
-              } catch (e) {}
-              setCurrentScreen('home');
-            }}
-          />
-        )}
-        {currentScreen === 'not_found' && (
-          <NotFoundScreen
-            onBackToHome={() => {
-              try {
-                window.history.pushState({ locohelpScreen: 'home' }, '', '/');
-              } catch (e) {}
-              navigate('home');
-            }}
-          />
+        {blockedAccountState.isBlocked && currentScreen !== 'admin' && currentScreen !== 'privacy' ? (
+          <div className="flex-1 w-full h-full flex items-center justify-center p-4 bg-slate-950 text-white overflow-y-auto">
+            <div className="w-full max-w-md rounded-3xl bg-slate-900 border-2 border-rose-500/60 p-6 text-center shadow-2xl space-y-4">
+              <div className="w-16 h-16 rounded-full bg-rose-600/20 border-2 border-rose-500 flex items-center justify-center mx-auto text-3xl">
+                🚫
+              </div>
+              <h2 className="text-lg sm:text-xl font-black text-rose-400">
+                {tr(
+                  'Your Account Has Been Blocked by Admin',
+                  'आपका अकाउंट एडमिन द्वारा ब्लॉक कर दिया गया है',
+                  'તમારું એકાઉન્ટ એડમિન દ્વારા બ્લોક કરવામાં આવ્યું છે'
+                )}
+              </h2>
+              <p className="text-xs sm:text-sm font-bold text-slate-300 leading-relaxed">
+                {blockedAccountState.reason ||
+                  tr(
+                    'Due to community policy violations or user reports, your account, posts, and profile access have been completely restricted.',
+                    'समुदाय के नियमों के उल्लंघन या रिपोर्ट के कारण आपके अकाउंट, पोस्ट और प्रोफाइल पर 100% प्रतिबंध लगा दिया गया है।',
+                    'સમુદાયના નિયમોના ઉલ્લંઘન અથવા યુઝર રિપોર્ટને કારણે તમારા એકાઉન્ટ પર ૧૦૦% પ્રતિબંધ મૂકવામાં આવ્યો છે.'
+                  )}
+              </p>
+              <div className="rounded-2xl bg-rose-950/60 border border-rose-500/40 p-3.5 text-left space-y-1.5 text-xs font-bold text-rose-200">
+                <div>• {tr('You cannot view profiles, posts, or directories.', 'आप प्रोफाइल या पोस्ट नहीं देख सकते।', 'તમે કોઈની પ્રોફાઈલ કે પોસ્ટ જોઈ શકશો નહીં.')}</div>
+                <div>• {tr('You cannot create posts or send chat messages.', 'आप पोस्ट या चैट नहीं कर सकते।', 'તમે કોઈ નવી પોસ્ટ કે ચેટ મેસેજ કરી શકશો નહીં.')}</div>
+                <div>• {tr('You cannot create a new account with this mobile number or email until Admin re-approves you.', 'जब तक एडमिन अनुमति नहीं देते, इस मोबाइल या ईमेल से नया अकाउंट नहीं बन सकता।', 'જ્યાં સુધી એડમિન ફરીથી મંજૂરી ન આપે ત્યાં સુધી આ મોબાઈલ કે ઈમેલથી નવું એકાઉન્ટ બની શકશે નહીં.')}</div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <>
+            {currentScreen === 'home' && (
+              <HomeScreen 
+                onNavigate={navigate} 
+                onOpenChat={(intent) => { setActiveIntent(intent); navigate('chat'); }} 
+                selectedCategory={selectedCategory}
+                onSelectCategory={handleSelectCategory}
+              />
+            )}
+            {currentScreen === 'categories' && (
+              <CategoriesScreen 
+                onBack={() => navigate('home')}
+                selectedCategory={selectedCategory}
+                onSelectCategory={handleSelectCategory}
+                onOpenChat={(intent) => { setActiveIntent(intent); navigate('chat'); }}
+              />
+            )}
+            {currentScreen === 'directory' && <SearchDirectoryScreen onBack={() => navigate('home')} onOpenChat={() => navigate('chat')} />}
+            {currentScreen === 'chat' && (
+              <ChatScreen
+                intent={activeIntent}
+                onIntentChange={setActiveIntent}
+                onBack={() => navigate(prevScreen === 'profile' ? 'profile' : 'home')}
+                onReport={() => setIsReportModalOpen(true)}
+              />
+            )}
+            {currentScreen === 'notifications' && (
+              <NotificationsScreen
+                onBack={() => navigate('home')}
+                onOpenChat={(intent) => {
+                  setActiveIntent(intent);
+                  navigate('chat');
+                }}
+              />
+            )}
+            {currentScreen === 'pro' && <ProScreen onBack={() => navigate('home')} />}
+            {currentScreen === 'settings' && <SettingsMenu onNavigate={navigate} onBack={() => navigate('home')} />}
+            {currentScreen === 'guidelines' && (
+              <GuidelinesScreen
+                onBack={() => navigate(prevScreen === 'settings' ? 'settings' : 'home')}
+                onReport={() => setIsReportModalOpen(true)}
+              />
+            )}
+            {currentScreen === 'privacy' && (
+              <PrivacyPolicyScreen
+                onBack={() => {
+                  try {
+                    window.history.pushState({ locohelpScreen: prevScreen === 'settings' ? 'settings' : 'home' }, '', '/');
+                  } catch (e) {}
+                  navigate(prevScreen === 'settings' ? 'settings' : 'home');
+                }}
+              />
+            )}
+            {currentScreen === 'roadmap' && <RoadmapScreen onBack={() => navigate('home')} />}
+            {currentScreen === 'support' && <SupportScreen onBack={() => navigate('home')} />}
+            {currentScreen === 'profile' && (
+              <ProfileScreen
+                onBack={() => navigate('home')}
+                onNavigate={navigate}
+                onOpenChat={(intent) => {
+                  setActiveIntent(intent);
+                  navigate('chat');
+                }}
+              />
+            )}
+            {currentScreen === 'mesh' && <MeshScreen onBack={() => navigate('settings')} />}
+            {currentScreen === 'leaderboard' && <LeaderboardScreen onBack={() => navigate('home')} />}
+            {currentScreen === 'professionals' && <ProfessionalsScreen onBack={() => navigate('home')} onHire={() => navigate('chat')} />}
+            {currentScreen === 'admin' && (
+              <AdminDashboard
+                onBack={() => {
+                  try {
+                    window.history.pushState({ locohelpScreen: 'home' }, '', '/');
+                  } catch (e) {}
+                  setCurrentScreen('home');
+                }}
+              />
+            )}
+            {currentScreen === 'not_found' && (
+              <NotFoundScreen
+                onBackToHome={() => {
+                  try {
+                    window.history.pushState({ locohelpScreen: 'home' }, '', '/');
+                  } catch (e) {}
+                  navigate('home');
+                }}
+              />
+            )}
+          </>
         )}
       </main>
 
       {/* Fixed Bottom Navigation Bar (હોમ | મારી બુકિંગ | પસંદીદા | સંદેશ | વધુ) */}
-      {currentScreen !== 'admin' && !(currentScreen === 'chat' && activeIntent) && (
+      {!blockedAccountState.isBlocked && currentScreen !== 'admin' && !(currentScreen === 'chat' && activeIntent) && (
         <FixedBottomNavBar
           currentScreen={currentScreen}
           unreadChatCount={unreadChatCount}

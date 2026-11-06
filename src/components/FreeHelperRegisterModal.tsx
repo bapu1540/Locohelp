@@ -49,6 +49,7 @@ export default function FreeHelperRegisterModal({
   const [formSkills, setFormSkills] = useState('');
   const [formPhotoUrl, setFormPhotoUrl] = useState<string | null>(null);
   const [formIdDoc, setFormIdDoc] = useState<string | null>(null);
+  const [formRawSelfie, setFormRawSelfie] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [hpWebsiteUrl, setHpWebsiteUrl] = useState('');
@@ -79,9 +80,12 @@ export default function FreeHelperRegisterModal({
       setFormCity(prof.city || '');
       setFormExp(prof.experience || '2 Years');
       setFormSkills(Array.isArray(prof.skills) ? prof.skills.join(', ') : (prof.skills || ''));
-      setFormPhotoUrl(prof.photoUrl || null);
-      if (prof.idDocUrl || prof.id_doc_url || prof.photoUrl) {
-        setFormIdDoc(prof.idDocUrl || prof.id_doc_url || prof.photoUrl);
+      setFormPhotoUrl(prof.visitingCardUrl || prof.workPhotoUrl || prof.visiting_card_url || prof.work_photo_url || null);
+      if (prof.watermarkedSelfieUrl || prof.watermarked_selfie_url || prof.photoUrl || prof.idDocUrl || prof.id_doc_url) {
+        setFormIdDoc(prof.watermarkedSelfieUrl || prof.watermarked_selfie_url || prof.photoUrl || prof.idDocUrl || prof.id_doc_url);
+      }
+      if (prof.rawSelfieUrl || prof.raw_selfie_url || prof.idDocUrl || prof.id_doc_url) {
+        setFormRawSelfie(prof.rawSelfieUrl || prof.raw_selfie_url || prof.idDocUrl || prof.id_doc_url);
       }
     };
 
@@ -201,6 +205,11 @@ export default function FreeHelperRegisterModal({
     );
     const nextStatus = wasAlreadyApproved ? 'approved' : 'pending';
 
+    const adminCleanSelfie =
+      formRawSelfie || (existingProfile as any)?.rawSelfieUrl || effectiveSelfie;
+    const publicWatermarkedSelfie =
+      formIdDoc || (existingProfile as any)?.watermarkedSelfieUrl || effectiveSelfie;
+
     const newHelper = saveFreeHelperProfile({
       id: existingProfile?.id,
       userId: uid || existingProfile?.userId,
@@ -218,9 +227,13 @@ export default function FreeHelperRegisterModal({
       rating: existingProfile?.rating,
       reviewCount: (existingProfile as any)?.reviewCount,
       completedTasks: existingProfile?.completedTasks,
-      photoUrl: formPhotoUrl || effectiveSelfie || undefined,
+      photoUrl: publicWatermarkedSelfie || formPhotoUrl || undefined,
+      watermarkedSelfieUrl: publicWatermarkedSelfie || undefined,
+      visitingCardUrl: formPhotoUrl || undefined,
+      workPhotoUrl: formPhotoUrl || undefined,
       govtIdUploaded: true,
-      idDocUrl: effectiveSelfie,
+      idDocUrl: adminCleanSelfie,
+      rawSelfieUrl: adminCleanSelfie,
       isVerified: wasAlreadyApproved,
       status: nextStatus
     } as any);
@@ -244,8 +257,12 @@ export default function FreeHelperRegisterModal({
         ...newHelper,
         isPhonePublic,
         website_url_hp: hpWebsiteUrl,
-        photoUrl: formPhotoUrl || effectiveSelfie || undefined,
-        idDocUrl: effectiveSelfie,
+        photoUrl: publicWatermarkedSelfie || formPhotoUrl || undefined,
+        watermarkedSelfieUrl: publicWatermarkedSelfie || undefined,
+        visitingCardUrl: formPhotoUrl || undefined,
+        workPhotoUrl: formPhotoUrl || undefined,
+        idDocUrl: adminCleanSelfie,
+        rawSelfieUrl: adminCleanSelfie,
         isVerified: wasAlreadyApproved,
         status: nextStatus
       });
@@ -533,14 +550,14 @@ export default function FreeHelperRegisterModal({
               {/* 5. Mandatory Live Camera Selfie */}
               <LiveSelfieCaptureField
                 value={formIdDoc || ''}
-                onChange={(url) => {
-                  setFormIdDoc(url);
+                onChange={(watermarkedUrl, rawCleanUrl) => {
+                  setFormIdDoc(watermarkedUrl);
+                  if (rawCleanUrl) setFormRawSelfie(rawCleanUrl);
                   setFileError(null);
                 }}
                 userName={formName.trim() || 'Service Expert'}
                 entityType="user_profile"
                 required={true}
-                label={tr('📸 Live Camera Selfie (Mandatory) *', '📸 लाइव कैमरा सेल्फी (अनिवार्य) *', '📸 લાઈવ કેમેરા સેલ્ફી (ફરજિયાત) *')}
                 onError={(msg) => setFileError(msg)}
               />
 
@@ -585,12 +602,6 @@ export default function FreeHelperRegisterModal({
                   setFormPhotoUrl(url || null);
                   setFileError(null);
                 }}
-                label={tr('🪪 Visiting Card / Work Photo (Optional)', '🪪 विजिटिंग कार्ड / काम की फोटो (वैकल्पिक)', '🪪 વિઝિટિંગ કાર્ડ / કામનો ફોટો (વૈકલ્પિક)')}
-                subLabel={tr(
-                  'Upload your Visiting Card or Work Photo if available (Optional)',
-                  'यदि आपके पास विजिटिंग कार्ड या काम की फोटो है तो अपलोड करें (पूरी तरह वैकल्पिक)',
-                  'જો તમારી પાસે વિઝિટિંગ કાર્ડ અથવા કામનો ફોટો હોય તો અપલોડ કરો (વૈકલ્પિક)'
-                )}
                 onError={(msg) => setFileError(msg)}
               />
 

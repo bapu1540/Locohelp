@@ -10,7 +10,13 @@ import { isEntityOwner } from '../lib/ownership';
 import { compressImageToWebP } from '../lib/imageCompression';
 import { SmartLocationPicker } from './SmartLocationPicker';
 import { PhonePrivacyToggle } from './PhonePrivacyToggle';
-import { ProtectedSelfieCanvas } from './ProtectedSelfieCanvas';
+import { LiveSelfieCaptureField } from './LiveSelfieCaptureField';
+import {
+  getSavedUserLocation,
+  getLocalizedLocationButtonText,
+  matchesUserLocationFilter,
+  UserManualLocation
+} from '../data/panIndiaLocations';
 
 export interface RegisteredShop {
   id: string;
@@ -29,6 +35,8 @@ export interface RegisteredShop {
   description: string;
   photoUrl?: string;
   photos?: string[];
+  watermarkedSelfieUrl?: string;
+  rawSelfieUrl?: string;
   idDocumentWatermarked?: string;
   rating: number;
   reviewCount: number;
@@ -89,10 +97,29 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
 
   // Live Selfie Verification State
   const [idDocumentWatermarked, setIdDocumentWatermarked] = useState<string | null>(null);
-  const [idDocumentType] = useState('Owner Live Camera Selfie');
+  const [rawSelfieUrl, setRawSelfieUrl] = useState<string | null>(null);
   const [idUploadNotice, setIdUploadNotice] = useState<string | null>(null);
 
   const [registeredShopsList, setRegisteredShopsList] = useState<RegisteredShop[]>([]);
+  const [activeLocation, setActiveLocation] = useState<UserManualLocation>(() => getSavedUserLocation());
+  const [filterShopsByCity, setFilterShopsByCity] = useState<boolean>(() => {
+    const saved = getSavedUserLocation();
+    return Boolean(saved?.district && String(saved.district).trim().toLowerCase() !== 'all');
+  });
+
+  useEffect(() => {
+    const syncLoc = (e?: any) => {
+      const nextLoc = e?.detail?.district ? e.detail : getSavedUserLocation();
+      setActiveLocation(nextLoc);
+      setFilterShopsByCity(Boolean(nextLoc?.district && String(nextLoc.district).trim().toLowerCase() !== 'all'));
+    };
+    window.addEventListener('locohelp_location_changed', syncLoc);
+    window.addEventListener('storage', syncLoc);
+    return () => {
+      window.removeEventListener('locohelp_location_changed', syncLoc);
+      window.removeEventListener('storage', syncLoc);
+    };
+  }, []);
 
   const handleStartEditShop = (shop: RegisteredShop) => {
     setEditingShopId(shop.id);
@@ -107,8 +134,11 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
     setDescription(shop.description || '');
     setPhotoUrl(shop.photoUrl || null);
     setShopPhotos(Array.isArray(shop.photos) && shop.photos.length > 0 ? shop.photos : (shop.photoUrl ? [shop.photoUrl] : []));
-    if (shop.idDocumentWatermarked || shop.photoUrl) {
-      setIdDocumentWatermarked(shop.idDocumentWatermarked || shop.photoUrl || null);
+    if (shop.watermarkedSelfieUrl || shop.idDocumentWatermarked || shop.photoUrl) {
+      setIdDocumentWatermarked(shop.watermarkedSelfieUrl || shop.idDocumentWatermarked || shop.photoUrl || null);
+    }
+    if (shop.rawSelfieUrl || shop.idDocumentWatermarked) {
+      setRawSelfieUrl(shop.rawSelfieUrl || shop.idDocumentWatermarked || null);
     }
     setActiveTab('new');
   };
@@ -241,6 +271,7 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
     );
     const nextShopStatus = wasShopApproved ? 'approved' : 'pending';
 
+    const adminCleanSelfie = rawSelfieUrl || idDocumentWatermarked || '';
     const newShop: RegisteredShop = {
       id: shopId,
       userId: activeUser?.uid || '',
@@ -258,7 +289,9 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
       description: description.trim() || 'Welcome to our business!',
       photoUrl: primaryPhoto,
       photos: shopPhotos.length > 0 ? shopPhotos : (primaryPhoto ? [primaryPhoto] : []),
-      idDocumentWatermarked: idDocumentWatermarked || undefined,
+      watermarkedSelfieUrl: idDocumentWatermarked || undefined,
+      rawSelfieUrl: adminCleanSelfie || undefined,
+      idDocumentWatermarked: adminCleanSelfie || undefined,
       rating: existingEditingShop?.rating || 5.0,
       reviewCount: existingEditingShop?.reviewCount || 1,
       isVerified: wasShopApproved,
@@ -279,7 +312,9 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
         ...newShop,
         isPhonePublic,
         website_url_hp: hpWebsiteUrl,
-        idDocumentWatermarked: idDocumentWatermarked || primaryPhoto || ''
+        watermarkedSelfieUrl: idDocumentWatermarked || primaryPhoto || '',
+        rawSelfieUrl: adminCleanSelfie || idDocumentWatermarked || '',
+        idDocumentWatermarked: adminCleanSelfie || idDocumentWatermarked || primaryPhoto || ''
       });
     } catch (err) {
       console.warn("Shop backend save notice:", err);
@@ -295,6 +330,7 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
     setPhotoUrl(null);
     setShopPhotos([]);
     setIdDocumentWatermarked(null);
+    setRawSelfieUrl(null);
 
     setPendingNotice(
       tr(
@@ -310,8 +346,15 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
     }
   };
 
+  const selectedDistLower = (activeLocation?.district || '').trim().toLowerCase();
+  const isAllCitiesMode = !selectedDistLower || selectedDistLower === 'all';
+
   const filteredShops = registeredShopsList.filter(s => {
     if (!s || (!s.isVerified && s.status !== 'approved')) return false;
+    if (filterShopsByCity && !isAllCitiesMode && !searchQuery.trim()) {
+      const shopLocText = `${s.area || ''} ${s.address || ''} ${s.description || ''}`;
+      if (!matchesUserLocationFilter(shopLocText, activeLocation)) return false;
+    }
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
     return s.name.toLowerCase().includes(q) || 
@@ -405,30 +448,62 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
 
           {activeTab === 'registered' ? (
             <div className="flex-1 min-h-0 flex flex-col space-y-3 overflow-hidden">
-              <div className="relative shrink-0">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input 
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder={tr("Search by shop name, category or area...", "दुकान का नाम, श्रेणी या इलाका खोजें...", "દુકાનનું નામ, કેટેગરી અથવા વિસ્તાર શોધો...")}
-                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl pl-9 pr-3 py-2 text-xs font-medium text-slate-900 dark:text-white outline-none focus:border-amber-500"
-                />
+              <div className="flex items-center gap-2 shrink-0">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input 
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder={tr("Search by shop name, category or area...", "दुकान का नाम, श्रेणी या इलाका खोजें...", "દુકાનનું નામ, કેટેગરી અથવા વિસ્તાર શોધો...")}
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl pl-9 pr-3 py-2 text-xs font-medium text-slate-900 dark:text-white outline-none focus:border-amber-500"
+                  />
+                </div>
+                {!isAllCitiesMode && (
+                  <button
+                    type="button"
+                    onClick={() => setFilterShopsByCity(prev => !prev)}
+                    className={`px-3 py-2 rounded-2xl text-xs font-extrabold border shrink-0 cursor-pointer transition-all ${
+                      filterShopsByCity
+                        ? 'bg-amber-50 text-amber-900 border-amber-300 dark:bg-amber-950/60 dark:text-amber-200 dark:border-amber-700'
+                        : 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
+                    }`}
+                  >
+                    📍 {filterShopsByCity ? getLocalizedLocationButtonText(activeLocation, language) : tr('All Cities', 'सभी शहर', 'બધા શહેરો')}
+                  </button>
+                )}
               </div>
 
               <div className="flex-1 overflow-y-auto space-y-3 pr-1">
                 {filteredShops.length === 0 ? (
                   <div className="text-center py-8 space-y-3">
                     <p className="text-xs text-slate-500 font-medium">
-                      {tr('No approved businesses listed yet.', 'अभी तक कोई अप्रूव्ड बिज़नेस लिस्ट नहीं हुआ है।', 'હજુ સુધી કોઈ મંજૂર બિઝનેસ લિસ્ટ થયો નથી.')}
+                      {filterShopsByCity && !isAllCitiesMode
+                        ? tr(
+                            `No approved businesses listed in ${getLocalizedLocationButtonText(activeLocation, language)} yet.`,
+                            `अभी ${getLocalizedLocationButtonText(activeLocation, language)} में कोई अप्रूव्ड बिज़नेस लिस्ट नहीं हुआ है।`,
+                            `હાલ ${getLocalizedLocationButtonText(activeLocation, language)} માં કોઈ મંજૂર બિઝનેસ લિસ્ટ થયો નથી.`
+                          )
+                        : tr('No approved businesses listed yet.', 'अभी तक कोई अप्रूव्ड बिज़नेस लिस्ट नहीं हुआ है।', 'હજુ સુધી કોઈ મંજૂર બિઝનેસ લિસ્ટ થયો નથી.')}
                     </p>
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab('new')}
-                      className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-extrabold rounded-xl shadow-xs cursor-pointer"
-                    >
-                      + {tr('Register Your Shop Now', 'अपनी दुकान अभी रजिस्टर करें', 'તમારી દુકાન હમણાં જ રજિસ્ટર કરો')}
-                    </button>
+                    <div className="flex flex-wrap items-center justify-center gap-2">
+                      {filterShopsByCity && !isAllCitiesMode && registeredShopsList.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setFilterShopsByCity(false)}
+                          className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-xs font-extrabold rounded-xl shadow-xs cursor-pointer"
+                        >
+                          🌐 {tr('View All Cities', 'सभी शहर देखें', 'બધા શહેરોની દુકાનો જુઓ')}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('new')}
+                        className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-extrabold rounded-xl shadow-xs cursor-pointer"
+                      >
+                        + {tr('Register Your Shop Now', 'अपनी दुकान अभी रजिस्टर करें', 'તમારી દુકાન હમણાં જ રજિસ્ટર કરો')}
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   filteredShops.map((shop) => {
@@ -646,52 +721,19 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
               />
 
               {/* Mandatory Owner Live Camera Selfie */}
-              <div className="p-3.5 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/30 border-2 border-emerald-300 dark:border-emerald-800 space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-black text-emerald-950 dark:text-emerald-200 flex items-center gap-1.5">
-                    <Camera className="w-4 h-4 text-emerald-600" />
-                    <span>{tr('📸 Owner Live Camera Selfie (Mandatory) *', '📸 दुकान मालिक की लाइव सेल्फी (अनिवार्य) *', '📸 દુકાન માલિકની લાઈવ સેલ્ફી (ફરજિયાત) *')}</span>
-                  </label>
-                </div>
-                <div className="flex items-center gap-3">
-                  {idDocumentWatermarked && (
-                    <ProtectedSelfieCanvas
-                      src={idDocumentWatermarked}
-                      className="w-20 h-24 rounded-xl shrink-0"
-                      badgeText={tr('Verified', 'सत्यापित', 'વેરિફાઈડ')}
-                    />
-                  )}
-                  <input
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
-                    capture="user"
-                    onChange={async (e) => {
-                      const file = e.target.files?.[0];
-                      setIdUploadNotice(null);
-                      if (file) {
-                        const check = await validateUploadedFile(file, { allowPdf: false });
-                        if (!check.valid) {
-                          setIdUploadNotice(tr(check.error || 'Invalid image', check.errorHi || check.error || 'अमान्य फ़ोटो', 'અમાન્ય ફોટો'));
-                          e.target.value = '';
-                          return;
-                        }
-                        try {
-                          const watermarked = await applyIdWatermark(file, {
-                            userName: ownerName.trim() || shopName.trim() || 'Shop Owner',
-                            customText: 'LOCOHELP VERIFIED SHOP OWNER SELFIE • DO NOT COPY'
-                          });
-                          setIdDocumentWatermarked(watermarked);
-                        } catch {
-                          const reader = new FileReader();
-                          reader.onloadend = () => setIdDocumentWatermarked(reader.result as string);
-                          reader.readAsDataURL(file);
-                        }
-                      }
-                    }}
-                    className="w-full text-xs text-slate-600 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-extrabold file:bg-emerald-600 file:text-white hover:file:bg-emerald-700 cursor-pointer bg-white dark:bg-slate-900 border border-emerald-200 rounded-xl px-2 py-1.5"
-                  />
-                </div>
-              </div>
+              <LiveSelfieCaptureField
+                value={idDocumentWatermarked || ''}
+                onChange={(watermarkedUrl, rawCleanUrl) => {
+                  setIdDocumentWatermarked(watermarkedUrl);
+                  if (rawCleanUrl) setRawSelfieUrl(rawCleanUrl);
+                  setIdUploadNotice(null);
+                }}
+                userName={ownerName.trim() || shopName.trim() || 'Shop Owner'}
+                entityType="business"
+                required={true}
+                label={tr('📸 Owner Live Camera Selfie (Mandatory) *', '📸 दुकान मालिक की लाइव सेल्फी (अनिवार्य) *', '📸 દુકાન માલિકની લાઈવ સેલ્ફી (ફરજિયાત) *')}
+                onError={(msg) => setIdUploadNotice(msg)}
+              />
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>

@@ -19,7 +19,13 @@ import { validateUploadedFile, sanitizeText } from '../lib/security';
 import { compressImageToWebP } from '../lib/imageCompression';
 import { Screen } from '../types';
 import SmartLocationPicker from '../components/SmartLocationPicker';
-import { getProfileRegisteredLocation, saveProfileRegisteredLocation } from '../data/panIndiaLocations';
+import {
+  getProfileRegisteredLocation,
+  saveProfileRegisteredLocation,
+  getSavedUserLocation,
+  matchesUserLocationFilter,
+  UserManualLocation
+} from '../data/panIndiaLocations';
 import PhonePrivacyToggle from '../components/PhonePrivacyToggle';
 import ProtectedSelfieCanvas from '../components/ProtectedSelfieCanvas';
 import { LiveSelfieCaptureField, VisitingCardUploadField } from '../components/LiveSelfieCaptureField';
@@ -41,6 +47,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
   // TAB 1: SIMPLE USER PROFILE STATES
   // -------------------------------------------------------------
   const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
+  const [rawProfilePhoto, setRawProfilePhoto] = useState<string | null>(null);
   const [userVisitingCard, setUserVisitingCard] = useState<string>('');
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState(() => {
@@ -285,6 +292,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
   const [helperSkills, setHelperSkills] = useState('');
   const [helperWorkPhoto, setHelperWorkPhoto] = useState<string | null>(null);
   const [helperIdFrontDoc, setHelperIdFrontDoc] = useState<string | null>(null);
+  const [helperRawSelfie, setHelperRawSelfie] = useState<string | null>(null);
   const [helperIdFrontName, setHelperIdFrontName] = useState<string | null>(null);
   const [helperIdBackDoc, setHelperIdBackDoc] = useState<string | null>(null);
   const [helperIdBackName, setHelperIdBackName] = useState<string | null>(null);
@@ -310,6 +318,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
   const [shopPhoto, setShopPhoto] = useState<string | null>(null);
   const [shopPhotos, setShopPhotos] = useState<string[]>([]);
   const [shopIdDoc, setShopIdDoc] = useState<string | null>(null);
+  const [shopRawSelfie, setShopRawSelfie] = useState<string | null>(null);
   const [shopIdDocName, setShopIdDocName] = useState<string | null>(null);
   const [isShopPhonePublic, setIsShopPhonePublic] = useState(false);
   const [shopErrorMsg, setShopErrorMsg] = useState<string | null>(null);
@@ -353,6 +362,18 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
     return () => window.removeEventListener('locohelp_close_active_modal', handleCloseModal);
   }, [showApprovalNoticeModal, isVerificationModalOpen, showDeleteConfirm]);
 
+  const [activeLocation, setActiveLocation] = useState<UserManualLocation>(() => getSavedUserLocation());
+
+  useEffect(() => {
+    const syncLoc = () => setActiveLocation(getSavedUserLocation());
+    window.addEventListener('locohelp_location_changed', syncLoc);
+    window.addEventListener('storage', syncLoc);
+    return () => {
+      window.removeEventListener('locohelp_location_changed', syncLoc);
+      window.removeEventListener('storage', syncLoc);
+    };
+  }, []);
+
   const populateHelperForm = (prof: any) => {
     if (!prof) return;
     if (prof.name) setHelperName(prof.name);
@@ -361,7 +382,15 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
     if (prof.phone) setHelperPhone(prof.phone);
     if (prof.area) setHelperArea(prof.area);
     if (prof.experience) setHelperExp(prof.experience);
-    if (prof.idDocUrl) setHelperIdFrontDoc(prof.idDocUrl);
+    if (prof.visitingCardUrl || prof.workPhotoUrl || prof.visiting_card_url || prof.work_photo_url) {
+      setHelperWorkPhoto(prof.visitingCardUrl || prof.workPhotoUrl || prof.visiting_card_url || prof.work_photo_url);
+    }
+    if (prof.watermarkedSelfieUrl || prof.watermarked_selfie_url || prof.photoUrl || prof.idDocUrl) {
+      setHelperIdFrontDoc(prof.watermarkedSelfieUrl || prof.watermarked_selfie_url || prof.photoUrl || prof.idDocUrl);
+    }
+    if (prof.rawSelfieUrl || prof.raw_selfie_url || prof.idDocUrl) {
+      setHelperRawSelfie(prof.rawSelfieUrl || prof.raw_selfie_url || prof.idDocUrl);
+    }
     setIsHelperPhonePublic(prof.isPhonePublic === true);
     if (prof.skills) {
       setHelperSkills(Array.isArray(prof.skills) ? prof.skills.join(', ') : String(prof.skills));
@@ -486,12 +515,27 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
           if (typeof data.isPhonePublic === 'boolean' || typeof data.is_phone_public === 'boolean') {
             setIsUserPhonePublic(Boolean(data.isPhonePublic ?? data.is_phone_public));
           }
-          const remotePhoto = data.liveSelfieUrl || data.idDocumentWatermarked || data.avatar_url || data.profilePhoto || '';
-          if (remotePhoto && remotePhoto !== 'https://lh3.googleusercontent.com/a/default-user') {
-            setProfilePhoto(remotePhoto);
+          const remoteWatermarkedPhoto =
+            data.watermarkedSelfieUrl ||
+            data.watermarked_selfie_url ||
+            data.avatar_url ||
+            data.profilePhoto ||
+            data.liveSelfieUrl ||
+            '';
+          if (remoteWatermarkedPhoto && remoteWatermarkedPhoto !== 'https://lh3.googleusercontent.com/a/default-user') {
+            setProfilePhoto(remoteWatermarkedPhoto);
             try {
-              localStorage.setItem('locohelp_profile_photo', remotePhoto);
+              localStorage.setItem('locohelp_profile_photo', remoteWatermarkedPhoto);
             } catch {}
+          }
+          const remoteRawSelfie =
+            data.rawSelfieUrl ||
+            data.raw_selfie_url ||
+            data.liveSelfieUrl ||
+            data.idDocumentWatermarked ||
+            '';
+          if (remoteRawSelfie) {
+            setRawProfilePhoto(remoteRawSelfie);
           }
           if (data.visitingCardUrl || data.visiting_card_url) {
             setUserVisitingCard(data.visitingCardUrl || data.visiting_card_url);
@@ -728,6 +772,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
     const newStatus = alreadyApproved ? 'approved' : 'pending';
     const newIsVerified = alreadyApproved;
 
+    const adminCleanSelfie = rawProfilePhoto || finalSelfie;
     const profileData = {
       uid: userKey,
       full_name: safeName || (cleanPhone ? `User ${cleanPhone.slice(-4)}` : 'Community User'),
@@ -739,8 +784,10 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
       address: safeAddress,
       experience: safeExp,
       avatar_url: finalSelfie,
-      liveSelfieUrl: finalSelfie,
-      idDocumentWatermarked: finalSelfie,
+      watermarkedSelfieUrl: finalSelfie,
+      rawSelfieUrl: adminCleanSelfie,
+      liveSelfieUrl: adminCleanSelfie,
+      idDocumentWatermarked: adminCleanSelfie,
       visitingCardUrl: userVisitingCard || '',
       visiting_card_url: userVisitingCard || '',
       myHelperProfile: myHelperProfile || null,
@@ -855,7 +902,11 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
       skillsList.unshift(safeCustomCat);
     }
 
-    const finalWorkPhoto = helperWorkPhoto || myHelperProfile?.photoUrl;
+    const finalWorkPhoto =
+      helperWorkPhoto ||
+      (myHelperProfile as any)?.visitingCardUrl ||
+      (myHelperProfile as any)?.workPhotoUrl ||
+      '';
     const helperLocParts = helperArea.split(',').map(s => s.trim()).filter(Boolean);
     const parsedHelperTaluka = helperLocParts[0] || helperArea.trim() || 'Local Area';
     const parsedHelperCity = helperLocParts[1] || parsedHelperTaluka;
@@ -864,6 +915,11 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
       myHelperProfile?.isVerified === true || myHelperProfile?.status === 'approved'
     );
     const nextHelperStatus = wasHelperApproved ? 'approved' : 'pending';
+
+    const adminCleanHelperSelfie =
+      helperRawSelfie || (myHelperProfile as any)?.rawSelfieUrl || (myHelperProfile as any)?.idDocUrl || finalDoc;
+    const publicWatermarkedSelfie =
+      helperIdFrontDoc || (myHelperProfile as any)?.watermarkedSelfieUrl || (myHelperProfile as any)?.photoUrl || finalDoc;
 
     const newHelper = saveFreeHelperProfile({
       id: myHelperProfile?.id,
@@ -879,9 +935,13 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
       city: sanitizeText(parsedHelperCity, 100),
       experience: sanitizeText(helperExp.trim() || '1 Year', 60),
       distance: 0.5,
-      photoUrl: finalWorkPhoto || undefined,
+      photoUrl: publicWatermarkedSelfie || finalWorkPhoto || undefined,
+      watermarkedSelfieUrl: publicWatermarkedSelfie || undefined,
+      visitingCardUrl: finalWorkPhoto || undefined,
+      workPhotoUrl: finalWorkPhoto || undefined,
       govtIdUploaded: Boolean(finalDoc),
-      idDocUrl: finalDoc || undefined,
+      idDocUrl: adminCleanHelperSelfie || undefined,
+      rawSelfieUrl: adminCleanHelperSelfie || undefined,
       isVerified: wasHelperApproved,
       status: nextHelperStatus,
     } as any);
@@ -909,7 +969,12 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
         id: helperId,
         area: sanitizeText(parsedHelperTaluka, 150),
         city: sanitizeText(parsedHelperCity, 100),
-        photoUrl: finalWorkPhoto,
+        photoUrl: publicWatermarkedSelfie || finalWorkPhoto,
+        watermarkedSelfieUrl: publicWatermarkedSelfie,
+        visitingCardUrl: finalWorkPhoto,
+        workPhotoUrl: finalWorkPhoto,
+        idDocUrl: adminCleanHelperSelfie,
+        rawSelfieUrl: adminCleanHelperSelfie,
         isPhonePublic: isHelperPhonePublic,
         isVerified: wasHelperApproved,
         status: nextHelperStatus
@@ -926,36 +991,6 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
   // -------------------------------------------------------------
   // TAB 3 ACTIONS: REGISTER BUSINESS & VENUE
   // -------------------------------------------------------------
-  const handleIdDocUploadShop = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setUploadErrorMsg(null);
-    setShopErrorMsg(null);
-    const check = await validateUploadedFile(file, { allowPdf: false });
-    if (!check.valid) {
-      setUploadErrorMsg(check.error || 'Invalid file uploaded.');
-      e.target.value = '';
-      return;
-    }
-
-    setShopIdDocName(file.name);
-    setIsWatermarkingShopId(true);
-
-    try {
-      const watermarked = await applyIdWatermark(file, {
-        entityType: 'business',
-        userName: shopName.trim() || ownerName.trim() || 'Business Owner',
-        customText: 'LOCOHELP VERIFIED OWNER • LIVE SELFIE • DO NOT COPY'
-      });
-      setShopIdDoc(watermarked);
-    } catch (err: any) {
-      setUploadErrorMsg(err?.message || 'Document upload error.');
-    } finally {
-      setIsWatermarkingShopId(false);
-    }
-  };
-
   const handleRegisterShop = async (e: React.FormEvent) => {
     e.preventDefault();
     setShopErrorMsg(null);
@@ -968,7 +1003,15 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
       return;
     }
 
-    const finalShopSelfie = shopIdDoc || (myBusinessProfile as any)?.idDocumentWatermarked;
+    const finalShopSelfie =
+      shopIdDoc ||
+      (myBusinessProfile as any)?.watermarkedSelfieUrl ||
+      (myBusinessProfile as any)?.idDocumentWatermarked;
+    const adminCleanShopSelfie =
+      shopRawSelfie ||
+      (myBusinessProfile as any)?.rawSelfieUrl ||
+      (myBusinessProfile as any)?.idDocumentWatermarked ||
+      finalShopSelfie;
     if (!finalShopSelfie) {
       setShopErrorMsg(
         tr(
@@ -1015,7 +1058,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
       area: shopArea.trim() || 'Local Area',
       address: shopAddress.trim() || shopArea.trim() || 'Market Area',
       description: shopDescription.trim() || 'Welcome to our business!',
-      photoUrl: finalPhotos[0] || shopPhoto || myBusinessProfile?.photoUrl || undefined,
+      photoUrl: finalPhotos[0] || shopPhoto || myBusinessProfile?.photoUrl || finalShopSelfie || undefined,
       photos: finalPhotos.length > 0 ? finalPhotos : undefined,
       rating: myBusinessProfile?.rating || 5.0,
       reviewCount: myBusinessProfile?.reviewCount || 1,
@@ -1029,8 +1072,21 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
       const existingShops: RegisteredShop[] = existingStr ? JSON.parse(existingStr) : [];
       const updatedShops = [newShop, ...existingShops.filter(s => s && s.id && s.id !== shopId && !String(s.id).startsWith('sample_shop_'))];
       localStorage.setItem('locohelp_registered_shops', JSON.stringify(updatedShops));
-      localStorage.setItem('locohelp_my_business_profile', JSON.stringify({ ...newShop, idDocumentWatermarked: finalShopSelfie }));
-      setMyBusinessProfile({ ...newShop, idDocumentWatermarked: finalShopSelfie } as any);
+      localStorage.setItem(
+        'locohelp_my_business_profile',
+        JSON.stringify({
+          ...newShop,
+          watermarkedSelfieUrl: finalShopSelfie,
+          idDocumentWatermarked: adminCleanShopSelfie,
+          rawSelfieUrl: adminCleanShopSelfie
+        })
+      );
+      setMyBusinessProfile({
+        ...newShop,
+        watermarkedSelfieUrl: finalShopSelfie,
+        idDocumentWatermarked: adminCleanShopSelfie,
+        rawSelfieUrl: adminCleanShopSelfie
+      } as any);
       setIsEditingBusiness(false);
     } catch (e) {}
 
@@ -1040,8 +1096,10 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
         photos: finalPhotos,
         timings: newShop.timings,
         isPhonePublic: isShopPhonePublic,
-        idDocumentWatermarked: finalShopSelfie
-      });
+        watermarkedSelfieUrl: finalShopSelfie,
+        idDocumentWatermarked: adminCleanShopSelfie,
+        rawSelfieUrl: adminCleanShopSelfie
+      } as any);
     } catch (err) {}
 
     setIsSubmittingShop(false);
@@ -1058,9 +1116,13 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
     window.open(`https://wa.me/${formattedPhone}?text=${msg}`, '_blank');
   };
 
-  // Only show Admin-approved businesses in public directory
+  // Only show Admin-approved businesses in public directory (filtered by top-right selected location)
   const filteredShops = registeredShopsList.filter(s => {
     if (!(s.isVerified === true || s.status === 'approved')) return false;
+    const isMyOwnShop = Boolean(myBusinessProfile && s.id === myBusinessProfile.id);
+    if (!isMyOwnShop && !matchesUserLocationFilter(`${s.area || ''} ${s.address || ''}`, activeLocation)) {
+      return false;
+    }
     if (!shopSearchQuery.trim()) return true;
     const q = shopSearchQuery.toLowerCase();
     return s.name.toLowerCase().includes(q) || 
@@ -1093,15 +1155,8 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
           </button>
           <div>
             <h2 className="text-base font-black text-slate-900 dark:text-white tracking-tight">
-              {tr('Profile Hub', 'प्रोफाइल हब', 'પ્રોફાઈલ હબ')}
+              {tr('Profile', 'प्रोफाइल', 'પ્રોફાઈલ')}
             </h2>
-            <p className="text-[10px] text-slate-500 font-medium">
-              {tr(
-                'Manage Account, Service Expert Listing & Business Registration',
-                'खाता, सर्विस एक्सपर्ट प्रोफाइल और बिज़नेस रजिस्ट्रेशन प्रबंधित करें',
-                'એકાઉન્ટ, સર્વિસ એક્સપર્ટ લિસ્ટિંગ અને બિઝનેસ રજિસ્ટ્રેશન મેનેજ કરો'
-              )}
-            </p>
           </div>
         </div>
       </div>
@@ -1169,35 +1224,28 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                     <h1 className="text-lg font-black text-slate-900 dark:text-white tracking-tight truncate">
                       {userName || myHelperProfile?.name || tr('Community Member', 'कम्युनिटी सदस्य', 'કમ્યુનિટી સભ્ય')}
                     </h1>
-                    {verificationStatus === 'deletion_requested' ? (
+                    {Boolean(
+                      myHelperProfile?.registeredByAdmin ||
+                      myHelperProfile?.adminDirectCreate ||
+                      String(myHelperProfile?.id || '').startsWith('helper_admin_')
+                    ) ? (
+                      <span className="text-[10px] bg-indigo-600 text-white font-extrabold px-2 py-0.5 rounded-full flex items-center gap-1">
+                        <ShieldCheck className="w-3 h-3" /> {tr('Admin Verified', 'एडमिन वेरिफाइड', 'એડમિન વેરિફાઈડ')}
+                      </span>
+                    ) : verificationStatus === 'deletion_requested' ? (
                       <span className="text-[10px] bg-rose-600 text-white font-extrabold px-2 py-0.5 rounded-full flex items-center gap-1">
                         <Clock className="w-3 h-3" /> {tr('Deletion Requested', 'हटाने का अनुरोध', 'ડિલીટની વિનંતી')}
                       </span>
-                    ) : verificationStatus === 'approved' || isHelperApproved ? (
-                      <span className="text-[10px] bg-emerald-600 text-white font-extrabold px-2 py-0.5 rounded-full flex items-center gap-1">
-                        <CheckCircle2 className="w-3 h-3" /> {tr('Active & Approved', 'एक्टिव और अप्रूव्ड', 'એક્ટિવ અને મંજૂર')}
-                      </span>
-                    ) : (verificationStatus === 'pending' || (myHelperProfile && !isHelperApproved)) ? (
+                    ) : (verificationStatus === 'pending' && !isHelperApproved) ? (
                       <span className="text-[10px] bg-amber-500 text-white font-extrabold px-2 py-0.5 rounded-full flex items-center gap-1">
                         <Clock className="w-3 h-3" /> {tr('Under Admin Review', 'एडमिन समीक्षा में', 'એડમિન સમીક્ષા હેઠળ')}
                       </span>
                     ) : null}
                   </div>
-                  
-                  <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 mb-1 flex items-center gap-1">
-                    <Lock className="w-3 h-3" />
-                    <span>
-                      {tr(
-                        'Mobile number is private & confidential (Safe contact via Chat)',
-                        'मोबाइल नंबर निजी और गोपनीय है (चैट के माध्यम से संपर्क सुरक्षित)',
-                        'મોબાઈલ નંબર ખાનગી અને ગોપનીય છે (ચેટ દ્વારા સુરક્ષિત સંપર્ક)'
-                      )}
-                    </span>
-                  </p>
 
                   {/* Registered Email Address */}
                   {userEmail && (
-                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 mb-2 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 rounded-lg shadow-2xs max-w-full">
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 mt-1.5 mb-2 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 rounded-lg shadow-2xs max-w-full">
                       <Mail className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
                       <span className="text-[11px] font-bold text-blue-700 dark:text-blue-300 truncate">
                         {userEmail}
@@ -1266,72 +1314,17 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
 
 
 
-            {/* Identity Verification Status Card */}
-            <div className="bg-white dark:bg-slate-850 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-4 shadow-xs">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2.5">
-                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-white shadow-xs shrink-0 ${
-                    (verificationStatus === 'approved' || isHelperApproved) ? 'bg-emerald-600' : (verificationStatus === 'pending' || myHelperProfile) ? 'bg-amber-500' : 'bg-indigo-600'
-                  }`}>
-                    {(verificationStatus === 'approved' || isHelperApproved) ? <ShieldCheck className="w-5 h-5" /> : <Lock className="w-4 h-4" />}
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <h3 className="text-xs font-black text-slate-900 dark:text-white">
-                        {tr('Live Selfie & Profile Verification Status', 'लाइव सेल्फी और प्रोफाइल स्टेटस', 'લાઈવ સેલ્ફી અને પ્રોફાઈલ સ્ટેટસ')}
-                      </h3>
-                      {(verificationStatus === 'approved' || isHelperApproved) && (
-                        <span className="text-[10px] bg-emerald-600 text-white font-extrabold px-2 py-0.5 rounded-full flex items-center gap-1">
-                          <CheckCircle2 className="w-3 h-3" /> {tr('Verified 🛡️', 'वेरिफाइड 🛡️', 'વેરિફાઈડ 🛡️')}
-                        </span>
-                      )}
-                      {!(verificationStatus === 'approved' || isHelperApproved) && (verificationStatus === 'pending' || myHelperProfile) && (
-                        <span className="text-[10px] bg-amber-500 text-white font-extrabold px-2 py-0.5 rounded-full flex items-center gap-1">
-                          <Clock className="w-3 h-3" /> {tr('Under Admin Review', 'एडमिन समीक्षा में', 'એડમિન સમીક્ષા હેઠળ')}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium leading-tight mt-0.5">
-                      {(verificationStatus === 'approved' || isHelperApproved)
-                        ? tr('Your profile is approved and active on LocoHelp', 'आपकी प्रोफाइल अप्रूव और एक्टिव है', 'તમારી પ્રોફાઈલ મંજૂર અને એક્ટિવ છે')
-                        : (verificationStatus === 'pending' || myHelperProfile)
-                        ? tr('Your profile is Under Admin Review • Will go live once approved', 'आपकी प्रोफाइल एडमिन समीक्षा में है • अप्रूव होते ही लाइव होगी', 'તમારી પ્રોફાઈલ એડમિન સમીક્ષા હેઠળ છે • મંજૂર થતાં જ લાઈવ થશે')
-                        : tr('Upload Live Selfie or Work/Shop photo for Verified badge', 'वेरिफाइड बैज के लिए लाइव सेल्फी या काम की फोटो अपलोड करें', 'વેરિફાઈડ બેજ માટે લાઈવ સેલ્ફી કે કામનો ફોટો અપલોડ કરો')}
-                    </p>
-                  </div>
-                </div>
-
-                {!(verificationStatus === 'approved' || isHelperApproved) && (
-                  <button
-                    type="button"
-                    onClick={() => setIsVerificationModalOpen(true)}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-extrabold px-3 py-2 rounded-xl shadow-sm cursor-pointer shrink-0"
-                  >
-                    {verificationStatus === 'pending' ? tr('View Status', 'स्टेटस देखें', 'સ્ટેટસ જુઓ') : tr('Get Verified', 'वेरिफाई करें', 'વેરિફાઈ કરો')}
-                  </button>
-                )}
-              </div>
-            </div>
-
             {/* Existing User Profile View vs Edit Form */}
             {hasExistingUserProfile && !isEditingUserProfile ? (
               <div className="bg-white dark:bg-slate-850 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl space-y-3.5 shadow-xs">
-                <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
-                  <div>
-                    <h3 className="text-xs font-black uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
-                      {tr('Active Profile Details', 'एक्टिव प्रोफाइल विवरण', 'એક્ટિવ પ્રોફાઈલ વિગતો')}
-                    </h3>
-                    <p className="text-[11px] text-slate-500">
-                      {tr('Linked to your registered account', 'आपके रजिस्टर्ड अकाउंट से जुड़ा हुआ', 'તમારા રજિસ્ટર્ડ એકાઉન્ટ સાથે જોડાયેલ')}
-                    </p>
-                  </div>
+                <div className="flex items-center justify-end pb-1">
                   <button
                     type="button"
                     onClick={() => setIsEditingUserProfile(true)}
                     className="px-3 py-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-300 text-xs font-extrabold flex items-center gap-1.5 hover:bg-indigo-100 transition-colors cursor-pointer"
                   >
                     <Edit3 className="w-3.5 h-3.5" />
-                    <span>{tr('Edit / Update Profile', 'प्रोफाइल एडिट / अपडेट करें', 'પ્રોફાઈલ એડિટ / અપડેટ કરો')}</span>
+                    <span>{tr('Edit Profile', 'प्रोफाइल एडिट करें', 'પ્રોફાઈલ એડિટ કરો')}</span>
                   </button>
                 </div>
 
@@ -1341,50 +1334,26 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                     <span className="font-extrabold text-slate-900 dark:text-white">{userName || myHelperProfile?.name || '—'}</span>
                   </div>
                   <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase block">{tr('Mobile Number (Private • Admin Only)', 'मोबाइल नंबर (निजी • केवल एडमिन)', 'મોબાઈલ નંબર (ખાનગી • ફક્ત એડમિન)')}</span>
-                    <span className="font-extrabold text-slate-900 dark:text-white">{userPhone || myHelperProfile?.phone ? `+91 ${userPhone || myHelperProfile?.phone} 🔒` : tr('Private (Chat Only)', 'निजी (केवल चैट)', 'ખાનગી (ફક્ત ચેટ)')}</span>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block">{tr('Mobile Number', 'मोबाइल नंबर', 'મોબાઈલ નંબર')}</span>
+                    <span className="font-extrabold text-slate-900 dark:text-white">
+                      {userPhone || myHelperProfile?.phone ? `+91 ${userPhone || myHelperProfile?.phone}` : '—'}
+                    </span>
                   </div>
                   <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase block">{tr('Registered Email', 'रजिस्टर्ड ईमेल', 'રજિસ્ટર્ડ ઈમેલ')}</span>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block">{tr('Email', 'ईमेल', 'ઈમેલ')}</span>
                     <span className="font-extrabold text-slate-900 dark:text-white break-all">{userEmail || '—'}</span>
                   </div>
                   <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase block">{tr('Location (Taluka, District)', 'लोकेशन (तालुका, जिला)', 'લોકેશન (તાલુકો, જિલ્લો)')}</span>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block">{tr('Location', 'लोकेशन', 'લોકેશન')}</span>
                     <span className="font-extrabold text-slate-900 dark:text-white">
                       {(() => {
                         const reg = getProfileRegisteredLocation();
-                        const regLabel = reg.taluka && reg.district ? `${reg.taluka}, ${reg.district} (${reg.state})` : '';
+                        const regLabel = reg.taluka && reg.district ? `${reg.taluka}, ${reg.district}` : '';
                         return userAddress || myHelperProfile?.area || regLabel || '—';
                       })()}
                     </span>
                   </div>
                 </div>
-
-                {myHelperProfile && (
-                  <div className={`p-3 rounded-xl border flex items-center justify-between gap-2 ${
-                    isHelperApproved
-                      ? 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800'
-                      : 'bg-amber-50/70 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800'
-                  }`}>
-                    <div>
-                      <span className="text-[10px] font-black uppercase tracking-wider block text-slate-500">
-                        {tr('Linked Service Expert Profile', 'लिंक्ड सर्विस एक्सपर्ट प्रोफाइल', 'લિંક્ડ સર્વિસ એક્સપર્ટ પ્રોફાઈલ')} ({myHelperProfile.customCategoryName || myHelperProfile.categoryId})
-                      </span>
-                      <span className={`text-xs font-extrabold ${isHelperApproved ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}`}>
-                        {isHelperApproved
-                          ? tr('🛡️ Approved & Active in Directory', '🛡️ डायरेक्टरी में अप्रूव्ड और एक्टिव', '🛡️ ડિરેક્ટરીમાં મંજૂર અને એક્ટિવ')
-                          : tr('⏳ Under Admin Review', '⏳ एडमिन समीक्षा में', '⏳ એડમિન સમીક્ષા હેઠળ')}
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab('helper')}
-                      className="px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] font-black text-slate-800 dark:text-white cursor-pointer"
-                    >
-                      {tr('View Expert Tab', 'एक्सपर्ट टैब देखें', 'એક્સપર્ટ ટેબ જુઓ')}
-                    </button>
-                  </div>
-                )}
 
                 {isSavedNotice && (
                   <p className="text-xs font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1">
@@ -1453,19 +1422,14 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                 {/* Mandatory Live Selfie Capture */}
                 <LiveSelfieCaptureField
                   value={profilePhoto && profilePhoto !== 'https://lh3.googleusercontent.com/a/default-user' ? profilePhoto : ''}
-                  onChange={(url) => {
-                    setProfilePhoto(url);
+                  onChange={(watermarkedUrl, rawCleanUrl) => {
+                    setProfilePhoto(watermarkedUrl);
+                    if (rawCleanUrl) setRawProfilePhoto(rawCleanUrl);
                     setUploadErrorMsg(null);
                   }}
                   userName={userName || 'Community Member'}
                   entityType="user_profile"
                   required={true}
-                  label={tr('📸 Live Selfie (Mandatory / अनिवार्य *)', '📸 लाइव सेल्फी (अनिवार्य *)', '📸 લાઈવ સેલ્ફી (ફરજિયાત *)')}
-                  subLabel={tr(
-                    'Live Selfie is mandatory to save your profile and get Admin approval.',
-                    'प्रोफ़ाइल सेव करने और एडमिन अप्रूवल के लिए आपकी लाइव सेल्फी अनिवार्य है।',
-                    'પ્રોફાઈલ સેવ કરવા અને એડમિન મંજૂરી માટે તમારી લાઈવ સેલ્ફી ફરજિયાત છે.'
-                  )}
                   onError={(msg) => setUploadErrorMsg(msg)}
                 />
 
@@ -1473,12 +1437,6 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                 <VisitingCardUploadField
                   value={userVisitingCard}
                   onChange={(url) => setUserVisitingCard(url)}
-                  label={tr('🪪 Visiting Card / Work Photo (Optional)', '🪪 विजिटिंग कार्ड / काम की फोटो (वैकल्पिक)', '🪪 વિઝિટિંગ કાર્ડ / કામનો ફોટો (વૈકલ્પિક)')}
-                  subLabel={tr(
-                    'Upload your Visiting Card if you have one (Optional)',
-                    'यदि आपके पास विजिटिंग कार्ड है तो अपलोड करें (पूरी तरह वैकल्पिक)',
-                    'જો તમારી પાસે વિઝિટિંગ કાર્ડ હોય તો અપલોડ કરો (વૈકલ્પિક)'
-                  )}
                   onError={(msg) => setUploadErrorMsg(msg)}
                 />
 
@@ -1522,60 +1480,33 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
             {/* If Helper Profile already exists and user is not editing: Show Status & Details Card instead of Blank Create Form */}
             {myHelperProfile && !isEditingHelperProfile ? (
               <div className="bg-white dark:bg-slate-850 border border-slate-200 dark:border-slate-800 rounded-2xl p-4.5 space-y-4 shadow-xs">
-                {/* Status Banner */}
-                <div className={`p-4 rounded-2xl border flex items-start gap-3 ${
-                  isHelperApproved
-                    ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800'
-                    : 'bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800'
-                }`}>
-                  <div className={`w-10 h-10 rounded-xl text-white flex items-center justify-center shrink-0 shadow-xs ${
-                    isHelperApproved ? 'bg-emerald-600' : 'bg-amber-500'
-                  }`}>
-                    {isHelperApproved ? <ShieldCheck className="w-5 h-5" /> : <Clock className="w-5 h-5" />}
+                {/* Only show a compact notice if Pending Admin Review */}
+                {!isHelperApproved && (
+                  <div className="p-3 rounded-2xl border bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800 flex items-center gap-2.5">
+                    <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span className="text-xs font-bold text-amber-900 dark:text-amber-200">
+                      {tr('⏳ Under Admin Review', '⏳ एडमिन समीक्षा में', '⏳ એડમિન સમીક્ષા હેઠળ')}
+                    </span>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className={`text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full text-white ${
-                        isHelperApproved ? 'bg-emerald-600' : 'bg-amber-500'
-                      }`}>
-                        {isHelperApproved
-                          ? tr('🛡️ Active & Approved', '🛡️ एक्टिव और अप्रूव्ड', '🛡️ એક્ટિવ અને મંજૂર')
-                          : tr('⏳ Under Admin Review', '⏳ एडमिन समीक्षा में', '⏳ એડમિન સમીક્ષા હેઠળ')}
-                      </span>
-                    </div>
-                    <h4 className="text-sm font-black text-slate-900 dark:text-white mt-1.5">
-                      {isHelperApproved
-                        ? tr('Your Service Expert Profile is Active & Live!', 'आपकी सर्विस एक्सपर्ट प्रोफाइल एक्टिव और लाइव है!', 'તમારી સર્વિસ એક્સપર્ટ પ્રોફાઈલ એક્ટિવ અને લાઈવ છે!')
-                        : tr('Profile Under Admin Review', 'प्रोफाइल एडमिन समीक्षा (Under Admin Review) में है', 'પ્રોફાઈલ એડમિન સમીક્ષા હેઠળ છે')}
-                    </h4>
-                    <p className="text-xs text-slate-600 dark:text-slate-300 font-medium mt-1 leading-relaxed">
-                      {isHelperApproved
-                        ? tr(
-                            "Your profile is approved by Admin and visible in 'Browse Service Experts' under your category.",
-                            "आपकी प्रोफाइल एडमिन द्वारा अप्रूव कर दी गई है और 'Browse Service Experts' में आपकी कैटेगरी में लाइव दिख रही है।",
-                            "તમારી પ્રોફાઈલ એડમિન દ્વારા મંજૂર થઈ ગઈ છે અને તમારી કેટેગરીમાં લાઈવ દેખાઈ રહી છે."
-                          )
-                        : tr(
-                            "Your Service Expert profile has already been created and sent to the Admin approval queue. Once approved, it will automatically go live.",
-                            "आपने पहले ही अपनी प्रोफाइल बना ली है और यह एडमिन अप्रूवल के लिए भेजी जा चुकी है। अप्रूव होते ही यह लाइव हो जाएगी।",
-                            "તમારી સર્વિસ એક્સપર્ટ પ્રોફાઈલ એડમિન મંજૂરી માટે મોકલાઈ ગઈ છે. મંજૂર થતાં જ તે લાઈવ થઈ જશે."
-                          )}
-                    </p>
-                  </div>
-                </div>
+                )}
 
                 {/* Active / Submitted Helper Profile Details */}
                 <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-3">
                   <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2.5">
                     <div>
-                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">
-                        {isHelperApproved
-                          ? tr('Active Profile Details', 'एक्टिव प्रोफाइल विवरण', 'એક્ટિવ પ્રોફાઈલ વિગતો')
-                          : tr('Submitted Profile Details', 'सबमिट की गई प्रोफाइल', 'સબમિટ કરેલ પ્રોફાઈલ')}
-                      </span>
-                      <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-1.5">
+                      <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-1.5 flex-wrap">
                         <span>{myHelperProfile.name}</span>
-                        {isHelperApproved && <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />}
+                        {Boolean(
+                          myHelperProfile.registeredByAdmin ||
+                          myHelperProfile.adminDirectCreate ||
+                          String(myHelperProfile.id || '').startsWith('helper_admin_')
+                        ) ? (
+                          <span className="text-[10px] bg-indigo-600 text-white font-extrabold px-2 py-0.5 rounded-full flex items-center gap-1">
+                            <ShieldCheck className="w-3 h-3" /> {tr('Admin Verified', 'एडमिन वेरिफाइड', 'એડમિન વેરિફાઈડ')}
+                          </span>
+                        ) : isHelperApproved ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                        ) : null}
                       </h3>
                     </div>
                     <span className="px-2.5 py-1 rounded-xl bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 text-xs font-black">
@@ -1635,17 +1566,10 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                     <h3 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-1.5">
                       <span>
                         {myHelperProfile
-                          ? tr('Edit / Update Service Expert Profile', 'सर्विस एक्सपर्ट प्रोफाइल अपडेट करें', 'સર્વિસ એક્સપર્ટ પ્રોફાઈલ અપડેટ કરો')
-                          : tr('Service Expert Profile Registration', 'सर्विस एक्सपर्ट प्रोफाइल रजिस्ट्रेशन', 'સર્વિસ એક્સપર્ટ પ્રોફાઈલ રજિસ્ટ્રેશન')}
+                          ? tr('Update Service Expert Profile', 'सर्विस एक्सपर्ट प्रोफाइल अपडेट करें', 'સર્વિસ એક્સપર્ટ પ્રોફાઈલ અપડેટ કરો')
+                          : tr('Service Expert Registration', 'सर्विस एक्सपर्ट रजिस्ट्रेशन', 'સર્વિસ એક્સપર્ટ રજિસ્ટ્રેશન')}
                       </span>
                     </h3>
-                    <p className="text-[11px] text-slate-500">
-                      {tr(
-                        'List your skills (Plumber, Electrician, Tutor, Other) in local neighborhood categories',
-                        'स्थानीय कैटेगरी में अपने कौशल (प्लंबर, इलेक्ट्रीशियन, ट्यूटर आदि) को सूचीबद्ध करें',
-                        'સ્થાનિક કેટેગરીમાં તમારી કુશળતા (પ્લમ્બર, ઇલેક્ટ્રિશિયન, ટ્યુટર વગેરે) ઉમેરો'
-                      )}
-                    </p>
                   </div>
                   {myHelperProfile && (
                     <button
@@ -1760,21 +1684,16 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
 
                 {/* 7. Mandatory Live Camera Selfie Verification */}
                 <LiveSelfieCaptureField
-                  value={helperIdFrontDoc || myHelperProfile?.idDocUrl || ''}
-                  onChange={(url) => {
-                    setHelperIdFrontDoc(url);
+                  value={helperIdFrontDoc || (myHelperProfile as any)?.watermarkedSelfieUrl || myHelperProfile?.idDocUrl || ''}
+                  onChange={(watermarkedUrl, rawCleanUrl) => {
+                    setHelperIdFrontDoc(watermarkedUrl);
+                    if (rawCleanUrl) setHelperRawSelfie(rawCleanUrl);
                     setUploadErrorMsg(null);
                     setHelperErrorMsg(null);
                   }}
                   userName={helperName.trim() || userName || 'Service Expert'}
                   entityType="user_profile"
                   required={true}
-                  label={tr('📸 Live Camera Selfie (Mandatory *)', '📸 लाइव कैमरा सेल्फी (अनिवार्य *)', '📸 લાઈવ કેમેરા સેલ્ફી (ફરજિયાત *)')}
-                  subLabel={tr(
-                    'Take your clear Live Selfie for genuine Service Expert verification.',
-                    'फर्जी प्रोफाइल रोकने और एडमिन वेरिफिकेशन के लिए अपनी लाइव सेल्फी लें (अनिवार्य)।',
-                    'બોગસ પ્રોફાઈલ રોકવા અને એડમિન વેરિફિકેશન માટે તમારી લાઈવ સેલ્ફી લો (ફરજિયાત).'
-                  )}
                   onError={(msg) => setUploadErrorMsg(msg)}
                 />
 
@@ -1785,12 +1704,6 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                     setHelperWorkPhoto(url || null);
                     setUploadErrorMsg(null);
                   }}
-                  label={tr('🪪 Visiting Card / Work Photo (Optional)', '🪪 विजिटिंग कार्ड / काम की फोटो (वैकल्पिक)', '🪪 વિઝિટિંગ કાર્ડ / કામનો ફોટો (વૈકલ્પિક)')}
-                  subLabel={tr(
-                    'Upload your Visiting Card or Work Photo if available (Optional)',
-                    'यदि आपके पास विजिटिंग कार्ड या काम की फोटो है तो अपलोड करें (पूरी तरह वैकल्पिक)',
-                    'જો તમારી પાસે વિઝિટિંગ કાર્ડ અથવા કામનો ફોટો હોય તો અપલોડ કરો (વૈકલ્પિક)'
-                  )}
                   onError={(msg) => setUploadErrorMsg(msg)}
                 />
 
@@ -1842,31 +1755,39 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
             {/* Existing Business Status Card if user has already registered a business */}
             {myBusinessProfile && !isEditingBusiness ? (
               <div className="bg-white dark:bg-slate-850 border border-slate-200 dark:border-slate-800 p-4.5 rounded-2xl space-y-3.5 shadow-xs">
-                <div className={`p-3.5 rounded-2xl border flex items-start gap-3 ${
-                  isBusinessApproved
-                    ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800'
-                    : 'bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800'
-                }`}>
-                  <div className={`w-9 h-9 rounded-xl text-white flex items-center justify-center shrink-0 ${
-                    isBusinessApproved ? 'bg-emerald-600' : 'bg-amber-500'
-                  }`}>
-                    {isBusinessApproved ? <ShieldCheck className="w-5 h-5" /> : <Clock className="w-5 h-5" />}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full text-white ${
-                      isBusinessApproved ? 'bg-emerald-600' : 'bg-amber-500'
-                    }`}>
-                      {isBusinessApproved
-                        ? tr('🛡️ Approved & Live', '🛡️ अप्रूव्ड और लाइव', '🛡️ મંજૂર અને લાઈવ')
-                        : tr('⏳ Under Admin Review', '⏳ एडमिन समीक्षा में', '⏳ એડમિન સમીક્ષા હેઠળ')}
+                {!isBusinessApproved && (
+                  <div className="p-3 rounded-2xl border bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800 flex items-center gap-2.5">
+                    <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span className="text-xs font-bold text-amber-900 dark:text-amber-200">
+                      {tr('⏳ Under Admin Review', '⏳ एडमिन समीक्षा में', '⏳ એડમિન સમીક્ષા હેઠળ')}
                     </span>
-                    <h4 className="text-sm font-black text-slate-900 dark:text-white mt-1">
-                      {myBusinessProfile.name}
-                    </h4>
-                    <p className="text-[11px] text-slate-600 dark:text-slate-300 font-medium">
-                      {myBusinessProfile.categoryLabel} • {myBusinessProfile.area}
-                    </p>
                   </div>
+                )}
+
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <h4 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-1.5 flex-wrap">
+                      <span>{myBusinessProfile.name}</span>
+                      {Boolean(
+                        (myBusinessProfile as any).registeredByAdmin ||
+                        (myBusinessProfile as any).adminDirectCreate ||
+                        String(myBusinessProfile.id || '').startsWith('shop_admin_')
+                      ) ? (
+                        <span className="text-[10px] bg-indigo-600 text-white font-extrabold px-2 py-0.5 rounded-full flex items-center gap-1">
+                          <ShieldCheck className="w-3 h-3" /> {tr('Admin Verified', 'एडमिन वेरिफाइड', 'એડમિન વેરિફાઈડ')}
+                        </span>
+                      ) : isBusinessApproved ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                      ) : null}
+                    </h4>
+                    <span className="px-2.5 py-1 rounded-xl bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 text-xs font-black">
+                      {myBusinessProfile.categoryLabel}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600 dark:text-slate-300 font-bold flex items-center gap-1">
+                    <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                    <span>{myBusinessProfile.area}{myBusinessProfile.address ? ` • ${myBusinessProfile.address}` : ''}</span>
+                  </p>
                 </div>
 
                 <button
@@ -1901,13 +1822,6 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                           : tr('Business / Shop Registration', 'बिज़नेस / दुकान रजिस्ट्रेशन', 'બિઝનેસ / દુકાન રજિસ્ટ્રેશન')}
                       </span>
                     </h3>
-                    <p className="text-[11px] text-slate-500">
-                      {tr(
-                        'List your Shop, Showroom, Hospital, Bakery or Venue (Subject to Admin Approval)',
-                        'अपनी दुकान, शोरूम, अस्पताल, बेकरी या वेन्यू लिस्ट करें (एडमिन अप्रूवल आवश्यक)',
-                        'તમારી દુકાન, શોરૂમ, હોસ્પિટલ, બેકરી કે સ્થળ રજિસ્ટર કરો (એડમિન મંજૂરીને આધીન)'
-                      )}
-                    </p>
                   </div>
                   {myBusinessProfile && (
                     <button
@@ -2118,41 +2032,20 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                 </div>
 
                 {/* 9. Mandatory Owner Live Camera Selfie */}
-                <div className="p-3 rounded-2xl bg-amber-50/70 dark:bg-slate-900 border-2 border-amber-300 dark:border-amber-700 space-y-2">
-                  <label className="block text-xs font-black text-amber-950 dark:text-amber-300">
-                    {tr('📸 Owner Live Camera Selfie *', '📸 मालिक की लाइव कैमरा सेल्फी *', '📸 માલિકની લાઈવ કેમેરા સેલ્ફી *')}
-                  </label>
-                  <input 
-                    type="file" 
-                    accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
-                    capture="user"
-                    onChange={handleIdDocUploadShop}
-                    className="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-black file:bg-amber-600 file:text-white cursor-pointer bg-white dark:bg-slate-800 border border-amber-200 dark:border-slate-700 rounded-xl px-2 py-1.5"
-                  />
-                  {(shopIdDoc || (myBusinessProfile as any)?.idDocumentWatermarked) && (
-                    <div className="flex items-center gap-3 pt-1">
-                      <ProtectedSelfieCanvas
-                        src={shopIdDoc || (myBusinessProfile as any)?.idDocumentWatermarked}
-                        alt="Verified Shop Owner Selfie"
-                        width={88}
-                        height={88}
-                        className="rounded-xl border-2 border-emerald-500 shadow-xs shrink-0"
-                      />
-                      <div className="text-left space-y-0.5">
-                        <p className="text-[11px] text-emerald-700 dark:text-emerald-300 font-black flex items-center gap-1">
-                          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                          {tr('Owner Live Selfie Ready', 'मालिक की लाइव सेल्फी तैयार है', 'માલિકની લાઈવ સેલ્ફી તૈયાર છે')}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                  {uploadErrorMsg && (
-                    <div className="mt-2 p-2 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-[11px] font-bold text-rose-700 dark:text-rose-300 flex items-center gap-1.5">
-                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                      <span>{uploadErrorMsg}</span>
-                    </div>
-                  )}
-                </div>
+                <LiveSelfieCaptureField
+                  value={shopIdDoc || (myBusinessProfile as any)?.idDocumentWatermarked || ''}
+                  onChange={(watermarkedUrl, rawCleanUrl) => {
+                    setShopIdDoc(watermarkedUrl);
+                    if (rawCleanUrl) setShopRawSelfie(rawCleanUrl);
+                    setUploadErrorMsg(null);
+                    setShopErrorMsg(null);
+                  }}
+                  userName={ownerName.trim() || shopName.trim() || 'Business Owner'}
+                  entityType="business"
+                  required={true}
+                  label={tr('📸 Owner Live Selfie', '📸 मालिक की लाइव सेल्फी', '📸 માલિકની લાઈવ સેલ્ફી')}
+                  onError={(msg) => setUploadErrorMsg(msg)}
+                />
 
                 <button 
                   type="submit" 
@@ -2171,87 +2064,6 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
 
               </form>
             )}
-
-            {/* List View of All Approved Registered Local Businesses */}
-            <div className="bg-white dark:bg-slate-850 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl space-y-3 shadow-xs">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
-                    <span>🏪 {tr('Approved Local Businesses', 'अप्रूव्ड स्थानीय बिज़नेस', 'મંજૂર થયેલ સ્થાનિક બિઝનેસ')} ({filteredShops.length})</span>
-                  </h3>
-                  <p className="text-[10px] text-slate-500 font-medium">
-                    {tr('Admin-verified Shops, Showrooms, Malls & Venues', 'एडमिन द्वारा सत्यापित दुकानें, शोरूम, मॉल और वेन्यू', 'એડમિન દ્વારા ચકાસાયેલ દુકાનો, શોરૂમ, મોલ અને સ્થળો')}
-                  </p>
-                </div>
-              </div>
-
-              <div className="relative">
-                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  value={shopSearchQuery}
-                  onChange={(e) => setShopSearchQuery(e.target.value)}
-                  placeholder={tr('Search approved business by name, area or item...', 'नाम, क्षेत्र या सेवा से अप्रूव्ड बिज़नेस खोजें...', 'નામ, વિસ્તાર કે સેવા દ્વારા બિઝનેસ શોધો...')}
-                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none"
-                />
-              </div>
-
-              <div className="space-y-2.5 pt-1">
-                {filteredShops.length === 0 ? (
-                  <p className="text-xs text-slate-400 text-center py-4">
-                    {tr('No approved businesses found matching search.', 'कोई अप्रूव्ड बिज़नेस नहीं मिला।', 'કોઈ મંજૂર થયેલ બિઝનેસ મળ્યો નથી.')}
-                  </p>
-                ) : (
-                  filteredShops.map((shop) => {
-                    const canShowPublicPhone = Boolean((shop as any).isPhonePublic === true && shop.phone);
-                    return (
-                      <div 
-                        key={shop.id}
-                        className="p-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl flex items-start justify-between gap-2"
-                      >
-                        {shop.photoUrl && (
-                          <img src={shop.photoUrl} alt="" className="w-12 h-12 rounded-lg object-cover shrink-0 border border-slate-200 dark:border-slate-700" />
-                        )}
-                        <div className="min-w-0 flex-1 pr-2 space-y-0.5">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="text-xs font-black text-slate-900 dark:text-white truncate">
-                              {shop.name}
-                            </span>
-                            <span className="text-[9px] bg-emerald-600 text-white font-black px-1.5 py-0.2 rounded-full">
-                              🛡️ {tr('Verified', 'वेरिफाइड', 'વેરિફાઈડ')}
-                            </span>
-                          </div>
-                          <p className="text-[11px] font-bold text-amber-600 dark:text-amber-400">{shop.categoryLabel}</p>
-                          <p className="text-[10px] text-slate-500 flex items-center gap-1">
-                            <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
-                            <span>{shop.area} • {shop.address}</span>
-                          </p>
-                          <p className="text-[11px] text-slate-600 dark:text-slate-300 pt-0.5">{shop.description}</p>
-                        </div>
-
-                        <div className="flex flex-col gap-1 shrink-0">
-                          {canShowPublicPhone ? (
-                            <button
-                              type="button"
-                              onClick={() => handleWhatsAppContact(shop)}
-                              className="bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-extrabold px-2.5 py-1.5 rounded-lg flex items-center gap-1 shadow-xs cursor-pointer"
-                            >
-                              <Phone className="w-3 h-3" /> WhatsApp
-                            </button>
-                          ) : (
-                            <span className="text-[10px] font-bold text-slate-500 bg-slate-200/70 dark:bg-slate-800 px-2 py-1 rounded-lg flex items-center gap-1">
-                              <Lock className="w-3 h-3 text-emerald-600" /> {tr('Private', 'प्राइवेट', 'ખાનગી')}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-
-
           </div>
         )}
 

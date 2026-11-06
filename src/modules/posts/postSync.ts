@@ -1,5 +1,5 @@
 import { Intent } from '../../types';
-import { getConnectedTwinDistricts } from '../../data/panIndiaLocations';
+import { getConnectedTwinDistricts, matchesUserLocationFilter } from '../../data/panIndiaLocations';
 
 /**
  * LOCKED MODULE: Live Broadcast Posts Sync & Feed Visibility
@@ -20,14 +20,35 @@ export function filterAndSortLiveBroadcastPosts(params: {
     activeHeaderDistrict,
     userArea = '',
     newlyCreatedId = null,
+    myPostIdsList = [],
+    activeUser = null,
   } = params;
 
   const cleanDistrict = (activeHeaderDistrict || '').trim().toLowerCase();
   const connectedDistricts = getConnectedTwinDistricts(cleanDistrict);
   const prefArea = (userArea || '').trim().toLowerCase();
+  const myUid = String(activeUser?.uid || '').trim().toLowerCase();
+  const myEmail = String(activeUser?.email || '').trim().toLowerCase();
 
-  // Keep ALL active posts visible across all phones so User A's post is never hidden on User B's phone
-  return baseCategoryIntents
+  const filteredList =
+    !cleanDistrict || cleanDistrict === 'all'
+      ? baseCategoryIntents
+      : baseCategoryIntents.filter((item) => {
+          if (newlyCreatedId && item.id === newlyCreatedId) return true;
+          if (myPostIdsList.includes(String(item.id))) return true;
+          const itemAuthorId = String(item.authorId || item.userId || item.user_id || '').trim().toLowerCase();
+          const itemAuthorEmail = String(item.authorEmail || item.email || '').trim().toLowerCase();
+          if (myUid && myUid !== 'guest' && myUid !== 'guest_user' && itemAuthorId === myUid) return true;
+          if (myEmail && itemAuthorEmail === myEmail) return true;
+
+          const itemLocText = `${item.resolvedCity || ''} ${item.city || ''} ${item.resolvedArea || ''} ${item.area || ''} ${item.location || ''} ${item.resolvedLocationBadge || ''} ${item.description || ''}`;
+          return matchesUserLocationFilter(itemLocText, {
+            district: activeHeaderDistrict,
+            taluka: userArea,
+          });
+        });
+
+  return filteredList
     .slice()
     .sort((a, b) => {
       // 1. Pin newly created post at the very top immediately

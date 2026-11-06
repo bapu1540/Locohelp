@@ -98,6 +98,7 @@ import {
 } from '../api';
 import {
   getSavedUserLocation,
+  matchesUserLocationFilter,
   UserManualLocation as UserLocationData,
 } from '../data/panIndiaLocations';
 import { getAuthenticRatingInfo, isEntityAdminVerified } from '../modules/verification';
@@ -672,7 +673,10 @@ export default function CategoriesScreen({
   const [userLocation, setUserLocation] = useState<UserLocationData | null>(() =>
     getSavedUserLocation()
   );
-  const [filterByMyCity, setFilterByMyCity] = useState<boolean>(false);
+  const [filterByMyCity, setFilterByMyCity] = useState<boolean>(() => {
+    const saved = getSavedUserLocation();
+    return Boolean(saved?.district && String(saved.district).trim().toLowerCase() !== 'all');
+  });
   const [reviewModalHelper, setReviewModalHelper] = useState<FreeHelperProfile | null>(null);
   const [helperReviewsList, setHelperReviewsList] = useState<HelperReviewItem[]>([]);
   const [reviewStarVal, setReviewStarVal] = useState<number>(5);
@@ -680,7 +684,11 @@ export default function CategoriesScreen({
   const [submittingReview, setSubmittingReview] = useState<boolean>(false);
 
   useEffect(() => {
-    const syncLoc = () => setUserLocation(getSavedUserLocation());
+    const syncLoc = (e?: any) => {
+      const nextLoc = e?.detail?.district ? e.detail : getSavedUserLocation();
+      setUserLocation(nextLoc);
+      setFilterByMyCity(Boolean(nextLoc?.district && String(nextLoc.district).trim().toLowerCase() !== 'all'));
+    };
     window.addEventListener('locohelp_location_changed', syncLoc);
     window.addEventListener('storage', syncLoc);
     return () => {
@@ -735,10 +743,12 @@ export default function CategoriesScreen({
 
   const selectedTaluka = (userLocation?.taluka || userLocation?.area || '').trim();
   const selectedDistrict = (userLocation?.district || '').trim();
-  const selectedCityName =
-    selectedTaluka && selectedDistrict
-      ? `${selectedTaluka}, ${selectedDistrict}`
-      : selectedTaluka || selectedDistrict;
+  const isAllCitiesSelected = !selectedDistrict || selectedDistrict.toLowerCase() === 'all';
+  const selectedCityName = isAllCitiesSelected
+    ? ''
+    : selectedTaluka && selectedDistrict && selectedTaluka.toLowerCase() !== selectedDistrict.toLowerCase()
+    ? `${selectedTaluka}, ${selectedDistrict}`
+    : selectedTaluka || selectedDistrict;
 
   // Filter helpers strictly for the opened category (never show a loose list when activeCategory === 'all')
   const filteredHelpers = helpers.filter((h) => {
@@ -761,13 +771,8 @@ export default function CategoriesScreen({
 
     let matchesCity = true;
     if (filterByMyCity && selectedCityName && !q) {
-      const hArea = String(h.area || (h as any).city || '').toLowerCase();
-      const normDist = (userLocation?.district || '').trim().toLowerCase();
-      const normArea = (userLocation?.taluka || userLocation?.area || '').trim().toLowerCase();
-      matchesCity = Boolean(
-        (normArea && hArea.includes(normArea)) ||
-          (normDist && hArea.includes(normDist))
-      );
+      const hArea = String(h.area || (h as any).city || '');
+      matchesCity = matchesUserLocationFilter(hArea, userLocation);
     }
 
     return matchesSearch && matchesCity;
@@ -1212,6 +1217,17 @@ export default function CategoriesScreen({
                   "આ કેટેગરીમાં લોકલ કારીગરો અને એક્સપર્ટ્સને જોડવાનું કામ ચાલુ છે. જો તમારે અત્યારે તાત્કાલિક કામ હોય તો હોમ પેજ પર 'પોસ્ટ બનાવો' પર ક્લિક કરીને તમારી જરૂરિયાત મૂકી શકો છો, અથવા જો તમે પોતે આ કામ કરો છો તો ઉપર '+ ફ્રી પ્રોફાઇલ બનાવો' બટન દબાવીને મફતમાં તમારી પ્રોફાઇલ જોડો!"
                 )}
               </p>
+              {filterByMyCity && selectedCityName && (
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    onClick={() => setFilterByMyCity(false)}
+                    className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-extrabold shadow-xs cursor-pointer"
+                  >
+                    🌐 {tr('View Service Experts from All Cities', 'सभी शहरों के सर्विस एक्सपर्ट देखें', 'બધા શહેરોના સર્વિસ એક્સપર્ટ જુઓ')}
+                  </button>
+                </div>
+              )}
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
@@ -1234,24 +1250,34 @@ export default function CategoriesScreen({
                         <div className="flex items-center gap-2.5">
                           {(() => {
                             const avatarUrl =
+                              (helper as any).watermarkedSelfieUrl ||
                               (helper as any).photoUrl ||
                               (helper as any).avatar ||
-                              (helper as any).idDocUrl ||
                               (helper as any).workPhotoUrl ||
                               (Array.isArray((helper as any).workPhotos) ? (helper as any).workPhotos[0] : null);
 
                             if (avatarUrl) {
                               return (
-                                <img
-                                  src={avatarUrl}
-                                  alt={helper.name}
-                                  onError={(e) => {
-                                    e.currentTarget.style.display = 'none';
-                                    const sibling = e.currentTarget.parentElement?.querySelector('.cat-avatar-fallback') as HTMLElement;
-                                    if (sibling) sibling.style.display = 'flex';
-                                  }}
-                                  className="w-11 h-11 rounded-xl object-cover shrink-0 border border-slate-200 dark:border-slate-700 shadow-sm"
-                                />
+                                <div
+                                  className="relative w-12 h-12 rounded-xl overflow-hidden shrink-0 border border-slate-200 dark:border-slate-700 shadow-sm select-none"
+                                  onContextMenu={(e) => e.preventDefault()}
+                                >
+                                  <img
+                                    src={avatarUrl}
+                                    alt={helper.name}
+                                    draggable={false}
+                                    onError={(e) => {
+                                      const wrapper = e.currentTarget.parentElement;
+                                      if (wrapper) wrapper.style.display = 'none';
+                                      const sibling = wrapper?.parentElement?.querySelector('.cat-avatar-fallback') as HTMLElement;
+                                      if (sibling) sibling.style.display = 'flex';
+                                    }}
+                                    className="w-full h-full object-cover pointer-events-none select-none"
+                                  />
+                                  <span className="pointer-events-none absolute inset-x-0 bottom-0 bg-slate-950/75 text-[7px] font-black text-emerald-300 text-center py-0.2 tracking-tight">
+                                    LOCOHELP
+                                  </span>
+                                </div>
                               );
                             }
                             return null;
@@ -1259,14 +1285,14 @@ export default function CategoriesScreen({
                           <div
                             style={{
                               display:
+                                (helper as any).watermarkedSelfieUrl ||
                                 (helper as any).photoUrl ||
                                 (helper as any).avatar ||
-                                (helper as any).idDocUrl ||
                                 (helper as any).workPhotoUrl
                                   ? 'none'
                                   : 'flex',
                             }}
-                            className="cat-avatar-fallback w-11 h-11 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 text-white font-extrabold text-base items-center justify-center shrink-0 shadow-sm"
+                            className="cat-avatar-fallback w-12 h-12 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 text-white font-extrabold text-base items-center justify-center shrink-0 shadow-sm"
                           >
                             {helper.name.charAt(0).toUpperCase()}
                           </div>
@@ -1275,12 +1301,21 @@ export default function CategoriesScreen({
                               <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">
                                 {helper.name}
                               </h4>
-                              {isAdminVerified && (
+                              {Boolean(
+                                (helper as any).registeredByAdmin ||
+                                (helper as any).adminDirectCreate ||
+                                String(helper.id || '').startsWith('helper_admin_')
+                              ) ? (
+                                <span className="inline-flex items-center gap-0.5 text-[10px] font-extrabold px-2 py-0.5 rounded-md bg-indigo-600 text-white shadow-2xs">
+                                  <ShieldCheck className="w-3 h-3" />
+                                  {tr('Admin Verified', 'एडमिन वेरिफाइड', 'એડમિન વેરિફાઈડ')}
+                                </span>
+                              ) : isAdminVerified ? (
                                 <span className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
                                   <CheckCircle2 className="w-3 h-3" />
                                   {tr('Verified', 'वेरिफाइड', 'વેરિફાઇડ')}
                                 </span>
-                              )}
+                              ) : null}
                             </div>
                             <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                               <span className="font-semibold text-orange-600 dark:text-orange-400">

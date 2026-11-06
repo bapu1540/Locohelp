@@ -20,6 +20,7 @@ import {
   PAN_INDIA_STATES_DISTRICTS,
   getTalukasForDistrict,
   getProfileRegisteredLocation,
+  getSavedUserLocation,
 } from '../data/panIndiaLocations';
 import {
   CATEGORIES,
@@ -60,8 +61,14 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
     return () => clearInterval(timer);
   }, [postError]);
 
-  // Pan-India State, District & Taluka Selection (Pre-filled from user's registered profile location, default Gujarat)
-  const initialSavedLoc = React.useMemo(() => getProfileRegisteredLocation(), []);
+  // Pan-India State, District & Taluka Selection (Pre-filled from active header location if specific city is chosen, otherwise registered profile location)
+  const initialSavedLoc = React.useMemo(() => {
+    const activeLoc = getSavedUserLocation();
+    if (activeLoc && activeLoc.district && activeLoc.district.trim().toLowerCase() !== 'all') {
+      return activeLoc;
+    }
+    return getProfileRegisteredLocation();
+  }, []);
   const [selectedState, setSelectedState] = useState<string>(initialSavedLoc.state || 'Gujarat');
   const [selectedCity, setSelectedCity] = useState<string>(initialSavedLoc.district || 'Gandhinagar');
   const [customCity] = useState<string>('');

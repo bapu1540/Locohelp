@@ -280,6 +280,24 @@ export function getUserIdentitySet(user?: { uid?: string; id?: string; email?: s
       if (savedPhone) {
         addPhoneIdentityVariants(savedPhone);
       }
+      const myHelperRaw = localStorage.getItem('locohelp_my_helper_profile');
+      if (myHelperRaw) {
+        const mh = JSON.parse(myHelperRaw);
+        if (mh && mh.id) {
+          addCandidate(mh.id);
+          addCandidate(`provider_chat_${mh.id}`);
+          addCandidate(`direct_chat_${mh.id}`);
+        }
+      }
+      const myBizRaw = localStorage.getItem('locohelp_my_business_profile');
+      if (myBizRaw) {
+        const mb = JSON.parse(myBizRaw);
+        if (mb && mb.id) {
+          addCandidate(mb.id);
+          addCandidate(`provider_chat_${mb.id}`);
+          addCandidate(`direct_chat_${mb.id}`);
+        }
+      }
     } catch {}
   }
 
@@ -556,13 +574,6 @@ export function localizeServerAuthError(
       'Incorrect OTP code! Please enter the valid 6-digit code.',
       'गलत OTP कोड! कृपया सही 6-अंकों का कोड दर्ज करें।',
       'ખોટો OTP કોડ! કૃપા કરીને સાચો 6-અંકનો કોડ દાખલ કરો.'
-    );
-  }
-  if (lower.includes('biometric passkey not found') || err.includes('फिंगरप्रिंट डेटा नहीं मिला')) {
-    return trAuth(
-      'Fingerprint login is not linked on this device yet. Please log in once using Mobile OTP or Password.',
-      'इस फोन पर अभी फिंगरप्रिंट लॉगिन जुड़ा नहीं है। कृपया एक बार मोबाइल OTP या पासवर्ड से लॉगिन करें।',
-      'આ ફોન પર હજુ ફિંગરપ્રિન્ટ લોગિન જોડાયેલ નથી. કૃપા કરીને એકવાર મોબાઇલ OTP અથવા પાસવર્ડથી લોગિન કરો.'
     );
   }
   if (lower.includes('at least 6 characters') || err.includes('कम से कम 6 अक्षरों')) {
@@ -870,8 +881,6 @@ export async function checkPhoneInPostgres(identifier: string): Promise<{
   email?: string;
   phone?: string;
   hasPassword?: boolean;
-  hasBiometric?: boolean;
-  credentialId?: string;
   isApproved?: boolean;
   approvalStatus?: string;
 }> {
@@ -891,8 +900,6 @@ export async function checkPhoneInPostgres(identifier: string): Promise<{
       email: data.email || '',
       phone: data.phone || '',
       hasPassword: Boolean(data.hasPassword),
-      hasBiometric: Boolean(data.hasBiometric),
-      credentialId: data.credentialId || '',
       isApproved: Boolean(data.isApproved),
       approvalStatus: data.approvalStatus || 'pending'
     };

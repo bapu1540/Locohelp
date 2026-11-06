@@ -680,8 +680,27 @@ export default function LoginPromptModal({
             </div>
           </div>
 
-          {/* CASE 1: OTP Just Verified -> Show "Set 4-Digit PIN / Password" Step */}
-          {otpVerifiedForPinSetup ? (
+          {checkedUser.checked && checkedUser.approvalStatus === 'blocked' ? (
+            <div className="rounded-2xl bg-rose-50 border-2 border-rose-300 p-4 text-center space-y-2">
+              <div className="w-11 h-11 rounded-full bg-rose-600 text-white flex items-center justify-center mx-auto shadow-md text-lg font-black">
+                🚫
+              </div>
+              <h4 className="text-sm font-black text-rose-900">
+                {tr(
+                  'Account Blocked by Admin',
+                  'एडमिन द्वारा अकाउंट ब्लॉक किया गया है',
+                  'તમારું એકાઉન્ટ એડમિન દ્વારા બ્લોક કરવામાં આવ્યું છે'
+                )}
+              </h4>
+              <p className="text-xs font-bold text-rose-700 leading-relaxed">
+                {tr(
+                  'This mobile number or email has been blocked due to policy violation or user reports. You cannot login or create a new account until Admin unblocks it.',
+                  'यह मोबाइल नंबर या ईमेल नियमों के उल्लंघन के कारण ब्लॉक कर दिया गया है। एडमिन की अनुमति के बिना आप लॉगिन या नया अकाउंट नहीं बना सकते।',
+                  'આ મોબાઇલ નંબર અથવા ઈમેલ આઈડી સમુદાયના નિયમોના ઉલ્લંઘન બદલ એડમિન દ્વારા બ્લોક કરવામાં આવેલ છે. જ્યાં સુધી એડમિન ફરીથી મંજૂરી ન આપે ત્યાં સુધી તમે લોગિન કે નવું એકાઉન્ટ બનાવી શકશો નહીં.'
+                )}
+              </p>
+            </div>
+          ) : otpVerifiedForPinSetup ? (
             <form onSubmit={handleSavePinAfterOtp} className="space-y-3 pt-0.5">
               <div>
                 <label className="block text-xs font-black text-slate-700 mb-1">

@@ -29,7 +29,11 @@ import {
   createAdOnServer as saveAdBannerOnServer,
   HelperReviewItem,
 } from '../api';
-import { getSavedUserLocation, UserManualLocation as UserLocationData } from '../data/panIndiaLocations';
+import {
+  getSavedUserLocation,
+  matchesUserLocationFilter,
+  UserManualLocation as UserLocationData,
+} from '../data/panIndiaLocations';
 import { getAuthenticRatingInfo, isEntityAdminVerified } from '../modules/verification';
 import { CATEGORIES } from '../data/categories';
 
@@ -149,8 +153,15 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
   });
 
   useEffect(() => {
-    const syncLoc = () => {
-      setUserLocation(getSavedUserLocation());
+    const syncLoc = (e?: any) => {
+      if (e?.detail?.district) {
+        setUserLocation(e.detail);
+        setFilterByMyCity(String(e.detail.district).trim().toLowerCase() !== 'all');
+      } else {
+        const saved = getSavedUserLocation();
+        setUserLocation(saved);
+        setFilterByMyCity(String(saved?.district || '').trim().toLowerCase() !== 'all');
+      }
     };
     window.addEventListener('locohelp_location_changed', syncLoc);
     window.addEventListener('storage', syncLoc);
@@ -265,29 +276,21 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
 
   const selectedTaluka = (userLocation?.taluka || userLocation?.area || '').trim();
   const selectedDistrict = (userLocation?.district || '').trim();
-  const selectedCityName =
-    selectedTaluka && selectedDistrict
-      ? `${selectedTaluka}, ${selectedDistrict}`
-      : selectedTaluka || selectedDistrict;
+  const isAllCitiesSelected = !selectedDistrict || selectedDistrict.toLowerCase() === 'all';
+  const selectedCityName = isAllCitiesSelected
+    ? ''
+    : selectedTaluka && selectedDistrict && selectedTaluka.toLowerCase() !== selectedDistrict.toLowerCase()
+    ? `${selectedTaluka}, ${selectedDistrict}`
+    : selectedTaluka || selectedDistrict;
+
   const locationFilteredHelpers = React.useMemo(() => {
-    if (!filterByMyCity || !selectedCityName) return liveHelpers;
-    const normDistrict = (userLocation?.district || '').trim().toLowerCase();
-    const normArea = (userLocation?.taluka || userLocation?.area || '').trim().toLowerCase();
-    const matched = liveHelpers.filter((prov: any) => {
-      const pArea = String(prov.area || prov.city || prov.location || '').toLowerCase();
+    if (!filterByMyCity || isAllCitiesSelected || !selectedCityName) return liveHelpers;
+    return liveHelpers.filter((prov: any) => {
+      const pArea = String(prov.area || prov.city || prov.location || '');
       if (!pArea) return false;
-      if (normArea && pArea.includes(normArea)) return true;
-      if (normDistrict && pArea.includes(normDistrict)) return true;
-      return false;
+      return matchesUserLocationFilter(pArea, userLocation);
     });
-    // Prioritize matching city helpers first, then include remaining approved liveHelpers up to 6
-    if (matched.length > 0 && matched.length < 6) {
-      const matchedIds = new Set(matched.map((m: any) => m.id));
-      const others = liveHelpers.filter((p: any) => p && !matchedIds.has(p.id));
-      return [...matched, ...others];
-    }
-    return matched.length > 0 ? matched : liveHelpers;
-  }, [liveHelpers, filterByMyCity, selectedCityName, userLocation]);
+  }, [liveHelpers, filterByMyCity, isAllCitiesSelected, selectedCityName, userLocation]);
 
   // Build uniform ShowcaseProviderItem list (strictly max 6 Service Experts, never Simple User Profiles)
   const displayProviders: ShowcaseProviderItem[] =

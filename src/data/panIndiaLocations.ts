@@ -375,11 +375,201 @@ export function findStateForDistrict(district: string): string {
   return 'Gujarat';
 }
 
+const LOCALIZED_PLACE_NAMES: Record<string, { gu: string; hi: string; aliases?: string[] }> = {
+  all: { gu: 'બધા શહેરો', hi: 'सभी शहर' },
+  gujarat: { gu: 'ગુજરાત', hi: 'गुजरात' },
+  gandhinagar: { gu: 'ગાંધીનગર', hi: 'गांधीनगर' },
+  ahmedabad: { gu: 'અમદાવાદ', hi: 'अहमदाबाद', aliases: ['amdavad', 'ahmedabad city'] },
+  'ahmedabad city': { gu: 'અમદાવાદ', hi: 'अहमदाबाद', aliases: ['ahmedabad', 'amdavad'] },
+  surat: { gu: 'સુરત', hi: 'सूरत', aliases: ['surat city'] },
+  'surat city': { gu: 'સુરત', hi: 'सूरत', aliases: ['surat'] },
+  vadodara: { gu: 'વડોદરા', hi: 'वडोदरा', aliases: ['baroda', 'બરોડા'] },
+  rajkot: { gu: 'રાજકોટ', hi: 'राजकोट' },
+  mehsana: { gu: 'મહેસાણા', hi: 'मेहसाणा', aliases: ['mahesana'] },
+  anand: { gu: 'આણંદ', hi: 'आणंद' },
+  bhavnagar: { gu: 'ભાવનગર', hi: 'भावनगर' },
+  jamnagar: { gu: 'જામનગર', hi: 'जामनगर' },
+  junagadh: { gu: 'જૂનાગઢ', hi: 'जूनागढ़', aliases: ['junagadh city'] },
+  kutch: { gu: 'કચ્છ', hi: 'कच्छ', aliases: ['kachchh', 'bhuj', 'ભુજ'] },
+  banaskantha: { gu: 'બનાસકાંઠા', hi: 'बनासकांठा', aliases: ['palanpur', 'પાલનપુર'] },
+  sabarkantha: { gu: 'સાબરકાંઠા', hi: 'साबरकांठा', aliases: ['himatnagar', 'હિંમતનગર'] },
+  aravalli: { gu: 'અરવલ્લી', hi: 'अरवल्ली', aliases: ['modasa', 'મોડાસા'] },
+  patan: { gu: 'પાટણ', hi: 'पाटण' },
+  kheda: { gu: 'ખેડા', hi: 'खेड़ा', aliases: ['nadiad', 'નડિયાદ'] },
+  bharuch: { gu: 'ભરૂચ', hi: 'भरूच', aliases: ['ankleshwar', 'અંકલેશ્વર'] },
+  navsari: { gu: 'નવસારી', hi: 'नवसारी' },
+  valsad: { gu: 'વલસાડ', hi: 'वलसाड', aliases: ['vapi', 'વાપી'] },
+  morbi: { gu: 'મોરબી', hi: 'मोरबी' },
+  surendranagar: { gu: 'સુરેન્દ્રનગર', hi: 'सुरेंद्रनगर' },
+  amreli: { gu: 'અમરેલી', hi: 'अमरेली' },
+  gir_somnath: { gu: 'ગીર સોમનાથ', hi: 'गीर सोमनाथ', aliases: ['veraval', 'વેરાવળ'] },
+  'gir somnath': { gu: 'ગીર સોમનાથ', hi: 'गीर सोमनाथ', aliases: ['veraval', 'વેરાવળ'] },
+  porbandar: { gu: 'પોરબંદર', hi: 'पोरबंदर' },
+  botad: { gu: 'બોટાદ', hi: 'बोटाद' },
+  dahod: { gu: 'દાહોદ', hi: 'दाहोद' },
+  panchmahal: { gu: 'પંચમહાલ', hi: 'पंचमहल', aliases: ['godhra', 'ગોધરા'] },
+  mahisagar: { gu: 'મહીસાગર', hi: 'महीसागर', aliases: ['lunawada', 'લુણાવાડા'] },
+  'chhota udaipur': { gu: 'છોટા ઉદેપુર', hi: 'छोटा उदेपुर' },
+  narmada: { gu: 'નર્મદા', hi: 'नर्मदा', aliases: ['rajpipla', 'રાજપીપળા'] },
+  tapi: { gu: 'તાપી', hi: 'तापी', aliases: ['vyara', 'વ્યારા'] },
+  dang: { gu: 'ડાંગ', hi: 'डांग', aliases: ['ahwa', 'આહવા'] },
+  'devbhumi dwarka': { gu: 'દેવભૂમિ દ્વારકા', hi: 'देवभूमि द्वारका', aliases: ['dwarka', 'દ્વારકા', 'khambhalia', 'ખંભાળિયા'] },
+  kalol: { gu: 'કલોલ', hi: 'कलोल' },
+  mansa: { gu: 'માણસા', hi: 'माणसा' },
+  dehgam: { gu: 'દહેગામ', hi: 'दहेगाम', aliases: ['dahegam'] },
+  sanand: { gu: 'સાણંદ', hi: 'साणंद' },
+  daskroi: { gu: 'દસ્ક્રોઈ', hi: 'दसक्रोई' },
+  dholka: { gu: 'ધોળકા', hi: 'धोलका' },
+  bavla: { gu: 'બાવળા', hi: 'बावला' },
+  viramgam: { gu: 'વિરમગામ', hi: 'विरमगाम' },
+  bopal: { gu: 'બોપલ', hi: 'बोपल' },
+  chandkheda: { gu: 'ચાંદખેડા', hi: 'चांदखेड़ा' },
+  kudasan: { gu: 'કુડાસણ', hi: 'कुडासण' },
+  sargasan: { gu: 'સરગાસણ', hi: 'सरगासण' },
+  kadi: { gu: 'કડી', hi: 'कडी' },
+  visnagar: { gu: 'વિસનગર', hi: 'विसनगर' },
+  unjha: { gu: 'ઊંઝા', hi: 'ऊंझा' },
+  vijapur: { gu: 'વિજાપુર', hi: 'विजापुर' },
+  palanpur: { gu: 'પાલનપુર', hi: 'पालनपुर' },
+  deesa: { gu: 'ડીસા', hi: 'डीसा' },
+  himatnagar: { gu: 'હિંમતનગર', hi: 'हिम्मतनगर' },
+  idar: { gu: 'ઈડર', hi: 'ईडर' },
+  modasa: { gu: 'મોડાસા', hi: 'मोडासा' },
+  nadiad: { gu: 'નડિયાદ', hi: 'नडियाद' },
+  ankleshwar: { gu: 'અંકલેશ્વર', hi: 'अंकलेश्वर' },
+  vapi: { gu: 'વાપી', hi: 'वापी' },
+  bardoli: { gu: 'બારડોલી', hi: 'बारडोली' },
+  kamrej: { gu: 'કામરેજ', hi: 'कामरेज' },
+  gondal: { gu: 'ગોંડલ', hi: 'गोंडल' },
+  jetpur: { gu: 'જેતપુર', hi: 'जेतपुर' },
+  bhuj: { gu: 'ભુજ', hi: 'भुज' },
+  gandhidham: { gu: 'ગાંધીધામ', hi: 'गांधीधाम' },
+  anjar: { gu: 'અંજાર', hi: 'अंजार' },
+  mundra: { gu: 'મુન્દ્રા', hi: 'मुंद्रा' },
+};
+
+export function localizePlaceName(name: string, language: string): string {
+  const clean = (name || '').trim();
+  if (!clean) return '';
+  const entry = LOCALIZED_PLACE_NAMES[clean.toLowerCase()];
+  if (!entry) return clean;
+  if (language === 'GU') return entry.gu;
+  if (language === 'HI') return entry.hi;
+  return clean;
+}
+
+export function getPlaceNameVariants(name?: string | null): string[] {
+  const clean = String(name || '').trim().toLowerCase();
+  if (!clean || clean === 'all' || clean === 'all cities') return [];
+  const baseNoSuffix = clean.replace(/\s+(city|urban|rural|district)$/i, '').trim();
+  const variants = new Set<string>([clean]);
+  if (baseNoSuffix) variants.add(baseNoSuffix);
+
+  const addFromKey = (k: string) => {
+    const entry = LOCALIZED_PLACE_NAMES[k];
+    if (!entry) return;
+    if (entry.gu) variants.add(entry.gu.toLowerCase());
+    if (entry.hi) variants.add(entry.hi.toLowerCase());
+    if (Array.isArray(entry.aliases)) {
+      entry.aliases.forEach((a) => {
+        if (a) variants.add(a.toLowerCase());
+      });
+    }
+  };
+
+  addFromKey(clean);
+  if (baseNoSuffix && baseNoSuffix !== clean) addFromKey(baseNoSuffix);
+
+  // Reverse lookup in case the input itself is already in Gujarati or Hindi
+  for (const [engKey, val] of Object.entries(LOCALIZED_PLACE_NAMES)) {
+    if (
+      val.gu.toLowerCase() === clean ||
+      val.hi.toLowerCase() === clean ||
+      (val.aliases && val.aliases.some((a) => a.toLowerCase() === clean))
+    ) {
+      variants.add(engKey.toLowerCase());
+      variants.add(val.gu.toLowerCase());
+      variants.add(val.hi.toLowerCase());
+      if (val.aliases) val.aliases.forEach((a) => variants.add(a.toLowerCase()));
+    }
+  }
+
+  return Array.from(variants).filter(Boolean);
+}
+
+/**
+ * Universal Multilingual Location Filter Matcher (Matches English, Gujarati, and Hindi names of selected District/Taluka).
+ * Returns true if activeLoc is 'All' or if rawLocationText matches the selected District or Taluka in any language.
+ */
+export function matchesUserLocationFilter(
+  rawLocationText?: string | null,
+  activeLoc?: Partial<UserManualLocation> | null
+): boolean {
+  if (!activeLoc) return true;
+  const dist = String(activeLoc.district || '').trim();
+  if (!dist || dist.toLowerCase() === 'all' || dist.toLowerCase() === 'all cities') {
+    return true;
+  }
+
+  const text = String(rawLocationText || '').trim().toLowerCase();
+  if (
+    !text ||
+    text === 'local area' ||
+    text === 'nearby' ||
+    text === 'all' ||
+    text === 'gujarat' ||
+    text === 'india'
+  ) {
+    return true;
+  }
+
+  const distVariants = getPlaceNameVariants(dist);
+  const taluka = String(activeLoc.taluka || activeLoc.area || '').trim();
+  const talukaVariants =
+    taluka && taluka.toLowerCase() !== 'all' && taluka.toLowerCase() !== dist.toLowerCase()
+      ? getPlaceNameVariants(taluka)
+      : [];
+
+  // Also include all talukas of the selected district when matching a post/helper/shop that only wrote its taluka name (e.g., "Kalol" or "કલોલ" inside Gandhinagar district)
+  const districtTalukas = getTalukasForDistrict(dist);
+  const allDistrictTalukaVariants: string[] = [];
+  if (!taluka || taluka.toLowerCase() === dist.toLowerCase()) {
+    districtTalukas.forEach((tName) => {
+      getPlaceNameVariants(tName).forEach((v) => allDistrictTalukaVariants.push(v));
+    });
+  }
+
+  const allTokensToCheck = Array.from(
+    new Set([...distVariants, ...talukaVariants, ...allDistrictTalukaVariants])
+  );
+
+  return allTokensToCheck.some((token) => token.length >= 2 && text.includes(token));
+}
+
+export function getLocalizedLocationButtonText(
+  loc?: Partial<UserManualLocation> | null,
+  language: string = 'GU'
+): string {
+  if (!loc) return localizePlaceName('Gandhinagar', language);
+  const district = (loc.district || '').trim();
+  const taluka = (loc.taluka || loc.area || '').trim();
+  if (!district || district.toLowerCase() === 'all') {
+    return language === 'GU' ? 'બધા શહેરો' : language === 'HI' ? 'सभी शहर' : 'All Cities';
+  }
+  const locDistrict = localizePlaceName(district, language);
+  const locTaluka = localizePlaceName(taluka, language);
+  if (taluka && taluka.toLowerCase() !== district.toLowerCase()) {
+    return `${locTaluka}, ${locDistrict}`;
+  }
+  return locDistrict;
+}
+
 export function formatUserLocationLabel(loc?: Partial<UserManualLocation> | null): string {
   if (!loc) return 'Gandhinagar';
   const district = (loc.district || '').trim();
+  if (district.toLowerCase() === 'all') return 'All Cities';
   const taluka = (loc.taluka || loc.area || '').trim();
-  if (taluka && district) {
+  if (taluka && district && taluka.toLowerCase() !== district.toLowerCase()) {
     return `${taluka}, ${district}`;
   }
   return taluka || district || 'Gandhinagar';
@@ -395,14 +585,24 @@ export function getSavedUserLocation(): UserManualLocation {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && parsed.district) {
+        if (String(parsed.district).trim().toLowerCase() === 'all') {
+          return {
+            state: 'All',
+            district: 'All',
+            taluka: '',
+            area: ''
+          };
+        }
         const state = parsed.state || findStateForDistrict(parsed.district) || 'Gujarat';
         const district = parsed.district;
         const taluka =
-          parsed.taluka ||
-          parsed.area ||
-          localStorage.getItem('locohelp_selected_area') ||
-          getTalukasForDistrict(district)[0] ||
-          district;
+          typeof parsed.taluka === 'string'
+            ? parsed.taluka
+            : typeof parsed.area === 'string'
+            ? parsed.area
+            : localStorage.getItem('locohelp_selected_area') ||
+              getTalukasForDistrict(district)[0] ||
+              district;
         return {
           state,
           district,

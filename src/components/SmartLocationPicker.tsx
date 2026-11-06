@@ -135,10 +135,10 @@ export const SmartLocationPicker: React.FC<SmartLocationPickerProps> = ({
   const titleText =
     label ||
     (language === 'HI'
-      ? 'लोकेशन (राज्य ➔ जिला ➔ तालुका)'
+      ? 'लोकेशन'
       : language === 'GU'
-      ? 'લોકેશન (રાજ્ય ➔ જિલ્લો ➔ તાલુકો)'
-      : 'Location (State ➔ District ➔ Taluka)');
+      ? 'લોકેશન'
+      : 'Location');
 
   return (
     <div className="rounded-2xl border border-indigo-100 dark:border-slate-700 bg-indigo-50/40 dark:bg-slate-800/50 p-2.5 space-y-2">
