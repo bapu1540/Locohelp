@@ -722,9 +722,9 @@ export default function HomeCategoryGrid({
 
   return (
     <>
-      {/* 16 Main Categories Grid (4 columns × 4 rows — Original Clean Pastel Card Style) */}
+      {/* 16 Main Categories Grid (4 columns × 4 rows — Compact Square Card Style) */}
       <section className="py-1" aria-label="Service categories">
-        <div className="loco-cat-grid-4 grid grid-cols-4 auto-rows-[86px] sm:auto-rows-[92px] gap-2 sm:gap-2.5 w-full">
+        <div className="loco-cat-grid-4 grid grid-cols-4 auto-rows-[74px] sm:auto-rows-[78px] gap-2 sm:gap-2.5 w-full">
           {MAIN_CATS.map((cat) => {
             const [line1, line2] = cat.cardLines[langIdx];
             return (
@@ -738,27 +738,27 @@ export default function HomeCategoryGrid({
                   borderWidth: '1.5px',
                   borderStyle: 'solid',
                   color: cat.tx,
-                  boxShadow: '0 2px 5px rgba(15, 23, 42, 0.06)',
+                  boxShadow: '0 2px 4px rgba(15, 23, 42, 0.05)',
                 }}
-                className="h-[86px] sm:h-[92px] w-full flex flex-col items-center justify-center gap-1.5 py-2 px-1 sm:px-1.5 rounded-2xl text-center cursor-pointer transition-transform duration-150 active:scale-95 overflow-hidden"
+                className="h-[74px] sm:h-[78px] w-full flex flex-col items-center justify-center gap-1 py-1.5 px-1 rounded-2xl text-center cursor-pointer transition-transform duration-150 active:scale-95 overflow-hidden"
               >
                 {/* Solid colored rounded-xl icon badge with crisp white SVG icon */}
                 <span
                   style={{
                     backgroundColor: cat.ic,
                   }}
-                  className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center shrink-0 shadow-xs"
+                  className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl flex items-center justify-center shrink-0 shadow-xs"
                 >
                   <svg
                     viewBox="0 0 24 24"
-                    width="17"
-                    height="17"
+                    width="15"
+                    height="15"
                     stroke="#ffffff"
                     fill="none"
                     strokeWidth="2.2"
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    className="w-[17px] h-[17px] sm:w-[18px] sm:h-[18px] shrink-0"
+                    className="w-[15px] h-[15px] sm:w-[16px] sm:h-[16px] shrink-0"
                   >
                     {cat.iconPaths}
                   </svg>
@@ -767,7 +767,7 @@ export default function HomeCategoryGrid({
                 {/* Bold dark 2-line Category Name */}
                 <span
                   style={{ color: cat.tx }}
-                  className="flex flex-col items-center justify-center text-[10px] sm:text-[11px] font-extrabold leading-[1.18] tracking-tight text-center w-full"
+                  className="flex flex-col items-center justify-center text-[9.5px] sm:text-[10px] font-extrabold leading-[1.15] tracking-tight text-center w-full px-0.5"
                 >
                   <span className="block w-full truncate">{line1}</span>
                   <span className="block w-full truncate">{line2}</span>

@@ -875,213 +875,204 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
                     </div>
                   )}
 
-                  {/* Top Row: Photo + Name & Role */}
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      gap: '6px',
-                      marginTop: '4px',
-                      minWidth: 0,
-                    }}
-                  >
-                    <img
-                      src={item.avatar}
-                      alt={name}
+                    {/* Top Row: Photo + Name & Full Role (Category Name) */}
+                    <div
                       style={{
-                        width: '34px',
-                        height: '34px',
-                        borderRadius: '10px',
-                        objectFit: 'cover',
-                        flexShrink: 0,
-                        border: '1px solid #cbd5e1',
+                        display: 'flex',
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: '6px',
+                        marginTop: '2px',
+                        minWidth: 0,
                       }}
-                    />
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      <div
+                    >
+                      <img
+                        src={item.avatar}
+                        alt={name}
                         style={{
-                          fontSize: '11px',
-                          fontWeight: 900,
-                          color: '#0f172a',
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          lineHeight: 1.2,
+                          width: '32px',
+                          height: '32px',
+                          borderRadius: '10px',
+                          objectFit: 'cover',
+                          flexShrink: 0,
+                          border: '1px solid #cbd5e1',
                         }}
-                      >
-                        {name}
-                      </div>
-                      <div
-                        style={{
-                          fontSize: '9.5px',
-                          fontWeight: 700,
-                          color: '#475569',
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          lineHeight: 1.2,
-                        }}
-                      >
-                        ({role})
+                      />
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div
+                          style={{
+                            fontSize: '11px',
+                            fontWeight: 900,
+                            color: '#0f172a',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            lineHeight: 1.15,
+                          }}
+                        >
+                          {name}
+                        </div>
+                        <div
+                          style={{
+                            fontSize: '9px',
+                            fontWeight: 800,
+                            color: '#0d9488',
+                            lineHeight: 1.15,
+                            marginTop: '1px',
+                            wordBreak: 'break-word',
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden',
+                          }}
+                          title={role}
+                        >
+                          {role}
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  {/* Middle Row: Rating + Distance + Call Circle */}
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      marginTop: '6px',
-                      marginBottom: '6px',
-                    }}
-                  >
-                    <div style={{ minWidth: 0 }}>
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '2px',
-                          fontSize: '9px',
-                          fontWeight: 800,
-                          color: '#334155',
-                        }}
-                      >
+                    {/* Middle Row: Rating + Distance (Compact single row) */}
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        marginTop: '4px',
+                        marginBottom: '6px',
+                        fontSize: '9px',
+                        fontWeight: 800,
+                        color: '#334155',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
                         <span style={{ color: '#f59e0b' }}>★</span>
                         <span>{item.rating}</span>
                         <span style={{ color: '#64748b', fontWeight: 600 }}>({item.reviews})</span>
                       </div>
-                      <div
-                        style={{
-                          fontSize: '8.5px',
-                          fontWeight: 700,
-                          color: '#475569',
-                          marginTop: '1px',
-                        }}
-                      >
-                        📍 {item.distance}{' '}
-                        {language === 'GU' ? 'કિ.મી.' : language === 'HI' ? 'कि.मी.' : 'km'}
+                      <div style={{ fontSize: '8.5px', fontWeight: 700, color: '#475569' }}>
+                        📍 {item.distance} {language === 'GU' ? 'કિ.મી.' : language === 'HI' ? 'कि.मी.' : 'km'}
                       </div>
                     </div>
 
-                    {item.isPhonePublic && item.phone ? (
-                      <a
-                        href={`tel:${item.phone}`}
-                        onClick={(e) => e.stopPropagation()}
-                        style={{
-                          width: '26px',
-                          height: '26px',
-                          borderRadius: '9999px',
-                          backgroundColor: '#16a34a',
-                          color: '#ffffff',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          flexShrink: 0,
-                          textDecoration: 'none',
-                          boxShadow: '0 1px 2px rgba(22,163,74,0.25)',
-                        }}
-                        title={`Call ${name}`}
-                      >
-                        <Phone className="w-3.5 h-3.5" />
-                      </a>
-                    ) : (
+                    {/* Bottom Row: Side-by-Side Call and Chat Buttons (Compact & Space Saving) */}
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                        gap: '4px',
+                        width: '100%',
+                      }}
+                    >
+                      {/* Left: Call Button */}
+                      {item.isPhonePublic && item.phone ? (
+                        <a
+                          href={`tel:${item.phone}`}
+                          onClick={(e) => e.stopPropagation()}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '3px',
+                            padding: '4.5px 2px',
+                            borderRadius: '8px',
+                            backgroundColor: '#16a34a',
+                            color: '#ffffff',
+                            fontSize: '9.5px',
+                            fontWeight: 800,
+                            textDecoration: 'none',
+                            boxShadow: '0 1px 2px rgba(22,163,74,0.2)',
+                          }}
+                          title={`Call ${name}`}
+                        >
+                          <Phone className="w-3 h-3" />
+                          <span>{language === 'GU' ? 'કોલ' : language === 'HI' ? 'कॉल' : 'Call'}</span>
+                        </a>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedProviderProfile(item);
+                          }}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '3px',
+                            padding: '4.5px 2px',
+                            borderRadius: '8px',
+                            backgroundColor: '#0284c7',
+                            color: '#ffffff',
+                            fontSize: '9.5px',
+                            fontWeight: 800,
+                            border: 'none',
+                            cursor: 'pointer',
+                            boxShadow: '0 1px 2px rgba(2,132,199,0.2)',
+                          }}
+                          title={language === 'GU' ? 'નંબર માંગો' : 'Request Number'}
+                        >
+                          <Phone className="w-3 h-3" />
+                          <span>{language === 'GU' ? 'નંબર' : language === 'HI' ? 'नंबर' : 'No.'}</span>
+                        </button>
+                      )}
+
+                      {/* Right: Chat Button */}
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          setSelectedProviderProfile(item);
+                          const provTargetId = item.userId || item.id;
+                          const provPhoneDigits = String(item.phone || '').replace(/\D/g, '').slice(-10);
+                          const provEmail = item.email || (provPhoneDigits ? `${provPhoneDigits}@phone.locohelp.com` : '');
+                          onOpenDirectChat({
+                            id: `provider_chat_${item.id}`,
+                            authorId: provTargetId,
+                            authorEmail: provEmail,
+                            authorPhone: item.phone || '',
+                            phone: item.phone || '',
+                            authorName: name,
+                            providerHelperId: item.id,
+                            receiverId: provTargetId,
+                            isDirectProviderChat: true,
+                            isViewerPostOwner: false,
+                            description:
+                              language === 'GU'
+                                ? `${name} (${role}) સાથે સીધી વાતચીત`
+                                : `${name} (${role}) Direct Inquiry`,
+                            category: item.categoryKey,
+                            location: item.areaEn || 'Local Area',
+                            distance: Number(item.distance) || 0.5,
+                            status: 'active',
+                            createdAt: new Date().toISOString(),
+                          });
                         }}
                         style={{
-                          width: '26px',
-                          height: '26px',
-                          borderRadius: '9999px',
-                          backgroundColor: '#0284c7',
-                          color: '#ffffff',
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          flexShrink: 0,
+                          gap: '3px',
+                          padding: '4.5px 2px',
+                          borderRadius: '8px',
+                          backgroundColor: '#0d9488',
+                          color: '#ffffff',
+                          fontSize: '9.5px',
+                          fontWeight: 800,
                           border: 'none',
                           cursor: 'pointer',
-                          boxShadow: '0 1px 2px rgba(2,132,199,0.25)',
+                          boxShadow: '0 1px 2px rgba(13,148,136,0.2)',
                         }}
-                        title={
-                          language === 'GU'
-                            ? 'મોબાઇલ નંબર માટે વિનંતી કરો'
-                            : language === 'HI'
-                            ? 'मोबाइल नंबर के लिए अनुरोध करें'
-                            : 'Request Mobile Number'
-                        }
+                        title={`Chat with ${name}`}
                       >
-                        <Phone className="w-3.5 h-3.5" />
+                        <MessageCircle className="w-3 h-3" />
+                        <span>{language === 'GU' ? 'ચેટ' : language === 'HI' ? 'ચેટ' : 'Chat'}</span>
                       </button>
-                    )}
+                    </div>
                   </div>
-
-                  {/* Bottom Row: Direct Message / Chat Button */}
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      const provTargetId = item.userId || item.id;
-                      const provPhoneDigits = String(item.phone || '').replace(/\D/g, '').slice(-10);
-                      const provEmail = item.email || (provPhoneDigits ? `${provPhoneDigits}@phone.locohelp.com` : '');
-                      onOpenDirectChat({
-                        id: `provider_chat_${item.id}`,
-                        authorId: provTargetId,
-                        authorEmail: provEmail,
-                        authorPhone: item.phone || '',
-                        phone: item.phone || '',
-                        authorName: name,
-                        providerHelperId: item.id,
-                        receiverId: provTargetId,
-                        isDirectProviderChat: true,
-                        isViewerPostOwner: false,
-                        description:
-                          language === 'GU'
-                            ? `${name} (${role}) સાથે સીધી વાતચીત`
-                            : `${name} (${role}) Direct Inquiry`,
-                        category: item.categoryKey,
-                        location: item.areaEn || 'Local Area',
-                        distance: Number(item.distance) || 0.5,
-                        status: 'active',
-                        createdAt: new Date().toISOString(),
-                      });
-                    }}
-                    style={{
-                      width: '100%',
-                      padding: '4px 4px',
-                      borderRadius: '8px',
-                      backgroundColor: '#0d9488',
-                      color: '#ffffff',
-                      fontSize: '9.5px',
-                      fontWeight: 800,
-                      border: 'none',
-                      cursor: 'pointer',
-                      textAlign: 'center',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '3px',
-                    }}
-                  >
-                    <span>💬</span>
-                    <span>
-                      {language === 'GU'
-                        ? 'મેસેજ કરો (Chat)'
-                        : language === 'HI'
-                        ? 'मैसेज करें (Chat)'
-                        : 'Message (Chat)'}
-                    </span>
-                  </button>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
         )}
       </div>
 
@@ -1094,7 +1085,7 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
           width: '100%',
         }}
       >
-        {/* Urgent Service Button */}
+        {/* Urgent Service Button (Theme: Soft Orange matching Shop/Showroom) */}
         <button
           type="button"
           onClick={onUrgentBookNow}
@@ -1105,8 +1096,8 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
             gap: '8px',
             padding: '8px 10px',
             borderRadius: '12px',
-            backgroundColor: '#eff6ff',
-            border: '1px solid #bfdbfe',
+            backgroundColor: '#fff7ed',
+            border: '1px solid #fed7aa',
             cursor: 'pointer',
             textAlign: 'left',
             width: '100%',
@@ -1118,7 +1109,7 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
               width: '28px',
               height: '28px',
               borderRadius: '8px',
-              backgroundColor: '#2563eb',
+              backgroundColor: '#ea580c',
               color: '#ffffff',
               display: 'flex',
               alignItems: 'center',
@@ -1129,14 +1120,14 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
             <Calendar className="w-3.5 h-3.5" />
           </div>
           <div style={{ minWidth: 0, flex: 1, lineHeight: 1.15 }}>
-            <div style={{ fontSize: '10px', fontWeight: 900, color: '#1e3a8a' }}>
+            <div style={{ fontSize: '10px', fontWeight: 900, color: '#431407' }}>
               {language === 'GU'
                 ? 'તાત્કાલિક સેવા જોઈએ?'
                 : language === 'HI'
                 ? 'तत्काल सेवा चाहिए?'
                 : 'Need Urgent Service?'}
             </div>
-            <div style={{ fontSize: '8.5px', fontWeight: 700, color: '#1d4ed8', marginTop: '2px' }}>
+            <div style={{ fontSize: '8.5px', fontWeight: 700, color: '#c2410c', marginTop: '2px' }}>
               {language === 'GU'
                 ? 'હમણાં બુક કરો →'
                 : language === 'HI'
@@ -1146,7 +1137,7 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
           </div>
         </button>
 
-        {/* Right Green Pill Banner: તમારા વ્યવસાયની જાહેરાત આપો -> Opens Interactive Ad Booking Form Modal */}
+        {/* Right Banner: તમારા વ્યવસાયની જાહેરાત આપો (Theme: Soft Orange matching Urgent Service) */}
         <button
           type="button"
           onClick={() => {
@@ -1163,8 +1154,8 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
             gap: '8px',
             padding: '8px 10px',
             borderRadius: '12px',
-            backgroundColor: '#f0fdf4',
-            border: '1px solid #bbf7d0',
+            backgroundColor: '#fff7ed',
+            border: '1px solid #fed7aa',
             cursor: 'pointer',
             textAlign: 'left',
             width: '100%',
@@ -1176,7 +1167,7 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
               width: '28px',
               height: '28px',
               borderRadius: '8px',
-              backgroundColor: '#16a34a',
+              backgroundColor: '#ea580c',
               color: '#ffffff',
               display: 'flex',
               alignItems: 'center',
@@ -1187,14 +1178,14 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
             <Megaphone className="w-3.5 h-3.5" />
           </div>
           <div style={{ minWidth: 0, flex: 1, lineHeight: 1.15 }}>
-            <div style={{ fontSize: '10px', fontWeight: 900, color: '#14532d' }}>
+            <div style={{ fontSize: '10px', fontWeight: 900, color: '#431407' }}>
               {language === 'GU'
                 ? 'તમારા વ્યવસાયની'
                 : language === 'HI'
                 ? 'अपने व्यवसाय का'
                 : 'Promote Your'}
             </div>
-            <div style={{ fontSize: '8.5px', fontWeight: 700, color: '#15803d', marginTop: '2px' }}>
+            <div style={{ fontSize: '8.5px', fontWeight: 700, color: '#c2410c', marginTop: '2px' }}>
               {language === 'GU'
                 ? 'જાહેરાત આપો →'
                 : language === 'HI'
@@ -1215,7 +1206,7 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
             width: '100%',
           }}
         >
-          {/* Shop / Showroom Registration Banner */}
+          {/* Shop / Showroom Registration Banner (Theme: Soft Green matching Expert/Craftsman) */}
           <button
             type="button"
             onClick={onOpenShopRegister}
@@ -1226,8 +1217,8 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
               gap: '8px',
               padding: '8px 10px',
               borderRadius: '12px',
-              backgroundColor: '#fff7ed',
-              border: '1px solid #fed7aa',
+              backgroundColor: '#ecfdf5',
+              border: '1px solid #a7f3d0',
               cursor: 'pointer',
               textAlign: 'left',
               width: '100%',
@@ -1238,7 +1229,7 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
                 width: '28px',
                 height: '28px',
                 borderRadius: '8px',
-                backgroundColor: '#ea580c',
+                backgroundColor: '#059669',
                 color: '#ffffff',
                 display: 'flex',
                 alignItems: 'center',
@@ -1249,14 +1240,14 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
               <Store className="w-3.5 h-3.5" />
             </div>
             <div style={{ minWidth: 0, flex: 1, lineHeight: 1.15 }}>
-              <div style={{ fontSize: '10px', fontWeight: 900, color: '#431407' }}>
+              <div style={{ fontSize: '10px', fontWeight: 900, color: '#064e3b' }}>
                 {language === 'GU'
                   ? 'દુકાન / શોરૂમ છે?'
                   : language === 'HI'
                   ? 'दुकान / शोरूम है?'
                   : 'Own a Shop / Store?'}
               </div>
-              <div style={{ fontSize: '8.5px', fontWeight: 700, color: '#c2410c', marginTop: '2px' }}>
+              <div style={{ fontSize: '8.5px', fontWeight: 700, color: '#047857', marginTop: '2px' }}>
                 {language === 'GU'
                   ? 'દુકાન રજીસ્ટર કરો →'
                   : language === 'HI'
@@ -1266,7 +1257,7 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
             </div>
           </button>
 
-          {/* Free Service Expert Registration Banner */}
+          {/* Free Service Expert Registration Banner (Theme: Soft Green) */}
           <button
             type="button"
             onClick={onOpenFreeHelperRegister}
@@ -1328,7 +1319,7 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
           width: '100%',
         }}
       >
-        {/* Job Seeker Compact Button */}
+        {/* Job Seeker Compact Button (Theme: Soft Indigo) */}
         <button
           type="button"
           onClick={onOpenJobSeeker}
@@ -1379,7 +1370,7 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
           </div>
         </button>
 
-        {/* Employer / Hire Staff Compact Button */}
+        {/* Employer / Hire Staff Compact Button (Theme: Soft Indigo matching Job Seeker) */}
         <button
           type="button"
           onClick={onOpenJobEmployer}
@@ -1390,8 +1381,8 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
             gap: '8px',
             padding: '8px 10px',
             borderRadius: '12px',
-            backgroundColor: '#fffbeb',
-            border: '1px solid #fde68a',
+            backgroundColor: '#eef2ff',
+            border: '1px solid #c7d2fe',
             cursor: 'pointer',
             textAlign: 'left',
             width: '100%',
@@ -1402,7 +1393,7 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
               width: '28px',
               height: '28px',
               borderRadius: '8px',
-              backgroundColor: '#d97706',
+              backgroundColor: '#4f46e5',
               color: '#ffffff',
               display: 'flex',
               alignItems: 'center',
@@ -1413,14 +1404,14 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
             <UserPlus className="w-3.5 h-3.5" />
           </div>
           <div style={{ minWidth: 0, flex: 1, lineHeight: 1.15 }}>
-            <div style={{ fontSize: '10px', fontWeight: 900, color: '#451a03' }}>
+            <div style={{ fontSize: '10px', fontWeight: 900, color: '#1e1b4b' }}>
               {language === 'GU'
                 ? 'માણસો જોઈએ છે?'
                 : language === 'HI'
                 ? 'स्टाफ चाहिए?'
                 : 'Need Staff / Workers?'}
             </div>
-            <div style={{ fontSize: '8.5px', fontWeight: 700, color: '#b45309', marginTop: '2px' }}>
+            <div style={{ fontSize: '8.5px', fontWeight: 700, color: '#4338ca', marginTop: '2px' }}>
               {language === 'GU'
                 ? 'નોકરીની જાહેરાત મૂકો →'
                 : language === 'HI'
