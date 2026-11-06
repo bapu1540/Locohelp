@@ -2022,32 +2022,9 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
           </div>
         </div>
 
-        {/* Right Side: Direct Call + WhatsApp + Phone Request + Replier Switcher + Options Menu */}
+        {/* Right Side: Phone Request (Only if not shared yet) + Replier Switcher + Options Menu (Direct Call/WhatsApp links removed for 100% Privacy) */}
         <div className="flex items-center gap-1.5 shrink-0 relative">
-          {peerPhoneDigits ? (
-            <>
-              <a
-                href={`tel:+91${peerPhoneDigits}`}
-                className="px-2.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] sm:text-xs font-black flex items-center gap-1 shadow-xs active:scale-95 transition-all"
-                title={tr('Direct Call', 'डायरेक्ट कॉल करें', 'ડાયરેક્ટ કોલ કરો')}
-              >
-                <Phone className="w-3.5 h-3.5 shrink-0" />
-                <span className="hidden sm:inline">{tr('Call', 'कॉल', 'કોલ')}</span>
-              </a>
-              <a
-                href={`https://wa.me/91${peerPhoneDigits}?text=${encodeURIComponent(
-                  `Namaste ${peerName}, LocoHelp par aapse baat karni hai.`
-                )}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-2.5 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-[10px] sm:text-xs font-black flex items-center gap-1 shadow-xs active:scale-95 transition-all"
-                title="WhatsApp"
-              >
-                <span>💬</span>
-                <span className="hidden sm:inline">WhatsApp</span>
-              </a>
-            </>
-          ) : !isPostOwner ? (
+          {!messages.some(m => m?.type === 'phone_shared') && !isPostOwner && (
             <button
               type="button"
               onClick={() => {
@@ -2066,7 +2043,7 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
               <Phone className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
               <span>{tr('Request No.', 'नंबर मांगें', 'નંબર વિનંતી')}</span>
             </button>
-          ) : null}
+          )}
 
           {isPostOwner && distinctRepliers.length > 1 && selectedReplierId && (
             <button
