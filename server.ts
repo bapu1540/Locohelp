@@ -396,6 +396,90 @@ function broadcastRealtimeEvent(eventName: string, payload: Record<string, any>)
   }
 }
 
+const ACCOUNT_APPROVED_MESSAGE = "🎉 અભિનંદન! તમારું LocoHelp એકાઉન્ટ વેરિફાઈ (Approve) થઈ ગયું છે!";
+
+async function notifyUserAccountApproved(params: {
+  userId?: string;
+  email?: string;
+  phone?: string;
+  req?: express.Request;
+}): Promise<void> {
+  try {
+    const cleanUid = String(params.userId || "").trim();
+    const cleanEmail = String(params.email || "").trim().toLowerCase();
+    const rawPhone = String(params.phone || "").trim();
+    const emailPhonePart = cleanEmail.endsWith("@phone.locohelp.com") ? cleanEmail.split("@")[0] : "";
+    const uidPhonePart = cleanUid.toLowerCase().startsWith("phone_") ? cleanUid.slice(6) : "";
+    const phoneDigitsRaw = (rawPhone || uidPhonePart || emailPhonePart).replace(/\D/g, "");
+    const phoneDigits = phoneDigitsRaw.length >= 10 ? phoneDigitsRaw.slice(-10) : "";
+
+    broadcastRealtimeEvent("account_approved", {
+      userId: cleanUid,
+      email: cleanEmail,
+      phone: phoneDigits,
+      title: ACCOUNT_APPROVED_MESSAGE,
+      body: ACCOUNT_APPROVED_MESSAGE,
+      approvedAt: new Date().toISOString()
+    });
+
+    if (dbPool && isDbConnected && (cleanUid || cleanEmail || phoneDigits)) {
+      const tokenRes = await dbPool.query(
+        `
+        SELECT DISTINCT fcm_token AS token FROM users
+        WHERE fcm_token IS NOT NULL AND fcm_token <> ''
+          AND (
+            ($1 <> '' AND LOWER(id::text) = LOWER($1))
+            OR ($2 <> '' AND LOWER(TRIM(COALESCE(email, ''))) = LOWER(TRIM($2)))
+            OR ($3 <> '' AND (
+              LOWER(id::text) = LOWER('phone_' || $3)
+              OR LOWER(TRIM(COALESCE(email, ''))) = LOWER($3 || '@phone.locohelp.com')
+              OR REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE '%' || $3
+            ))
+          )
+        UNION
+        SELECT DISTINCT ut.token AS token FROM user_fcm_tokens ut
+        LEFT JOIN users u ON LOWER(u.id::text) = LOWER(ut.user_id::text) OR LOWER(u.email) = LOWER(ut.user_id::text)
+        WHERE ut.token IS NOT NULL AND ut.token <> ''
+          AND (
+            ($1 <> '' AND (LOWER(ut.user_id::text) = LOWER($1) OR LOWER(u.id::text) = LOWER($1)))
+            OR ($2 <> '' AND (LOWER(ut.user_id::text) = LOWER($2) OR LOWER(TRIM(COALESCE(u.email, ''))) = LOWER(TRIM($2))))
+            OR ($3 <> '' AND (
+              LOWER(ut.user_id::text) = LOWER('phone_' || $3)
+              OR LOWER(ut.user_id::text) = LOWER($3 || '@phone.locohelp.com')
+              OR REGEXP_REPLACE(COALESCE(ut.user_id::text, ''), '\\D', '', 'g') LIKE '%' || $3
+              OR REGEXP_REPLACE(COALESCE(u.phone, ''), '\\D', '', 'g') LIKE '%' || $3
+            ))
+          )
+        `,
+        [cleanUid, cleanEmail, phoneDigits]
+      );
+      const tokens = Array.from(
+        new Set(tokenRes.rows.map((r: any) => String(r.token || "").trim()).filter(Boolean))
+      );
+      if (tokens.length > 0) {
+        const originUrl = params.req
+          ? `${params.req.protocol}://${params.req.get("host")}/`
+          : "https://locohelp.com/";
+        await sendFcmMulticastPush({
+          tokens,
+          title: ACCOUNT_APPROVED_MESSAGE,
+          body: ACCOUNT_APPROVED_MESSAGE,
+          postUrl: originUrl,
+          data: {
+            type: "account_approved",
+            title: ACCOUNT_APPROVED_MESSAGE,
+            body: ACCOUNT_APPROVED_MESSAGE,
+            url: originUrl,
+            click_action: originUrl
+          }
+        });
+      }
+    }
+  } catch (err) {
+    console.warn("[Account Approved Notification] Warning:", err);
+  }
+}
+
 function getExtFromMimeServer(mime: string, fallback = "webp"): string {
   const m = (mime || "").toLowerCase();
   if (m.includes("pdf")) return "pdf";
@@ -596,6 +680,51 @@ function normalizePhoneDigitsServer(input: unknown): string {
   const digits = String(input || "").replace(/\D/g, "");
   if (digits.length >= 10) return digits.slice(-10);
   return digits;
+}
+
+function ensureValidUUIDServer(str: string): string {
+  if (!str) return "00000000-0000-4000-a000-000000000000";
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (uuidRegex.test(str)) return str.toLowerCase();
+  let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  const hex1 = (h1 >>> 0).toString(16).padStart(8, "0");
+  const hex2 = (h2 >>> 0).toString(16).padStart(8, "0");
+  const hex3 = (Math.imul(h1, 31) >>> 0).toString(16).padStart(8, "0");
+  const hex4 = (Math.imul(h2, 127) >>> 0).toString(16).padStart(8, "0");
+  const full = (hex1 + hex2 + hex3 + hex4).slice(0, 32);
+  return `${full.slice(0, 8)}-${full.slice(8, 12)}-4${full.slice(13, 16)}-a${full.slice(17, 20)}-${full.slice(20, 32)}`.toLowerCase();
+}
+
+function isGenericMemberName(name?: string | null): boolean {
+  if (!name) return true;
+  const clean = String(name).trim();
+  if (!clean) return true;
+  const lower = clean.toLowerCase();
+  if (
+    lower === "community member" ||
+    lower === "community user" ||
+    lower === "locohelper member" ||
+    lower === "user" ||
+    lower === "member" ||
+    lower === "guest user" ||
+    lower === "verified user"
+  ) {
+    return true;
+  }
+  if (/^(member|user)\s+(\+91\s*)?[0-9•*xX-\s]+$/i.test(clean)) {
+    return true;
+  }
+  if (/^(\+?91[\s-]?)?[6-9]\d{9}$/.test(clean)) {
+    return true;
+  }
+  return false;
 }
 
 // ==========================================
@@ -895,6 +1024,12 @@ const UPLOAD_DATA_KEYS = new Set([
   "photoUrl",
   "photo_url",
   "workPhotoUrl",
+  "visitingCardUrl",
+  "visiting_card_url",
+  "watermarkedSelfieUrl",
+  "rawSelfieUrl",
+  "liveSelfieUrl",
+  "avatarUrl",
   "avatar_url",
   "profilePhoto",
   "photoOrLogoUrl",
@@ -1532,7 +1667,7 @@ function redactBulkItemForPrivacy(
   item: Record<string, any>,
   isAuthenticatedCaller: boolean,
   isAdminCaller = false,
-  callerUser?: { uid?: string; email?: string } | null
+  callerUser?: { uid?: string; email?: string; phone?: string } | null
 ): Record<string, any> {
   if (!item || typeof item !== "object") return item;
   const clone: Record<string, any> = { ...item };
@@ -1546,6 +1681,11 @@ function redactBulkItemForPrivacy(
 
   const callerUid = String(callerUser?.uid || "").trim().toLowerCase();
   const callerEmail = String(callerUser?.email || "").trim().toLowerCase();
+  const callerPhoneDigits = normalizePhoneDigitsServer(
+    (callerUser as any)?.phone ||
+    (callerUid.startsWith("phone_") ? callerUid : "") ||
+    (callerEmail.endsWith("@phone.locohelp.com") ? callerEmail.split("@")[0] : "")
+  );
   const itemUidCandidates = [
     clone.uid,
     clone.id,
@@ -1563,10 +1703,14 @@ function redactBulkItemForPrivacy(
   ]
     .filter(Boolean)
     .map((v) => String(v).trim().toLowerCase());
+  const itemPhoneDigits = normalizePhoneDigitsServer(
+    clone.phone || clone.userPhone || clone.whatsapp || ""
+  );
 
   const isOwner = Boolean(
     (callerUid && itemUidCandidates.includes(callerUid)) ||
-    (callerEmail && itemEmailCandidates.includes(callerEmail))
+    (callerEmail && itemEmailCandidates.includes(callerEmail)) ||
+    (callerPhoneDigits && itemPhoneDigits && callerPhoneDigits === itemPhoneDigits)
   );
 
   // Never expose raw watermarked Live Selfies / ID documents or password hashes to non-admin callers
@@ -4197,11 +4341,12 @@ async function startServer() {
       // Validate uploaded profile Live Selfie and optional Visiting Card, and upload to Firebase Storage (`locohelp/profiles/`)
       const rawAvatarCandidate =
         profile.liveSelfieUrl ||
+        profile.watermarkedSelfieUrl ||
         profile.idDocumentWatermarked ||
+        profile.avatarUrl ||
         profile.avatar_url ||
         profile.profilePhoto ||
-        profile.photoURL ||
-        profile.image_url;
+        profile.photoURL;
       const rawAvatar =
         rawAvatarCandidate && rawAvatarCandidate !== "https://lh3.googleusercontent.com/a/default-user"
           ? rawAvatarCandidate
@@ -4229,19 +4374,68 @@ async function startServer() {
 
       const callerUser = extractRequestUser(req);
       const isAdminCaller = isRequestAdmin(req);
+      const incomingEmailHint = sanitizeServerText(
+        profile.email || callerUser?.email || (uid.includes('@') ? uid : ""),
+        150
+      ).toLowerCase();
+      const incomingPhoneHint = normalizePhoneDigitsServer(profile.phone || callerUser?.phone || "");
       const localProfiles = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
       let existingLocalOrDb: any = localProfiles[uid] || null;
+      if (!existingLocalOrDb || isGenericMemberName(existingLocalOrDb.full_name || existingLocalOrDb.name || "")) {
+        const matchedLocal = Object.values(localProfiles).find((p: any) => {
+          if (!p) return false;
+          const pEmail = String(p.email || "").trim().toLowerCase();
+          const pPhone = normalizePhoneDigitsServer(p.phone || p.whatsapp || "");
+          return (incomingEmailHint && pEmail === incomingEmailHint) || (incomingPhoneHint && pPhone === incomingPhoneHint);
+        });
+        if (matchedLocal) {
+          existingLocalOrDb = { ...matchedLocal, ...(existingLocalOrDb || {}) };
+          if (isGenericMemberName(existingLocalOrDb.full_name || existingLocalOrDb.name || "") && !isGenericMemberName(matchedLocal.full_name || matchedLocal.name || "")) {
+            existingLocalOrDb.full_name = matchedLocal.full_name || matchedLocal.name;
+            existingLocalOrDb.name = matchedLocal.name || matchedLocal.full_name;
+          }
+        }
+      }
       if (dbPool && isDbConnected) {
         try {
-          const checkRes = await dbPool.query("SELECT * FROM profiles WHERE uid = $1 OR id = $1 LIMIT 1", [uid]);
-          if (checkRes.rows.length > 0) existingLocalOrDb = checkRes.rows[0];
+          const checkRes = await dbPool.query(
+            `SELECT * FROM profiles
+             WHERE uid = $1
+                OR id = $1
+                OR ($2 <> '' AND LOWER(COALESCE(email, '')) = LOWER($2))
+                OR ($3 <> '' AND RIGHT(REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g'), 10) = $3)
+             ORDER BY (CASE WHEN uid = $1 OR id = $1 THEN 0 ELSE 1 END) ASC
+             LIMIT 1`,
+            [uid, incomingEmailHint, incomingPhoneHint]
+          );
+          if (checkRes.rows.length > 0) {
+            const dbRow = checkRes.rows[0];
+            const prevLocalName = String(existingLocalOrDb?.full_name || existingLocalOrDb?.name || "").trim();
+            const dbRowName = String(dbRow.full_name || dbRow.name || "").trim();
+            existingLocalOrDb = { ...(existingLocalOrDb || {}), ...dbRow };
+            if (isGenericMemberName(dbRowName) && !isGenericMemberName(prevLocalName)) {
+              existingLocalOrDb.full_name = prevLocalName;
+              existingLocalOrDb.name = prevLocalName;
+            }
+          }
         } catch {}
       }
+      const existingRawJson =
+        typeof existingLocalOrDb?.raw_json === 'object' && existingLocalOrDb?.raw_json
+          ? existingLocalOrDb.raw_json
+          : (typeof existingLocalOrDb?.raw_json === 'string' && existingLocalOrDb.raw_json.trim().startsWith('{')
+              ? (() => { try { return JSON.parse(existingLocalOrDb.raw_json); } catch { return {}; } })()
+              : {});
 
-      const fullName = sanitizeServerText(
-        profile.name || profile.full_name || profile.displayName || existingLocalOrDb?.full_name || existingLocalOrDb?.name || "Community Member",
-        120
-      );
+      const incomingNameCandidate = String(profile.name || profile.full_name || profile.displayName || "").trim();
+      const existingRealName = String(existingLocalOrDb?.full_name || existingLocalOrDb?.name || "").trim();
+      const resolvedBestName =
+        (!isGenericMemberName(incomingNameCandidate) ? incomingNameCandidate : "") ||
+        (!isGenericMemberName(existingRealName) ? existingRealName : "") ||
+        incomingNameCandidate ||
+        existingRealName ||
+        "Community Member";
+      const fullName = sanitizeServerText(resolvedBestName, 120);
       const email = sanitizeServerText(
         profile.email || callerUser?.email || existingLocalOrDb?.email || (uid.includes('@') ? uid : ""),
         150
@@ -4253,16 +4447,19 @@ async function startServer() {
           ? profile.isPhonePublic
           : profile.is_phone_public !== undefined
           ? profile.is_phone_public
-          : existingLocalOrDb?.isPhonePublic ?? existingLocalOrDb?.is_phone_public ?? existingLocalOrDb?.raw_json?.isPhonePublic ?? false
+          : existingLocalOrDb?.isPhonePublic ?? existingLocalOrDb?.is_phone_public ?? existingRawJson?.isPhonePublic ?? false
       );
       const prevCleanAvatar =
-        existingLocalOrDb?.avatar_url && existingLocalOrDb.avatar_url !== "https://lh3.googleusercontent.com/a/default-user"
+        (existingLocalOrDb?.avatar_url && existingLocalOrDb.avatar_url !== "https://lh3.googleusercontent.com/a/default-user"
           ? existingLocalOrDb.avatar_url
-          : "";
+          : "") ||
+        existingRawJson?.liveSelfieUrl ||
+        existingLocalOrDb?.liveSelfieUrl ||
+        "";
       const avatarUrl = uploadedAvatar || prevCleanAvatar || "";
       const prevVisitingCard =
         existingLocalOrDb?.visitingCardUrl ||
-        existingLocalOrDb?.raw_json?.visitingCardUrl ||
+        existingRawJson?.visitingCardUrl ||
         (existingLocalOrDb?.image_url &&
         existingLocalOrDb.image_url !== existingLocalOrDb.avatar_url &&
         existingLocalOrDb.image_url !== "https://lh3.googleusercontent.com/a/default-user"
@@ -4398,7 +4595,14 @@ async function startServer() {
               INSERT INTO users (id, name, email, phone, role, avatar_url, created_at)
               VALUES ($1, $2, LOWER(TRIM($3)), $4, 'user', $5, NOW())
               ON CONFLICT (email) DO UPDATE SET
-                name = COALESCE(NULLIF(EXCLUDED.name, ''), users.name),
+                name = CASE
+                  WHEN EXCLUDED.name IS NOT NULL
+                    AND TRIM(EXCLUDED.name) <> ''
+                    AND LOWER(TRIM(EXCLUDED.name)) NOT IN ('community member', 'user', 'guest user', 'member', 'verified user')
+                    AND LOWER(TRIM(EXCLUDED.name)) NOT LIKE 'member +%'
+                  THEN EXCLUDED.name
+                  ELSE COALESCE(NULLIF(TRIM(users.name), ''), EXCLUDED.name)
+                END,
                 phone = COALESCE(NULLIF(EXCLUDED.phone, ''), users.phone),
                 avatar_url = COALESCE(NULLIF(EXCLUDED.avatar_url, ''), users.avatar_url)
             `, [uid, fullName, email, phone, avatarUrl]).catch(() => {});
@@ -4408,7 +4612,14 @@ async function startServer() {
             INSERT INTO "user" (id, name, phone, email, created_at)
             VALUES ($1, $2, $3, $4, NOW())
             ON CONFLICT (id) DO UPDATE SET
-              name = EXCLUDED.name,
+              name = CASE
+                WHEN EXCLUDED.name IS NOT NULL
+                  AND TRIM(EXCLUDED.name) <> ''
+                  AND LOWER(TRIM(EXCLUDED.name)) NOT IN ('community member', 'user', 'guest user', 'member', 'verified user')
+                  AND LOWER(TRIM(EXCLUDED.name)) NOT LIKE 'member +%'
+                THEN EXCLUDED.name
+                ELSE COALESCE(NULLIF(TRIM("user".name), ''), EXCLUDED.name)
+              END,
               phone = COALESCE(NULLIF(EXCLUDED.phone, ''), "user".phone),
               email = COALESCE(NULLIF(EXCLUDED.email, ''), "user".email)
           `, [uid, fullName, phone, email]);
@@ -4419,8 +4630,22 @@ async function startServer() {
             ON CONFLICT (uid) DO UPDATE SET
               id = COALESCE(profiles.id, EXCLUDED.id),
               user_id = COALESCE(profiles.user_id, EXCLUDED.user_id),
-              name = EXCLUDED.name,
-              full_name = EXCLUDED.full_name,
+              name = CASE
+                WHEN EXCLUDED.name IS NOT NULL
+                  AND TRIM(EXCLUDED.name) <> ''
+                  AND LOWER(TRIM(EXCLUDED.name)) NOT IN ('community member', 'user', 'guest user', 'member', 'verified user')
+                  AND LOWER(TRIM(EXCLUDED.name)) NOT LIKE 'member +%'
+                THEN EXCLUDED.name
+                ELSE COALESCE(NULLIF(TRIM(profiles.name), ''), EXCLUDED.name)
+              END,
+              full_name = CASE
+                WHEN EXCLUDED.full_name IS NOT NULL
+                  AND TRIM(EXCLUDED.full_name) <> ''
+                  AND LOWER(TRIM(EXCLUDED.full_name)) NOT IN ('community member', 'user', 'guest user', 'member', 'verified user')
+                  AND LOWER(TRIM(EXCLUDED.full_name)) NOT LIKE 'member +%'
+                THEN EXCLUDED.full_name
+                ELSE COALESCE(NULLIF(TRIM(profiles.full_name), ''), EXCLUDED.full_name)
+              END,
               category_id = COALESCE(NULLIF(EXCLUDED.category_id, ''), profiles.category_id),
               category_name = COALESCE(NULLIF(EXCLUDED.category_name, ''), profiles.category_name),
               email = COALESCE(NULLIF(EXCLUDED.email, ''), profiles.email),
@@ -4496,7 +4721,14 @@ async function startServer() {
              VALUES ($1, 'user_profile', $2, $3, $4, $5, $6, $7, $8, $9, NOW())
              ON CONFLICT (id) DO UPDATE SET
                status = EXCLUDED.status,
-               user_name = EXCLUDED.user_name,
+               user_name = CASE
+                 WHEN EXCLUDED.user_name IS NOT NULL
+                   AND TRIM(EXCLUDED.user_name) <> ''
+                   AND LOWER(TRIM(EXCLUDED.user_name)) NOT IN ('community member', 'user', 'guest user', 'member', 'verified user')
+                   AND LOWER(TRIM(EXCLUDED.user_name)) NOT LIKE 'member +%'
+                 THEN EXCLUDED.user_name
+                 ELSE COALESCE(NULLIF(TRIM(verification_requests.user_name), ''), EXCLUDED.user_name)
+               END,
                user_email = COALESCE(NULLIF(EXCLUDED.user_email, ''), verification_requests.user_email),
                user_phone = COALESCE(NULLIF(EXCLUDED.user_phone, ''), verification_requests.user_phone),
                id_document_watermarked = COALESCE(NULLIF(EXCLUDED.id_document_watermarked, ''), verification_requests.id_document_watermarked),
@@ -4519,7 +4751,14 @@ async function startServer() {
             await dbPool.query(
               `UPDATE verification_requests
                SET id_document_watermarked = $1,
-                   user_name = COALESCE(NULLIF($2, ''), user_name),
+                   user_name = CASE
+                     WHEN $2 IS NOT NULL
+                       AND TRIM($2) <> ''
+                       AND LOWER(TRIM($2)) NOT IN ('community member', 'user', 'guest user', 'member', 'verified user')
+                       AND LOWER(TRIM($2)) NOT LIKE 'member +%'
+                     THEN $2
+                     ELSE COALESCE(NULLIF(TRIM(user_name), ''), $2)
+                   END,
                    user_phone = COALESCE(NULLIF($3, ''), user_phone),
                    user_email = COALESCE(NULLIF($4, ''), user_email)
                WHERE entity_type = 'user_profile'
@@ -4628,9 +4867,47 @@ async function startServer() {
     try {
       const { id, uid, name, full_name, displayName, phone, email } = req.body;
       const targetId = sanitizeServerText(id || uid || (email ? 'email_' + email.replace(/[^a-z0-9]/g, '_') : (phone ? 'phone_' + phone.replace(/\D/g, '') : 'user_' + Date.now())), 150);
-      const userName = sanitizeServerText(name || full_name || displayName || (email ? email.split('@')[0] : 'Community Member'), 120);
       const userEmail = sanitizeServerText(email || '', 150).toLowerCase();
       const userPhone = sanitizeServerText(phone || '', 30);
+      const normPhone = normalizePhoneDigitsServer(userPhone);
+
+      const localProfiles = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
+      let existingSignupProfile: any = localProfiles[targetId] || null;
+      if (!existingSignupProfile) {
+        existingSignupProfile = Object.values(localProfiles).find((p: any) => {
+          if (!p) return false;
+          const pEmail = String(p.email || '').trim().toLowerCase();
+          const pPhone = normalizePhoneDigitsServer(p.phone || p.whatsapp || '');
+          return (userEmail && pEmail === userEmail) || (normPhone && pPhone === normPhone);
+        }) || null;
+      }
+      if (dbPool && isDbConnected) {
+        try {
+          const checkRes = await dbPool.query(
+            `SELECT name, full_name, email, phone FROM profiles
+             WHERE uid = $1
+                OR id = $1
+                OR ($2 <> '' AND LOWER(COALESCE(email, '')) = LOWER($2))
+                OR ($3 <> '' AND RIGHT(REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g'), 10) = $3)
+             ORDER BY (CASE WHEN uid = $1 OR id = $1 THEN 0 ELSE 1 END) ASC
+             LIMIT 1`,
+            [targetId, userEmail, normPhone]
+          );
+          if (checkRes.rows.length > 0) {
+            existingSignupProfile = { ...(existingSignupProfile || {}), ...checkRes.rows[0] };
+          }
+        } catch {}
+      }
+
+      const incomingCandidate = String(name || full_name || displayName || '').trim();
+      const existingCandidate = String(existingSignupProfile?.full_name || existingSignupProfile?.name || '').trim();
+      const bestSignupName =
+        (!isGenericMemberName(incomingCandidate) ? incomingCandidate : '') ||
+        (!isGenericMemberName(existingCandidate) ? existingCandidate : '') ||
+        incomingCandidate ||
+        existingCandidate ||
+        (userEmail ? userEmail.split('@')[0] : 'Community Member');
+      const userName = sanitizeServerText(bestSignupName, 120);
 
       if (dbPool && isDbConnected) {
         try {
@@ -4639,7 +4916,14 @@ async function startServer() {
               INSERT INTO users (id, name, email, phone, role, avatar_url, created_at)
               VALUES ($1, $2, LOWER(TRIM($3)), $4, 'user', $5, NOW())
               ON CONFLICT (email) DO UPDATE SET
-                name = COALESCE(NULLIF(EXCLUDED.name, ''), users.name),
+                name = CASE
+                  WHEN EXCLUDED.name IS NOT NULL
+                    AND TRIM(EXCLUDED.name) <> ''
+                    AND LOWER(TRIM(EXCLUDED.name)) NOT IN ('community member', 'user', 'guest user', 'member', 'verified user')
+                    AND LOWER(TRIM(EXCLUDED.name)) NOT LIKE 'member +%'
+                  THEN EXCLUDED.name
+                  ELSE COALESCE(NULLIF(TRIM(users.name), ''), EXCLUDED.name)
+                END,
                 phone = COALESCE(NULLIF(EXCLUDED.phone, ''), users.phone)
             `, [targetId, userName, userEmail, userPhone, "https://lh3.googleusercontent.com/a/default-user"]).catch(() => {});
           }
@@ -4648,7 +4932,14 @@ async function startServer() {
             INSERT INTO "user" (id, name, phone, email, created_at)
             VALUES ($1, $2, $3, $4, NOW())
             ON CONFLICT (id) DO UPDATE SET
-              name = EXCLUDED.name,
+              name = CASE
+                WHEN EXCLUDED.name IS NOT NULL
+                  AND TRIM(EXCLUDED.name) <> ''
+                  AND LOWER(TRIM(EXCLUDED.name)) NOT IN ('community member', 'user', 'guest user', 'member', 'verified user')
+                  AND LOWER(TRIM(EXCLUDED.name)) NOT LIKE 'member +%'
+                THEN EXCLUDED.name
+                ELSE COALESCE(NULLIF(TRIM("user".name), ''), EXCLUDED.name)
+              END,
               phone = COALESCE(NULLIF(EXCLUDED.phone, ''), "user".phone),
               email = COALESCE(NULLIF(EXCLUDED.email, ''), "user".email)
           `, [targetId, userName, userPhone, userEmail]);
@@ -4657,8 +4948,22 @@ async function startServer() {
             INSERT INTO profiles (uid, id, user_id, name, full_name, email, phone, verified, is_verified, status, updated_at)
             VALUES ($1, $1, $1, $2, $2, $3, $4, false, false, 'pending', NOW())
             ON CONFLICT (uid) DO UPDATE SET
-              name = EXCLUDED.name,
-              full_name = EXCLUDED.full_name,
+              name = CASE
+                WHEN EXCLUDED.name IS NOT NULL
+                  AND TRIM(EXCLUDED.name) <> ''
+                  AND LOWER(TRIM(EXCLUDED.name)) NOT IN ('community member', 'user', 'guest user', 'member', 'verified user')
+                  AND LOWER(TRIM(EXCLUDED.name)) NOT LIKE 'member +%'
+                THEN EXCLUDED.name
+                ELSE COALESCE(NULLIF(TRIM(profiles.name), ''), EXCLUDED.name)
+              END,
+              full_name = CASE
+                WHEN EXCLUDED.full_name IS NOT NULL
+                  AND TRIM(EXCLUDED.full_name) <> ''
+                  AND LOWER(TRIM(EXCLUDED.full_name)) NOT IN ('community member', 'user', 'guest user', 'member', 'verified user')
+                  AND LOWER(TRIM(EXCLUDED.full_name)) NOT LIKE 'member +%'
+                THEN EXCLUDED.full_name
+                ELSE COALESCE(NULLIF(TRIM(profiles.full_name), ''), EXCLUDED.full_name)
+              END,
               email = COALESCE(NULLIF(EXCLUDED.email, ''), profiles.email),
               phone = COALESCE(NULLIF(EXCLUDED.phone, ''), profiles.phone),
               updated_at = NOW()
@@ -4964,84 +5269,6 @@ async function startServer() {
     }
   });
 
-  // Google Login session creation with Session persistence (JWT / Cookie)
-  app.post("/api/auth/google-login", async (req, res) => {
-    try {
-      const { email, displayName, photoURL } = req.body;
-      if (!email) return res.status(400).json({ error: "Email is required" });
-
-      const cleanEmail = email.trim().toLowerCase();
-      // Strict email regex validation
-      const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
-      if (!emailRegex.test(cleanEmail)) {
-        return res.status(400).json({ error: "Invalid Google email address format" });
-      }
-
-      const name = displayName || cleanEmail.split('@')[0];
-      const photo = photoURL || 'https://lh3.googleusercontent.com/a/default-user';
-      const uid = cleanEmail;
-
-      if (dbPool && isDbConnected) {
-        try {
-          await dbPool.query(`
-            INSERT INTO users (id, name, email, phone, role, avatar_url, created_at)
-            VALUES ($1, $2, $3, '', 'user', $4, NOW())
-            ON CONFLICT (email) DO UPDATE SET
-              name = COALESCE(NULLIF(EXCLUDED.name, ''), users.name),
-              avatar_url = COALESCE(NULLIF(EXCLUDED.avatar_url, ''), users.avatar_url)
-          `, [uid, name, cleanEmail, photo]).catch(() => {});
-
-          await dbPool.query(`
-            INSERT INTO "user" (id, name, phone, email, created_at)
-            VALUES ($1, $2, $3, $4, NOW())
-            ON CONFLICT (id) DO UPDATE SET
-              name = EXCLUDED.name,
-              email = COALESCE(NULLIF(EXCLUDED.email, ''), "user".email)
-          `, [uid, name, '', cleanEmail]);
-
-          await dbPool.query(`
-            INSERT INTO profiles (uid, id, user_id, name, full_name, email, avatar_url, image_url, verified, is_verified, status, updated_at)
-            VALUES ($1, $1, $1, $2, $2, $3, $4, $4, false, false, 'pending', NOW())
-            ON CONFLICT (uid) DO UPDATE SET
-              name = EXCLUDED.name,
-              full_name = EXCLUDED.full_name,
-              avatar_url = EXCLUDED.avatar_url,
-              image_url = EXCLUDED.image_url,
-              updated_at = NOW()
-          `, [uid, name, cleanEmail, photo]);
-        } catch (e) {}
-      }
-
-      await ensureUserPendingVerification(uid, name, cleanEmail, '');
-      const approval = await getUserApprovalState(uid, cleanEmail, '');
-
-      const user = {
-        uid,
-        id: uid,
-        name,
-        displayName: name,
-        email: cleanEmail,
-        photoURL: photo,
-        isApproved: approval.isApproved,
-        approvalStatus: approval.status,
-        isGuest: false
-      };
-
-      const token = createSessionToken({ uid, email: cleanEmail, name });
-      res.setHeader('Set-Cookie', `locohelp_token=${token}; Path=/; Max-Age=${365 * 24 * 3600}; SameSite=Lax`);
-
-      res.json({
-        success: true,
-        token,
-        user,
-        isApproved: approval.isApproved,
-        approvalStatus: approval.status
-      });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message || "Login failed" });
-    }
-  });
-
   // Helper to normalize phone vs email identifiers
   const parseIdentifierForAuth = (rawInput: string) => {
     const trimmed = String(rawInput || '').trim().toLowerCase();
@@ -5199,12 +5426,25 @@ async function startServer() {
           ).catch(() => ({ rows: [] as any[] }))
         ]);
 
+        const fallbackDefaultName = tenDigits ? `Member ${tenDigits.slice(-4)}` : cleanEmail.split('@')[0];
+        const pickBestName = (candidateA?: string | null, candidateB?: string | null) => {
+          const a = String(candidateA || '').trim();
+          const b = String(candidateB || '').trim();
+          return (
+            (!isGenericMemberName(a) ? a : '') ||
+            (!isGenericMemberName(b) ? b : '') ||
+            a ||
+            b ||
+            fallbackDefaultName
+          );
+        };
+
         if (usersRes.rows.length > 0) {
           const uRow = usersRes.rows[0];
           record = {
             uid: uRow.id || record?.uid || (tenDigits ? `phone_${tenDigits}` : cleanEmail),
             email: uRow.email || record?.email || cleanEmail,
-            name: uRow.name || record?.name || (tenDigits ? `Member ${tenDigits.slice(-4)}` : cleanEmail.split('@')[0]),
+            name: pickBestName(uRow.name, record?.name),
             phone: uRow.phone || record?.phone || (tenDigits ? `+91 ${tenDigits}` : ''),
             passwordHash: uRow.password_hash || record?.passwordHash || '',
             fromOtpOrDb: true
@@ -5216,7 +5456,7 @@ async function startServer() {
           record = {
             uid: row.uid || record?.uid || (tenDigits ? `phone_${tenDigits}` : cleanEmail),
             email: row.email || record?.email || cleanEmail,
-            name: row.name || record?.name || (tenDigits ? `Member ${tenDigits.slice(-4)}` : cleanEmail.split('@')[0]),
+            name: pickBestName(row.name, record?.name),
             phone: row.phone || record?.phone || (tenDigits ? `+91 ${tenDigits}` : ''),
             passwordHash: row.password_hash || record?.passwordHash || ''
           };
@@ -5227,7 +5467,7 @@ async function startServer() {
           record = {
             uid: record?.uid || u.id || otpUid,
             email: record?.email || u.email || cleanEmail,
-            name: record?.name || u.name || (tenDigits ? `Member ${tenDigits.slice(-4)}` : cleanEmail.split('@')[0]),
+            name: pickBestName(record?.name, u.name),
             phone: record?.phone || u.phone || (tenDigits ? `+91 ${tenDigits}` : ''),
             passwordHash: record?.passwordHash || '',
             fromOtpOrDb: true
@@ -5236,10 +5476,11 @@ async function startServer() {
 
         if (profRes.rows.length > 0) {
           const pr = profRes.rows[0];
+          const profName = String(pr.full_name || pr.name || '').trim();
           record = {
             uid: record?.uid || pr.uid || pr.id || otpUid,
             email: record?.email || pr.email || cleanEmail,
-            name: record?.name || pr.full_name || pr.name || (tenDigits ? `Member ${tenDigits.slice(-4)}` : cleanEmail.split('@')[0]),
+            name: pickBestName(profName, record?.name),
             phone: record?.phone || pr.phone || (tenDigits ? `+91 ${tenDigits}` : ''),
             passwordHash: record?.passwordHash || '',
             fromOtpOrDb: true
@@ -5248,7 +5489,7 @@ async function startServer() {
       } catch (e) {}
     }
 
-    if (!record) {
+    if (!record || isGenericMemberName(record.name)) {
       const profiles = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
       const otpUid = tenDigits ? `phone_${tenDigits}` : ('email_' + cleanEmail.replace(/[^a-z0-9]/g, '_'));
       const matchedProfile =
@@ -5260,14 +5501,19 @@ async function startServer() {
           return false;
         });
       if (matchedProfile) {
-        record = {
-          uid: matchedProfile.uid || matchedProfile.id || otpUid,
-          email: matchedProfile.email || cleanEmail,
-          name: matchedProfile.full_name || matchedProfile.displayName || (tenDigits ? `Member ${tenDigits.slice(-4)}` : cleanEmail.split('@')[0]),
-          phone: matchedProfile.phone || (tenDigits ? `+91 ${tenDigits}` : ''),
-          passwordHash: '',
-          fromOtpOrDb: true
-        };
+        const localProfName = String(matchedProfile.full_name || matchedProfile.name || matchedProfile.displayName || '').trim();
+        if (!record) {
+          record = {
+            uid: matchedProfile.uid || matchedProfile.id || otpUid,
+            email: matchedProfile.email || cleanEmail,
+            name: localProfName || (tenDigits ? `Member ${tenDigits.slice(-4)}` : cleanEmail.split('@')[0]),
+            phone: matchedProfile.phone || (tenDigits ? `+91 ${tenDigits}` : ''),
+            passwordHash: '',
+            fromOtpOrDb: true
+          };
+        } else if (!isGenericMemberName(localProfName)) {
+          record.name = localProfName;
+        }
       }
     }
 
@@ -5447,15 +5693,23 @@ async function startServer() {
       };
     }
 
+    const emailSlug = email ? `email_${email.replace(/[^a-z0-9]/g, "_")}` : "";
+    const phoneSlug = phoneDigits ? `phone_${phoneDigits}` : "";
+    const phoneEmail = phoneDigits ? `${phoneDigits}@phone.locohelp.com` : "";
     const idCandidates = Array.from(
       new Set(
         [
           uid,
+          uid ? ensureValidUUIDServer(uid) : "",
           ...extraLinkedIds,
           email,
-          email ? `email_${email.replace(/[^a-z0-9]/g, "_")}` : "",
-          phoneDigits ? `phone_${phoneDigits}` : "",
-          phoneDigits ? `${phoneDigits}@phone.locohelp.com` : "",
+          email ? ensureValidUUIDServer(email) : "",
+          emailSlug,
+          emailSlug ? ensureValidUUIDServer(emailSlug) : "",
+          phoneSlug,
+          phoneSlug ? ensureValidUUIDServer(phoneSlug) : "",
+          phoneEmail,
+          phoneEmail ? ensureValidUUIDServer(phoneEmail) : "",
           phoneDigits ? `email_${phoneDigits}_phone_locohelp_com` : "",
           phoneDigits ? `verif_usr_phone_${phoneDigits}` : ""
         ]
@@ -5628,6 +5882,24 @@ async function startServer() {
           if (st === "rejected") return { isApproved: false, status: "rejected" };
         }
       }
+
+      if (!accountFound) {
+        const authUsers = readJsonFile<Record<string, any>>(AUTH_USERS_FILE, {});
+        for (const u of Object.values(authUsers)) {
+          if (!u) continue;
+          const uUid = String(u.uid || u.id || "").trim().toLowerCase();
+          const uEm = String(u.email || "").trim().toLowerCase();
+          const uPh = normalizePhoneDigitsServer(u.phone || "");
+          if (
+            idCandidates.includes(uUid) ||
+            (email && uEm === email) ||
+            (phoneDigits && uPh === phoneDigits)
+          ) {
+            accountFound = true;
+            break;
+          }
+        }
+      }
     } catch {}
 
     if (
@@ -5699,14 +5971,20 @@ async function startServer() {
     try {
       const profiles = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
       const existingProf = profiles[uid] || {};
+      const existingProfName = String(existingProf.full_name || existingProf.name || "").trim();
+      const resolvedProfName =
+        (!isGenericMemberName(existingProfName) ? existingProfName : "") ||
+        (!isGenericMemberName(name) ? name : "") ||
+        existingProfName ||
+        name;
       if (!existingProf.isVerified && !existingProf.is_verified && existingProf.status !== "approved") {
         profiles[uid] = {
           ...existingProf,
           uid,
           id: uid,
           userId: uid,
-          name: existingProf.name || name,
-          full_name: existingProf.full_name || name,
+          name: resolvedProfName,
+          full_name: resolvedProfName,
           email: existingProf.email || email,
           phone: existingProf.phone || phone,
           accountType: "simple_user",
@@ -5726,7 +6004,15 @@ async function startServer() {
             `INSERT INTO verification_requests (id, entity_type, entity_id, user_id, user_name, user_email, user_phone, title, id_document_watermarked, status, created_at)
              VALUES ($1, 'user_profile', $2, $3, $4, $5, $6, $7, '', 'pending', NOW())
              ON CONFLICT (id) DO UPDATE SET
-               user_name = COALESCE(NULLIF(EXCLUDED.user_name, ''), verification_requests.user_name),
+               user_name = CASE
+                 WHEN EXCLUDED.user_name IS NOT NULL
+                   AND TRIM(EXCLUDED.user_name) <> ''
+                   AND LOWER(TRIM(EXCLUDED.user_name)) NOT IN ('community member', 'community user', 'user', 'guest user', 'member', 'verified user')
+                   AND LOWER(TRIM(EXCLUDED.user_name)) NOT LIKE 'member %'
+                   AND LOWER(TRIM(EXCLUDED.user_name)) NOT LIKE 'user %'
+                 THEN EXCLUDED.user_name
+                 ELSE COALESCE(NULLIF(TRIM(verification_requests.user_name), ''), EXCLUDED.user_name)
+               END,
                user_email = COALESCE(NULLIF(EXCLUDED.user_email, ''), verification_requests.user_email),
                user_phone = COALESCE(NULLIF(EXCLUDED.user_phone, ''), verification_requests.user_phone)`,
             [verifId, uid, uid, name, email, phone, title]
@@ -5827,12 +6113,30 @@ async function startServer() {
     void unmarkEntitiesDeletedPermanently([uid, cleanEmail, phone, syntheticEmailUid, syntheticPhoneUid]).catch(() => {});
 
     const authUsers = readJsonFile<Record<string, any>>(AUTH_USERS_FILE, {});
+    const prevAuthName = String(authUsers[cleanEmail]?.name || '').trim();
+    const profilesFile = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
+    const prevProfName = String(
+      profilesFile[uid]?.full_name ||
+        profilesFile[uid]?.name ||
+        profilesFile[cleanEmail]?.full_name ||
+        profilesFile[syntheticPhoneUid]?.full_name ||
+        ''
+    ).trim();
+    const safeDisplayName =
+      (!isGenericMemberName(displayName) ? displayName : '') ||
+      (!isGenericMemberName(prevProfName) ? prevProfName : '') ||
+      (!isGenericMemberName(prevAuthName) ? prevAuthName : '') ||
+      displayName ||
+      prevProfName ||
+      prevAuthName ||
+      'Community Member';
+
     authUsers[cleanEmail] = {
       uid,
       email: cleanEmail,
-      name: displayName,
-      phone: phone || '',
-      passwordHash: hashedPassword,
+      name: safeDisplayName,
+      phone: phone || authUsers[cleanEmail]?.phone || '',
+      passwordHash: hashedPassword || authUsers[cleanEmail]?.passwordHash || '',
       updatedAt: new Date().toISOString()
     };
     writeJsonFile(AUTH_USERS_FILE, authUsers);
@@ -5845,45 +6149,85 @@ async function startServer() {
              VALUES ($1, $2, $3, $4, $5, 'user', false, false, true, NOW(), NOW())
              ON CONFLICT (email) DO UPDATE SET
                id = COALESCE(NULLIF(users.id, ''), EXCLUDED.id),
-               name = COALESCE(NULLIF(EXCLUDED.name, ''), users.name),
+               name = CASE
+                 WHEN EXCLUDED.name IS NOT NULL
+                   AND TRIM(EXCLUDED.name) <> ''
+                   AND LOWER(TRIM(EXCLUDED.name)) NOT IN ('community member', 'community user', 'user', 'guest user', 'member', 'verified user')
+                   AND LOWER(TRIM(EXCLUDED.name)) NOT LIKE 'member %'
+                   AND LOWER(TRIM(EXCLUDED.name)) NOT LIKE 'user %'
+                 THEN EXCLUDED.name
+                 ELSE COALESCE(NULLIF(TRIM(users.name), ''), EXCLUDED.name)
+               END,
                phone = COALESCE(NULLIF(EXCLUDED.phone, ''), users.phone),
                password_hash = CASE WHEN EXCLUDED.password_hash <> '' THEN EXCLUDED.password_hash ELSE users.password_hash END,
                is_deleted = false,
                hidden = false,
                terms_accepted = true,
                terms_accepted_at = COALESCE(users.terms_accepted_at, NOW())`,
-            [uid, displayName, cleanEmail, hashedPassword, phone || '']
+            [uid, safeDisplayName, cleanEmail, hashedPassword, phone || '']
           ),
           dbPool.query(
             `INSERT INTO user_passwords (email, uid, name, phone, password_hash, updated_at)
              VALUES ($1, $2, $3, $4, $5, NOW())
              ON CONFLICT (email) DO UPDATE SET
                uid = EXCLUDED.uid,
-               name = COALESCE(NULLIF(EXCLUDED.name, ''), user_passwords.name),
+               name = CASE
+                 WHEN EXCLUDED.name IS NOT NULL
+                   AND TRIM(EXCLUDED.name) <> ''
+                   AND LOWER(TRIM(EXCLUDED.name)) NOT IN ('community member', 'community user', 'user', 'guest user', 'member', 'verified user')
+                   AND LOWER(TRIM(EXCLUDED.name)) NOT LIKE 'member %'
+                   AND LOWER(TRIM(EXCLUDED.name)) NOT LIKE 'user %'
+                 THEN EXCLUDED.name
+                 ELSE COALESCE(NULLIF(TRIM(user_passwords.name), ''), EXCLUDED.name)
+               END,
                phone = COALESCE(NULLIF(EXCLUDED.phone, ''), user_passwords.phone),
                password_hash = CASE WHEN EXCLUDED.password_hash <> '' THEN EXCLUDED.password_hash ELSE user_passwords.password_hash END,
                updated_at = NOW()`,
-            [cleanEmail, uid, displayName, phone || '', hashedPassword]
+            [cleanEmail, uid, safeDisplayName, phone || '', hashedPassword]
           ),
           dbPool.query(
             `INSERT INTO "user" (id, name, phone, email, is_deleted, hidden, terms_accepted, terms_accepted_at, created_at)
              VALUES ($1, $2, $3, $4, false, false, true, NOW(), NOW())
              ON CONFLICT (id) DO UPDATE SET
-               name = COALESCE(NULLIF(EXCLUDED.name, ''), "user".name),
+               name = CASE
+                 WHEN EXCLUDED.name IS NOT NULL
+                   AND TRIM(EXCLUDED.name) <> ''
+                   AND LOWER(TRIM(EXCLUDED.name)) NOT IN ('community member', 'community user', 'user', 'guest user', 'member', 'verified user')
+                   AND LOWER(TRIM(EXCLUDED.name)) NOT LIKE 'member %'
+                   AND LOWER(TRIM(EXCLUDED.name)) NOT LIKE 'user %'
+                 THEN EXCLUDED.name
+                 ELSE COALESCE(NULLIF(TRIM("user".name), ''), EXCLUDED.name)
+               END,
                phone = COALESCE(NULLIF(EXCLUDED.phone, ''), "user".phone),
                email = COALESCE(NULLIF(EXCLUDED.email, ''), "user".email),
                is_deleted = false,
                hidden = false,
                terms_accepted = true,
                terms_accepted_at = COALESCE("user".terms_accepted_at, NOW())`,
-            [uid, displayName, phone || '', cleanEmail]
+            [uid, safeDisplayName, phone || '', cleanEmail]
           ),
           dbPool.query(
             `INSERT INTO profiles (uid, id, user_id, name, full_name, email, phone, account_type, verified, is_verified, status, is_deleted, hidden, terms_accepted, terms_accepted_at, updated_at)
              VALUES ($1, $1, $1, $2, $2, $3, $4, 'simple_user', false, false, 'pending', false, false, true, NOW(), NOW())
              ON CONFLICT (uid) DO UPDATE SET
-               name = COALESCE(NULLIF(EXCLUDED.name, ''), profiles.name),
-               full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), profiles.full_name),
+               name = CASE
+                 WHEN EXCLUDED.name IS NOT NULL
+                   AND TRIM(EXCLUDED.name) <> ''
+                   AND LOWER(TRIM(EXCLUDED.name)) NOT IN ('community member', 'community user', 'user', 'guest user', 'member', 'verified user')
+                   AND LOWER(TRIM(EXCLUDED.name)) NOT LIKE 'member %'
+                   AND LOWER(TRIM(EXCLUDED.name)) NOT LIKE 'user %'
+                 THEN EXCLUDED.name
+                 ELSE COALESCE(NULLIF(TRIM(profiles.name), ''), EXCLUDED.name)
+               END,
+               full_name = CASE
+                 WHEN EXCLUDED.full_name IS NOT NULL
+                   AND TRIM(EXCLUDED.full_name) <> ''
+                   AND LOWER(TRIM(EXCLUDED.full_name)) NOT IN ('community member', 'community user', 'user', 'guest user', 'member', 'verified user')
+                   AND LOWER(TRIM(EXCLUDED.full_name)) NOT LIKE 'member %'
+                   AND LOWER(TRIM(EXCLUDED.full_name)) NOT LIKE 'user %'
+                 THEN EXCLUDED.full_name
+                 ELSE COALESCE(NULLIF(TRIM(profiles.full_name), ''), EXCLUDED.full_name)
+               END,
                phone = COALESCE(NULLIF(EXCLUDED.phone, ''), profiles.phone),
                is_deleted = false,
                hidden = false,
@@ -5891,7 +6235,7 @@ async function startServer() {
                terms_accepted = true,
                terms_accepted_at = COALESCE(profiles.terms_accepted_at, NOW()),
                updated_at = NOW()`,
-            [uid, displayName, cleanEmail, phone || '']
+            [uid, safeDisplayName, cleanEmail, phone || '']
           )
         ]);
       } catch (e) {
@@ -5900,7 +6244,7 @@ async function startServer() {
     }
     const currentApproval = await getUserApprovalState(uid, cleanEmail, phone || '').catch(() => ({ isApproved: false }));
     if (!currentApproval.isApproved) {
-      void ensureUserPendingVerification(uid, displayName, cleanEmail, phone || '').catch(() => {});
+      void ensureUserPendingVerification(uid, safeDisplayName, cleanEmail, phone || '').catch(() => {});
     }
   };
 
@@ -6530,8 +6874,11 @@ async function startServer() {
       const existing = await findExistingAccount(parsed.tenDigits);
       const uid = existing?.uid || `phone_${parsed.tenDigits}`;
       const accountEmail = existing?.email || parsed.syntheticEmail;
+      const incomingPhoneName = String(name || '').trim();
       const displayName =
-        (name && String(name).trim()) ||
+        (!isGenericMemberName(incomingPhoneName) ? incomingPhoneName : '') ||
+        (!isGenericMemberName(existing?.name) ? existing?.name : '') ||
+        incomingPhoneName ||
         existing?.name ||
         `Member +91 ${parsed.tenDigits.slice(0, 2)}••••${parsed.tenDigits.slice(-4)}`;
       const finalPhone = parsed.formattedPhone;
@@ -6563,7 +6910,15 @@ async function startServer() {
             `INSERT INTO users (id, name, email, phone, role, is_deleted, hidden, terms_accepted, terms_accepted_at, created_at)
              VALUES ($1, $2, $3, $4, 'user', false, false, true, NOW(), NOW())
              ON CONFLICT (email) DO UPDATE SET
-               name = COALESCE(NULLIF(EXCLUDED.name, ''), users.name),
+               name = CASE
+                 WHEN EXCLUDED.name IS NOT NULL
+                   AND TRIM(EXCLUDED.name) <> ''
+                   AND LOWER(TRIM(EXCLUDED.name)) NOT IN ('community member', 'community user', 'user', 'guest user', 'member', 'verified user')
+                   AND LOWER(TRIM(EXCLUDED.name)) NOT LIKE 'member %'
+                   AND LOWER(TRIM(EXCLUDED.name)) NOT LIKE 'user %'
+                 THEN EXCLUDED.name
+                 ELSE COALESCE(NULLIF(TRIM(users.name), ''), EXCLUDED.name)
+               END,
                phone = COALESCE(NULLIF(EXCLUDED.phone, ''), users.phone),
                is_deleted = false,
                hidden = false,
@@ -6576,7 +6931,15 @@ async function startServer() {
             `INSERT INTO "user" (id, name, phone, email, is_deleted, hidden, terms_accepted, terms_accepted_at, created_at)
              VALUES ($1, $2, $3, $4, false, false, true, NOW(), NOW())
              ON CONFLICT (id) DO UPDATE SET
-               name = COALESCE(NULLIF(EXCLUDED.name, ''), "user".name),
+               name = CASE
+                 WHEN EXCLUDED.name IS NOT NULL
+                   AND TRIM(EXCLUDED.name) <> ''
+                   AND LOWER(TRIM(EXCLUDED.name)) NOT IN ('community member', 'community user', 'user', 'guest user', 'member', 'verified user')
+                   AND LOWER(TRIM(EXCLUDED.name)) NOT LIKE 'member %'
+                   AND LOWER(TRIM(EXCLUDED.name)) NOT LIKE 'user %'
+                 THEN EXCLUDED.name
+                 ELSE COALESCE(NULLIF(TRIM("user".name), ''), EXCLUDED.name)
+               END,
                phone = COALESCE(NULLIF(EXCLUDED.phone, ''), "user".phone),
                email = COALESCE(NULLIF(EXCLUDED.email, ''), "user".email),
                is_deleted = false,
@@ -6590,8 +6953,24 @@ async function startServer() {
             `INSERT INTO profiles (uid, id, user_id, name, full_name, email, phone, verified, is_verified, status, is_deleted, hidden, terms_accepted, terms_accepted_at, updated_at)
              VALUES ($1, $1, $1, $2, $2, $3, $4, false, false, 'pending', false, false, true, NOW(), NOW())
              ON CONFLICT (uid) DO UPDATE SET
-               name = COALESCE(NULLIF(EXCLUDED.name, ''), profiles.name),
-               full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), profiles.full_name),
+               name = CASE
+                 WHEN EXCLUDED.name IS NOT NULL
+                   AND TRIM(EXCLUDED.name) <> ''
+                   AND LOWER(TRIM(EXCLUDED.name)) NOT IN ('community member', 'community user', 'user', 'guest user', 'member', 'verified user')
+                   AND LOWER(TRIM(EXCLUDED.name)) NOT LIKE 'member %'
+                   AND LOWER(TRIM(EXCLUDED.name)) NOT LIKE 'user %'
+                 THEN EXCLUDED.name
+                 ELSE COALESCE(NULLIF(TRIM(profiles.name), ''), EXCLUDED.name)
+               END,
+               full_name = CASE
+                 WHEN EXCLUDED.full_name IS NOT NULL
+                   AND TRIM(EXCLUDED.full_name) <> ''
+                   AND LOWER(TRIM(EXCLUDED.full_name)) NOT IN ('community member', 'community user', 'user', 'guest user', 'member', 'verified user')
+                   AND LOWER(TRIM(EXCLUDED.full_name)) NOT LIKE 'member %'
+                   AND LOWER(TRIM(EXCLUDED.full_name)) NOT LIKE 'user %'
+                 THEN EXCLUDED.full_name
+                 ELSE COALESCE(NULLIF(TRIM(profiles.full_name), ''), EXCLUDED.full_name)
+               END,
                email = COALESCE(NULLIF(EXCLUDED.email, ''), profiles.email),
                phone = COALESCE(NULLIF(EXCLUDED.phone, ''), profiles.phone),
                is_deleted = false,
@@ -6747,6 +7126,308 @@ async function startServer() {
     }
   });
 
+  // Helper: Load full cloud account bundle (Profile, Helper Profile, Business/Shop Profile, and Post IDs) by UID, Email, or 10-Digit Phone
+  const loadRestoredAccountBundle = async (rawUid: string, rawEmail: string, rawPhone: string) => {
+    const uid = String(rawUid || "").trim();
+    const email = String(rawEmail || "").trim().toLowerCase();
+    const phoneDigits =
+      normalizePhoneDigitsServer(rawPhone) ||
+      (uid.startsWith("phone_") ? normalizePhoneDigitsServer(uid) : "") ||
+      (email.endsWith("@phone.locohelp.com") ? normalizePhoneDigitsServer(email.split("@")[0]) : "");
+
+    const emailSlug = email ? `email_${email.replace(/[^a-z0-9]/g, "_")}` : "";
+    const phoneSlug = phoneDigits ? `phone_${phoneDigits}` : "";
+    const phoneEmail = phoneDigits ? `${phoneDigits}@phone.locohelp.com` : "";
+
+    const idCandidates = Array.from(
+      new Set(
+        [
+          uid,
+          uid ? ensureValidUUIDServer(uid) : "",
+          email,
+          email ? ensureValidUUIDServer(email) : "",
+          emailSlug,
+          emailSlug ? ensureValidUUIDServer(emailSlug) : "",
+          phoneSlug,
+          phoneSlug ? ensureValidUUIDServer(phoneSlug) : "",
+          phoneEmail,
+          phoneEmail ? ensureValidUUIDServer(phoneEmail) : ""
+        ]
+          .map((s) => String(s || "").trim().toLowerCase())
+          .filter(Boolean)
+      )
+    );
+
+    let restoredProfile: any = null;
+    let myHelperProfile: any = null;
+    let myBusinessProfile: any = null;
+    const myPostIdsSet = new Set<string>();
+
+    // 1. Check local JSON files first as base
+    try {
+      const profilesMap = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
+      for (const p of Object.values(profilesMap)) {
+        if (!p || p.is_deleted || p.status === "deleted") continue;
+        const pUid = String(p.uid || p.id || "").trim().toLowerCase();
+        const pEm = String(p.email || "").trim().toLowerCase();
+        const pPh = normalizePhoneDigitsServer(p.phone || "");
+        if (
+          idCandidates.includes(pUid) ||
+          (email && pEm === email) ||
+          (phoneDigits && pPh === phoneDigits)
+        ) {
+          restoredProfile = { ...p };
+          break;
+        }
+      }
+
+      const helpersList = readJsonFile<any[]>(HELPERS_FILE, []);
+      for (const h of helpersList) {
+        if (!h || h.is_deleted || h.status === "deleted") continue;
+        const hId = String(h.id || "").trim().toLowerCase();
+        const hUid = String(h.userId || h.user_id || "").trim().toLowerCase();
+        const hEm = String(h.email || "").trim().toLowerCase();
+        const hPh = normalizePhoneDigitsServer(h.phone || "");
+        if (
+          idCandidates.includes(hId) ||
+          idCandidates.includes(hUid) ||
+          (email && hEm === email) ||
+          (phoneDigits && hPh === phoneDigits)
+        ) {
+          myHelperProfile = { ...h };
+          break;
+        }
+      }
+
+      const shopsList = readJsonFile<any[]>(SHOPS_FILE, []);
+      for (const s of shopsList) {
+        if (!s || s.is_deleted || s.status === "deleted" || String(s.id || "").startsWith("sample_shop_")) continue;
+        const sId = String(s.id || "").trim().toLowerCase();
+        const sUid = String(s.userId || s.owner_id || "").trim().toLowerCase();
+        const sEm = String(s.ownerEmail || s.email || "").trim().toLowerCase();
+        const sPh = normalizePhoneDigitsServer(s.phone || "");
+        if (
+          idCandidates.includes(sId) ||
+          idCandidates.includes(sUid) ||
+          (email && sEm === email) ||
+          (phoneDigits && sPh === phoneDigits)
+        ) {
+          myBusinessProfile = { ...s };
+          break;
+        }
+      }
+
+      const intentsList = readJsonFile<any[]>(INTENTS_FILE, []);
+      for (const post of intentsList) {
+        if (!post || !post.id) continue;
+        const aId = String(post.authorId || post.userId || post.user_id || "").trim().toLowerCase();
+        const aEm = String(post.authorEmail || post.email || "").trim().toLowerCase();
+        const aPh = normalizePhoneDigitsServer(post.authorPhone || post.phone || "");
+        if (
+          idCandidates.includes(aId) ||
+          (email && aEm === email) ||
+          (phoneDigits && aPh === phoneDigits)
+        ) {
+          myPostIdsSet.add(String(post.id));
+        }
+      }
+    } catch {}
+
+    // 2. Query PostgreSQL for authoritative profile, helper, business/shop, and posts
+    if (dbPool && isDbConnected && (idCandidates.length > 0 || email || phoneDigits)) {
+      try {
+        const [pRes, hRes, bRes, postsRes] = await Promise.all([
+          dbPool
+            .query(
+              `SELECT * FROM profiles
+               WHERE COALESCE(is_deleted, false) = false
+                 AND (
+                   LOWER(COALESCE(uid, '')) = ANY($1::text[])
+                   OR LOWER(COALESCE(id, '')) = ANY($1::text[])
+                   OR LOWER(COALESCE(user_id, '')) = ANY($1::text[])
+                   OR ($2 <> '' AND LOWER(TRIM(COALESCE(email, ''))) = LOWER(TRIM($2)))
+                   OR ($3 <> '' AND REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE '%' || $3)
+                 )
+               ORDER BY CASE WHEN COALESCE(is_verified, false) = true OR COALESCE(verified, false) = true OR LOWER(COALESCE(status, '')) = 'approved' THEN 0 ELSE 1 END, updated_at DESC NULLS LAST
+               LIMIT 1`,
+              [idCandidates, email, phoneDigits]
+            )
+            .catch(() => ({ rows: [] as any[] })),
+          dbPool
+            .query(
+              `SELECT * FROM helpers
+               WHERE COALESCE(is_deleted, false) = false
+                 AND (
+                   LOWER(COALESCE(id, '')) = ANY($1::text[])
+                   OR LOWER(COALESCE(user_id, '')) = ANY($1::text[])
+                   OR ($2 <> '' AND LOWER(TRIM(COALESCE(email, ''))) = LOWER(TRIM($2)))
+                   OR ($3 <> '' AND REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE '%' || $3)
+                 )
+               ORDER BY CASE WHEN COALESCE(is_verified, false) = true OR LOWER(COALESCE(status, '')) = 'approved' THEN 0 ELSE 1 END, created_at DESC NULLS LAST
+               LIMIT 1`,
+              [idCandidates, email, phoneDigits]
+            )
+            .catch(() => ({ rows: [] as any[] })),
+          dbPool
+            .query(
+              `SELECT * FROM businesses
+               WHERE (
+                 LOWER(COALESCE(id, '')) = ANY($1::text[])
+                 OR LOWER(COALESCE(user_id, '')) = ANY($1::text[])
+                 OR LOWER(COALESCE(owner_id, '')) = ANY($1::text[])
+                 OR ($3 <> '' AND REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE '%' || $3)
+               )
+               ORDER BY CASE WHEN COALESCE(is_approved, false) = true OR COALESCE(is_verified, false) = true THEN 0 ELSE 1 END, created_at DESC NULLS LAST
+               LIMIT 1`,
+              [idCandidates, email, phoneDigits]
+            )
+            .catch(() => ({ rows: [] as any[] })),
+          dbPool
+            .query(
+              `SELECT id FROM posts
+               WHERE LOWER(COALESCE(user_id, '')) = ANY($1::text[])
+                  OR LOWER(COALESCE(author_id, '')) = ANY($1::text[])
+                  OR ($2 <> '' AND LOWER(TRIM(COALESCE(author_email, ''))) = LOWER(TRIM($2)))
+                  OR ($3 <> '' AND REGEXP_REPLACE(COALESCE(author_phone, ''), '\\D', '', 'g') LIKE '%' || $3)
+               LIMIT 100`,
+              [idCandidates, email, phoneDigits]
+            )
+            .catch(() => ({ rows: [] as any[] }))
+        ]);
+
+        if (pRes.rows.length > 0) {
+          const r = pRes.rows[0];
+          const rawJsonObj =
+            typeof r.raw_json === "object" && r.raw_json
+              ? r.raw_json
+              : typeof r.raw_json === "string" && r.raw_json.trim().startsWith("{")
+              ? (() => {
+                  try {
+                    return JSON.parse(r.raw_json);
+                  } catch {
+                    return {};
+                  }
+                })()
+              : {};
+          const cleanAvatar =
+            (r.avatar_url && r.avatar_url !== "https://lh3.googleusercontent.com/a/default-user" ? r.avatar_url : "") ||
+            rawJsonObj.liveSelfieUrl ||
+            restoredProfile?.avatar_url ||
+            "";
+          const cleanVisitingCard =
+            rawJsonObj.visitingCardUrl ||
+            (r.image_url && r.image_url !== r.avatar_url && r.image_url !== "https://lh3.googleusercontent.com/a/default-user"
+              ? r.image_url
+              : "") ||
+            restoredProfile?.visitingCardUrl ||
+            "";
+          restoredProfile = {
+            ...(restoredProfile || {}),
+            uid: r.uid || uid,
+            id: r.uid || uid,
+            name: r.full_name || r.name || restoredProfile?.name || "",
+            full_name: r.full_name || r.name || restoredProfile?.full_name || "",
+            displayName: r.full_name || r.name || restoredProfile?.displayName || "",
+            email: r.email || restoredProfile?.email || email,
+            phone: r.phone || restoredProfile?.phone || (phoneDigits ? `+91 ${phoneDigits}` : ""),
+            isPhonePublic:
+              typeof rawJsonObj.isPhonePublic === "boolean"
+                ? rawJsonObj.isPhonePublic
+                : Boolean(restoredProfile?.isPhonePublic),
+            avatar_url: cleanAvatar,
+            photoURL: cleanAvatar,
+            liveSelfieUrl: cleanAvatar,
+            idDocumentWatermarked: cleanAvatar,
+            visitingCardUrl: cleanVisitingCard,
+            skills: r.skills || restoredProfile?.skills || "",
+            address: r.address || r.sector || restoredProfile?.address || "",
+            sector: r.sector || r.address || restoredProfile?.sector || "",
+            city: r.city || restoredProfile?.city || "Gandhinagar",
+            experience: r.experience || restoredProfile?.experience || "",
+            category_id: r.category_id || restoredProfile?.category_id || "",
+            category_name: r.category_name || restoredProfile?.category_name || "",
+            isVerified: Boolean(r.verified || r.is_verified || r.status === "approved"),
+            status: r.status || (r.is_verified ? "approved" : "pending")
+          };
+          if (!myHelperProfile && r.my_helper_profile) {
+            myHelperProfile = typeof r.my_helper_profile === "object" ? r.my_helper_profile : null;
+          }
+        }
+
+        if (hRes.rows.length > 0) {
+          const hr = hRes.rows[0];
+          myHelperProfile = {
+            ...(myHelperProfile || {}),
+            id: hr.id,
+            userId: hr.user_id || hr.id,
+            name: hr.name || myHelperProfile?.name || "",
+            service: hr.service || hr.category_label || myHelperProfile?.service || "",
+            categoryId: hr.category_id || myHelperProfile?.categoryId || "",
+            categoryLabel: hr.category_label || hr.service || myHelperProfile?.categoryLabel || "",
+            phone: hr.phone || myHelperProfile?.phone || (phoneDigits ? `+91 ${phoneDigits}` : ""),
+            email: hr.email || myHelperProfile?.email || email,
+            isPhonePublic: typeof hr.is_phone_public === "boolean" ? hr.is_phone_public : Boolean(myHelperProfile?.isPhonePublic),
+            experience: hr.experience || myHelperProfile?.experience || "",
+            area: hr.area || myHelperProfile?.area || "",
+            address: hr.address || hr.area || myHelperProfile?.address || "",
+            bio: hr.bio || myHelperProfile?.bio || "",
+            photoUrl: hr.photo_url || myHelperProfile?.photoUrl || null,
+            visitingCardUrl: hr.visiting_card_url || myHelperProfile?.visitingCardUrl || null,
+            watermarkedSelfieUrl: hr.watermarked_selfie_url || myHelperProfile?.watermarkedSelfieUrl || null,
+            isVerified: Boolean(hr.is_verified || hr.status === "approved"),
+            status: hr.status || (hr.is_verified ? "approved" : "pending")
+          };
+        }
+
+        if (bRes.rows.length > 0) {
+          const br = bRes.rows[0];
+          const rawBiz =
+            typeof br.raw_json === "object" && br.raw_json
+              ? br.raw_json
+              : typeof br.raw_json === "string" && br.raw_json.trim().startsWith("{")
+              ? (() => {
+                  try {
+                    return JSON.parse(br.raw_json);
+                  } catch {
+                    return {};
+                  }
+                })()
+              : {};
+          myBusinessProfile = {
+            ...(myBusinessProfile || {}),
+            ...rawBiz,
+            id: br.id,
+            userId: br.user_id || br.owner_id || rawBiz.userId || uid,
+            owner_id: br.owner_id || br.user_id || rawBiz.owner_id || uid,
+            name: br.shop_name || br.business_name || rawBiz.name || myBusinessProfile?.name || "",
+            businessName: br.business_name || br.shop_name || rawBiz.businessName || myBusinessProfile?.businessName || "",
+            category: br.category || rawBiz.category || myBusinessProfile?.category || "",
+            categoryLabel: br.category || rawBiz.categoryLabel || myBusinessProfile?.categoryLabel || "",
+            phone: br.phone || rawBiz.phone || myBusinessProfile?.phone || (phoneDigits ? `+91 ${phoneDigits}` : ""),
+            area: br.sector || rawBiz.area || myBusinessProfile?.area || "",
+            address: br.address || rawBiz.address || myBusinessProfile?.address || "",
+            description: br.description || rawBiz.description || myBusinessProfile?.description || "",
+            photoUrl: br.image_url || rawBiz.photoUrl || myBusinessProfile?.photoUrl || null,
+            isPhonePublic: typeof rawBiz.isPhonePublic === "boolean" ? rawBiz.isPhonePublic : Boolean(myBusinessProfile?.isPhonePublic),
+            isVerified: Boolean(br.is_approved || br.is_verified),
+            status: br.is_approved || br.is_verified ? "approved" : rawBiz.status || "pending"
+          };
+        }
+
+        for (const pr of postsRes.rows) {
+          if (pr && pr.id) myPostIdsSet.add(String(pr.id));
+        }
+      } catch {}
+    }
+
+    return {
+      profile: restoredProfile,
+      myHelperProfile,
+      myBusinessProfile,
+      myPostIds: Array.from(myPostIdsSet)
+    };
+  };
+
   // Session verification (Get active session user from token / cookie / PostgreSQL fallback and refresh persistent cookie)
   app.get("/api/auth/me", async (req, res) => {
     try {
@@ -6760,13 +7441,14 @@ async function startServer() {
         if (match) token = match[1];
       }
 
+      const qUid = String(req.query.uid || "").trim();
+      const qEmail = String(req.query.email || "").trim().toLowerCase();
+      const qPhone = String(req.query.phone || "").trim();
+
       let decoded = token ? verifySessionToken(token) : null;
 
-      // Fallback recognition from PostgreSQL for returning users if browser cleared cookies/token
+      // Fallback recognition from PostgreSQL or local session identifiers if browser cleared cookies/token
       if (!decoded) {
-        const qUid = String(req.query.uid || "").trim();
-        const qEmail = String(req.query.email || "").trim().toLowerCase();
-        const qPhone = String(req.query.phone || "").trim();
         const candidateId = qPhone || qEmail || qUid;
         if (candidateId && candidateId !== "guest" && candidateId !== "guest_user") {
           const existing = await findExistingAccount(candidateId);
@@ -6774,8 +7456,24 @@ async function startServer() {
             decoded = {
               uid: existing.uid,
               email: existing.email || qEmail || "",
+              phone: existing.phone || qPhone || "",
               name: existing.name || "Community Member"
             };
+          } else {
+            const parsedFallback = parseIdentifierForAuth(candidateId);
+            const fallbackUid = parsedFallback.isPhone
+              ? `phone_${parsedFallback.tenDigits}`
+              : qEmail
+              ? `email_${qEmail.replace(/[^a-z0-9]/g, "_")}`
+              : qUid;
+            if (fallbackUid && fallbackUid !== "guest" && fallbackUid !== "guest_user") {
+              decoded = {
+                uid: fallbackUid,
+                email: qEmail || parsedFallback.cleanEmail || "",
+                phone: parsedFallback.formattedPhone || qPhone || "",
+                name: "Community Member"
+              };
+            }
           }
         }
       }
@@ -6784,56 +7482,95 @@ async function startServer() {
         return res.status(401).json({ error: "No active session" });
       }
 
-      let dbName = decoded.name || (decoded.email ? decoded.email.split("@")[0] : "Community User");
-      let dbPhone = "";
-      let dbPhoto = "";
-      if (dbPool && isDbConnected) {
-        try {
-          const pRes = await dbPool.query(
-            "SELECT name, full_name, phone, avatar_url, image_url FROM profiles WHERE uid = $1 OR LOWER(TRIM(email)) = LOWER(TRIM($2)) LIMIT 1",
-            [decoded.uid, decoded.email || ""]
-          );
-          if (pRes.rows.length > 0) {
-            const r = pRes.rows[0];
-            dbName = r.full_name || r.name || dbName;
-            dbPhone = r.phone || "";
-            dbPhoto = r.avatar_url || r.image_url || "";
-          }
-        } catch {}
-      }
+      const lookupKey =
+        qPhone ||
+        decoded.phone ||
+        (String(decoded.uid || "").startsWith("phone_") ? String(decoded.uid).slice(6) : "") ||
+        (String(decoded.email || "").endsWith("@phone.locohelp.com") ? String(decoded.email).split("@")[0] : "") ||
+        decoded.email ||
+        qEmail ||
+        decoded.uid;
 
-      const approval = await getUserApprovalState(decoded.uid, decoded.email || "", dbPhone);
-      if (approval.status === "deleted" || approval.status === "not_found") {
-        res.setHeader('Set-Cookie', 'locohelp_token=; Path=/; Max-Age=0; SameSite=Lax');
+      const existingAcc = lookupKey ? await findExistingAccount(String(lookupKey)) : null;
+      const canonicalUid = existingAcc?.uid || decoded.uid;
+      const canonicalEmail = existingAcc?.email || decoded.email || qEmail || "";
+      const phoneDigits =
+        normalizePhoneDigitsServer(existingAcc?.phone || decoded.phone || qPhone) ||
+        (String(canonicalUid).startsWith("phone_") ? normalizePhoneDigitsServer(canonicalUid) : "") ||
+        (canonicalEmail.endsWith("@phone.locohelp.com") ? normalizePhoneDigitsServer(canonicalEmail.split("@")[0]) : "");
+
+      const restoredBundle = await loadRestoredAccountBundle(
+        canonicalUid,
+        canonicalEmail,
+        phoneDigits ? `+91 ${phoneDigits}` : ""
+      );
+
+      let dbName =
+        (!isGenericMemberName(restoredBundle.profile?.full_name) ? restoredBundle.profile?.full_name : "") ||
+        (!isGenericMemberName(restoredBundle.myHelperProfile?.name) ? restoredBundle.myHelperProfile?.name : "") ||
+        (!isGenericMemberName(existingAcc?.name) ? existingAcc?.name : "") ||
+        (!isGenericMemberName(decoded.name) ? decoded.name : "") ||
+        restoredBundle.profile?.full_name ||
+        existingAcc?.name ||
+        decoded.name ||
+        (phoneDigits ? `Member +91 ${phoneDigits.slice(-4)}` : canonicalEmail ? canonicalEmail.split("@")[0] : "Community User");
+
+      let dbPhone =
+        restoredBundle.profile?.phone ||
+        restoredBundle.myHelperProfile?.phone ||
+        restoredBundle.myBusinessProfile?.phone ||
+        existingAcc?.phone ||
+        decoded.phone ||
+        (phoneDigits ? `+91 ${phoneDigits}` : "");
+
+      let dbPhoto =
+        restoredBundle.profile?.avatar_url ||
+        restoredBundle.myHelperProfile?.photoUrl ||
+        "";
+
+      const approval = await getUserApprovalState(canonicalUid, canonicalEmail, dbPhone);
+      // NEVER log out a user on 'not_found' — only log out if Admin explicitly deleted ('deleted') the account!
+      if (approval.status === "deleted") {
+        res.setHeader("Set-Cookie", "locohelp_token=; Path=/; Max-Age=0; SameSite=Lax");
         return res.status(401).json({
           success: false,
-          status: approval.status,
-          error: "Account deleted or not found. Please log in again."
+          status: "deleted",
+          error: "Account deleted by Admin."
         });
       }
 
+      const effectiveStatus = approval.status === "not_found" ? "pending" : approval.status;
+
       const refreshedToken = createSessionToken({
-        uid: decoded.uid,
-        email: decoded.email || "",
+        uid: canonicalUid,
+        email: canonicalEmail,
+        phone: dbPhone,
         name: dbName
       });
-      res.setHeader('Set-Cookie', `locohelp_token=${refreshedToken}; Path=/; Max-Age=${365 * 24 * 3600}; SameSite=Lax`);
+      res.setHeader(
+        "Set-Cookie",
+        `locohelp_token=${refreshedToken}; Path=/; Max-Age=${365 * 24 * 3600}; SameSite=Lax`
+      );
 
       res.json({
         success: true,
         token: refreshedToken,
         isApproved: approval.isApproved,
-        approvalStatus: approval.status,
+        approvalStatus: effectiveStatus,
+        restoredProfile: restoredBundle.profile,
+        myHelperProfile: restoredBundle.myHelperProfile,
+        myBusinessProfile: restoredBundle.myBusinessProfile,
+        myPostIds: restoredBundle.myPostIds,
         user: {
-          uid: decoded.uid,
-          id: decoded.uid,
+          uid: canonicalUid,
+          id: canonicalUid,
           name: dbName,
           displayName: dbName,
-          email: decoded.email || "",
+          email: canonicalEmail,
           phone: dbPhone,
           photoURL: dbPhoto,
           isApproved: approval.isApproved,
-          approvalStatus: approval.status,
+          approvalStatus: effectiveStatus,
           isGuest: false
         }
       });
@@ -8358,6 +9095,127 @@ async function startServer() {
     return resultInfo;
   };
 
+  // ==========================================
+  // PER-USER "DELETE FOR ME" STORE (WITH 100% PERMANENT SERVER RETENTION)
+  // ==========================================
+  const USER_DELETED_CHATS_FILE = path.join(DATA_DIR, "user_deleted_chats.json");
+  let userDeletedChatsMemoryCache: Record<string, { conversations?: Record<string, string>; messages?: Record<string, string> }> | null = null;
+  let userDeletedChatsLoadedFromDb = false;
+
+  const loadUserDeletedChatsStore = async (): Promise<Record<string, { conversations?: Record<string, string>; messages?: Record<string, string> }>> => {
+    if (!userDeletedChatsMemoryCache) {
+      userDeletedChatsMemoryCache = readJsonFile<Record<string, { conversations?: Record<string, string>; messages?: Record<string, string> }>>(
+        USER_DELETED_CHATS_FILE,
+        {}
+      );
+    }
+    if (!userDeletedChatsLoadedFromDb && dbPool && isDbConnected) {
+      userDeletedChatsLoadedFromDb = true;
+      try {
+        const res = await dbPool.query("SELECT value FROM app_settings WHERE key = 'user_deleted_chats_v1' LIMIT 1");
+        if (res.rows.length > 0 && res.rows[0].value) {
+          const parsed = typeof res.rows[0].value === "string" ? JSON.parse(res.rows[0].value) : res.rows[0].value;
+          if (parsed && typeof parsed === "object") {
+            for (const [uKey, uData] of Object.entries(parsed as Record<string, any>)) {
+              if (!uData || typeof uData !== "object") continue;
+              if (!userDeletedChatsMemoryCache[uKey]) {
+                userDeletedChatsMemoryCache[uKey] = { conversations: {}, messages: {} };
+              }
+              userDeletedChatsMemoryCache[uKey].conversations = {
+                ...(uData.conversations || {}),
+                ...(userDeletedChatsMemoryCache[uKey].conversations || {})
+              };
+              userDeletedChatsMemoryCache[uKey].messages = {
+                ...(uData.messages || {}),
+                ...(userDeletedChatsMemoryCache[uKey].messages || {})
+              };
+            }
+          }
+        }
+      } catch {}
+    }
+    return userDeletedChatsMemoryCache;
+  };
+
+  const getUserDeletedChatState = async (
+    identities: Iterable<string>
+  ): Promise<{ deletedConvs: Map<string, number>; deletedMsgs: Set<string> }> => {
+    const deletedConvs = new Map<string, number>();
+    const deletedMsgs = new Set<string>();
+    try {
+      const store = await loadUserDeletedChatsStore();
+      for (const rawId of identities) {
+        const idKey = String(rawId || "").trim().toLowerCase();
+        if (!idKey) continue;
+        const entry = store[idKey];
+        if (!entry) continue;
+        if (entry.conversations) {
+          for (const [cKey, iso] of Object.entries(entry.conversations)) {
+            const ts = new Date(iso).getTime();
+            if (!Number.isNaN(ts) && ts > 0) {
+              const prev = deletedConvs.get(cKey.toLowerCase()) || 0;
+              if (ts > prev) deletedConvs.set(cKey.toLowerCase(), ts);
+            }
+          }
+        }
+        if (entry.messages) {
+          for (const mId of Object.keys(entry.messages)) {
+            if (mId) deletedMsgs.add(mId);
+          }
+        }
+      }
+    } catch {}
+    return { deletedConvs, deletedMsgs };
+  };
+
+  const recordUserDeletedChatOrMessage = async (
+    identities: Iterable<string>,
+    convKeys: Iterable<string>,
+    msgIds: Iterable<string>,
+    deletedAtIso = new Date().toISOString()
+  ): Promise<void> => {
+    try {
+      const store = await loadUserDeletedChatsStore();
+      const idList = Array.from(identities)
+        .map((s) => String(s || "").trim().toLowerCase())
+        .filter(Boolean);
+      if (idList.length === 0) return;
+
+      for (const idKey of idList) {
+        if (!store[idKey]) {
+          store[idKey] = { conversations: {}, messages: {} };
+        }
+        if (!store[idKey].conversations) store[idKey].conversations = {};
+        if (!store[idKey].messages) store[idKey].messages = {};
+
+        for (const cKey of convKeys) {
+          const cleanC = String(cKey || "").trim().toLowerCase();
+          if (cleanC) {
+            store[idKey].conversations![cleanC] = deletedAtIso;
+          }
+        }
+        for (const mId of msgIds) {
+          const cleanM = String(mId || "").trim();
+          if (cleanM) {
+            store[idKey].messages![cleanM] = deletedAtIso;
+          }
+        }
+      }
+
+      writeJsonFile(USER_DELETED_CHATS_FILE, store);
+      if (dbPool && isDbConnected) {
+        await dbPool
+          .query(
+            `INSERT INTO app_settings (key, value, updated_at)
+             VALUES ('user_deleted_chats_v1', $1, NOW())
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+            [JSON.stringify(store)]
+          )
+          .catch(() => {});
+      }
+    } catch {}
+  };
+
   // 4. Get 1-on-1 Chat Messages (GET /api/chat/messages, GET /api/messages/:conversationId, GET /api/intents/:id/messages)
   const getChatMessagesHandler = async (req: express.Request, res: express.Response) => {
     try {
@@ -8722,9 +9580,41 @@ async function startServer() {
         }
       }
 
-      const finalMessages = Array.from(mergedMap.values()).sort(
-        (a, b) => new Date(a.createdAt || a.sent_at || 0).getTime() - new Date(b.createdAt || b.sent_at || 0).getTime()
-      );
+      const viewerDeleteState =
+        callerIdentities.size > 0
+          ? await getUserDeletedChatState(callerIdentities)
+          : { deletedConvs: new Map<string, number>(), deletedMsgs: new Set<string>() };
+
+      let convDeletedAtMs = 0;
+      if (viewerDeleteState.deletedConvs.size > 0) {
+        const candidateDeleteKeys = [
+          String(activeConvId || "").trim().toLowerCase(),
+          postId && helperId ? buildConversationId(postId, helperId).toLowerCase() : "",
+          postId && helperId ? `${postId.toLowerCase()}__${ensureServerValidUUID(helperId.toLowerCase())}` : "",
+          postId && helperId ? `${postId.toLowerCase()}__${helperId.toLowerCase()}` : "",
+          postId ? postId.toLowerCase() : ""
+        ].filter(Boolean);
+        for (const ck of candidateDeleteKeys) {
+          const ts = viewerDeleteState.deletedConvs.get(ck) || 0;
+          if (ts > convDeletedAtMs) convDeletedAtMs = ts;
+        }
+      }
+
+      const finalMessages = Array.from(mergedMap.values())
+        .filter((m) => {
+          if (!m) return false;
+          if (m.id && viewerDeleteState.deletedMsgs.has(String(m.id))) return false;
+          if (convDeletedAtMs > 0) {
+            const msgTs = new Date(m.createdAt || m.sent_at || 0).getTime();
+            if (!Number.isNaN(msgTs) && msgTs <= convDeletedAtMs + 1500) {
+              return false;
+            }
+          }
+          return true;
+        })
+        .sort(
+          (a, b) => new Date(a.createdAt || a.sent_at || 0).getTime() - new Date(b.createdAt || b.sent_at || 0).getTime()
+        );
       res.json(finalMessages);
     } catch (e) {
       res.status(500).json({ error: "Failed to fetch messages" });
@@ -9376,9 +10266,42 @@ async function startServer() {
         });
       } catch {}
 
-      const list = Array.from(conversationsMap.values()).sort(
-        (a, b) => new Date(b.lastMessageAt || b.updatedAt || 0).getTime() - new Date(a.lastMessageAt || a.updatedAt || 0).getTime()
-      );
+      const viewerDeleteState =
+        viewerIdentitySet.size > 0
+          ? await getUserDeletedChatState(viewerIdentitySet)
+          : { deletedConvs: new Map<string, number>(), deletedMsgs: new Set<string>() };
+
+      const list = Array.from(conversationsMap.values())
+        .filter((c) => {
+          if (!c) return false;
+          if (viewerDeleteState.deletedConvs.size > 0) {
+            const cIdLower = String(c.id || c.conversationId || "").trim().toLowerCase();
+            const pIdLower = String(c.postId || c.post_id || "").trim().toLowerCase();
+            const hIdLower = String(c.helperId || c.helper_id || c.senderId || "").trim().toLowerCase();
+            const candidateKeys = [
+              cIdLower,
+              pIdLower && hIdLower ? buildConversationId(pIdLower, hIdLower).toLowerCase() : "",
+              pIdLower && hIdLower ? getThreadKey(pIdLower, hIdLower) : "",
+              pIdLower && hIdLower ? `${pIdLower}__${hIdLower}` : "",
+              pIdLower
+            ].filter(Boolean);
+            let maxDeletedAtMs = 0;
+            for (const ck of candidateKeys) {
+              const ts = viewerDeleteState.deletedConvs.get(ck) || 0;
+              if (ts > maxDeletedAtMs) maxDeletedAtMs = ts;
+            }
+            if (maxDeletedAtMs > 0) {
+              const lastMsgMs = new Date(c.lastMessageAt || c.updatedAt || 0).getTime();
+              if (Number.isNaN(lastMsgMs) || lastMsgMs <= maxDeletedAtMs + 1500) {
+                return false;
+              }
+            }
+          }
+          return true;
+        })
+        .sort(
+          (a, b) => new Date(b.lastMessageAt || b.updatedAt || 0).getTime() - new Date(a.lastMessageAt || a.updatedAt || 0).getTime()
+        );
       res.json(list);
     } catch (e) {
       res.status(500).json({ error: "Failed to load post conversations" });
@@ -9396,14 +10319,24 @@ async function startServer() {
     try {
       const intentId = String(req.params.id || "").trim();
       const caller = extractRequestUser(req);
-      const { senderId, helperId, conversationId, userId, userEmail, markAllForUser } = req.body || {};
+      const { senderId, helperId, conversationId, userId, userEmail, userPhone, markAllForUser } = req.body || {};
       const viewerId = String(userId || caller?.uid || "").trim();
       const viewerEmail = String(userEmail || caller?.email || "").trim().toLowerCase();
-      const viewerSet = await expandIdentitySetFromDb(buildServerIdentitySet(viewerId, viewerEmail));
+      const viewerPhone = normalizePhoneDigitsServer(String(userPhone || caller?.phone || ""));
+      const baseViewerSet = buildServerIdentitySet(viewerId, viewerEmail);
+      if (viewerPhone) {
+        baseViewerSet.add(viewerPhone);
+        baseViewerSet.add(`phone_${viewerPhone}`);
+        baseViewerSet.add(`${viewerPhone}@phone.locohelp.com`);
+      }
+      const viewerSet = await expandIdentitySetFromDb(baseViewerSet);
       const viewerArr = Array.from(viewerSet);
-      const peerId = String(helperId || senderId || "").trim();
+      const parsedConv = conversationId ? parseConversationId(String(conversationId)) : null;
+      const effectivePostId = (intentId && intentId !== "all" ? intentId : "") || parsedConv?.postId || "";
+      const peerId = String(helperId || senderId || parsedConv?.helperId || "").trim();
       const peerSet = peerId ? await expandIdentitySetFromDb(buildServerIdentitySet(peerId, "")) : new Set<string>();
       const peerArr = Array.from(peerSet);
+      const allParticipantIds = Array.from(new Set([...peerArr, ...viewerArr]));
 
       if (dbPool && isDbConnected) {
         if (markAllForUser && viewerArr.length > 0) {
@@ -9430,53 +10363,52 @@ async function startServer() {
               [viewerArr]
             )
             .catch(() => {});
-        } else if (conversationId) {
-          const convLower = String(conversationId).trim().toLowerCase();
+        } else if (conversationId || (effectivePostId && peerArr.length > 0)) {
+          const convLower = String(conversationId || "").trim().toLowerCase();
           const convVariants = Array.from(
-            new Set([
-              convLower,
-              ...(intentId && peerArr.length > 0 ? peerArr.map((p) => buildConversationId(intentId, p).toLowerCase()) : [])
-            ])
+            new Set(
+              [
+                convLower,
+                ...(effectivePostId && allParticipantIds.length > 0
+                  ? allParticipantIds.map((p) => buildConversationId(effectivePostId, p).toLowerCase())
+                  : [])
+              ].filter(Boolean)
+            )
           );
           await dbPool
             .query(
               `UPDATE messages SET is_read = TRUE
-               WHERE LOWER(conversation_id) = ANY($1::text[])
+               WHERE (
+                 LOWER(conversation_id) = ANY($1::text[])
+                 OR (
+                   $4 <> ''
+                   AND (LOWER(post_id) = LOWER($4) OR LOWER(intent_id) = LOWER($4))
+                   AND ($5::int = 0 OR LOWER(sender_id) = ANY($6::text[]) OR LOWER(receiver_id) = ANY($6::text[]))
+                 )
+               )
                  AND ($2::int = 0 OR NOT (LOWER(sender_id) = ANY($3::text[])))`,
-              [convVariants, viewerArr.length, viewerArr]
+              [convVariants, viewerArr.length, viewerArr, effectivePostId, peerArr.length, peerArr]
             )
             .catch(() => {});
           await dbPool
             .query(
               `UPDATE conversations
                SET unread_poster_count = 0, unread_helper_count = 0
-               WHERE LOWER(id) = ANY($1::text[])`,
-              [convVariants]
+               WHERE LOWER(id) = ANY($1::text[])
+                  OR (
+                    $2 <> ''
+                    AND LOWER(post_id) = LOWER($2)
+                    AND ($3::int = 0 OR LOWER(helper_id) = ANY($4::text[]) OR LOWER(poster_id) = ANY($4::text[]))
+                  )`,
+              [convVariants, effectivePostId, allParticipantIds.length, allParticipantIds]
             )
             .catch(() => {});
-        } else if (intentId && peerArr.length > 0) {
+        } else if (effectivePostId) {
           await dbPool
-            .query(
-              `UPDATE messages SET is_read = TRUE
-               WHERE (intent_id = $1 OR post_id = $1)
-                 AND (LOWER(sender_id) = ANY($2::text[]) OR LOWER(receiver_id) = ANY($2::text[]))`,
-              [intentId, peerArr]
-            )
+            .query(`UPDATE messages SET is_read = TRUE WHERE LOWER(intent_id) = LOWER($1) OR LOWER(post_id) = LOWER($1)`, [effectivePostId])
             .catch(() => {});
           await dbPool
-            .query(
-              `UPDATE conversations
-               SET unread_poster_count = 0, unread_helper_count = 0
-               WHERE post_id = $1 AND LOWER(helper_id) = ANY($2::text[])`,
-              [intentId, peerArr]
-            )
-            .catch(() => {});
-        } else if (intentId) {
-          await dbPool
-            .query(`UPDATE messages SET is_read = TRUE WHERE intent_id = $1 OR post_id = $1`, [intentId])
-            .catch(() => {});
-          await dbPool
-            .query(`UPDATE conversations SET unread_poster_count = 0, unread_helper_count = 0 WHERE post_id = $1`, [intentId])
+            .query(`UPDATE conversations SET unread_poster_count = 0, unread_helper_count = 0 WHERE LOWER(post_id) = LOWER($1)`, [effectivePostId])
             .catch(() => {});
         }
       }
@@ -9490,7 +10422,7 @@ async function startServer() {
           const keyMatches =
             Boolean(markAllForUser) ||
             (conversationId && k.toLowerCase() === String(conversationId).toLowerCase()) ||
-            (intentId && (k.toLowerCase() === intentId.toLowerCase() || k.toLowerCase().startsWith(`conv_${intentId.toLowerCase()}__`)));
+            (effectivePostId && (k.toLowerCase() === effectivePostId.toLowerCase() || k.toLowerCase().startsWith(`conv_${effectivePostId.toLowerCase()}__`)));
           if (!keyMatches) continue;
           arr.forEach((m: any) => {
             if (!m) return;
@@ -9515,32 +10447,64 @@ async function startServer() {
     }
   });
 
-  // Manual Delete Conversation by User (PostgreSQL + In-Memory)
+  // Per-User Delete Conversation ("Delete for Me" - Keeps 100% of Messages for the Peer & Server Database)
   app.delete("/api/chat/conversations/:id", async (req: express.Request, res: express.Response) => {
     try {
       const convId = sanitizeServerText(req.params.id, 150);
       const parsed = parseConversationId(convId);
-      if (dbPool && isDbConnected) {
-        await dbPool.query("DELETE FROM conversations WHERE id = $1", [convId]).catch(() => {});
-        if (parsed) {
-          await dbPool
-            .query(
-              "DELETE FROM messages WHERE conversation_id = $1 OR ((post_id = $2 OR intent_id = $2) AND (LOWER(sender_id) = LOWER($3) OR LOWER(receiver_id) = LOWER($3)))",
-              [convId, parsed.postId, parsed.helperId]
-            )
-            .catch(() => {});
-        } else {
-          await dbPool.query("DELETE FROM messages WHERE conversation_id = $1", [convId]).catch(() => {});
-        }
+      const caller = extractRequestUser(req);
+      const userId = String(
+        req.query?.userId || req.query?.user_id || req.body?.userId || req.headers["x-user-id"] || caller?.uid || ""
+      ).trim();
+      const userEmail = String(
+        req.query?.userEmail || req.query?.user_email || req.body?.userEmail || req.headers["x-user-email"] || caller?.email || ""
+      ).trim().toLowerCase();
+      const userPhone = normalizePhoneDigitsServer(
+        String(req.query?.userPhone || req.body?.userPhone || req.headers["x-user-phone"] || caller?.phone || "")
+      );
+      const extraPostId = String(req.query?.postId || req.body?.postId || parsed?.postId || (!convId.startsWith("conv_") ? convId : "")).trim();
+      const extraHelperId = String(req.query?.helperId || req.body?.helperId || parsed?.helperId || "").trim();
+
+      const baseCallerSet = buildServerIdentitySet(userId, userEmail);
+      if (userPhone) {
+        baseCallerSet.add(userPhone);
+        baseCallerSet.add(`phone_${userPhone}`);
+        baseCallerSet.add(`${userPhone}@phone.locohelp.com`);
       }
-      try {
-        const allMessages = readJsonFile<Record<string, any[]>>(MESSAGES_FILE, {});
-        if (allMessages[convId]) {
-          delete allMessages[convId];
-          writeJsonFile(MESSAGES_FILE, allMessages);
-        }
-      } catch {}
-      res.json({ success: true, deletedId: convId });
+      const callerIdentities = await expandIdentitySetFromDb(baseCallerSet);
+
+      const convKeysToHide = new Set<string>();
+      if (convId) convKeysToHide.add(convId.toLowerCase());
+      if (extraPostId && extraHelperId) {
+        convKeysToHide.add(buildConversationId(extraPostId, extraHelperId).toLowerCase());
+        convKeysToHide.add(`${extraPostId.toLowerCase()}__${ensureServerValidUUID(extraHelperId.toLowerCase())}`);
+        convKeysToHide.add(`${extraPostId.toLowerCase()}__${extraHelperId.toLowerCase()}`);
+      } else if (extraPostId) {
+        convKeysToHide.add(extraPostId.toLowerCase());
+      }
+
+      const deletedAtIso = new Date().toISOString();
+      await recordUserDeletedChatOrMessage(callerIdentities, convKeysToHide, [], deletedAtIso);
+
+      // Archive audit entry to Security Vault while keeping all rows in conversations, messages, and MESSAGES_FILE intact!
+      void archiveToSecurityVault(
+        "help_post",
+        `chat_deleted_for_me__${convId}__${Date.now()}`,
+        {
+          id: convId,
+          postId: extraPostId,
+          helperId: extraHelperId,
+          deletedByUserId: userId,
+          deletedByEmail: userEmail,
+          deletedByPhone: userPhone,
+          deletedAt: deletedAtIso,
+          note: "User deleted chat from their phone (Delete for Me). Retained 100% on server and for peer."
+        },
+        "DELETED_BY_USER",
+        req
+      ).catch(() => {});
+
+      res.json({ success: true, deletedId: convId, deletedForMeOnly: true, deletedAt: deletedAtIso });
     } catch {
       res.status(500).json({ error: "Failed to delete conversation" });
     }
@@ -10419,10 +11383,24 @@ async function startServer() {
   app.post("/api/messages", chatMessageLimiter, sendChatMessageHandler);
   app.post("/api/messages/:id", chatMessageLimiter, sendChatMessageHandler);
 
-  // Delete a chat message from user view while permanently retaining message & attachment in Blackbox Security Vault
+  // Delete a chat message from the requesting user's view ONLY while permanently retaining the message on the server and for the peer
   app.delete("/api/messages/:id", requireAuth, async (req, res) => {
     try {
       const { id } = req.params;
+      const caller = extractRequestUser(req);
+      const userId = String(req.query?.userId || req.body?.userId || req.headers["x-user-id"] || caller?.uid || "").trim();
+      const userEmail = String(req.query?.userEmail || req.body?.userEmail || req.headers["x-user-email"] || caller?.email || "").trim().toLowerCase();
+      const userPhone = normalizePhoneDigitsServer(String(req.query?.userPhone || req.body?.userPhone || req.headers["x-user-phone"] || caller?.phone || ""));
+      const baseCallerSet = buildServerIdentitySet(userId, userEmail);
+      if (userPhone) {
+        baseCallerSet.add(userPhone);
+        baseCallerSet.add(`phone_${userPhone}`);
+        baseCallerSet.add(`${userPhone}@phone.locohelp.com`);
+      }
+      const callerIdentities = await expandIdentitySetFromDb(baseCallerSet);
+
+      await recordUserDeletedChatOrMessage(callerIdentities, [], [String(id || "")], new Date().toISOString());
+
       if (dbPool && isDbConnected) {
         const msgRes = await dbPool.query("SELECT * FROM messages WHERE id = $1 LIMIT 1", [id]).catch(() => ({ rows: [] as any[] }));
         if (msgRes.rows.length > 0) {
@@ -10433,7 +11411,7 @@ async function startServer() {
             {
               ...m,
               id: m.id || id,
-              name: `${m.sender_name || "User"} (Deleted Chat Message)`,
+              name: `${m.sender_name || "User"} (Deleted Chat Message - For Me Only)`,
               email: m.sender_email || "",
               category: `Deleted Chat -> ${m.receiver_id || m.post_id || ""}`,
               postContent: m.text || m.content || "",
@@ -10443,37 +11421,9 @@ async function startServer() {
             req
           ).catch(() => {});
         }
-        // NOTE: Never delete chat attachments from Firebase Storage so Admin Blackbox Record retains 100% of photos/messages
-        await dbPool.query("DELETE FROM messages WHERE id = $1", [id]).catch(() => {});
-        await dbPool.query("DELETE FROM chats WHERE id = $1", [id]).catch(() => {});
+        // NOTE: Never delete from messages, chats, or MESSAGES_FILE so peer and server retain 100% of chat history permanently!
       }
-      // Also remove from local JSON public thread so it doesn't reappear in user's chat screen
-      try {
-        const allMessages = readJsonFile<Record<string, any[]>>(MESSAGES_FILE, {});
-        let modified = false;
-        Object.keys(allMessages).forEach(convKey => {
-          const before = allMessages[convKey]?.length || 0;
-          const deletedTarget = (allMessages[convKey] || []).find((m: any) => m && m.id === id);
-          if (deletedTarget) {
-            void archiveToSecurityVault(
-              "help_post",
-              String(deletedTarget.id || id),
-              {
-                ...deletedTarget,
-                name: `${deletedTarget.senderName || "User"} (Deleted Chat Message)`,
-                email: deletedTarget.senderEmail || "",
-                postContent: deletedTarget.text || deletedTarget.content || ""
-              },
-              "DELETED_BY_USER",
-              req
-            ).catch(() => {});
-          }
-          allMessages[convKey] = (allMessages[convKey] || []).filter((m: any) => m && m.id !== id);
-          if ((allMessages[convKey]?.length || 0) !== before) modified = true;
-        });
-        if (modified) writeJsonFile(MESSAGES_FILE, allMessages);
-      } catch {}
-      res.json({ success: true, id });
+      res.json({ success: true, id, deletedForMeOnly: true });
     } catch (e: any) {
       res.status(500).json({ error: e.message || "Failed to delete message" });
     }
@@ -10830,7 +11780,8 @@ async function startServer() {
         area: sanitizeStringServer(shop.area || shop.address || 'Local Area', 200),
         address: sanitizeStringServer(shop.address || shop.area || 'Market Area', 300),
         description: sanitizeStringServer(shop.description || '', 1500),
-        photoUrl: validatedPhotos[0] || shop.photoUrl || shop.photo_url || existingShop?.photoUrl || resolvedPublicShopSelfie || null,
+        photoUrl: validatedPhotos[0] || shop.photoUrl || shop.photo_url || existingShop?.photoUrl || null,
+        visitingCardUrl: shop.visitingCardUrl || existingShop?.visitingCardUrl || validatedPhotos[0] || shop.photoUrl || existingShop?.photoUrl || null,
         photos: validatedPhotos.length > 0 ? validatedPhotos : (Array.isArray(existingShop?.photos) ? existingShop.photos : []),
         watermarkedSelfieUrl: resolvedPublicShopSelfie,
         rawSelfieUrl: resolvedAdminShopSelfie,
@@ -10922,7 +11873,12 @@ async function startServer() {
           userEmail: ownerEmail,
           userPhone: newShop.phone,
           title: `${newShop.name} (${newShop.categoryLabel}) - ${newShop.area}`,
-          idDocumentWatermarked: shop.idDocumentWatermarked || newShop.photoUrl || (existingVerifIdx >= 0 ? verifications[existingVerifIdx].idDocumentWatermarked : ''),
+          idDocumentWatermarked:
+            resolvedAdminShopSelfie ||
+            resolvedPublicShopSelfie ||
+            shop.idDocumentWatermarked ||
+            newShop.photoUrl ||
+            (existingVerifIdx >= 0 ? verifications[existingVerifIdx].idDocumentWatermarked : ''),
           status: 'pending',
           createdAt: newShop.createdAt
         };
@@ -10960,7 +11916,11 @@ async function startServer() {
       await archiveToSecurityVault(
         "business",
         newShop.id,
-        { ...newShop, idDocumentWatermarked: shop.idDocumentWatermarked || newShop.photoUrl || "" },
+        {
+          ...newShop,
+          idDocumentWatermarked:
+            resolvedAdminShopSelfie || resolvedPublicShopSelfie || shop.idDocumentWatermarked || newShop.photoUrl || ""
+        },
         "ACTIVE_REGISTERED",
         req
       );
@@ -11356,7 +12316,10 @@ async function startServer() {
         completedTasks: Number(helper.completedTasks || existingHelper?.completed_tasks || existingHelper?.completedTasks || 0),
         photoUrl: resolvedPublicWatermarked,
         watermarkedSelfieUrl: resolvedPublicWatermarked,
-        visitingCardUrl: helper.visitingCardUrl || helper.workPhotoUrl || existingHelper?.visitingCardUrl || null,
+        visitingCardUrl:
+          helper.visitingCardUrl === ''
+            ? null
+            : (helper.visitingCardUrl || helper.workPhotoUrl || existingHelper?.visitingCardUrl || null),
         isVerified: autoApprove,
         status: autoApprove ? 'approved' : 'pending',
         adminDirectCreate: isAdminCreatedHelper,
@@ -11384,7 +12347,9 @@ async function startServer() {
               area = EXCLUDED.area,
               experience = EXCLUDED.experience,
               photo_url = COALESCE(NULLIF(EXCLUDED.photo_url, ''), helpers.photo_url),
-              visiting_card_url = COALESCE(NULLIF(EXCLUDED.visiting_card_url, ''), helpers.visiting_card_url),
+              visiting_card_url = CASE WHEN $20::boolean THEN EXCLUDED.visiting_card_url ELSE COALESCE(NULLIF(EXCLUDED.visiting_card_url, ''), helpers.visiting_card_url) END,
+              govt_id_uploaded = COALESCE(EXCLUDED.govt_id_uploaded, helpers.govt_id_uploaded),
+              id_doc_url = COALESCE(NULLIF(EXCLUDED.id_doc_url, ''), helpers.id_doc_url),
               is_verified = EXCLUDED.is_verified,
               status = EXCLUDED.status
           `, [
@@ -11406,7 +12371,8 @@ async function startServer() {
             newHelper.status,
             newHelper.govtIdUploaded,
             newHelper.idDocUrl,
-            newHelper.createdAt
+            newHelper.createdAt,
+            Boolean(helper.visitingCardUrl !== undefined || helper.workPhotoUrl !== undefined)
           ]);
 
           await dbPool.query(`
@@ -13603,6 +14569,43 @@ async function startServer() {
       const helpers = readJsonFile<any[]>(HELPERS_FILE, []);
       let idx = helpers.findIndex(h => h.id === id);
 
+      if (idx === -1 && dbPool && isDbConnected) {
+        try {
+          const hRes = await dbPool.query("SELECT * FROM helpers WHERE id = $1 LIMIT 1", [id]);
+          if (hRes.rows.length > 0) {
+            const r = hRes.rows[0];
+            helpers.unshift({
+              id: r.id,
+              userId: r.user_id || r.id,
+              email: r.email || '',
+              name: r.name || 'Community Helper',
+              categoryId: r.category_id || 'other',
+              customCategoryName: r.custom_category_name || '',
+              phone: r.phone || '',
+              isPhonePublic: Boolean(r.is_phone_public),
+              skills: Array.isArray(r.skills) && r.skills.length > 0 ? r.skills : [r.category_id || 'General'],
+              area: r.area || 'Local Area',
+              experience: r.experience || '1+ Year',
+              distance: Number(r.distance || 0.5),
+              rating: Number(r.rating || 5.0),
+              reviewCount: Number(r.review_count || 0),
+              completedTasks: Number(r.completed_tasks || 0),
+              photoUrl: r.photo_url || null,
+              watermarkedSelfieUrl: r.photo_url || null,
+              visitingCardUrl: r.visiting_card_url || null,
+              workPhotoUrl: r.visiting_card_url || null,
+              idDocUrl: r.id_doc_url || null,
+              rawSelfieUrl: r.id_doc_url || null,
+              govtIdUploaded: Boolean(r.govt_id_uploaded),
+              isVerified: Boolean(r.is_verified || r.status === 'approved'),
+              status: r.status || (r.is_verified ? 'approved' : 'pending'),
+              createdAt: r.created_at || new Date().toISOString()
+            });
+            idx = 0;
+          }
+        } catch {}
+      }
+
       if (idx === -1) {
         // Check if stored in PROFILES_FILE
         const profiles = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
@@ -13622,6 +14625,7 @@ async function startServer() {
           categoryId: sanitizeStringServer(updates.categoryId || updates.category || 'other', 60),
           customCategoryName: sanitizeStringServer(updates.customCategoryName || '', 100),
           phone: sanitizeStringServer(updates.phone || '', 30),
+          isPhonePublic: Boolean(updates.isPhonePublic),
           email: sanitizeStringServer(updates.email || '', 150),
           skills: Array.isArray(updates.skills)
             ? updates.skills.map((s: any) => sanitizeStringServer(String(s), 80))
@@ -13639,19 +14643,23 @@ async function startServer() {
       }
 
       const helper = helpers[idx];
-      if (typeof updates.name === 'string') helper.name = sanitizeStringServer(updates.name, 150);
-      if (typeof updates.phone === 'string') helper.phone = sanitizeStringServer(updates.phone, 30);
-      if (typeof updates.email === 'string') helper.email = sanitizeStringServer(updates.email, 150);
-      if (typeof (updates.categoryId || updates.category) === 'string') {
+      if (typeof updates.name === 'string' && updates.name.trim()) helper.name = sanitizeStringServer(updates.name, 150);
+      if (typeof updates.phone === 'string' && updates.phone.trim()) helper.phone = sanitizeStringServer(updates.phone, 30);
+      if (typeof updates.email === 'string' && updates.email.trim()) helper.email = sanitizeStringServer(updates.email, 150);
+      if (typeof updates.isPhonePublic === 'boolean') helper.isPhonePublic = updates.isPhonePublic;
+      if (typeof (updates.categoryId || updates.category) === 'string' && (updates.categoryId || updates.category).trim()) {
         helper.categoryId = sanitizeStringServer(updates.categoryId || updates.category, 60);
       }
       if (typeof updates.customCategoryName === 'string') helper.customCategoryName = sanitizeStringServer(updates.customCategoryName, 100);
-      if (typeof updates.area === 'string') helper.area = sanitizeStringServer(updates.area, 200);
-      if (typeof (updates.experience || updates.bio) === 'string') {
+      if (typeof updates.area === 'string' && updates.area.trim()) helper.area = sanitizeStringServer(updates.area, 200);
+      if (typeof (updates.experience || updates.bio) === 'string' && (updates.experience || updates.bio).trim()) {
         helper.experience = sanitizeStringServer(updates.experience || updates.bio, 80);
       }
-      if (Array.isArray(updates.skills)) helper.skills = updates.skills.map((s: any) => sanitizeStringServer(String(s), 80));
-      if (typeof updates.skills === 'string') helper.skills = updates.skills.split(',').map((s: string) => sanitizeStringServer(s.trim(), 80)).filter(Boolean);
+      if (Array.isArray(updates.skills) && updates.skills.length > 0) {
+        helper.skills = updates.skills.map((s: any) => sanitizeStringServer(String(s), 80));
+      } else if (typeof updates.skills === 'string' && updates.skills.trim()) {
+        helper.skills = updates.skills.split(',').map((s: string) => sanitizeStringServer(s.trim(), 80)).filter(Boolean);
+      }
       if (typeof updates.status === 'string') {
         helper.status = updates.status;
         helper.isVerified = updates.status === 'approved';
@@ -13662,16 +14670,40 @@ async function startServer() {
         helper.is_verified = updates.isVerified;
         helper.status = updates.isVerified ? 'approved' : (helper.status === 'rejected' ? 'rejected' : 'pending');
       }
-      if (updates.photoUrl !== undefined || updates.avatarUrl !== undefined || updates.imageUrl !== undefined) {
-        const rawPhoto = updates.photoUrl ?? updates.avatarUrl ?? updates.imageUrl ?? '';
-        const newPhotoUrl = rawPhoto ? await uploadDataToFirebaseServer(String(rawPhoto), "helpers") : '';
-        const prevPhoto = helper.photoUrl || helper.avatarUrl || helper.imageUrl || '';
-        if (prevPhoto && prevPhoto !== newPhotoUrl) {
-          await deleteFilesFromFirebaseStorage(prevPhoto);
+      if (updates.visitingCardUrl !== undefined || updates.workPhotoUrl !== undefined) {
+        const rawCard = String(updates.visitingCardUrl ?? updates.workPhotoUrl ?? '').trim();
+        if (rawCard) {
+          const uploadedCard = await uploadDataToFirebaseServer(rawCard, "service_providers");
+          helper.visitingCardUrl = uploadedCard;
+          helper.workPhotoUrl = uploadedCard;
+        } else if (updates.visitingCardUrl === '') {
+          helper.visitingCardUrl = null;
+          helper.workPhotoUrl = null;
         }
-        helper.photoUrl = newPhotoUrl;
-        helper.avatarUrl = newPhotoUrl;
-        helper.imageUrl = newPhotoUrl;
+      }
+      if (updates.idDocumentWatermarked !== undefined || updates.idDocUrl !== undefined || updates.rawSelfieUrl !== undefined) {
+        const rawDoc = String(updates.idDocumentWatermarked ?? updates.idDocUrl ?? updates.rawSelfieUrl ?? '').trim();
+        if (rawDoc) {
+          const uploadedDoc = await uploadDataToFirebaseServer(rawDoc, "verifications");
+          helper.idDocUrl = uploadedDoc;
+          helper.id_doc_url = uploadedDoc;
+          helper.rawSelfieUrl = uploadedDoc;
+          helper.govtIdUploaded = true;
+        }
+      }
+      if (updates.photoUrl !== undefined || updates.avatarUrl !== undefined || updates.imageUrl !== undefined) {
+        const rawPhoto = String(updates.photoUrl ?? updates.avatarUrl ?? updates.imageUrl ?? '').trim();
+        if (rawPhoto) {
+          const newPhotoUrl = await uploadDataToFirebaseServer(rawPhoto, "helpers");
+          helper.photoUrl = newPhotoUrl;
+          helper.avatarUrl = newPhotoUrl;
+          helper.imageUrl = newPhotoUrl;
+          helper.watermarkedSelfieUrl = newPhotoUrl;
+          if (!helper.idDocUrl) {
+            helper.idDocUrl = newPhotoUrl;
+            helper.id_doc_url = newPhotoUrl;
+          }
+        }
       }
 
       helpers[idx] = helper;
@@ -13692,6 +14724,12 @@ async function startServer() {
           v.status = helper.status;
           v.userName = helper.name;
           v.userPhone = helper.phone;
+          if (helper.idDocUrl || helper.photoUrl) {
+            v.idDocumentWatermarked = helper.idDocUrl || helper.photoUrl || v.idDocumentWatermarked;
+          }
+          if (updates.visitingCardUrl !== undefined || updates.workPhotoUrl !== undefined) {
+            v.visitingCardUrl = helper.visitingCardUrl || '';
+          }
         }
       });
       writeJsonFile(VERIFICATIONS_FILE, verifs);
@@ -13700,19 +14738,23 @@ async function startServer() {
         try {
           const skillsArr = Array.isArray(helper.skills) ? helper.skills : [helper.categoryId || 'General'];
           await dbPool.query(
-            `INSERT INTO helpers (id, user_id, email, name, category_id, custom_category_name, phone, skills, area, experience, distance, photo_url, is_verified, status, created_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0.5, $11, $12, $13, NOW())
+            `INSERT INTO helpers (id, user_id, email, name, category_id, custom_category_name, phone, is_phone_public, skills, area, experience, distance, photo_url, visiting_card_url, is_verified, status, govt_id_uploaded, id_doc_url, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 0.5, $12, $13, $14, $15, $17, $18, NOW())
              ON CONFLICT (id) DO UPDATE SET
                user_id = COALESCE(NULLIF(EXCLUDED.user_id, ''), helpers.user_id),
                email = COALESCE(NULLIF(EXCLUDED.email, ''), helpers.email),
                name = EXCLUDED.name,
                phone = EXCLUDED.phone,
+               is_phone_public = EXCLUDED.is_phone_public,
                category_id = EXCLUDED.category_id,
                custom_category_name = EXCLUDED.custom_category_name,
                skills = EXCLUDED.skills,
                area = EXCLUDED.area,
                experience = EXCLUDED.experience,
                photo_url = COALESCE(NULLIF(EXCLUDED.photo_url, ''), helpers.photo_url),
+               visiting_card_url = CASE WHEN $16::boolean THEN EXCLUDED.visiting_card_url ELSE COALESCE(NULLIF(EXCLUDED.visiting_card_url, ''), helpers.visiting_card_url) END,
+               govt_id_uploaded = COALESCE(EXCLUDED.govt_id_uploaded, helpers.govt_id_uploaded),
+               id_doc_url = COALESCE(NULLIF(EXCLUDED.id_doc_url, ''), helpers.id_doc_url),
                is_verified = EXCLUDED.is_verified,
                status = EXCLUDED.status`,
             [
@@ -13723,12 +14765,17 @@ async function startServer() {
               helper.categoryId,
               helper.customCategoryName || '',
               helper.phone,
+              Boolean(helper.isPhonePublic),
               skillsArr,
               helper.area,
               helper.experience,
               helper.photoUrl || helper.avatarUrl || null,
+              helper.visitingCardUrl || helper.workPhotoUrl || null,
               Boolean(helper.isVerified),
-              helper.status || (helper.isVerified ? 'approved' : 'pending')
+              helper.status || (helper.isVerified ? 'approved' : 'pending'),
+              Boolean(updates.visitingCardUrl !== undefined || updates.workPhotoUrl !== undefined),
+              Boolean(helper.govtIdUploaded || helper.idDocUrl),
+              helper.idDocUrl || helper.rawSelfieUrl || null
             ]
           );
 
@@ -13740,7 +14787,11 @@ async function startServer() {
 
           await dbPool.query(
             `UPDATE verification_requests
-             SET status = $1, reviewed_at = NOW()
+             SET status = $1,
+                 user_name = COALESCE(NULLIF($6, ''), user_name),
+                 user_phone = COALESCE(NULLIF($7, ''), user_phone),
+                 id_doc_url = COALESCE(NULLIF($8, ''), id_doc_url),
+                 reviewed_at = NOW()
              WHERE entity_type = 'helper'
                AND (
                  entity_id = $2
@@ -13749,7 +14800,16 @@ async function startServer() {
                  OR ($4 <> '' AND LOWER(user_email) = LOWER($4))
                  OR ($5 <> '' AND RIGHT(REGEXP_REPLACE(COALESCE(user_phone, ''), '\\D', '', 'g'), 10) = $5)
                )`,
-            [finalHelperStatus, id, helperUid, helper.email || '', helperPhoneDigits]
+            [
+              finalHelperStatus,
+              id,
+              helperUid,
+              helper.email || '',
+              helperPhoneDigits,
+              helper.name || '',
+              helper.phone || '',
+              helper.idDocUrl || helper.photoUrl || ''
+            ]
           ).catch(() => {});
 
           await dbPool.query(`
@@ -13763,6 +14823,17 @@ async function startServer() {
       }
 
       invalidatePublicCache(['public_helpers']);
+      if (
+        (updates.status === 'approved' || updates.isVerified === true) &&
+        (helper.status === 'approved' || helper.isVerified === true)
+      ) {
+        void notifyUserAccountApproved({
+          userId: String(helper.userId || id || ''),
+          email: String(helper.email || ''),
+          phone: String(helper.phone || ''),
+          req
+        });
+      }
       res.json({ success: true, item: helper });
     } catch (e: any) {
       res.status(500).json({ error: e.message || "Failed to update helper profile" });
@@ -13980,14 +15051,15 @@ async function startServer() {
               existing.avatarUrl ||
               "";
             const visitingCard =
-              rawJsonObj.visitingCardUrl ||
-              (p.image_url &&
-              p.image_url !== p.avatar_url &&
-              p.image_url !== "https://lh3.googleusercontent.com/a/default-user"
-                ? p.image_url
-                : "") ||
-              existing.visitingCardUrl ||
-              "";
+              rawJsonObj.visitingCardUrl !== undefined
+                ? String(rawJsonObj.visitingCardUrl || "")
+                : (p.image_url &&
+                  p.image_url !== p.avatar_url &&
+                  p.image_url !== "https://lh3.googleusercontent.com/a/default-user"
+                    ? p.image_url
+                    : "") ||
+                  existing.visitingCardUrl ||
+                  "";
             userMap.set(uid, {
               ...existing,
               uid,
@@ -14005,8 +15077,8 @@ async function startServer() {
               customCategoryName: p.category_name || existing.customCategoryName || '',
               avatarUrl: liveSelfie || cleanPAvatar || existing.avatarUrl || '',
               liveSelfieUrl: liveSelfie,
-              visitingCardUrl: visitingCard,
-              photoUrl: visitingCard || '',
+              visitingCardUrl: visitingCard && visitingCard !== liveSelfie ? visitingCard : '',
+              photoUrl: liveSelfie || cleanPAvatar || existing.avatarUrl || '',
               status,
               isVerified: status === 'approved',
               idDocumentWatermarked: liveSelfie,
@@ -14043,7 +15115,8 @@ async function startServer() {
           const isMergedApproved =
             prev.status === 'approved' || u.status === 'approved' || prev.isVerified === true || u.isVerified === true;
           const mergedSelfie = prev.idDocumentWatermarked || u.idDocumentWatermarked || prev.liveSelfieUrl || u.liveSelfieUrl || prev.avatarUrl || u.avatarUrl || '';
-          const mergedVisitingCard = prev.visitingCardUrl || u.visitingCardUrl || prev.photoUrl || u.photoUrl || '';
+          const rawMergedCard = prev.visitingCardUrl || u.visitingCardUrl || '';
+          const mergedVisitingCard = rawMergedCard && rawMergedCard !== mergedSelfie ? rawMergedCard : '';
           dedupedList[existingIdx] = {
             ...u,
             ...prev,
@@ -14060,7 +15133,7 @@ async function startServer() {
             liveSelfieUrl: mergedSelfie,
             idDocumentWatermarked: mergedSelfie,
             visitingCardUrl: mergedVisitingCard,
-            photoUrl: mergedVisitingCard,
+            photoUrl: mergedSelfie,
             status: isMergedApproved ? 'approved' : (prev.status || u.status || 'pending'),
             isVerified: isMergedApproved
           };
@@ -14081,27 +15154,60 @@ async function startServer() {
     try {
       const { uid } = req.params;
       const updates = req.body || {};
-      let current: any = { uid, id: uid };
+      const profilesFileMap = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
+      const existingInFile = profilesFileMap[uid] || {};
+      let current: any = {
+        ...existingInFile,
+        uid,
+        id: uid
+      };
 
       if (dbPool && isDbConnected) {
         try {
           const pRes = await dbPool.query("SELECT * FROM profiles WHERE uid = $1 OR id = $1 LIMIT 1", [uid]);
           if (pRes.rows.length > 0) {
             const r = pRes.rows[0];
+            const rawJsonObj =
+              typeof r.raw_json === 'object' && r.raw_json
+                ? r.raw_json
+                : (typeof r.raw_json === 'string' && r.raw_json.trim().startsWith('{')
+                    ? (() => { try { return JSON.parse(r.raw_json); } catch { return {}; } })()
+                    : {});
+            const dbAvatar =
+              (r.avatar_url && r.avatar_url !== "https://lh3.googleusercontent.com/a/default-user" ? r.avatar_url : '') ||
+              rawJsonObj.liveSelfieUrl ||
+              current.avatarUrl ||
+              current.avatar_url ||
+              '';
+            const dbVisitingCard =
+              rawJsonObj.visitingCardUrl !== undefined
+                ? String(rawJsonObj.visitingCardUrl || '')
+                : (r.image_url && r.image_url !== r.avatar_url && r.image_url !== "https://lh3.googleusercontent.com/a/default-user"
+                    ? r.image_url
+                    : '') ||
+                  current.visitingCardUrl ||
+                  '';
             current = {
+              ...current,
               uid: r.uid || uid,
               id: r.uid || uid,
-              name: r.full_name || r.name || '',
-              full_name: r.full_name || r.name || '',
-              email: r.email || '',
-              phone: r.phone || '',
-              address: r.address || r.sector || '',
-              skills: r.skills || '',
-              experience: r.experience || '',
-              category: r.category_id || '',
-              categoryId: r.category_id || '',
-              avatarUrl: r.avatar_url || r.image_url || '',
-              status: r.status || (r.is_verified ? 'approved' : 'pending'),
+              name: r.full_name || r.name || current.name || '',
+              full_name: r.full_name || r.name || current.full_name || '',
+              email: r.email || current.email || '',
+              phone: r.phone || current.phone || '',
+              isPhonePublic: typeof rawJsonObj.isPhonePublic === 'boolean'
+                ? rawJsonObj.isPhonePublic
+                : Boolean(current.isPhonePublic ?? current.is_phone_public ?? false),
+              address: r.address || r.sector || current.address || '',
+              skills: r.skills || current.skills || '',
+              experience: r.experience || current.experience || '',
+              category: r.category_id || current.category || '',
+              categoryId: r.category_id || current.categoryId || '',
+              avatarUrl: dbAvatar,
+              avatar_url: dbAvatar,
+              liveSelfieUrl: dbAvatar,
+              visitingCardUrl: dbVisitingCard,
+              status: r.status || (r.is_verified ? 'approved' : (current.status || 'pending')),
               isVerified: Boolean(r.verified || r.is_verified || r.status === 'approved')
             };
           }
@@ -14138,27 +15244,47 @@ async function startServer() {
         } catch {}
       }
 
-      if (typeof updates.name === 'string') {
-        current.name = sanitizeStringServer(updates.name, 120);
+      if (typeof updates.name === 'string' && updates.name.trim()) {
+        current.name = sanitizeStringServer(updates.name.trim(), 120);
         current.full_name = current.name;
         current.displayName = current.name;
       }
       if (typeof updates.email === 'string' && updates.email.trim()) current.email = sanitizeStringServer(updates.email, 150).toLowerCase();
       if (typeof updates.phone === 'string' && updates.phone.trim()) current.phone = sanitizeStringServer(updates.phone, 30);
-      if (typeof (updates.address || updates.area) === 'string') current.address = sanitizeStringServer(updates.address || updates.area, 300);
+      if (typeof updates.isPhonePublic === 'boolean') {
+        current.isPhonePublic = updates.isPhonePublic;
+        current.is_phone_public = updates.isPhonePublic;
+      }
+      if (typeof (updates.address || updates.area) === 'string' && String(updates.address || updates.area).trim()) {
+        current.address = sanitizeStringServer(updates.address || updates.area, 300);
+      }
       if (typeof (updates.skills || updates.bio) === 'string') current.skills = sanitizeStringServer(updates.skills || updates.bio, 500);
       if (typeof updates.experience === 'string') current.experience = sanitizeStringServer(updates.experience, 120);
-      if (typeof (updates.categoryId || updates.category) === 'string') {
+      if (typeof (updates.categoryId || updates.category) === 'string' && String(updates.categoryId || updates.category).trim()) {
         current.category = sanitizeStringServer(updates.categoryId || updates.category, 100);
         current.categoryId = current.category;
       }
-      if (updates.avatarUrl !== undefined || updates.photoUrl !== undefined || updates.imageUrl !== undefined) {
-        const rawAvatar = updates.avatarUrl ?? updates.photoUrl ?? updates.imageUrl ?? '';
-        const newAvatarUrl = rawAvatar ? await uploadDataToFirebaseServer(String(rawAvatar), "profiles") : '';
-        if (current.avatarUrl && current.avatarUrl !== newAvatarUrl) {
-          await deleteFilesFromFirebaseStorage(current.avatarUrl);
+      if (updates.avatarUrl !== undefined || updates.liveSelfieUrl !== undefined || updates.photoUrl !== undefined || updates.imageUrl !== undefined) {
+        const rawAvatar = String(updates.avatarUrl ?? updates.liveSelfieUrl ?? updates.photoUrl ?? updates.imageUrl ?? '').trim();
+        if (rawAvatar) {
+          const newAvatarUrl = await uploadDataToFirebaseServer(rawAvatar, "profiles");
+          if (newAvatarUrl) {
+            current.avatarUrl = newAvatarUrl;
+            current.avatar_url = newAvatarUrl;
+            current.liveSelfieUrl = newAvatarUrl;
+          }
         }
-        current.avatarUrl = newAvatarUrl;
+      }
+      if (updates.visitingCardUrl !== undefined) {
+        const rawVisitingCard = String(updates.visitingCardUrl || '').trim();
+        if (rawVisitingCard) {
+          const newCardUrl = await uploadDataToFirebaseServer(rawVisitingCard, "profiles");
+          if (newCardUrl) {
+            current.visitingCardUrl = newCardUrl;
+          }
+        } else if (updates.visitingCardUrl === '') {
+          current.visitingCardUrl = '';
+        }
       }
       if (typeof updates.status === 'string') {
         const normSt = updates.status.toLowerCase();
@@ -14178,7 +15304,6 @@ async function startServer() {
       const phoneDigits = normalizePhoneDigitsServer(current.phone || (uid.startsWith('phone_') ? uid : '') || emailPhoneDigits);
 
       // Sync local profile file
-      const profilesFileMap = readJsonFile<Record<string, any>>(PROFILES_FILE, {});
       profilesFileMap[uid] = { ...(profilesFileMap[uid] || {}), ...current };
       Object.keys(profilesFileMap).forEach((pKey) => {
         const p = profilesFileMap[pKey];
@@ -14193,7 +15318,8 @@ async function startServer() {
             ...p,
             status: current.status,
             isVerified: Boolean(current.isVerified),
-            is_verified: Boolean(current.isVerified)
+            is_verified: Boolean(current.isVerified),
+            ...(updates.visitingCardUrl !== undefined ? { visitingCardUrl: current.visitingCardUrl } : {})
           };
         }
       });
@@ -14213,6 +15339,9 @@ async function startServer() {
             (phoneDigits && vPh === phoneDigits))
         ) {
           v.status = current.status;
+          if (updates.visitingCardUrl !== undefined) {
+            v.visitingCardUrl = current.visitingCardUrl || '';
+          }
           verifUpdated = true;
         }
       });
@@ -14228,9 +15357,15 @@ async function startServer() {
 
       if (dbPool && isDbConnected) {
         try {
+          const resolvedImageUrl = current.visitingCardUrl || current.avatarUrl || '';
+          const resolvedRawJson = JSON.stringify({
+            isPhonePublic: Boolean(current.isPhonePublic),
+            liveSelfieUrl: current.avatarUrl || '',
+            visitingCardUrl: current.visitingCardUrl || ''
+          });
           await dbPool.query(
-            `INSERT INTO profiles (uid, id, user_id, name, full_name, email, phone, address, sector, skills, experience, category_id, avatar_url, image_url, verified, is_verified, status, is_deleted, hidden, updated_at)
-             VALUES ($1, $1, $1, $2, $2, $3, $4, $5, $5, $6, $7, $8, $9, $9, $10, $10, $11, false, false, NOW())
+            `INSERT INTO profiles (uid, id, user_id, name, full_name, email, phone, address, sector, skills, experience, category_id, avatar_url, image_url, raw_json, verified, is_verified, status, is_deleted, hidden, updated_at)
+             VALUES ($1, $1, $1, $2, $2, $3, $4, $5, $5, $6, $7, $8, $9, $10, $11, $12, $12, $13, false, false, NOW())
              ON CONFLICT (uid) DO UPDATE SET
                name = COALESCE(NULLIF(EXCLUDED.name, ''), profiles.name),
                full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), profiles.full_name),
@@ -14241,8 +15376,9 @@ async function startServer() {
                skills = COALESCE(NULLIF(EXCLUDED.skills, ''), profiles.skills),
                experience = COALESCE(NULLIF(EXCLUDED.experience, ''), profiles.experience),
                category_id = COALESCE(NULLIF(EXCLUDED.category_id, ''), profiles.category_id),
-               avatar_url = CASE WHEN $12::boolean THEN EXCLUDED.avatar_url ELSE COALESCE(NULLIF(EXCLUDED.avatar_url, ''), profiles.avatar_url) END,
-               image_url = CASE WHEN $12::boolean THEN EXCLUDED.image_url ELSE COALESCE(NULLIF(EXCLUDED.image_url, ''), profiles.image_url) END,
+               avatar_url = COALESCE(NULLIF(EXCLUDED.avatar_url, ''), profiles.avatar_url),
+               image_url = CASE WHEN $14::boolean THEN EXCLUDED.image_url ELSE COALESCE(NULLIF(EXCLUDED.image_url, ''), profiles.image_url) END,
+               raw_json = EXCLUDED.raw_json,
                verified = EXCLUDED.verified,
                is_verified = EXCLUDED.is_verified,
                status = EXCLUDED.status,
@@ -14259,9 +15395,17 @@ async function startServer() {
               current.experience || '',
               current.category || '',
               current.avatarUrl || '',
+              resolvedImageUrl,
+              resolvedRawJson,
               Boolean(current.isVerified),
               current.status || 'approved',
-              Boolean(updates.avatarUrl !== undefined || updates.photoUrl !== undefined || updates.imageUrl !== undefined)
+              Boolean(
+                updates.visitingCardUrl !== undefined ||
+                updates.avatarUrl !== undefined ||
+                updates.liveSelfieUrl !== undefined ||
+                updates.photoUrl !== undefined ||
+                updates.imageUrl !== undefined
+              )
             ]
           );
 
@@ -14302,6 +15446,20 @@ async function startServer() {
             ).catch(() => {});
           }
         } catch (e) {}
+      }
+
+      if (
+        (String(updates.status || '').toLowerCase() === 'approved' ||
+          updates.isVerified === true ||
+          updates.verified === true) &&
+        (current.status === 'approved' || current.isVerified === true)
+      ) {
+        void notifyUserAccountApproved({
+          userId: String(uid || ''),
+          email: String(current.email || ''),
+          phone: String(current.phone || phoneDigits || ''),
+          req
+        });
       }
 
       invalidatePublicCache(['public_helpers', 'public_shops']);
@@ -14431,78 +15589,144 @@ async function startServer() {
     }
   });
 
-  // 4. Admin Business / Shop Registrations: Approve, Reject, Edit, or Delete (Upserts in PostgreSQL)
+  // 4. Admin Business / Shop Registrations: Approve, Reject, Edit, or Delete (Upserts in PostgreSQL + SHOPS_FILE)
   app.patch("/api/admin/shops/:id", requireAdmin, async (req, res) => {
     try {
       const { id } = req.params;
       const updates = req.body || {};
-      let shop: any = {
-        id,
-        name: sanitizeStringServer(updates.name || updates.businessName || 'Local Business', 200),
-        businessName: sanitizeStringServer(updates.name || updates.businessName || 'Local Business', 200),
-        business_name: sanitizeStringServer(updates.name || updates.businessName || 'Local Business', 200),
-        type: 'shop',
-        category: sanitizeStringServer(updates.categoryLabel || updates.category || 'Retail & Services', 120),
-        categoryLabel: sanitizeStringServer(updates.categoryLabel || updates.category || 'Retail & Services', 120),
-        ownerName: sanitizeStringServer(updates.ownerName || 'Owner', 120),
-        owner_id: sanitizeStringServer(updates.userId || updates.owner_id || id, 150),
-        userId: sanitizeStringServer(updates.userId || updates.owner_id || id, 150),
-        ownerEmail: sanitizeStringServer(updates.email || updates.ownerEmail || '', 150),
-        phone: sanitizeStringServer(updates.phone || '', 30),
-        timings: sanitizeStringServer(updates.timings || '9:00 AM - 9:00 PM', 120),
-        area: sanitizeStringServer(updates.area || updates.address || 'Local Market', 200),
-        address: sanitizeStringServer(updates.address || updates.area || 'Local Market', 300),
-        description: sanitizeStringServer(updates.description || '', 1500),
-        photoUrl: updates.photoUrl || null,
-        rating: 5.0,
-        reviewCount: 1,
-        isVerified: updates.status === 'approved' || Boolean(updates.isVerified),
-        status: updates.status || (updates.isVerified ? 'approved' : 'pending'),
-        createdAt: updates.createdAt || new Date().toISOString()
-      };
+      const shopsList = readJsonFile<any[]>(SHOPS_FILE, []);
+      const existingIdx = shopsList.findIndex(s => s && s.id === id);
+      const existingInFile = existingIdx >= 0 ? shopsList[existingIdx] : null;
 
+      let existingInDb: any = null;
       if (dbPool && isDbConnected) {
         try {
-          const bRes = await dbPool.query("SELECT * FROM businesses WHERE id = $1 LIMIT 1", [id]);
+          const [bRes, sRes] = await Promise.all([
+            dbPool.query("SELECT * FROM businesses WHERE id = $1 LIMIT 1", [id]).catch(() => ({ rows: [] as any[] })),
+            dbPool.query("SELECT * FROM shops WHERE id = $1 LIMIT 1", [id]).catch(() => ({ rows: [] as any[] }))
+          ]);
+          if (sRes.rows.length > 0) {
+            const sr = sRes.rows[0];
+            existingInDb = {
+              id: sr.id,
+              name: sr.name,
+              businessName: sr.name,
+              business_name: sr.name,
+              type: sr.type || 'shop',
+              category: sr.category_label,
+              categoryLabel: sr.category_label,
+              ownerName: sr.owner_name,
+              phone: sr.phone,
+              area: sr.area,
+              address: sr.address,
+              description: sr.description,
+              photoUrl: sr.photo_url || null,
+              rating: typeof sr.rating === 'number' ? sr.rating : 5.0,
+              reviewCount: typeof sr.review_count === 'number' ? sr.review_count : 1,
+              isVerified: Boolean(sr.is_verified),
+              status: sr.is_verified ? 'approved' : 'pending',
+              createdAt: sr.created_at ? new Date(sr.created_at).toISOString() : undefined
+            };
+          }
           if (bRes.rows.length > 0) {
             const r = bRes.rows[0];
-            const rawObj = typeof r.raw_json === 'object' && r.raw_json ? r.raw_json : {};
-            shop = {
-              ...shop,
+            const rawObj = typeof r.raw_json === 'object' && r.raw_json
+              ? r.raw_json
+              : (typeof r.raw_json === 'string' && r.raw_json.trim().startsWith('{') ? JSON.parse(r.raw_json) : {});
+            existingInDb = {
+              ...(existingInDb || {}),
               ...rawObj,
               id: r.id,
-              name: r.shop_name || r.business_name || rawObj.name || shop.name,
-              businessName: r.business_name || r.shop_name || rawObj.businessName || shop.businessName,
-              categoryLabel: r.category || rawObj.categoryLabel || shop.categoryLabel,
-              category: r.category || rawObj.category || shop.category,
-              phone: r.phone || rawObj.phone || shop.phone,
-              area: r.sector || rawObj.area || shop.area,
-              address: r.address || rawObj.address || shop.address,
-              description: r.description || rawObj.description || shop.description,
-              photoUrl: r.image_url || rawObj.photoUrl || shop.photoUrl,
+              userId: r.user_id || rawObj.userId || rawObj.owner_id,
+              owner_id: r.owner_id || r.user_id || rawObj.owner_id || rawObj.userId,
+              name: r.shop_name || r.business_name || rawObj.name || existingInDb?.name,
+              businessName: r.business_name || r.shop_name || rawObj.businessName || existingInDb?.businessName,
+              business_name: r.business_name || r.shop_name || rawObj.business_name || existingInDb?.business_name,
+              categoryLabel: r.category || rawObj.categoryLabel || existingInDb?.categoryLabel,
+              category: r.category || rawObj.category || existingInDb?.category,
+              phone: r.phone || rawObj.phone || existingInDb?.phone,
+              area: r.sector || rawObj.area || existingInDb?.area,
+              address: r.address || rawObj.address || existingInDb?.address,
+              description: r.description || rawObj.description || existingInDb?.description,
+              photoUrl: r.image_url || rawObj.photoUrl || existingInDb?.photoUrl || null,
+              isPhonePublic: typeof rawObj.isPhonePublic === 'boolean' ? rawObj.isPhonePublic : existingInDb?.isPhonePublic,
               isVerified: Boolean(r.is_approved || r.is_verified),
-              status: (r.is_approved || r.is_verified) ? 'approved' : (rawObj.status || 'pending')
+              status: (r.is_approved || r.is_verified) ? 'approved' : (rawObj.status || existingInDb?.status || 'pending')
             };
           }
         } catch {}
       }
 
-      if (typeof updates.name === 'string') {
-        shop.name = sanitizeStringServer(updates.name, 200);
+      const baseShop = {
+        ...(existingInFile || {}),
+        ...(existingInDb || {})
+      };
+
+      const resolvedName = sanitizeStringServer(
+        updates.name || updates.businessName || baseShop.name || baseShop.businessName || 'Local Business',
+        200
+      );
+      const resolvedCategory = sanitizeStringServer(
+        updates.categoryLabel || updates.category || baseShop.categoryLabel || baseShop.category || 'Retail & Services',
+        120
+      );
+
+      let shop: any = {
+        ...baseShop,
+        id,
+        name: resolvedName,
+        businessName: resolvedName,
+        business_name: resolvedName,
+        type: baseShop.type || 'shop',
+        category: resolvedCategory,
+        categoryLabel: resolvedCategory,
+        ownerName: sanitizeStringServer(updates.ownerName || baseShop.ownerName || 'Owner', 120),
+        owner_id: sanitizeStringServer(updates.userId || updates.owner_id || baseShop.owner_id || baseShop.userId || id, 150),
+        userId: sanitizeStringServer(updates.userId || updates.owner_id || baseShop.userId || baseShop.owner_id || id, 150),
+        ownerEmail: sanitizeStringServer(updates.email || updates.ownerEmail || baseShop.ownerEmail || baseShop.email || '', 150),
+        phone: sanitizeStringServer(updates.phone ?? baseShop.phone ?? '', 30),
+        isPhonePublic: typeof updates.isPhonePublic === 'boolean'
+          ? updates.isPhonePublic
+          : (typeof baseShop.isPhonePublic === 'boolean' ? baseShop.isPhonePublic : false),
+        timings: sanitizeStringServer(updates.timings ?? baseShop.timings ?? '9:00 AM - 9:00 PM', 120),
+        area: sanitizeStringServer(updates.area || baseShop.area || updates.address || baseShop.address || 'Local Market', 200),
+        address: sanitizeStringServer(updates.address || baseShop.address || updates.area || baseShop.area || 'Local Market', 300),
+        description: sanitizeStringServer(updates.description ?? baseShop.description ?? '', 1500),
+        photoUrl: baseShop.photoUrl || null,
+        photos: Array.isArray(baseShop.photos) ? baseShop.photos : (baseShop.photoUrl ? [baseShop.photoUrl] : []),
+        rating: typeof baseShop.rating === 'number' ? baseShop.rating : 5.0,
+        reviewCount: typeof baseShop.reviewCount === 'number' ? baseShop.reviewCount : 1,
+        isVerified: updates.status !== undefined
+          ? updates.status === 'approved'
+          : (typeof updates.isVerified === 'boolean' ? updates.isVerified : Boolean(baseShop.isVerified)),
+        status: updates.status || (typeof updates.isVerified === 'boolean' ? (updates.isVerified ? 'approved' : 'pending') : (baseShop.status || 'pending')),
+        createdAt: baseShop.createdAt || updates.createdAt || new Date().toISOString()
+      };
+
+      if (typeof updates.name === 'string' && updates.name.trim()) {
+        shop.name = sanitizeStringServer(updates.name.trim(), 200);
         shop.businessName = shop.name;
         shop.business_name = shop.name;
       }
-      if (typeof updates.ownerName === 'string') shop.ownerName = sanitizeStringServer(updates.ownerName, 120);
-      if (typeof updates.phone === 'string') shop.phone = sanitizeStringServer(updates.phone, 30);
-      if (typeof (updates.email || updates.ownerEmail) === 'string') shop.ownerEmail = sanitizeStringServer(updates.email || updates.ownerEmail, 150);
+      if (typeof updates.ownerName === 'string' && updates.ownerName.trim()) shop.ownerName = sanitizeStringServer(updates.ownerName.trim(), 120);
+      if (typeof updates.phone === 'string' && updates.phone.trim()) shop.phone = sanitizeStringServer(updates.phone.trim(), 30);
+      if (typeof (updates.email || updates.ownerEmail) === 'string' && String(updates.email || updates.ownerEmail).trim()) {
+        shop.ownerEmail = sanitizeStringServer(String(updates.email || updates.ownerEmail).trim(), 150);
+      }
       if (typeof updates.timings === 'string') shop.timings = sanitizeStringServer(updates.timings, 120);
-      if (typeof (updates.categoryLabel || updates.category) === 'string') {
-        shop.categoryLabel = sanitizeStringServer(updates.categoryLabel || updates.category, 120);
+      if (typeof (updates.categoryLabel || updates.category) === 'string' && String(updates.categoryLabel || updates.category).trim()) {
+        shop.categoryLabel = sanitizeStringServer(String(updates.categoryLabel || updates.category).trim(), 120);
         shop.category = shop.categoryLabel;
       }
-      if (typeof updates.area === 'string') shop.area = sanitizeStringServer(updates.area, 200);
-      if (typeof updates.address === 'string') shop.address = sanitizeStringServer(updates.address, 300);
+      if (typeof updates.area === 'string' && updates.area.trim()) shop.area = sanitizeStringServer(updates.area.trim(), 200);
+      if (typeof updates.address === 'string' && updates.address.trim()) shop.address = sanitizeStringServer(updates.address.trim(), 300);
       if (typeof updates.description === 'string') shop.description = sanitizeStringServer(updates.description, 1500);
+      if (typeof updates.isPhonePublic === 'boolean') {
+        shop.isPhonePublic = updates.isPhonePublic;
+      }
+      if (typeof updates.visitingCardUrl === 'string' && updates.visitingCardUrl.trim()) {
+        shop.visitingCardUrl = await uploadDataToFirebaseServer(updates.visitingCardUrl.trim(), "businesses");
+      }
       if (typeof updates.status === 'string') {
         shop.status = updates.status;
         shop.isVerified = updates.status === 'approved';
@@ -14514,13 +15738,38 @@ async function startServer() {
         shop.status = updates.isVerified ? 'approved' : (shop.status === 'rejected' ? 'rejected' : 'pending');
       }
       if (updates.photoUrl !== undefined || updates.imageUrl !== undefined) {
-        const rawPhoto = updates.photoUrl ?? updates.imageUrl ?? '';
-        const newPhotoUrl = rawPhoto ? await uploadDataToFirebaseServer(String(rawPhoto), "shops") : '';
-        if (shop.photoUrl && shop.photoUrl !== newPhotoUrl) {
-          await deleteFilesFromFirebaseStorage(shop.photoUrl);
+        const rawPhoto = String(updates.photoUrl ?? updates.imageUrl ?? '').trim();
+        if (rawPhoto) {
+          const newPhotoUrl = await uploadDataToFirebaseServer(rawPhoto, "businesses");
+          if (newPhotoUrl) {
+            shop.photoUrl = newPhotoUrl;
+            shop.image_url = newPhotoUrl;
+            const existingPhotos = Array.isArray(shop.photos) ? shop.photos : [];
+            shop.photos = [newPhotoUrl, ...existingPhotos.filter((p: string) => p && p !== newPhotoUrl)].slice(0, 3);
+          }
         }
-        shop.photoUrl = newPhotoUrl || null;
       }
+
+      if (existingIdx >= 0) {
+        shopsList[existingIdx] = shop;
+      } else {
+        shopsList.unshift(shop);
+      }
+      writeJsonFile(SHOPS_FILE, shopsList);
+
+      try {
+        const verifications = readJsonFile<any[]>(VERIFICATIONS_FILE, []);
+        let vChanged = false;
+        for (const v of verifications) {
+          if (v && v.entityId === id) {
+            v.status = shop.status;
+            v.userName = shop.name;
+            v.userPhone = shop.phone;
+            vChanged = true;
+          }
+        }
+        if (vChanged) writeJsonFile(VERIFICATIONS_FILE, verifications);
+      } catch {}
 
       if (dbPool && isDbConnected) {
         try {
@@ -14535,7 +15784,7 @@ async function startServer() {
                area = EXCLUDED.area,
                address = EXCLUDED.address,
                description = EXCLUDED.description,
-               photo_url = EXCLUDED.photo_url,
+               photo_url = COALESCE(NULLIF(EXCLUDED.photo_url, ''), shops.photo_url),
                is_verified = EXCLUDED.is_verified`,
             [id, shop.name, shop.categoryLabel, shop.ownerName, shop.phone, shop.area, shop.address, shop.description, shop.photoUrl || null, Boolean(shop.isVerified)]
           );
@@ -14550,7 +15799,7 @@ async function startServer() {
                sector = EXCLUDED.sector,
                phone = EXCLUDED.phone,
                description = EXCLUDED.description,
-               image_url = EXCLUDED.image_url,
+               image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), businesses.image_url),
                is_approved = EXCLUDED.is_approved,
                is_verified = EXCLUDED.is_verified,
                raw_json = EXCLUDED.raw_json`,
@@ -14564,6 +15813,17 @@ async function startServer() {
       }
 
       invalidatePublicCache(['public_shops', 'public_helpers']);
+      if (
+        (updates.status === 'approved' || updates.isVerified === true) &&
+        (shop.status === 'approved' || shop.isVerified === true)
+      ) {
+        void notifyUserAccountApproved({
+          userId: String(shop.userId || shop.owner_id || id || ''),
+          email: String(shop.ownerEmail || shop.email || ''),
+          phone: String(shop.phone || ''),
+          req
+        });
+      }
       res.json({ success: true, item: shop });
     } catch (e: any) {
       res.status(500).json({ error: e.message || "Failed to update shop/business" });
@@ -15074,7 +16334,7 @@ async function startServer() {
             userEmail: s.ownerEmail || '',
             userPhone: s.phone || '',
             title: `${s.name} (${s.categoryLabel || 'Business'}) - ${s.area || 'Local Area'}`,
-            idDocumentWatermarked: s.photoUrl || '',
+            idDocumentWatermarked: s.idDocumentWatermarked || s.rawSelfieUrl || s.watermarkedSelfieUrl || s.photoUrl || '',
             status: s.isVerified ? 'approved' : (s.status || 'pending'),
             createdAt: s.createdAt || new Date().toISOString()
           };
@@ -15282,6 +16542,24 @@ async function startServer() {
       }
 
       invalidatePublicCache(['public_helpers', 'public_shops']);
+      if (status === 'approved') {
+        const targetUid = String(
+          updatedItem?.user_id ||
+            updatedItem?.userId ||
+            updatedItem?.entity_id ||
+            updatedItem?.entityId ||
+            id ||
+            ''
+        ).trim();
+        const targetEmail = String(updatedItem?.user_email || updatedItem?.userEmail || '').trim();
+        const targetPhone = String(updatedItem?.user_phone || updatedItem?.userPhone || '').trim();
+        void notifyUserAccountApproved({
+          userId: targetUid,
+          email: targetEmail,
+          phone: targetPhone,
+          req
+        });
+      }
       res.json({ success: true, item: updatedItem, status });
     } catch (e: any) {
       res.status(500).json({ error: e.message || "Failed to update verification status" });
@@ -15532,9 +16810,15 @@ async function startServer() {
       const resolvedAccountEmail = isEmail
         ? cleanIdentifier
         : existingAcc?.email || `${cleanIdentifier.replace(/\D/g, '')}@phone.locohelp.com`;
+      const bestOtpDisplayName =
+        (!isGenericMemberName(requestedName) ? requestedName : '') ||
+        (!isGenericMemberName(existingAcc?.name) ? existingAcc?.name : '') ||
+        requestedName ||
+        existingAcc?.name ||
+        (isEmail ? cleanIdentifier.split('@')[0] : `User +91 ${cleanIdentifier.replace(/\D/g, '')}`);
       const user = {
         uid: existingAcc?.uid || ((isEmail ? 'email_' : 'phone_') + (isEmail ? cleanIdentifier.replace(/[^a-z0-9]/g, '_') : cleanIdentifier.replace(/\D/g, ''))),
-        displayName: requestedName || existingAcc?.name || (isEmail ? cleanIdentifier.split('@')[0] : `User +91 ${cleanIdentifier.replace(/\D/g, '')}`),
+        displayName: bestOtpDisplayName,
         email: resolvedAccountEmail,
         phone: existingAcc?.phone || (!isEmail ? `+91 ${cleanIdentifier.replace(/\D/g, '')}` : ''),
         verifiedAt: new Date().toISOString()
@@ -15570,7 +16854,15 @@ async function startServer() {
               INSERT INTO users (id, name, email, phone, role, is_deleted, hidden, terms_accepted, terms_accepted_at, created_at)
               VALUES ($1, $2, $3, $4, 'user', false, false, true, NOW(), NOW())
               ON CONFLICT (email) DO UPDATE SET
-                name = COALESCE(NULLIF(EXCLUDED.name, ''), users.name),
+                name = CASE
+                  WHEN EXCLUDED.name IS NOT NULL
+                    AND TRIM(EXCLUDED.name) <> ''
+                    AND LOWER(TRIM(EXCLUDED.name)) NOT IN ('community member', 'community user', 'user', 'guest user', 'member', 'verified user')
+                    AND LOWER(TRIM(EXCLUDED.name)) NOT LIKE 'member %'
+                    AND LOWER(TRIM(EXCLUDED.name)) NOT LIKE 'user %'
+                  THEN EXCLUDED.name
+                  ELSE COALESCE(NULLIF(TRIM(users.name), ''), EXCLUDED.name)
+                END,
                 phone = COALESCE(NULLIF(EXCLUDED.phone, ''), users.phone),
                 is_deleted = false,
                 hidden = false,
@@ -15584,9 +16876,13 @@ async function startServer() {
             VALUES ($1, $2, $3, $4, false, false, true, NOW(), NOW())
             ON CONFLICT (id) DO UPDATE SET
               name = CASE
-                WHEN "user".name IS NULL OR "user".name = '' OR "user".name LIKE 'User %' OR "user".name LIKE 'Member %'
+                WHEN EXCLUDED.name IS NOT NULL
+                  AND TRIM(EXCLUDED.name) <> ''
+                  AND LOWER(TRIM(EXCLUDED.name)) NOT IN ('community member', 'community user', 'user', 'guest user', 'member', 'verified user')
+                  AND LOWER(TRIM(EXCLUDED.name)) NOT LIKE 'member %'
+                  AND LOWER(TRIM(EXCLUDED.name)) NOT LIKE 'user %'
                 THEN EXCLUDED.name
-                ELSE "user".name
+                ELSE COALESCE(NULLIF(TRIM("user".name), ''), EXCLUDED.name)
               END,
               phone = COALESCE(NULLIF(EXCLUDED.phone, ''), "user".phone),
               email = COALESCE(NULLIF(EXCLUDED.email, ''), "user".email),
@@ -15601,14 +16897,22 @@ async function startServer() {
             VALUES ($1, $1, $1, $2, $2, $3, $4, false, false, 'pending', false, false, true, NOW(), NOW())
             ON CONFLICT (uid) DO UPDATE SET
               name = CASE
-                WHEN profiles.name IS NULL OR profiles.name = '' OR profiles.name LIKE 'User %' OR profiles.name LIKE 'Member %'
+                WHEN EXCLUDED.name IS NOT NULL
+                  AND TRIM(EXCLUDED.name) <> ''
+                  AND LOWER(TRIM(EXCLUDED.name)) NOT IN ('community member', 'community user', 'user', 'guest user', 'member', 'verified user')
+                  AND LOWER(TRIM(EXCLUDED.name)) NOT LIKE 'member %'
+                  AND LOWER(TRIM(EXCLUDED.name)) NOT LIKE 'user %'
                 THEN EXCLUDED.name
-                ELSE profiles.name
+                ELSE COALESCE(NULLIF(TRIM(profiles.name), ''), EXCLUDED.name)
               END,
               full_name = CASE
-                WHEN profiles.full_name IS NULL OR profiles.full_name = '' OR profiles.full_name LIKE 'User %' OR profiles.full_name LIKE 'Member %'
+                WHEN EXCLUDED.full_name IS NOT NULL
+                  AND TRIM(EXCLUDED.full_name) <> ''
+                  AND LOWER(TRIM(EXCLUDED.full_name)) NOT IN ('community member', 'community user', 'user', 'guest user', 'member', 'verified user')
+                  AND LOWER(TRIM(EXCLUDED.full_name)) NOT LIKE 'member %'
+                  AND LOWER(TRIM(EXCLUDED.full_name)) NOT LIKE 'user %'
                 THEN EXCLUDED.full_name
-                ELSE profiles.full_name
+                ELSE COALESCE(NULLIF(TRIM(profiles.full_name), ''), EXCLUDED.full_name)
               END,
               email = COALESCE(NULLIF(EXCLUDED.email, ''), profiles.email),
               phone = COALESCE(NULLIF(EXCLUDED.phone, ''), profiles.phone),

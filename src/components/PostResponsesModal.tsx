@@ -4,7 +4,12 @@ import { X, ArrowRight, MessageCircle, Inbox, RefreshCw, Send } from 'lucide-rea
 import { Intent } from '../types';
 import { useLanguage } from '../i18n';
 import { getCurrentUser, getUserIdentitySet, isMessageSentByUser } from '../auth';
-import { subscribeToRealtimeStream } from '../api';
+import {
+  subscribeToRealtimeStream,
+  getLocalChatReadTimestamps,
+  getLocalUserDeletedChatsMap,
+  saveLocalChatReadTimestamp
+} from '../api';
 
 interface PostResponsesModalProps {
   isOpen: boolean;
@@ -47,6 +52,60 @@ export default function PostResponsesModal({
     const myIdentitySet = getUserIdentitySet(currentUser);
     const ownerId = String(intent.authorId || currentUser?.uid || '').trim();
     const ownerEmail = String((intent as any).authorEmail || currentUser?.email || '').trim().toLowerCase();
+    const ownerPhone = String(
+      currentUser?.phone ||
+        (currentUser as any)?.phoneNumber ||
+        localStorage.getItem('locohelp_last_logged_in_phone') ||
+        ''
+    ).trim();
+
+    const applyLocalReadAndDeleteState = (group: ReplierGroup): ReplierGroup | null => {
+      const deletedMap = getLocalUserDeletedChatsMap();
+      const readMap = getLocalChatReadTimestamps();
+      const sIdLower = String(group.senderId || '').trim().toLowerCase();
+      const sEmailLower = String(group.senderEmail || '').trim().toLowerCase();
+      const convId = String(group.conversationId || `conv_${intent.id}__${sIdLower}`).trim();
+      const candidateKeys = Array.from(
+        new Set(
+          [
+            convId,
+            `${intent.id}__${sIdLower}`,
+            `conv_${intent.id}__${sIdLower}`,
+            sEmailLower ? `${intent.id}__${sEmailLower}` : '',
+            sEmailLower ? `conv_${intent.id}__${sEmailLower}` : ''
+          ].filter(Boolean)
+        )
+      );
+
+      const msgTs = group.updatedAt ? new Date(group.updatedAt).getTime() : 0;
+      const validMsgTs = Number.isFinite(msgTs) ? msgTs : 0;
+
+      const deletedAt = candidateKeys.reduce((maxTs, key) => {
+        const ts = Number(deletedMap[key] || 0);
+        return ts > maxTs ? ts : maxTs;
+      }, 0);
+
+      if (deletedAt > 0 && (!validMsgTs || validMsgTs <= deletedAt)) {
+        return null;
+      }
+
+      const readAt = Math.max(
+        Number(readMap[intent.id] || 0),
+        candidateKeys.reduce((maxTs, key) => {
+          const ts = Number(readMap[key] || 0);
+          return ts > maxTs ? ts : maxTs;
+        }, 0)
+      );
+
+      const effectiveUnread =
+        readAt > 0 && (!validMsgTs || validMsgTs <= readAt) ? 0 : group.unreadCount;
+
+      return {
+        ...group,
+        conversationId: convId,
+        unreadCount: effectiveUnread
+      };
+    };
 
     // Mark responses for this post as seen by author so yellow pulse badge resets to 0
     try {
@@ -75,8 +134,7 @@ export default function PostResponsesModal({
         ) {
           return;
         }
-        const key = sEmail || sId.toLowerCase();
-        initialMap.set(key, {
+        const candidateGroup = applyLocalReadAndDeleteState({
           conversationId: rep.conversationId || rep.id || `conv_${intent.id}__${sId.toLowerCase()}`,
           senderId: sId,
           senderName: rep.helperName || rep.senderName || rep.sender_name || 'Community Helper',
@@ -88,6 +146,9 @@ export default function PostResponsesModal({
           unreadCount: Number(rep.unreadPosterCount ?? rep.unreadCount) || 0,
           isCollaborator: Boolean(rep.isCollaborator)
         });
+        if (!candidateGroup) return;
+        const key = sEmail || sId.toLowerCase();
+        initialMap.set(key, candidateGroup);
       });
 
       preResponses.forEach((msg: any) => {
@@ -108,7 +169,7 @@ export default function PostResponsesModal({
         const msgTime = msg.createdAt || msg.created_at || new Date().toISOString();
         const existing = initialMap.get(key);
         if (!existing) {
-          initialMap.set(key, {
+          const candidateGroup = applyLocalReadAndDeleteState({
             conversationId: msg.conversationId || msg.conversation_id || `conv_${intent.id}__${sId.toLowerCase()}`,
             senderId: sId,
             senderName: sName,
@@ -120,9 +181,20 @@ export default function PostResponsesModal({
             unreadCount: 0,
             isCollaborator: Boolean(msg.isCollaborator)
           });
+          if (candidateGroup) {
+            initialMap.set(key, candidateGroup);
+          }
         } else if (new Date(msgTime).getTime() >= new Date(existing.updatedAt).getTime()) {
-          existing.lastMessage = msgText;
-          existing.updatedAt = msgTime;
+          const updatedGroup = applyLocalReadAndDeleteState({
+            ...existing,
+            lastMessage: msgText,
+            updatedAt: msgTime
+          });
+          if (updatedGroup) {
+            initialMap.set(key, updatedGroup);
+          } else {
+            initialMap.delete(key);
+          }
         }
       });
 
@@ -146,7 +218,7 @@ export default function PostResponsesModal({
         if (token) headers['Authorization'] = `Bearer ${token}`;
 
         const convRes = await fetch(
-          `/api/chat/conversations?postId=${encodeURIComponent(intent.id)}&userId=${encodeURIComponent(ownerId)}&ownerEmail=${encodeURIComponent(ownerEmail)}&_t=${Date.now()}`,
+          `/api/chat/conversations?postId=${encodeURIComponent(intent.id)}&userId=${encodeURIComponent(ownerId)}&ownerEmail=${encodeURIComponent(ownerEmail)}&userPhone=${encodeURIComponent(ownerPhone)}&_t=${Date.now()}`,
           { cache: 'no-store', headers }
         ).catch(() => null);
 
@@ -170,8 +242,7 @@ export default function PostResponsesModal({
             myIdentitySet.has(hId.toLowerCase());
           if (isFromMe) return;
 
-          const key = String(hEmail || hId).toLowerCase();
-          groupsMap.set(key, {
+          const candidateGroup = applyLocalReadAndDeleteState({
             conversationId: item.conversationId || item.id || `conv_${intent.id}__${hId.toLowerCase()}`,
             senderId: hId,
             senderName: item.helperName || item.senderName || 'Community Helper',
@@ -183,6 +254,10 @@ export default function PostResponsesModal({
             unreadCount: Number(item.unreadPosterCount ?? item.unreadCount) || 0,
             isCollaborator: Boolean(item.isCollaborator)
           });
+          if (!candidateGroup) return;
+
+          const key = String(hEmail || hId).toLowerCase();
+          groupsMap.set(key, candidateGroup);
         });
 
         const list = Array.from(groupsMap.values());
@@ -202,6 +277,10 @@ export default function PostResponsesModal({
 
     loadResponses();
     const pollInterval = setInterval(loadResponses, 2000);
+    const handleChatReadUpdated = () => {
+      loadResponses();
+    };
+    window.addEventListener('locohelp_chat_read_updated', handleChatReadUpdated);
     const unsubStream = subscribeToRealtimeStream({
       onNewResponse: (payload) => {
         if (payload?.postId === intent.id) {
@@ -213,6 +292,7 @@ export default function PostResponsesModal({
     return () => {
       isMounted = false;
       clearInterval(pollInterval);
+      window.removeEventListener('locohelp_chat_read_updated', handleChatReadUpdated);
       unsubStream();
     };
   }, [isOpen, intent]);
@@ -241,6 +321,20 @@ export default function PostResponsesModal({
   const handleOpenReplierThread = async (rep: ReplierGroup) => {
     const convId = rep.conversationId || (intent?.id ? `conv_${intent.id}__${rep.senderId.toLowerCase()}` : '');
     if (intent?.id) {
+      const currentUser = getCurrentUser();
+      const sIdLower = String(rep.senderId || '').trim().toLowerCase();
+      const sEmailLower = String(rep.senderEmail || '').trim().toLowerCase();
+      saveLocalChatReadTimestamp([
+        convId,
+        intent.id,
+        `${intent.id}__${sIdLower}`,
+        `conv_${intent.id}__${sIdLower}`,
+        sEmailLower ? `${intent.id}__${sEmailLower}` : '',
+        sEmailLower ? `conv_${intent.id}__${sEmailLower}` : ''
+      ]);
+      setRepliers(prev =>
+        prev.map(r => (r.senderId === rep.senderId ? { ...r, unreadCount: 0 } : r))
+      );
       try {
         const respCount = Math.max(
           repliers.length,
@@ -249,11 +343,26 @@ export default function PostResponsesModal({
         );
         localStorage.setItem(`locohelp_seen_responses_${intent.id}`, String(respCount));
         window.dispatchEvent(new CustomEvent('locohelp_responses_seen', { detail: { intentId: intent.id, seenCount: respCount } }));
+        window.dispatchEvent(new CustomEvent('locohelp_chat_read_updated', { detail: { postId: intent.id, conversationId: convId } }));
       } catch {}
+      const token = localStorage.getItem('locohelp_token') || '';
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
       fetch(`/api/intents/${encodeURIComponent(intent.id)}/mark-read`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ senderId: rep.senderId, conversationId: convId })
+        headers,
+        body: JSON.stringify({
+          senderId: rep.senderId,
+          helperId: rep.senderId,
+          conversationId: convId,
+          userId: currentUser?.uid || intent.authorId || '',
+          userEmail: currentUser?.email || (intent as any).authorEmail || '',
+          userPhone:
+            currentUser?.phone ||
+            (currentUser as any)?.phoneNumber ||
+            localStorage.getItem('locohelp_last_logged_in_phone') ||
+            ''
+        })
       }).catch(() => {});
     }
     onClose();
@@ -390,7 +499,15 @@ export default function PostResponsesModal({
                             {rep.lastMessage}
                           </p>
                           <span className="text-[10px] text-slate-400 font-semibold block mt-0.5">
-                            {new Date(rep.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            {(() => {
+                              const d = new Date(rep.updatedAt);
+                              if (Number.isNaN(d.getTime())) return '';
+                              const dd = String(d.getDate()).padStart(2, '0');
+                              const mm = String(d.getMonth() + 1).padStart(2, '0');
+                              const yyyy = d.getFullYear();
+                              const t = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                              return `${dd}/${mm}/${yyyy} • ${t}`;
+                            })()}
                           </span>
                         </div>
                       </div>

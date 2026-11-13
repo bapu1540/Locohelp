@@ -1,9 +1,6 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import {
   getAuth,
-  GoogleAuthProvider,
-  signInWithPopup,
-  UserCredential,
   RecaptchaVerifier,
   signInWithPhoneNumber,
   ConfirmationResult,
@@ -216,35 +213,6 @@ export async function deleteFileFromFirebaseStorage(fileUrl?: string | null): Pr
   } catch {}
 
   return deletedClient;
-}
-
-export const googleProvider = new GoogleAuthProvider();
-// Force Google Account Selection on login so users pick their account every time
-googleProvider.setCustomParameters({
-  prompt: 'select_account'
-});
-
-export async function signInWithGoogle(): Promise<{ success: boolean; user?: any; error?: string }> {
-  try {
-    const result: UserCredential = await signInWithPopup(auth, googleProvider);
-    const user = result.user;
-    return {
-      success: true,
-      user: {
-        uid: user.uid,
-        displayName: user.displayName || user.email?.split('@')[0] || 'Google User',
-        email: user.email || '',
-        photoURL: user.photoURL || 'https://lh3.googleusercontent.com/a/default-user',
-        phone: user.phoneNumber || ''
-      }
-    };
-  } catch (err: any) {
-    console.warn("Firebase Google Auth popup error/fallback:", err);
-    return {
-      success: false,
-      error: err?.message || 'Google Sign-In failed'
-    };
-  }
 }
 
 // ==========================================

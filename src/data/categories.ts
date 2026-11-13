@@ -597,7 +597,7 @@ export const CATEGORIES: CategoryItem[] = [
   },
   {
     id: 'cab_auto_driver',
-    masterCategory: 'other_custom',
+    masterCategory: 'cab_travel',
     nameEn: 'Cab',
     nameHi: 'कैब (Cab)',
     nameGu: 'કેબ (Cab)',
@@ -608,7 +608,7 @@ export const CATEGORIES: CategoryItem[] = [
   },
   {
     id: 'auto_rickshaw',
-    masterCategory: 'other_custom',
+    masterCategory: 'cab_travel',
     nameEn: 'Auto',
     nameHi: 'ऑटो / रिक्शा (Auto)',
     nameGu: 'ઓટો / રિક્ષા (Auto)',
@@ -619,7 +619,7 @@ export const CATEGORIES: CategoryItem[] = [
   },
   {
     id: 'private_driver',
-    masterCategory: 'other_custom',
+    masterCategory: 'cab_travel',
     nameEn: 'Driver',
     nameHi: 'प्राइवेट ड्राइवर (Driver)',
     nameGu: 'પ્રાઇવેટ ડ્રાઇવર (Driver)',
@@ -630,7 +630,7 @@ export const CATEGORIES: CategoryItem[] = [
   },
   {
     id: 'taxi_service',
-    masterCategory: 'other_custom',
+    masterCategory: 'cab_travel',
     nameEn: 'Taxi',
     nameHi: 'टैक्सी (Taxi)',
     nameGu: 'ટેક્સી (Taxi)',
@@ -641,7 +641,7 @@ export const CATEGORIES: CategoryItem[] = [
   },
   {
     id: 'car_rental',
-    masterCategory: 'other_custom',
+    masterCategory: 'cab_travel',
     nameEn: 'Car Rental',
     nameHi: 'किराये पर कार (Car Rental)',
     nameGu: 'ભાડે કાર (Car Rental)',
@@ -652,7 +652,7 @@ export const CATEGORIES: CategoryItem[] = [
   },
   {
     id: 'tempo_packers',
-    masterCategory: 'other_custom',
+    masterCategory: 'transport_shifting',
     nameEn: 'Tempo',
     nameHi: 'टेम्पो / छोटा हाथी (Tempo)',
     nameGu: 'ટેમ્પો / છોટા હાથી (Tempo)',
@@ -663,7 +663,7 @@ export const CATEGORIES: CategoryItem[] = [
   },
   {
     id: 'truck_transport',
-    masterCategory: 'other_custom',
+    masterCategory: 'transport_shifting',
     nameEn: 'Truck',
     nameHi: 'ट्रक / लोडिंग गाड़ी (Truck)',
     nameGu: 'ટ્રક / લોડિંગ ગાડી (Truck)',
@@ -674,7 +674,7 @@ export const CATEGORIES: CategoryItem[] = [
   },
   {
     id: 'packers_movers',
-    masterCategory: 'other_custom',
+    masterCategory: 'transport_shifting',
     nameEn: 'Packers & Movers',
     nameHi: 'पैकर्स एंड मूवर्स (Packers & Movers)',
     nameGu: 'પેકર્સ એન્ડ મૂવર્સ (Packers & Movers)',
@@ -685,7 +685,7 @@ export const CATEGORIES: CategoryItem[] = [
   },
   {
     id: 'home_office_shifting',
-    masterCategory: 'other_custom',
+    masterCategory: 'transport_shifting',
     nameEn: 'Shifting',
     nameHi: 'घर / ऑफिस शिफ्टिंग (Shifting)',
     nameGu: 'ઘર / ઓફિસ શિફ્ટિંગ (Shifting)',
@@ -740,7 +740,7 @@ export const CATEGORIES: CategoryItem[] = [
   },
   {
     id: 'cricket',
-    masterCategory: 'other_custom',
+    masterCategory: 'sports_fitness',
     nameEn: 'Cricket Partner & Team',
     nameHi: 'बॉक्स क्रिकेट और टीम प्लेयर्स',
     nameGu: 'બોક્સ ક્રિકેટ અને ટીમ પ્લેયર્સ',
@@ -751,7 +751,7 @@ export const CATEGORIES: CategoryItem[] = [
   },
   {
     id: 'badminton',
-    masterCategory: 'other_custom',
+    masterCategory: 'sports_fitness',
     nameEn: 'Badminton & Tennis Partner',
     nameHi: 'बैडमिंटन और टेनिस साथी',
     nameGu: 'બેડમિન્ટન અને ટેનિસ સાથી',
@@ -762,7 +762,7 @@ export const CATEGORIES: CategoryItem[] = [
   },
   {
     id: 'gym_fitness',
-    masterCategory: 'other_custom',
+    masterCategory: 'sports_fitness',
     nameEn: 'Gym & Workout Buddy',
     nameHi: 'जिम और वर्कआउट पार्टनर',
     nameGu: 'જિમ અને વર્કઆઉટ પાર્ટનર',
@@ -773,7 +773,7 @@ export const CATEGORIES: CategoryItem[] = [
   },
   {
     id: 'running_yoga',
-    masterCategory: 'other_custom',
+    masterCategory: 'sports_fitness',
     nameEn: 'Running, Cycling & Yoga Partner',
     nameHi: 'मॉर्निंग रनिंग, साइकिलिंग और योगा साथी',
     nameGu: 'મોર્નિંગ રનિંગ, સાયકલિંગ અને યોગા સાથી',
@@ -784,7 +784,7 @@ export const CATEGORIES: CategoryItem[] = [
   },
   {
     id: 'food_service',
-    masterCategory: 'other_custom',
+    masterCategory: 'hotel_tiffin',
     nameEn: 'Food',
     nameHi: 'फूड / खाना (Food)',
     nameGu: 'ફૂડ / જમવાનું (Food)',
@@ -795,7 +795,7 @@ export const CATEGORIES: CategoryItem[] = [
   },
   {
     id: 'tiffin_service',
-    masterCategory: 'other_custom',
+    masterCategory: 'hotel_tiffin',
     nameEn: 'Tiffin',
     nameHi: 'टिफिन सर्विस (Tiffin)',
     nameGu: 'ટિફિન સર્વિસ (Tiffin)',

@@ -3,7 +3,7 @@ import { Screen, Intent, Language } from '../types';
 import { Settings, Bell, Zap, Search, Globe, Clock, MapPin, Rocket, User, Trophy, Wrench, Filter, Star, UserCheck, MessageSquare, Plus, Check, X, Share2, MessageCircle, HelpCircle, Smartphone, RefreshCw, ChevronDown, ChevronRight, Sparkles, Trash2, Shield, ShieldAlert, MoreVertical, LogIn, LogOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useLanguage, SUPPORTED_LANGUAGES } from '../i18n';
-import { getCurrentUser, onAuthStateChange, getHelpers, getShops, logoutUser, isMessageSentByUser } from '../auth';
+import { getCurrentUser, onAuthStateChange, getHelpers, getShops, logoutUser, isMessageSentByUser, mergeAndSaveCurrentUser } from '../auth';
 import { CATEGORIES, MASTER_CATEGORIES, getCategoryName, getFreeHelperProfiles, matchesCategorySearch } from '../data/categories';
 import UserProfileModal from './UserProfileModal';
 import AppGuideModal from './AppGuideModal';
@@ -169,21 +169,8 @@ export default function HomeScreen({
   useEffect(() => {
     const { data: { subscription } } = onAuthStateChange((event, session) => {
       if (session?.user) {
-        const u = {
-          uid: session.user.id,
-          displayName: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'Community Member',
-          email: session.user.email || '',
-          photoURL: session.user.user_metadata?.avatar_url || undefined
-        };
-        setActiveUser(u);
-        try {
-          if (u) {
-            localStorage.setItem('locohelp_user', JSON.stringify(u));
-            localStorage.setItem('locohelp_logged_in', 'true');
-          }
-        } catch (e) {
-          console.error("Home session sync error:", e);
-        }
+        const merged = mergeAndSaveCurrentUser(session.user);
+        setActiveUser(merged);
       } else {
         setActiveUser(getCurrentUser());
       }
@@ -690,17 +677,31 @@ export default function HomeScreen({
   };
 
   const categoryKeywords: Record<string, string[]> = {
-    // 10 Main Categories (Groups)
+    // 16 Main Categories (Groups)
+    electrician_main: ['electr', 'wire', 'wiring', 'switch', 'light', 'fan', 'inverter', 'fuse', 'इलेक्ट्रीशियन', 'ઇલેક્ટ્રિશિયન', 'ઈલેક્ટ્રીશિયન', 'પંખો', 'વાયરિંગ'],
+    plumber_main: ['plumb', 'pipe', 'tap', 'water', 'leak', 'flush', 'basin', 'tank', 'प्लंबर', 'પ્લમ્બર', 'નળ', 'પાઇપ'],
+    ac_repair_main: ['ac', 'air condition', 'fridge', 'refrigerator', 'ro', 'cooling', 'washing machine', 'appliance', 'एसी', 'फ्रिज', 'ફ્રિજ', 'એસી'],
+    maid_cook_main: ['maid', 'cook', 'kaamwali', 'kamwali', 'rasoiya', 'कामवाल', 'रसोइया', 'કામવાળા', 'રસોઈયા', 'ઘરકામ'],
+    cleaning_main: ['clean', 'sweep', 'housekeep', 'sofa clean', 'bathroom clean', 'सफाई', 'સફાઈ'],
+    mason_main: ['mason', 'kadiyo', 'mistri', 'tile', 'plaster', 'cement', 'brick', 'construction', 'कड़िया', 'मिस्त्री', 'કડિયો', 'મિસ્ત્રી', 'બાંધકામ'],
+    carpenter_main: ['carpent', 'suthar', 'wood', 'door', 'lock', 'furniture', 'bed', 'sofa', 'कारपेंटर', 'सुथार', 'સુથાર', 'ફર્નિચર'],
+    painter_main: ['paint', 'wall', 'putty', 'color', 'polish', 'pop', 'waterproof', 'पेंटर', 'પેઇન્ટર', 'કલરકામ'],
+    pest_control_main: ['pest', 'termite', 'cockroach', 'tank clean', 'sanitiz', 'पेस्ट', 'टंकी', 'પેસ્ટ', 'જંતુનાશક'],
+    brokers_agents: ['real estate', 'property', 'broker', 'flat', 'rent', 'pg', 'vehicle broker', 'rto', 'license', 'loan', 'insurance', 'lic', 'legal', 'notary', 'affidavit', 'document', 'બ્રોકર', 'એજન્ટ'],
+    transport_shifting: ['packers', 'movers', 'tempo', 'chhota hathi', 'truck', 'loading', 'shifting', 'transport', 'ટ્રાન્સપોર્ટ', 'શિફ્ટિંગ', 'ટેમ્પો'],
+    cab_travel: ['cab', 'auto', 'rickshaw', 'taxi', 'driver', 'car rental', 'travel', 'કેબ', 'ટ્રાવેલ', 'રિક્ષા', 'ટેક્સી', 'ડ્રાઇવર'],
+    hotel_tiffin: ['tiffin', 'mess', 'hotel', 'restaurant', 'dhaba', 'kathiyawadi', 'cater', 'halwai', 'fast food', 'હોટલ', 'ટિફિન', 'જમવાનું', 'કેટરિંગ'],
+    sports_fitness: ['cricket', 'turf', 'match', 'badminton', 'tennis', 'gym', 'fitness', 'workout', 'trainer', 'running', 'jog', 'cycling', 'yoga', 'sport', 'સ્પોર્ટ્સ', 'ફિટનેસ', 'ક્રિકેટ'],
+    social_care: ['chai', 'tea', 'coffee', 'meetup', 'walk', 'companion', 'chess', 'board game', 'ludo', 'carrom', 'senior', 'elder', 'medicine', 'pet', 'dog', 'સોશિયલ', 'ફ્રેન્ડ્સ', 'ચા-કોફી'],
+    other_custom: ['other', 'custom', 'general', 'help', 'cctv', 'mobile', 'medical', 'tuition', 'અન્ય સેવાઓ'],
+
+    // Legacy 10-group aliases kept for backward compatibility
     home_repair: ['plumb', 'pipe', 'tap', 'water', 'leak', 'electr', 'wire', 'light', 'fan', 'ac', 'fridge', 'ro', 'carpent', 'suthar', 'wood', 'furniture', 'paint', 'mason', 'kadiyo', 'mistri', 'clean', 'maid', 'cook', 'pest', 'tank'],
     personal_events: ['tailor', 'darzi', 'boutique', 'beauti', 'salon', 'parlour', 'makeup', 'mehendi', 'mehndi', 'pandit', 'pooja', 'puja', 'photograp', 'videograp', 'camera', 'cater', 'halwai', 'tiffin', 'event'],
     it_tech: ['web', 'website', 'app', 'developer', 'coding', 'computer', 'laptop', 'printer', 'cctv', 'wifi', 'wi-fi', 'graphic', 'video edit', 'logo', 'digital market', 'social media', 'seo', 'mobile repair', 'phone repair'],
     business_staff: ['salesman', 'salesgirl', 'sales', 'shop helper', 'store staff', 'accountant', 'gst', 'tally', 'tax', 'data entry', 'back office', 'excel', 'security guard', 'watchman', 'receptionist', 'telecaller'],
-    brokers_agents: ['real estate', 'property', 'broker', 'flat', 'rent', 'pg', 'vehicle broker', 'rto', 'license', 'loan', 'insurance', 'lic', 'legal', 'notary', 'affidavit', 'document'],
     vehicle_transport: ['mechanic', 'car', 'bike', 'puncture', 'tyre', 'battery', 'cab', 'auto', 'rickshaw', 'taxi', 'driver', 'tempo', 'packers', 'movers', 'loading', 'deliver', 'parcel', 'errand'],
     education_classes: ['tutor', 'tuition', 'teacher', 'school', 'coaching', 'study', 'project', 'assignment', 'spoken english', 'computer class', 'ielts', 'music', 'dance', 'art', 'drawing', 'guitar'],
-    sports_fitness: ['cricket', 'turf', 'match', 'badminton', 'tennis', 'gym', 'fitness', 'workout', 'trainer', 'running', 'jog', 'cycling', 'yoga', 'sport'],
-    social_care: ['chai', 'tea', 'coffee', 'meetup', 'walk', 'companion', 'chess', 'board game', 'ludo', 'carrom', 'senior', 'elder', 'medicine', 'pet', 'dog'],
-    other_custom: ['other', 'custom', 'general', 'help'],
 
     // Legacy Master Category aliases
     utility_emergency: ['plumb', 'pipe', 'tap', 'water', 'leak', 'electr', 'wire', 'light', 'fan', 'mechanic', 'car', 'bike', 'puncture', 'tyre', 'battery', 'carpent', 'wood', 'door', 'lock', 'paint', 'ac', 'fridge', 'mason', 'mistri'],

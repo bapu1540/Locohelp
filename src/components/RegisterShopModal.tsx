@@ -77,7 +77,8 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
   const [ownerName, setOwnerName] = useState(() => getCurrentUser()?.displayName || '');
   const [ownerEmail, setOwnerEmail] = useState(() => {
     const u = getCurrentUser();
-    return u?.email || localStorage.getItem('locohelp_last_logged_in_email') || '';
+    const raw = (u?.email || localStorage.getItem('locohelp_last_logged_in_email') || '').trim();
+    return raw.toLowerCase().endsWith('@phone.locohelp.com') ? '' : raw;
   });
   const [phone, setPhone] = useState(() => {
     const u = getCurrentUser();
@@ -132,13 +133,24 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
     setArea(shop.area || '');
     setAddress(shop.address || '');
     setDescription(shop.description || '');
-    setPhotoUrl(shop.photoUrl || null);
-    setShopPhotos(Array.isArray(shop.photos) && shop.photos.length > 0 ? shop.photos : (shop.photoUrl ? [shop.photoUrl] : []));
-    if (shop.watermarkedSelfieUrl || shop.idDocumentWatermarked || shop.photoUrl) {
-      setIdDocumentWatermarked(shop.watermarkedSelfieUrl || shop.idDocumentWatermarked || shop.photoUrl || null);
+    const ownerSelfieWatermarked =
+      shop.watermarkedSelfieUrl || (shop as any).watermarked_selfie_url || shop.idDocumentWatermarked || null;
+    const ownerSelfieRaw =
+      shop.rawSelfieUrl || (shop as any).raw_selfie_url || shop.idDocumentWatermarked || ownerSelfieWatermarked || null;
+    const shopCardOrPhoto =
+      (shop as any).visitingCardUrl ||
+      (shop as any).visiting_card_url ||
+      (shop.photoUrl && shop.photoUrl !== ownerSelfieWatermarked && shop.photoUrl !== ownerSelfieRaw ? shop.photoUrl : null);
+    const validPhotos = (Array.isArray(shop.photos) ? shop.photos : []).filter(
+      (p) => p && p !== ownerSelfieWatermarked && p !== ownerSelfieRaw
+    );
+    setPhotoUrl(shopCardOrPhoto || validPhotos[0] || null);
+    setShopPhotos(validPhotos.length > 0 ? validPhotos : shopCardOrPhoto ? [shopCardOrPhoto] : []);
+    if (ownerSelfieWatermarked) {
+      setIdDocumentWatermarked(ownerSelfieWatermarked);
     }
-    if (shop.rawSelfieUrl || shop.idDocumentWatermarked) {
-      setRawSelfieUrl(shop.rawSelfieUrl || shop.idDocumentWatermarked || null);
+    if (ownerSelfieRaw) {
+      setRawSelfieUrl(ownerSelfieRaw);
     }
     setActiveTab('new');
   };
@@ -287,8 +299,8 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
       area: area.trim() || 'Local Area',
       address: address.trim() || area.trim() || 'Market Area',
       description: description.trim() || 'Welcome to our business!',
-      photoUrl: primaryPhoto,
-      photos: shopPhotos.length > 0 ? shopPhotos : (primaryPhoto ? [primaryPhoto] : []),
+      photoUrl: primaryPhoto || undefined,
+      photos: shopPhotos.length > 0 ? shopPhotos : primaryPhoto ? [primaryPhoto] : [],
       watermarkedSelfieUrl: idDocumentWatermarked || undefined,
       rawSelfieUrl: adminCleanSelfie || undefined,
       idDocumentWatermarked: adminCleanSelfie || undefined,
@@ -312,9 +324,10 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
         ...newShop,
         isPhonePublic,
         website_url_hp: hpWebsiteUrl,
-        watermarkedSelfieUrl: idDocumentWatermarked || primaryPhoto || '',
+        visitingCardUrl: primaryPhoto || '',
+        watermarkedSelfieUrl: idDocumentWatermarked || '',
         rawSelfieUrl: adminCleanSelfie || idDocumentWatermarked || '',
-        idDocumentWatermarked: adminCleanSelfie || idDocumentWatermarked || primaryPhoto || ''
+        idDocumentWatermarked: adminCleanSelfie || idDocumentWatermarked || ''
       });
     } catch (err) {
       console.warn("Shop backend save notice:", err);

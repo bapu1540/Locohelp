@@ -903,7 +903,7 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
                           style={{
                             fontSize: '11px',
                             fontWeight: 900,
-                            color: '#0f172a',
+                            color: '#000000',
                             whiteSpace: 'nowrap',
                             overflow: 'hidden',
                             textOverflow: 'ellipsis',
@@ -916,7 +916,7 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
                           style={{
                             fontSize: '9px',
                             fontWeight: 800,
-                            color: '#0d9488',
+                            color: '#000000',
                             lineHeight: 1.15,
                             marginTop: '1px',
                             wordBreak: 'break-word',
@@ -932,7 +932,7 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
                       </div>
                     </div>
 
-                    {/* Middle Row: Rating + Distance (Compact single row) */}
+                    {/* Middle Row: Rating + Distance (Compact single row - Black text) */}
                     <div
                       style={{
                         display: 'flex',
@@ -943,20 +943,20 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
                         marginBottom: '6px',
                         fontSize: '9px',
                         fontWeight: 800,
-                        color: '#334155',
+                        color: '#000000',
                       }}
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '2px', color: '#000000' }}>
                         <span style={{ color: '#f59e0b' }}>★</span>
-                        <span>{item.rating}</span>
-                        <span style={{ color: '#64748b', fontWeight: 600 }}>({item.reviews})</span>
+                        <span style={{ color: '#000000' }}>{item.rating}</span>
+                        <span style={{ color: '#000000', fontWeight: 700 }}>({item.reviews})</span>
                       </div>
-                      <div style={{ fontSize: '8.5px', fontWeight: 700, color: '#475569' }}>
+                      <div style={{ fontSize: '8.5px', fontWeight: 800, color: '#000000' }}>
                         📍 {item.distance} {language === 'GU' ? 'કિ.મી.' : language === 'HI' ? 'कि.मी.' : 'km'}
                       </div>
                     </div>
 
-                    {/* Bottom Row: Side-by-Side Call and Chat Buttons (Compact & Space Saving) */}
+                    {/* Bottom Row: Side-by-Side Call and Chat Buttons (LocoHelp Logo Blue #0066FF & Orange #FF8800) */}
                     <div
                       style={{
                         display: 'grid',
@@ -965,7 +965,7 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
                         width: '100%',
                       }}
                     >
-                      {/* Left: Call Button */}
+                      {/* Left: Call / Number Button (LocoHelp Blue #0066FF) */}
                       {item.isPhonePublic && item.phone ? (
                         <a
                           href={`tel:${item.phone}`}
@@ -977,12 +977,12 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
                             gap: '3px',
                             padding: '4.5px 2px',
                             borderRadius: '8px',
-                            backgroundColor: '#16a34a',
+                            backgroundColor: '#0066FF',
                             color: '#ffffff',
                             fontSize: '9.5px',
                             fontWeight: 800,
                             textDecoration: 'none',
-                            boxShadow: '0 1px 2px rgba(22,163,74,0.2)',
+                            boxShadow: '0 1px 2px rgba(0,102,255,0.25)',
                           }}
                           title={`Call ${name}`}
                         >
@@ -1003,13 +1003,13 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
                             gap: '3px',
                             padding: '4.5px 2px',
                             borderRadius: '8px',
-                            backgroundColor: '#0284c7',
+                            backgroundColor: '#0066FF',
                             color: '#ffffff',
                             fontSize: '9.5px',
                             fontWeight: 800,
                             border: 'none',
                             cursor: 'pointer',
-                            boxShadow: '0 1px 2px rgba(2,132,199,0.2)',
+                            boxShadow: '0 1px 2px rgba(0,102,255,0.25)',
                           }}
                           title={language === 'GU' ? 'નંબર માંગો' : 'Request Number'}
                         >
@@ -1018,7 +1018,7 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
                         </button>
                       )}
 
-                      {/* Right: Chat Button */}
+                      {/* Right: Chat Button (LocoHelp Orange #FF8800) */}
                       <button
                         type="button"
                         onClick={(e) => {
@@ -1055,18 +1055,18 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
                           gap: '3px',
                           padding: '4.5px 2px',
                           borderRadius: '8px',
-                          backgroundColor: '#0d9488',
+                          backgroundColor: '#FF8800',
                           color: '#ffffff',
                           fontSize: '9.5px',
                           fontWeight: 800,
                           border: 'none',
                           cursor: 'pointer',
-                          boxShadow: '0 1px 2px rgba(13,148,136,0.2)',
+                          boxShadow: '0 1px 2px rgba(255,136,0,0.25)',
                         }}
                         title={`Chat with ${name}`}
                       >
                         <MessageCircle className="w-3 h-3" />
-                        <span>{language === 'GU' ? 'ચેટ' : language === 'HI' ? 'ચેટ' : 'Chat'}</span>
+                        <span>{language === 'GU' ? 'ચેટ' : language === 'HI' ? 'चैट' : 'Chat'}</span>
                       </button>
                     </div>
                   </div>

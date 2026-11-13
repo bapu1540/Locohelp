@@ -28,7 +28,8 @@ import {
   getCachedLiveIntents,
   fetchPostConversations,
   getCachedPostConversations,
-  deleteIntentOnServer
+  deleteIntentOnServer,
+  getLocalUserDeletedChatsMap
 } from '../api';
 import { DEFAULT_SHOWCASE_PROVIDERS, ShowcaseProviderItem } from './HomeBelowCategorySection';
 import {
@@ -112,16 +113,29 @@ export default function FixedBottomNavBar({
       .trim()
       .toLowerCase();
     const myEmailUid = myEmail ? 'email_' + myEmail.replace(/[^a-z0-9]/g, '_') : '';
+    const rawPhone = String(
+      user?.phone ||
+        localStorage.getItem('locohelp_last_logged_in_phone') ||
+        localStorage.getItem('locohelp_profile_phone') ||
+        ''
+    );
+    const myPhoneDigits = rawPhone.replace(/\D/g, '').slice(-10);
+    const myPhoneUid = myPhoneDigits.length === 10 ? `phone_${myPhoneDigits}` : '';
+    const myPhoneSynthEmail = myPhoneDigits.length === 10 ? `${myPhoneDigits}@phone.locohelp.com` : '';
 
     return (Array.isArray(posts) ? posts : []).filter((post: any) => {
       if (!post || !post.id) return false;
       const pAuthorId = String(post.authorId || post.userId || '').trim().toLowerCase();
       const pAuthorEmail = String(post.authorEmail || '').trim().toLowerCase();
+      const pAuthorPhoneDigits = String(post.authorPhone || post.phone || '').replace(/\D/g, '').slice(-10);
       return Boolean(
         myIds.includes(post.id) ||
           (myUid && pAuthorId === myUid) ||
           (myEmailUid && pAuthorId === myEmailUid) ||
-          (myEmail && (pAuthorEmail === myEmail || pAuthorId === myEmail))
+          (myEmail && (pAuthorEmail === myEmail || pAuthorId === myEmail)) ||
+          (myPhoneUid && pAuthorId === myPhoneUid) ||
+          (myPhoneSynthEmail && (pAuthorEmail === myPhoneSynthEmail || pAuthorId === myPhoneSynthEmail)) ||
+          (myPhoneDigits.length === 10 && pAuthorPhoneDigits.length === 10 && pAuthorPhoneDigits === myPhoneDigits)
       );
     });
   };
@@ -134,6 +148,15 @@ export default function FixedBottomNavBar({
     )
       .trim()
       .toLowerCase();
+    const rawPhone = String(
+      user?.phone ||
+        localStorage.getItem('locohelp_last_logged_in_phone') ||
+        localStorage.getItem('locohelp_profile_phone') ||
+        ''
+    );
+    const myPhoneDigits = rawPhone.replace(/\D/g, '').slice(-10);
+    const myPhoneUid = myPhoneDigits.length === 10 ? `phone_${myPhoneDigits}` : '';
+    const deletedMap = getLocalUserDeletedChatsMap();
 
     const contactedMap = new Map<string, any>();
     const repliesMap = new Map<string, any>();
@@ -146,11 +169,21 @@ export default function FixedBottomNavBar({
           if (!reqItem) return;
           const reqFromId = String(reqItem.requesterId || reqItem.userId || '').trim().toLowerCase();
           const reqFromEmail = String(reqItem.requesterEmail || '').trim().toLowerCase();
-          if ((myUid && reqFromId === myUid) || (myEmail && reqFromEmail === myEmail)) {
+          const reqFromPhone = String(reqItem.requesterPhone || '').replace(/\D/g, '').slice(-10);
+          if (
+            (myUid && reqFromId === myUid) ||
+            (myPhoneUid && reqFromId === myPhoneUid) ||
+            (myEmail && reqFromEmail === myEmail) ||
+            (myPhoneDigits.length === 10 && reqFromPhone === myPhoneDigits)
+          ) {
             const pId = String(reqItem.providerId || reqItem.helperId || reqItem.id || '');
             if (pId) {
+              const provChatId = `provider_chat_${pId}`;
+              const delAt = Math.max(Number(deletedMap[provChatId] || 0), Number(deletedMap[pId] || 0));
+              const reqTime = new Date(reqItem.createdAt || 0).getTime() || 0;
+              if (delAt > 0 && (reqTime <= 0 || reqTime <= delAt)) return;
               contactedMap.set(pId, {
-                id: `provider_chat_${pId}`,
+                id: provChatId,
                 providerId: pId,
                 name: reqItem.providerName || reqItem.helperName || 'Service Provider',
                 category: reqItem.category || 'Service Expert',
@@ -171,9 +204,25 @@ export default function FixedBottomNavBar({
       const postIdStr = String(c.postId || c.post_id || '');
       if (!postIdStr) return;
 
+      const convIdStr = String(c.id || '');
+      const partnerIdStr = String(c.partnerId || '').trim().toLowerCase();
+      const compoundKey = postIdStr && partnerIdStr ? `${postIdStr}::${partnerIdStr}` : '';
+      const deletedAt = Math.max(
+        Number(deletedMap[convIdStr] || 0),
+        Number(deletedMap[postIdStr] || 0),
+        compoundKey ? Number(deletedMap[compoundKey] || 0) : 0
+      );
+      const lastMsgTime = new Date(c.lastMessageAt || c.updatedAt || c.createdAt || 0).getTime() || 0;
+
       if (postIdStr.startsWith('provider_chat_')) {
         const provId = postIdStr.replace(/^provider_chat_/i, '');
-        if (myUid && provId.toLowerCase() === myUid) return; // I am the provider
+        if ((myUid && provId.toLowerCase() === myUid) || (myPhoneUid && provId.toLowerCase() === myPhoneUid)) return; // I am the provider
+        const provDeletedAt = Math.max(deletedAt, Number(deletedMap[provId] || 0));
+        if (provDeletedAt > 0 && (lastMsgTime <= 0 || lastMsgTime <= provDeletedAt)) {
+          contactedMap.delete(provId);
+          contactedMap.delete(postIdStr);
+          return;
+        }
         contactedMap.set(provId || postIdStr, {
           id: postIdStr,
           providerId: provId,
@@ -185,6 +234,9 @@ export default function FixedBottomNavBar({
           rawConv: c
         });
       } else if (!myPostIdsSet.has(postIdStr) && !c.isViewerPoster) {
+        if (deletedAt > 0 && (lastMsgTime <= 0 || lastMsgTime <= deletedAt)) {
+          return;
+        }
         // I replied to someone else's post
         repliesMap.set(postIdStr, {
           id: postIdStr,
@@ -862,11 +914,7 @@ export default function FixedBottomNavBar({
                       <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
                         <button
                           type="button"
-                          onClick={() => {
-                            setActiveBottomModal(null);
-                            onNavigate('home');
-                            window.scrollTo({ top: 0, behavior: 'smooth' });
-                          }}
+                          onClick={handleTriggerCreatePost}
                           style={{ backgroundColor: '#16A34A', color: '#ffffff' }}
                           className="px-4 py-2.5 rounded-xl text-xs font-black shadow-sm cursor-pointer flex items-center gap-1.5"
                         >
@@ -966,11 +1014,7 @@ export default function FixedBottomNavBar({
                       <div className="pt-2 flex justify-center">
                         <button
                           type="button"
-                          onClick={() => {
-                            setActiveBottomModal(null);
-                            onNavigate('home');
-                            window.scrollTo({ top: 0, behavior: 'smooth' });
-                          }}
+                          onClick={handleTriggerCreatePost}
                           className="w-full py-2.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-black cursor-pointer"
                         >
                           ➕ {language === 'GU' ? 'નવી સેવા રિકવેસ્ટ મૂકો' : 'Create Another Service Request'}

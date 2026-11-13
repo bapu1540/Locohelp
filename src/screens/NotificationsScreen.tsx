@@ -5,7 +5,7 @@ import { Intent } from '../types';
 
 interface NotificationItem {
   id: string;
-  type: 'new_post' | 'new_response';
+  type: 'new_post' | 'new_response' | 'account_approved';
   title: string;
   body: string;
   postId?: string;
@@ -146,12 +146,14 @@ export default function NotificationsScreen({
             >
               <div
                 className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                  item.type === 'new_response'
+                  item.type === 'new_response' || item.type === 'account_approved'
                     ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400'
                     : 'bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400'
                 }`}
               >
-                {item.type === 'new_response' ? (
+                {item.type === 'account_approved' ? (
+                  <CheckCircle2 className="w-5 h-5" />
+                ) : item.type === 'new_response' ? (
                   <MessageCircle className="w-5 h-5" />
                 ) : (
                   <Radio className="w-5 h-5" />
@@ -159,16 +161,32 @@ export default function NotificationsScreen({
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between gap-2">
-                  <h4 className="text-xs font-black text-slate-900 dark:text-white truncate">{item.title}</h4>
+                  <h4
+                    className={`text-xs font-black text-slate-900 dark:text-white ${
+                      item.body && item.body !== item.title ? 'truncate' : 'leading-snug'
+                    }`}
+                  >
+                    {item.title}
+                  </h4>
                   <span className="text-[10px] text-slate-400 font-semibold shrink-0">
                     {item.createdAt
-                      ? new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                      ? (() => {
+                          const d = new Date(item.createdAt);
+                          if (Number.isNaN(d.getTime())) return '';
+                          const dd = String(d.getDate()).padStart(2, '0');
+                          const mm = String(d.getMonth() + 1).padStart(2, '0');
+                          const yyyy = d.getFullYear();
+                          const t = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                          return `${dd}/${mm}/${yyyy} • ${t}`;
+                        })()
                       : ''}
                   </span>
                 </div>
-                <p className="text-xs text-slate-600 dark:text-slate-300 font-medium mt-0.5 line-clamp-2">
-                  {item.body}
-                </p>
+                {item.body && item.body !== item.title && (
+                  <p className="text-xs text-slate-600 dark:text-slate-300 font-medium mt-0.5 line-clamp-2">
+                    {item.body}
+                  </p>
+                )}
               </div>
             </div>
           ))}

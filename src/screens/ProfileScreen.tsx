@@ -7,11 +7,19 @@ import {
 import { useLanguage } from '../i18n';
 import { 
   getCurrentUser, saveUserProfile, getUserProfile, deleteUserProfile, 
-  logoutUser, saveHelper, saveShop, getShops, getHelpers 
+  logoutUser, saveHelper, saveShop, getShops, getHelpers, mergeAndSaveCurrentUser 
 } from '../auth';
 import { isGuestUser } from '../lib/authUtils';
 import IdentityVerificationModal from '../components/IdentityVerificationModal';
-import { getVerificationStatus, submitVerification, fetchPostConversations, deleteConversationOnServer, subscribeToRealtimeStream } from '../api';
+import {
+  getVerificationStatus,
+  submitVerification,
+  fetchPostConversations,
+  deleteConversationOnServer,
+  subscribeToRealtimeStream,
+  normalizeAndDedupeConversations,
+  saveLocalChatReadTimestamp
+} from '../api';
 import { CATEGORIES, getCategoryName, saveFreeHelperProfile, getFreeHelperProfiles, FreeHelperProfile } from '../data/categories';
 import { RegisteredShop, SHOP_TYPES } from '../components/RegisterShopModal';
 import { applyIdWatermark } from '../lib/watermark';
@@ -53,7 +61,8 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
   const [userEmail, setUserEmail] = useState(() => {
     try {
       const activeUser = getCurrentUser();
-      return activeUser?.email || localStorage.getItem('locohelp_last_logged_in_email') || '';
+      const raw = (activeUser?.email || localStorage.getItem('locohelp_last_logged_in_email') || '').trim();
+      return raw.toLowerCase().endsWith('@phone.locohelp.com') ? '' : raw;
     } catch (e) {
       return '';
     }
@@ -90,8 +99,18 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
     }
     if (!silent) setIsLoadingChats(true);
     try {
-      const list = await fetchPostConversations({ userId: user.uid, userEmail: user.email });
-      const rawList = Array.isArray(list) ? list : [];
+      const myPhone = String(
+        user?.phone ||
+        localStorage.getItem('locohelp_last_logged_in_phone') ||
+        localStorage.getItem('locohelp_profile_phone') ||
+        ''
+      ).trim();
+      const list = await fetchPostConversations({
+        userId: user.uid,
+        userEmail: user.email,
+        userPhone: myPhone
+      });
+      const rawList = normalizeAndDedupeConversations(list);
 
       const myUid = String(user?.uid || '').trim().toLowerCase();
       const myEmail = String(user?.email || localStorage.getItem('locohelp_last_logged_in_email') || '').trim().toLowerCase();
@@ -197,7 +216,13 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
     e.stopPropagation();
     setIsDeletingChat(true);
     try {
-      await deleteConversationOnServer(convId);
+      const targetConv = recentConversations.find(
+        (c) => (c.id || c.conversationId) === convId
+      );
+      await deleteConversationOnServer(convId, {
+        postId: targetConv?.postId || targetConv?.post_id,
+        helperId: targetConv?.helperId || targetConv?.helper_id || targetConv?.senderId
+      });
       try {
         localStorage.removeItem(`locohelp_chat_${convId}`);
       } catch {}
@@ -266,10 +291,18 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
 
     const targetConvId = conv.id || conv.conversationId || resolvedConvId;
     try {
+      saveLocalChatReadTimestamp([
+        targetConvId,
+        resolvedConvId,
+        cleanPostId,
+        `${cleanPostId}__${helperIdLower}`,
+        `conv_${cleanPostId}__${helperIdLower}`
+      ]);
       localStorage.setItem(`locohelp_last_viewed_conv_${targetConvId}`, new Date().toISOString());
       localStorage.setItem(`locohelp_last_viewed_conv_${resolvedConvId}`, new Date().toISOString());
       localStorage.setItem(`locohelp_seen_responses_${cleanPostId}`, '999');
       window.dispatchEvent(new CustomEvent('locohelp_responses_seen', { detail: { intentId: cleanPostId } }));
+      window.dispatchEvent(new CustomEvent('locohelp_chat_read_updated'));
       setRecentConversations(prev =>
         prev.map(c => ((c.id === conv.id || c.conversationId === conv.conversationId || c.postId === cleanPostId)
           ? { ...c, unreadCount: 0, isRead: true }
@@ -382,14 +415,20 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
     if (prof.phone) setHelperPhone(prof.phone);
     if (prof.area) setHelperArea(prof.area);
     if (prof.experience) setHelperExp(prof.experience);
-    if (prof.visitingCardUrl || prof.workPhotoUrl || prof.visiting_card_url || prof.work_photo_url) {
-      setHelperWorkPhoto(prof.visitingCardUrl || prof.workPhotoUrl || prof.visiting_card_url || prof.work_photo_url);
+    const cardImg = prof.visitingCardUrl || prof.workPhotoUrl || prof.visiting_card_url || prof.work_photo_url || '';
+    if (cardImg || prof.visitingCardUrl === '' || prof.visitingCardUrl === null) {
+      setHelperWorkPhoto(cardImg);
     }
-    if (prof.watermarkedSelfieUrl || prof.watermarked_selfie_url || prof.photoUrl || prof.idDocUrl) {
-      setHelperIdFrontDoc(prof.watermarkedSelfieUrl || prof.watermarked_selfie_url || prof.photoUrl || prof.idDocUrl);
+    const selfieImg =
+      prof.watermarkedSelfieUrl ||
+      prof.watermarked_selfie_url ||
+      prof.idDocUrl ||
+      (prof.photoUrl && prof.photoUrl !== cardImg ? prof.photoUrl : '');
+    if (selfieImg) {
+      setHelperIdFrontDoc(selfieImg);
     }
-    if (prof.rawSelfieUrl || prof.raw_selfie_url || prof.idDocUrl) {
-      setHelperRawSelfie(prof.rawSelfieUrl || prof.raw_selfie_url || prof.idDocUrl);
+    if (prof.rawSelfieUrl || prof.raw_selfie_url || prof.idDocUrl || selfieImg) {
+      setHelperRawSelfie(prof.rawSelfieUrl || prof.raw_selfie_url || prof.idDocUrl || selfieImg);
     }
     setIsHelperPhonePublic(prof.isPhonePublic === true);
     if (prof.skills) {
@@ -419,7 +458,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
       setOwnerName(activeUser.displayName);
     }
 
-    if (cleanEmail) {
+    if (cleanEmail && !cleanEmail.endsWith('@phone.locohelp.com')) {
       setUserEmail(cleanEmail);
     }
 
@@ -435,7 +474,9 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
           setHasExistingUserProfile(true);
         }
         if (userScoped.phone) setUserPhone(userScoped.phone);
-        if (userScoped.email) setUserEmail(userScoped.email);
+        if (userScoped.email && !String(userScoped.email).toLowerCase().endsWith('@phone.locohelp.com')) {
+          setUserEmail(userScoped.email);
+        }
         if (userScoped.skills) setUserSkills(userScoped.skills);
         if (userScoped.exp || userScoped.experience) setUserExp(userScoped.exp || userScoped.experience);
         if (userScoped.address) {
@@ -446,6 +487,9 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
         const candidateLocalPhoto = userScoped.profilePhoto || userScoped.avatar_url || '';
         if (candidateLocalPhoto && candidateLocalPhoto !== 'https://lh3.googleusercontent.com/a/default-user') {
           setProfilePhoto(candidateLocalPhoto);
+        }
+        if (userScoped.visitingCardUrl !== undefined || userScoped.visiting_card_url !== undefined) {
+          setUserVisitingCard(String(userScoped.visitingCardUrl || userScoped.visiting_card_url || ''));
         }
         if (userScoped.myHelperProfile) {
           foundHelper = userScoped.myHelperProfile;
@@ -508,7 +552,9 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
             setHasExistingUserProfile(true);
           }
           if (data.phone) setUserPhone(data.phone);
-          if (data.email) setUserEmail(data.email);
+          if (data.email && !String(data.email).toLowerCase().endsWith('@phone.locohelp.com')) {
+            setUserEmail(data.email);
+          }
           if (data.skills) setUserSkills(data.skills);
           if (data.address) setUserAddress(data.address);
           if (data.experience || data.exp) setUserExp(data.experience || data.exp);
@@ -537,8 +583,8 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
           if (remoteRawSelfie) {
             setRawProfilePhoto(remoteRawSelfie);
           }
-          if (data.visitingCardUrl || data.visiting_card_url) {
-            setUserVisitingCard(data.visitingCardUrl || data.visiting_card_url);
+          if (data.visitingCardUrl !== undefined || data.visiting_card_url !== undefined) {
+            setUserVisitingCard(String(data.visitingCardUrl || data.visiting_card_url || ''));
           }
           if (data.myHelperProfile) {
             setMyHelperProfile(data.myHelperProfile);
@@ -557,28 +603,41 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
     // Sync Helper Profile from Server (including latest Admin approval status)
     getHelpers(true).then(serverHelpers => {
       if (Array.isArray(serverHelpers)) {
-        const matched = serverHelpers.find((h: any) =>
-          (foundHelper && h.id === foundHelper.id) ||
-          (cleanEmail && (h.email || '').toLowerCase() === cleanEmail) ||
-          (userKey && userKey !== 'guest' && h.userId === userKey) ||
-          (cleanPhone && (h.phone || '').replace(/\D/g, '') === cleanPhone)
-        );
+        const normCleanPhone = (cleanPhone || '').replace(/\D/g, '').slice(-10);
+        const matched = serverHelpers.find((h: any) => {
+          const hPhoneDigits = String(h.phone || '').replace(/\D/g, '').slice(-10);
+          return (
+            (foundHelper && h.id === foundHelper.id) ||
+            (cleanEmail && (h.email || '').toLowerCase() === cleanEmail) ||
+            (userKey && userKey !== 'guest' && (h.userId === userKey || h.id === userKey)) ||
+            (normCleanPhone && hPhoneDigits === normCleanPhone)
+          );
+        });
         if (matched) {
-          setMyHelperProfile(matched);
-          populateHelperForm(matched);
+          const mergedHelper = {
+            ...(foundHelper || {}),
+            ...matched,
+            phone: matched.phone || foundHelper?.phone || ''
+          };
+          setMyHelperProfile(mergedHelper);
+          populateHelperForm(mergedHelper);
           setHasExistingUserProfile(true);
-          if (matched.isVerified || matched.status === 'approved') {
+          if (mergedHelper.isVerified || mergedHelper.status === 'approved') {
             setVerificationStatus('approved');
-          } else if (matched.status === 'pending') {
+          } else if (mergedHelper.status === 'pending') {
             setVerificationStatus('pending');
           }
           try {
-            localStorage.setItem('locohelp_my_helper_profile', JSON.stringify(matched));
+            localStorage.setItem('locohelp_my_helper_profile', JSON.stringify(mergedHelper));
           } catch (e) {}
         } else if (foundHelper) {
-          setMyHelperProfile(null);
           try {
-            localStorage.removeItem('locohelp_my_helper_profile');
+            const deletedRaw = localStorage.getItem('locohelp_deleted_ids');
+            const deletedIds: string[] = deletedRaw ? JSON.parse(deletedRaw) : [];
+            if (foundHelper.id && deletedIds.includes(String(foundHelper.id))) {
+              setMyHelperProfile(null);
+              localStorage.removeItem('locohelp_my_helper_profile');
+            }
           } catch (e) {}
         }
       }
@@ -606,11 +665,13 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
   }, []);
 
   const loadShops = (userKey?: string, cleanEmail?: string, cleanPhone?: string) => {
+    let localBiz: any = null;
     try {
       const myBizRaw = localStorage.getItem('locohelp_my_business_profile');
       if (myBizRaw) {
         const parsedBiz = JSON.parse(myBizRaw);
         if (parsedBiz && parsedBiz.name) {
+          localBiz = parsedBiz;
           setMyBusinessProfile(parsedBiz);
         }
       }
@@ -626,21 +687,35 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
           localStorage.setItem('locohelp_registered_shops', JSON.stringify(allValidShops));
         } catch (e) {}
 
-        if (cleanEmail || userKey || cleanPhone) {
-          const matchedMyShop = cloudShops.find((s: any) =>
-            (cleanEmail && (s.ownerEmail || '').toLowerCase() === cleanEmail) ||
-            (userKey && userKey !== 'guest' && s.userId === userKey) ||
-            (cleanPhone && (s.phone || '').replace(/\D/g, '') === cleanPhone)
-          );
+        if (cleanEmail || userKey || cleanPhone || localBiz?.id) {
+          const normCleanPhone = (cleanPhone || '').replace(/\D/g, '').slice(-10);
+          const matchedMyShop = cloudShops.find((s: any) => {
+            const sPhoneDigits = String(s.phone || '').replace(/\D/g, '').slice(-10);
+            return (
+              (localBiz?.id && s.id === localBiz.id) ||
+              (cleanEmail && (s.ownerEmail || s.email || '').toLowerCase() === cleanEmail) ||
+              (userKey && userKey !== 'guest' && (s.userId === userKey || s.owner_id === userKey)) ||
+              (normCleanPhone && sPhoneDigits === normCleanPhone)
+            );
+          });
           if (matchedMyShop) {
-            setMyBusinessProfile(matchedMyShop);
+            const mergedShop = {
+              ...(localBiz || {}),
+              ...matchedMyShop,
+              phone: matchedMyShop.phone || localBiz?.phone || ''
+            };
+            setMyBusinessProfile(mergedShop);
             try {
-              localStorage.setItem('locohelp_my_business_profile', JSON.stringify(matchedMyShop));
+              localStorage.setItem('locohelp_my_business_profile', JSON.stringify(mergedShop));
             } catch (e) {}
-          } else {
-            setMyBusinessProfile(null);
+          } else if (localBiz?.id) {
             try {
-              localStorage.removeItem('locohelp_my_business_profile');
+              const deletedRaw = localStorage.getItem('locohelp_deleted_ids');
+              const deletedIds: string[] = deletedRaw ? JSON.parse(deletedRaw) : [];
+              if (deletedIds.includes(String(localBiz.id))) {
+                setMyBusinessProfile(null);
+                localStorage.removeItem('locohelp_my_business_profile');
+              }
             } catch (e) {}
           }
         }
@@ -688,13 +763,10 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
           localStorage.setItem(`locohelp_user_profile_${userKey}`, JSON.stringify(userScoped));
 
           if (activeUser) {
-            localStorage.setItem(
-              'locohelp_user',
-              JSON.stringify({
-                ...activeUser,
-                photoURL: base64String
-              })
-            );
+            mergeAndSaveCurrentUser({
+              ...activeUser,
+              photoURL: base64String
+            });
           }
         } catch (err) {}
 
@@ -710,8 +782,8 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
               address: userAddress,
               experience: userExp,
               avatar_url: base64String,
-              image_url: base64String,
               profilePhoto: base64String,
+              visitingCardUrl: userVisitingCard || undefined,
               myHelperProfile
             });
           }
@@ -808,14 +880,14 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
       if (finalSelfie) localStorage.setItem('locohelp_profile_photo', finalSelfie);
 
       const current = getCurrentUser();
-      localStorage.setItem('locohelp_user', JSON.stringify({
+      mergeAndSaveCurrentUser({
         ...current,
         uid: userKey,
         displayName: safeName || current?.displayName,
         email: profileData.email || current?.email,
         phone: cleanPhone || userPhone || current?.phone,
         photoURL: finalSelfie
-      }));
+      });
       window.dispatchEvent(new Event('locohelp_profile_updated'));
       window.dispatchEvent(new Event('storage'));
     } catch (e) {}
@@ -935,10 +1007,10 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
       city: sanitizeText(parsedHelperCity, 100),
       experience: sanitizeText(helperExp.trim() || '1 Year', 60),
       distance: 0.5,
-      photoUrl: publicWatermarkedSelfie || finalWorkPhoto || undefined,
+      photoUrl: publicWatermarkedSelfie || undefined,
       watermarkedSelfieUrl: publicWatermarkedSelfie || undefined,
-      visitingCardUrl: finalWorkPhoto || undefined,
-      workPhotoUrl: finalWorkPhoto || undefined,
+      visitingCardUrl: finalWorkPhoto || '',
+      workPhotoUrl: finalWorkPhoto || '',
       govtIdUploaded: Boolean(finalDoc),
       idDocUrl: adminCleanHelperSelfie || undefined,
       rawSelfieUrl: adminCleanHelperSelfie || undefined,
@@ -969,10 +1041,10 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
         id: helperId,
         area: sanitizeText(parsedHelperTaluka, 150),
         city: sanitizeText(parsedHelperCity, 100),
-        photoUrl: publicWatermarkedSelfie || finalWorkPhoto,
+        photoUrl: publicWatermarkedSelfie,
         watermarkedSelfieUrl: publicWatermarkedSelfie,
-        visitingCardUrl: finalWorkPhoto,
-        workPhotoUrl: finalWorkPhoto,
+        visitingCardUrl: finalWorkPhoto || '',
+        workPhotoUrl: finalWorkPhoto || '',
         idDocUrl: adminCleanHelperSelfie,
         rawSelfieUrl: adminCleanHelperSelfie,
         isPhonePublic: isHelperPhonePublic,
@@ -1044,6 +1116,14 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
     );
     const nextBizStatus = wasBizApproved ? 'approved' : 'pending';
 
+    const existingBizPhoto =
+      myBusinessProfile?.photoUrl &&
+      myBusinessProfile.photoUrl !== finalShopSelfie &&
+      myBusinessProfile.photoUrl !== adminCleanShopSelfie
+        ? myBusinessProfile.photoUrl
+        : undefined;
+    const resolvedBizCardOrPhoto = finalPhotos[0] || shopPhoto || (myBusinessProfile as any)?.visitingCardUrl || existingBizPhoto || undefined;
+
     const newShop: RegisteredShop = {
       id: shopId,
       userId: uid,
@@ -1058,8 +1138,8 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
       area: shopArea.trim() || 'Local Area',
       address: shopAddress.trim() || shopArea.trim() || 'Market Area',
       description: shopDescription.trim() || 'Welcome to our business!',
-      photoUrl: finalPhotos[0] || shopPhoto || myBusinessProfile?.photoUrl || finalShopSelfie || undefined,
-      photos: finalPhotos.length > 0 ? finalPhotos : undefined,
+      photoUrl: resolvedBizCardOrPhoto,
+      photos: finalPhotos.length > 0 ? finalPhotos : resolvedBizCardOrPhoto ? [resolvedBizCardOrPhoto] : undefined,
       rating: myBusinessProfile?.rating || 5.0,
       reviewCount: myBusinessProfile?.reviewCount || 1,
       isVerified: wasBizApproved,
@@ -1076,6 +1156,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
         'locohelp_my_business_profile',
         JSON.stringify({
           ...newShop,
+          visitingCardUrl: resolvedBizCardOrPhoto || '',
           watermarkedSelfieUrl: finalShopSelfie,
           idDocumentWatermarked: adminCleanShopSelfie,
           rawSelfieUrl: adminCleanShopSelfie
@@ -1083,6 +1164,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
       );
       setMyBusinessProfile({
         ...newShop,
+        visitingCardUrl: resolvedBizCardOrPhoto || '',
         watermarkedSelfieUrl: finalShopSelfie,
         idDocumentWatermarked: adminCleanShopSelfie,
         rawSelfieUrl: adminCleanShopSelfie
@@ -1094,6 +1176,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
       await saveShop({
         ...newShop,
         photos: finalPhotos,
+        visitingCardUrl: resolvedBizCardOrPhoto || '',
         timings: newShop.timings,
         isPhonePublic: isShopPhonePublic,
         watermarkedSelfieUrl: finalShopSelfie,
@@ -1243,8 +1326,8 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                     ) : null}
                   </div>
 
-                  {/* Registered Email Address */}
-                  {userEmail && (
+                  {/* Registered Email Address (Only show real email, never synthetic @phone.locohelp.com) */}
+                  {userEmail && !userEmail.toLowerCase().endsWith('@phone.locohelp.com') && (
                     <div className="inline-flex items-center gap-1.5 px-2.5 py-1 mt-1.5 mb-2 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 rounded-lg shadow-2xs max-w-full">
                       <Mail className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
                       <span className="text-[11px] font-bold text-blue-700 dark:text-blue-300 truncate">
@@ -1341,7 +1424,9 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   </div>
                   <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800">
                     <span className="text-[10px] font-bold text-slate-400 uppercase block">{tr('Email', 'ईमेल', 'ઈમેલ')}</span>
-                    <span className="font-extrabold text-slate-900 dark:text-white break-all">{userEmail || '—'}</span>
+                    <span className="font-extrabold text-slate-900 dark:text-white break-all">
+                      {userEmail && !userEmail.toLowerCase().endsWith('@phone.locohelp.com') ? userEmail : '—'}
+                    </span>
                   </div>
                   <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800">
                     <span className="text-[10px] font-bold text-slate-400 uppercase block">{tr('Location', 'लोकेशन', 'લોકેશન')}</span>
@@ -1793,15 +1878,41 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                 <button
                   type="button"
                   onClick={() => {
+                    const bizSelfieWatermarked =
+                      (myBusinessProfile as any).watermarkedSelfieUrl ||
+                      (myBusinessProfile as any).watermarked_selfie_url ||
+                      myBusinessProfile.idDocumentWatermarked ||
+                      null;
+                    const bizSelfieRaw =
+                      (myBusinessProfile as any).rawSelfieUrl ||
+                      (myBusinessProfile as any).raw_selfie_url ||
+                      myBusinessProfile.idDocumentWatermarked ||
+                      bizSelfieWatermarked ||
+                      null;
+                    const bizCard =
+                      (myBusinessProfile as any).visitingCardUrl ||
+                      (myBusinessProfile as any).visiting_card_url ||
+                      (myBusinessProfile.photoUrl &&
+                      myBusinessProfile.photoUrl !== bizSelfieWatermarked &&
+                      myBusinessProfile.photoUrl !== bizSelfieRaw
+                        ? myBusinessProfile.photoUrl
+                        : null);
+                    const validBizPhotos = (Array.isArray(myBusinessProfile.photos) ? myBusinessProfile.photos : []).filter(
+                      (p) => p && p !== bizSelfieWatermarked && p !== bizSelfieRaw
+                    );
                     setShopName(myBusinessProfile.name || '');
                     setShopType(myBusinessProfile.type || 'shop');
                     setOwnerName(myBusinessProfile.ownerName || '');
                     setShopPhone(myBusinessProfile.phone || '');
+                    setIsShopPhonePublic(Boolean(myBusinessProfile.isPhonePublic === true));
                     setShopTimings(myBusinessProfile.timings || '9:00 AM - 9:00 PM');
                     setShopArea(myBusinessProfile.area || '');
                     setShopAddress(myBusinessProfile.address || '');
                     setShopDescription(myBusinessProfile.description || '');
-                    setShopPhotos(myBusinessProfile.photos || (myBusinessProfile.photoUrl ? [myBusinessProfile.photoUrl] : []));
+                    setShopPhoto(bizCard || validBizPhotos[0] || null);
+                    setShopPhotos(validBizPhotos.length > 0 ? validBizPhotos : bizCard ? [bizCard] : []);
+                    if (bizSelfieWatermarked) setShopIdDoc(bizSelfieWatermarked);
+                    if (bizSelfieRaw) setShopRawSelfie(bizSelfieRaw);
                     setIsEditingBusiness(true);
                   }}
                   className="w-full py-3 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-xs shadow-md flex items-center justify-center gap-2 cursor-pointer"

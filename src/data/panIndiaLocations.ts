@@ -1,4 +1,4 @@
-import { saveUserProfile } from '../auth';
+import { saveUserProfile, mergeAndSaveCurrentUser } from '../auth';
 
 export interface UserManualLocation {
   state: string;
@@ -716,7 +716,7 @@ export async function saveProfileRegisteredLocation(loc: UserManualLocation): Pr
         const formattedAddress = cleanTaluka
           ? `${cleanTaluka}, ${cleanDistrict}, ${cleanState}`
           : `${cleanDistrict}, ${cleanState}`;
-        const updatedUser = {
+        const updatedUser = mergeAndSaveCurrentUser({
           ...parsedUser,
           manualState: cleanState,
           manualDistrict: cleanDistrict,
@@ -725,8 +725,7 @@ export async function saveProfileRegisteredLocation(loc: UserManualLocation): Pr
           city: cleanDistrict,
           sector: cleanTaluka,
           address: formattedAddress
-        };
-        localStorage.setItem('locohelp_user', JSON.stringify(updatedUser));
+        });
         saveUserProfile(updatedUser).catch(() => {});
       }
     }

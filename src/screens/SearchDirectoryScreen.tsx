@@ -37,7 +37,7 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SpeechRecognition) {
       const recognition = new SpeechRecognition();
-      recognition.lang = 'hi-IN';
+      recognition.lang = language === 'GU' ? 'gu-IN' : language === 'EN' ? 'en-IN' : 'hi-IN';
       recognition.continuous = false;
       recognition.interimResults = false;
 
@@ -51,8 +51,6 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
       recognition.onend = () => setIsListening(false);
 
       recognition.start();
-    } else {
-      alert("Voice recognition is not supported in this browser.");
     }
   };
 
@@ -107,6 +105,11 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
         const catObj = CATEGORIES.find(c => c.id === h.categoryId);
         return {
           id: h.id,
+          userId: h.userId,
+          email: (h as any).email,
+          phone: h.phone,
+          area: h.area,
+          city: h.city,
           name: h.name,
           categoryId: h.categoryId,
           customCategoryName: h.customCategoryName,
@@ -173,10 +176,25 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
       setIsLoginPromptOpen(true);
       return;
     }
+    const currentUser = getCurrentUser();
+    const myUid = currentUser?.uid || '';
+    const targetShopOwnerId = (shop as any).userId || shop.id;
+    const targetShopEmail =
+      (shop as any).email ||
+      (shop.phone ? `${String(shop.phone).replace(/\D/g, '').slice(-10)}@phone.locohelp.com` : '');
     onOpenChat({
-      id: 'intent_shop_' + shop.id,
-      authorId: shop.id,
-      description: `Inquiring for "${shop.name}" (${shop.categoryLabel || 'Local Business'})`,
+      id: `provider_chat_${shop.id}`,
+      authorId: targetShopOwnerId,
+      authorEmail: targetShopEmail,
+      authorPhone: shop.phone || '',
+      phone: shop.phone || '',
+      authorName: shop.name,
+      providerHelperId: shop.id,
+      receiverId: targetShopOwnerId,
+      helperId: myUid,
+      isDirectProviderChat: true,
+      isViewerPostOwner: false,
+      description: `${shop.name} (${shop.categoryLabel || 'Local Business'})`,
       tags: [shop.categoryLabel || 'Shop'],
       distance: 0.5,
       status: 'active',
@@ -275,8 +293,16 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder={
               activeDirectoryTab === 'shops'
-                ? (language === 'EN' ? 'Search shop, showroom, mall, market, bakery...' : 'दुकान, शोरूम, मॉल, इलेक्ट्रॉनिक्स या कपड़े खोजें...')
-                : (language === 'EN' ? 'Search plumber, electrician, mechanic, tutor...' : 'प्लंबर, इलेक्ट्रिशियन, मैकेनिक खोजें...')
+                ? (language === 'EN'
+                    ? 'Search shop, showroom, mall, market, bakery...'
+                    : language === 'GU'
+                    ? 'દુકાન, શોરૂમ, મોલ, ઇલેક્ટ્રોનિક્સ કે કપડાં શોધો...'
+                    : 'दुकान, शोरूम, मॉल, इलेक्ट्रॉनिक्स या कपड़े खोजें...')
+                : (language === 'EN'
+                    ? 'Search plumber, electrician, mechanic, tutor...'
+                    : language === 'GU'
+                    ? 'પ્લમ્બર, ઈલેક્ટ્રીશિયન, મિકેનિક, સુથાર શોધો...'
+                    : 'प्लंबर, इलेक्ट्रिशियन, मैकेनिक खोजें...')
             } 
             className="bg-transparent border-none outline-none text-slate-900 dark:text-white text-xs w-full placeholder:text-slate-500 font-medium"
           />
@@ -291,10 +317,14 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
                 ? 'bg-red-500 text-white animate-pulse'
                 : 'bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-200 hover:bg-amber-200'
             }`}
-            title="Voice Search"
+            title={language === 'GU' ? 'બોલીને શોધો' : 'Voice Search'}
           >
             <Mic className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-            <span className="hidden sm:inline">{isListening ? 'Listening...' : 'Voice Search'}</span>
+            <span className="hidden sm:inline">
+              {isListening
+                ? (language === 'GU' ? 'સાંભળી રહ્યું છે...' : language === 'HI' ? 'सुन रहा है...' : 'Listening...')
+                : (language === 'GU' ? 'બોલીને શોધો' : language === 'HI' ? 'बोलकर खोजें' : 'Voice Search')}
+            </span>
           </button>
         </div>
       </div>
@@ -355,7 +385,7 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
                         </span>
                         {shop.isVerified && (
                           <span className="text-[9px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950 px-1.5 py-0.2 rounded flex items-center gap-0.5">
-                            <CheckCircle2 className="w-2.5 h-2.5" /> Verified
+                            <CheckCircle2 className="w-2.5 h-2.5" /> {language === 'GU' ? 'વેરિફાઈડ' : 'Verified'}
                           </span>
                         )}
                       </div>
@@ -418,8 +448,8 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
                 {/* Owner info & Action Buttons */}
                 <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-700/80 gap-2 flex-wrap">
                   <div className="text-[10px] text-slate-500 dark:text-slate-400">
-                    <span>Owner: </span>
-                    <strong className="text-slate-800 dark:text-slate-200">{shop.ownerName || 'Manager'}</strong>
+                    <span>{language === 'GU' ? 'માલિક: ' : language === 'HI' ? 'मालिक: ' : 'Owner: '}</span>
+                    <strong className="text-slate-800 dark:text-slate-200">{shop.ownerName || (language === 'GU' ? 'મેનેજર' : 'Manager')}</strong>
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -431,7 +461,7 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
                       title="Share Shop to WhatsApp"
                     >
                       <Share2 className="w-3 h-3 text-emerald-600" />
-                      <span className="hidden sm:inline">Share</span>
+                      <span className="hidden sm:inline">{language === 'GU' ? 'શેર કરો' : language === 'HI' ? 'शेयर' : 'Share'}</span>
                     </button>
 
                     {/* Direct Contact Button or Owner Edit Button */}
@@ -440,10 +470,10 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
                         type="button"
                         onClick={() => setIsRegisterShopOpen(true)}
                         className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-xs flex items-center gap-1 shadow-sm active:scale-95 transition-all cursor-pointer"
-                        title={language === 'EN' ? 'Edit your business details' : 'दुकान की जानकारी एडिट करें'}
+                        title={language === 'EN' ? 'Edit your business details' : language === 'GU' ? 'દુકાનની માહિતી સુધારો' : 'दुकान की जानकारी एडिट करें'}
                       >
                         <Edit3 className="w-3.5 h-3.5" />
-                        <span>{language === 'EN' ? 'Edit' : 'एडिट करें'}</span>
+                        <span>{language === 'EN' ? 'Edit' : language === 'GU' ? 'સુધારો' : 'एडिट करें'}</span>
                       </button>
                     ) : (
                       <button
@@ -452,7 +482,7 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
                         className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-xs flex items-center gap-1 shadow-sm active:scale-95 transition-all cursor-pointer"
                       >
                         <MessageSquare className="w-3.5 h-3.5" />
-                        <span>{language === 'EN' ? 'Chat / Visit' : 'चैट / संपर्क'}</span>
+                        <span>{language === 'EN' ? 'Chat / Visit' : language === 'GU' ? 'ચેટ / સંપર્ક' : 'चैट / संपर्क'}</span>
                       </button>
                     )}
                   </div>
@@ -482,10 +512,10 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
               >
                 <option value="all">
                   {language === 'EN'
-                    ? 'All 10 Main Groups & 49 Categories'
+                    ? `All ${MASTER_CATEGORIES.length} Main Groups & ${CATEGORIES.length} Categories`
                     : language === 'GU'
-                    ? 'તમામ 10 મુખ્ય ગ્રુપ અને 49 કેટેગરી'
-                    : 'सभी 10 मुख्य ग्रुप और 49 श्रेणियां'}
+                    ? `તમામ ${MASTER_CATEGORIES.length} મુખ્ય ગ્રુપ અને ${CATEGORIES.length} કેટેગરી`
+                    : `सभी ${MASTER_CATEGORIES.length} मुख्य ग्रुप और ${CATEGORIES.length} श्रेणियां`}
                 </option>
                 {MASTER_CATEGORIES.map((mainCat, idx) => {
                   const subs = getSubCategoriesByMainId(mainCat.id);
@@ -495,7 +525,7 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
                       label={`${idx + 1}. ${mainCat.emoji} ${getMasterCategoryName(mainCat, language)}`}
                     >
                       <option value={mainCat.id}>
-                        ★ {language === 'EN' ? `All in ${mainCat.nameEn}` : `${getMasterCategoryName(mainCat, language)} (सभी)`}
+                        ★ {language === 'EN' ? `All in ${mainCat.nameEn}` : language === 'GU' ? `${getMasterCategoryName(mainCat, language)} (તમામ)` : `${getMasterCategoryName(mainCat, language)} (सभी)`}
                       </option>
                       {subs.map(c => (
                         <option key={c.id} value={c.id}>
@@ -599,10 +629,10 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
                       type="button"
                       onClick={() => setIsRegisterHelperOpen(true)}
                       className="flex-1 bg-amber-500 hover:bg-amber-600 text-white font-bold py-2 rounded-xl flex items-center justify-center gap-1.5 active:scale-95 transition-transform shadow-xs text-xs cursor-pointer"
-                      title={language === 'EN' ? 'Edit your profile' : 'प्रोफ़ाइल एडिट करें'}
+                      title={language === 'EN' ? 'Edit your profile' : language === 'GU' ? 'પ્રોફાઈલ સુધારો' : 'प्रोफ़ाइल एडिट करें'}
                     >
                       <Edit3 className="w-3.5 h-3.5" />
-                      <span>{language === 'EN' ? 'Edit Profile' : 'प्रोफ़ाइल एडिट करें'}</span>
+                      <span>{language === 'EN' ? 'Edit Profile' : language === 'GU' ? 'પ્રોફાઈલ સુધારો' : 'प्रोफ़ाइल एडिट करें'}</span>
                     </button>
                   ) : (
                     <button 
@@ -612,10 +642,25 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
                           setIsLoginPromptOpen(true);
                           return;
                         }
+                        const currentUser = getCurrentUser();
+                        const myUid = currentUser?.uid || '';
+                        const targetProviderId = provider.userId || provider.id;
+                        const targetProviderEmail =
+                          provider.email ||
+                          (provider.phone ? `${String(provider.phone).replace(/\D/g, '').slice(-10)}@phone.locohelp.com` : '');
                         onOpenChat({
-                          id: 'intent_' + provider.id,
-                          authorId: provider.id,
-                          description: `Inquiring for ${provider.name} (${provider.skills.join(', ')})`,
+                          id: `provider_chat_${provider.id}`,
+                          authorId: targetProviderId,
+                          authorEmail: targetProviderEmail,
+                          authorPhone: provider.phone || '',
+                          phone: provider.phone || '',
+                          authorName: provider.name,
+                          providerHelperId: provider.id,
+                          receiverId: targetProviderId,
+                          helperId: myUid,
+                          isDirectProviderChat: true,
+                          isViewerPostOwner: false,
+                          description: `${provider.name} (${provider.skills.join(', ')})`,
                           tags: provider.skills,
                           distance: provider.distance,
                           status: 'active',
@@ -625,7 +670,7 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
                       className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 rounded-xl flex items-center justify-center gap-1.5 active:scale-95 transition-transform shadow-xs text-xs cursor-pointer"
                     >
                       <MessageSquare className="w-3.5 h-3.5" />
-                      <span>{t('dir.message') || 'Message'}</span>
+                      <span>{t('dir.message') || (language === 'GU' ? 'મેસેજ કરો' : 'Message')}</span>
                     </button>
                   )}
                   <button 
@@ -633,7 +678,7 @@ export default function SearchDirectoryScreen({ onBack, onOpenChat }: { onBack: 
                     className="flex-1 bg-white dark:bg-slate-700 hover:bg-slate-100 dark:hover:bg-slate-600 text-indigo-700 dark:text-indigo-300 font-bold py-2 rounded-xl flex items-center justify-center gap-1.5 active:scale-95 transition-transform border border-indigo-200 dark:border-slate-600 text-xs cursor-pointer"
                   >
                     <UserCheck className="w-3.5 h-3.5" />
-                    <span>View Profile</span>
+                    <span>{language === 'EN' ? 'View Profile' : language === 'GU' ? 'પ્રોફાઈલ જુઓ' : 'प्रोफ़ाइल देखें'}</span>
                   </button>
                 </div>
               </div>

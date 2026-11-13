@@ -586,7 +586,11 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
                   : 'श्रेणी / सर्विस का प्रकार चुनें'}
               </span>
               <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold">
-                {language === 'EN' ? '10 Groups • 49 Categories' : language === 'GU' ? '10 ગ્રુપ • 49 કેટેગરી' : '10 ग्रुप • 49 श्रेणियां'}
+                {language === 'EN'
+                  ? `${MASTER_CATEGORIES.length} Groups • ${CATEGORIES.length} Categories`
+                  : language === 'GU'
+                  ? `${MASTER_CATEGORIES.length} ગ્રુપ • ${CATEGORIES.length} કેટેગરી`
+                  : `${MASTER_CATEGORIES.length} ग्रुप • ${CATEGORIES.length} श्रेणियां`}
               </span>
             </label>
 

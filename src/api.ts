@@ -468,19 +468,159 @@ export async function deleteIntentOnServer(id: string, description?: string): Pr
 
 const inflightConversationsMap = new Map<string, Promise<any[]>>();
 
+export function getCurrentUserStorageKey(): string {
+  try {
+    const savedRaw = localStorage.getItem('locohelp_user');
+    const u = savedRaw ? JSON.parse(savedRaw) : null;
+    const raw =
+      (u?.uid && u.uid !== 'guest_user' ? u.uid : '') ||
+      u?.email ||
+      u?.phone ||
+      localStorage.getItem('locohelp_last_logged_in_phone') ||
+      localStorage.getItem('locohelp_last_logged_in_email') ||
+      'default';
+    return String(raw).trim().toLowerCase() || 'default';
+  } catch {
+    return 'default';
+  }
+}
+
+export function getLocalChatReadTimestamps(): Record<string, number> {
+  try {
+    const key = `locohelp_chat_read_timestamps_${getCurrentUserStorageKey()}`;
+    const raw = localStorage.getItem(key) || localStorage.getItem('locohelp_chat_read_timestamps') || '{}';
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveLocalChatReadTimestamp(keys: Array<string | undefined | null>, timestampMs = Date.now()): void {
+  try {
+    const key = `locohelp_chat_read_timestamps_${getCurrentUserStorageKey()}`;
+    const current = getLocalChatReadTimestamps();
+    keys.forEach((k) => {
+      const clean = String(k || '').trim().toLowerCase();
+      if (clean && clean !== 'all' && clean !== 'general') {
+        current[clean] = Math.max(current[clean] || 0, timestampMs);
+      }
+    });
+    localStorage.setItem(key, JSON.stringify(current));
+  } catch {}
+}
+
+export function getLocalUserDeletedChatsMap(): Record<string, number> {
+  try {
+    const key = `locohelp_deleted_chats_map_${getCurrentUserStorageKey()}`;
+    const raw = localStorage.getItem(key) || '{}';
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveLocalUserDeletedChat(keys: Array<string | undefined | null>, deletedAtMs = Date.now()): void {
+  try {
+    const key = `locohelp_deleted_chats_map_${getCurrentUserStorageKey()}`;
+    const current = getLocalUserDeletedChatsMap();
+    keys.forEach((k) => {
+      const clean = String(k || '').trim().toLowerCase();
+      if (clean && clean !== 'all' && clean !== 'general') {
+        current[clean] = Math.max(current[clean] || 0, deletedAtMs);
+      }
+    });
+    localStorage.setItem(key, JSON.stringify(current));
+  } catch {}
+}
+
+export function normalizeAndDedupeConversations(list: any[]): any[] {
+  const dedupedMap = new Map<string, any>();
+  const readTimestamps = getLocalChatReadTimestamps();
+  const deletedTimestamps = getLocalUserDeletedChatsMap();
+
+  (Array.isArray(list) ? list : []).forEach((c: any) => {
+    if (!c) return;
+    const msgText = String(c.lastMessage || c.last_message || '').trim() || 'Sent a message';
+    const cId = String(c.id || c.conversationId || '').trim().toLowerCase();
+    const pId = String(c.postId || c.post_id || 'general').trim().toLowerCase();
+    const hId = String(c.helperId || c.helper_id || c.senderId || '').trim().toLowerCase();
+    const key = hId ? `${pId}__${hId}` : cId || String(Math.random());
+    const convKey = pId && hId ? `conv_${pId}__${hId}` : cId;
+
+    const lastMsgTime = new Date(c.lastMessageAt || c.last_message_at || c.updatedAt || 0).getTime();
+
+    // Per-user "Delete for Me": hide conversation if deleted by this user and no newer message has arrived since deletion
+    const maxDeletedAt = Math.max(
+      deletedTimestamps[cId] || 0,
+      deletedTimestamps[key] || 0,
+      deletedTimestamps[convKey] || 0,
+      deletedTimestamps[pId] || 0
+    );
+    if (maxDeletedAt > 0 && (Number.isNaN(lastMsgTime) || lastMsgTime <= maxDeletedAt + 1500)) {
+      return;
+    }
+
+    // Per-user "Read" check: if this conversation was already opened/read at or after lastMsgTime, unreadCount MUST be 0 (no green dot on old messages!)
+    const maxReadAt = Math.max(
+      readTimestamps[cId] || 0,
+      readTimestamps[key] || 0,
+      readTimestamps[convKey] || 0,
+      readTimestamps[pId] || 0
+    );
+    const isAlreadyReadLocally = maxReadAt > 0 && !Number.isNaN(lastMsgTime) && lastMsgTime <= maxReadAt + 1500;
+    const effectiveUnread = isAlreadyReadLocally ? 0 : Number(c.unreadCount || 0);
+
+    const normalizedConv = {
+      ...c,
+      lastMessage: msgText,
+      last_message: msgText,
+      unreadCount: effectiveUnread,
+      ...(isAlreadyReadLocally ? { unreadPosterCount: 0, unreadHelperCount: 0 } : {})
+    };
+    const existing = dedupedMap.get(key);
+    if (!existing) {
+      dedupedMap.set(key, normalizedConv);
+    } else {
+      const existingTime = new Date(existing.lastMessageAt || existing.updatedAt || 0).getTime();
+      const newTime = new Date(normalizedConv.lastMessageAt || normalizedConv.updatedAt || 0).getTime();
+      if (newTime >= existingTime) {
+        dedupedMap.set(key, {
+          ...existing,
+          ...normalizedConv,
+          unreadCount: isAlreadyReadLocally
+            ? 0
+            : Math.max(Number(existing.unreadCount || 0), Number(normalizedConv.unreadCount || 0))
+        });
+      }
+    }
+  });
+  return Array.from(dedupedMap.values()).sort(
+    (a, b) => new Date(b.lastMessageAt || b.updatedAt || 0).getTime() - new Date(a.lastMessageAt || a.updatedAt || 0).getTime()
+  );
+}
+
 function getConversationCacheKey(params: {
   postId?: string;
   userId?: string;
   userEmail?: string;
   userPhone?: string;
-}): string {
+}): string | null {
   const p = String(params.postId || 'all').trim().toLowerCase();
-  const u = String(params.userEmail || params.userId || params.userPhone || 'user').trim().toLowerCase();
-  return `locohelp_cached_convs_${p}_${u}`;
+  const resolvedUser = String(
+    params.userEmail || params.userId || params.userPhone || getCurrentUserStorageKey() || ''
+  )
+    .trim()
+    .toLowerCase();
+  if (!resolvedUser || resolvedUser === 'default' || resolvedUser === 'guest_user' || resolvedUser === 'user') {
+    return null;
+  }
+  return `locohelp_cached_convs_${p}_${resolvedUser}`;
 }
 
 /**
- * Synchronously returns cached conversations from localStorage for 0ms instant UI rendering.
+ * Synchronously returns cached conversations from localStorage for 0ms instant UI rendering (strictly user-scoped).
  */
 export function getCachedPostConversations(params: {
   postId?: string;
@@ -490,7 +630,8 @@ export function getCachedPostConversations(params: {
 }): any[] {
   try {
     const key = getConversationCacheKey(params);
-    const raw = localStorage.getItem(key) || (!params.postId ? localStorage.getItem('locohelp_cached_convs_latest') : null);
+    if (!key) return [];
+    const raw = localStorage.getItem(key);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) return parsed;
@@ -509,7 +650,8 @@ export async function fetchPostConversations(params: {
   userPhone?: string;
 }): Promise<any[]> {
   const cacheKey = getConversationCacheKey(params);
-  const existingInflight = inflightConversationsMap.get(cacheKey);
+  const inflightKey = cacheKey || `inflight_${params.postId || 'all'}_${params.userId || params.userEmail || params.userPhone || 'anon'}`;
+  const existingInflight = inflightConversationsMap.get(inflightKey);
   if (existingInflight) {
     return existingInflight;
   }
@@ -534,10 +676,10 @@ export async function fetchPostConversations(params: {
         const list = await res.json();
         const arr = Array.isArray(list) ? list : [];
         try {
-          localStorage.setItem(cacheKey, JSON.stringify(arr));
-          if (!params.postId) {
-            localStorage.setItem('locohelp_cached_convs_latest', JSON.stringify(arr));
+          if (cacheKey) {
+            localStorage.setItem(cacheKey, JSON.stringify(arr));
           }
+          localStorage.removeItem('locohelp_cached_convs_latest');
         } catch {}
         return arr;
       }
@@ -546,19 +688,71 @@ export async function fetchPostConversations(params: {
     }
     return getCachedPostConversations(params);
   })().finally(() => {
-    inflightConversationsMap.delete(cacheKey);
+    inflightConversationsMap.delete(inflightKey);
   });
 
-  inflightConversationsMap.set(cacheKey, promise);
+  inflightConversationsMap.set(inflightKey, promise);
   return promise;
 }
 
 /**
- * Manually deletes a 1-on-1 chat conversation from server
+ * Per-user "Delete for Me" on server (hides chat for requesting user only, retains server copy)
  */
-export async function deleteConversationOnServer(conversationId: string): Promise<boolean> {
+export async function deleteConversationOnServer(
+  conversationId: string,
+  options?: {
+    userId?: string;
+    userEmail?: string;
+    userPhone?: string;
+    postId?: string;
+    helperId?: string;
+  }
+): Promise<boolean> {
   try {
-    const res = await fetch(`/api/chat/conversations/${encodeURIComponent(conversationId)}?_t=${Date.now()}`, {
+    let savedUser: any = null;
+    try {
+      const raw = localStorage.getItem('locohelp_user');
+      if (raw) savedUser = JSON.parse(raw);
+    } catch {}
+
+    const myUid = String(options?.userId || (savedUser?.uid && savedUser.uid !== 'guest_user' ? savedUser.uid : '') || '').trim();
+    const myEmail = String(
+      options?.userEmail || savedUser?.email || localStorage.getItem('locohelp_last_logged_in_email') || ''
+    ).trim().toLowerCase();
+    const myPhone = String(
+      options?.userPhone ||
+      savedUser?.phone ||
+      localStorage.getItem('locohelp_last_logged_in_phone') ||
+      localStorage.getItem('locohelp_profile_phone') ||
+      ''
+    ).trim();
+
+    const pId = String(options?.postId || '').trim();
+    const hId = String(options?.helperId || '').trim();
+
+    saveLocalUserDeletedChat(
+      [
+        conversationId,
+        pId,
+        pId && hId ? `${pId}__${hId}` : '',
+        pId && hId ? `conv_${pId}__${hId}` : ''
+      ],
+      Date.now()
+    );
+
+    try {
+      window.dispatchEvent(new CustomEvent('locohelp_chat_read_updated'));
+    } catch {}
+
+    const qs = new URLSearchParams();
+    if (myUid) qs.set('userId', myUid);
+    if (myEmail) qs.set('userEmail', myEmail);
+    if (myPhone) qs.set('userPhone', myPhone);
+    if (pId) qs.set('postId', pId);
+    if (hId) qs.set('helperId', hId);
+    qs.set('_t', String(Date.now()));
+
+    const res = await fetch(`/api/chat/conversations/${encodeURIComponent(conversationId)}?${qs.toString()}`, {
       method: 'DELETE',
       headers: {
         'Cache-Control': 'no-cache',
@@ -2178,6 +2372,14 @@ type RealtimeStreamHandlers = {
     response_count?: number;
     repliers?: any[];
   }) => void;
+  onAccountApproved?: (payload: {
+    userId?: string;
+    email?: string;
+    phone?: string;
+    title?: string;
+    body?: string;
+    approvedAt?: string;
+  }) => void;
 };
 
 let sharedEventSource: EventSource | null = null;
@@ -2210,6 +2412,13 @@ function ensureSharedEventSource() {
       try {
         const data = JSON.parse(event.data || '{}');
         streamSubscribers.forEach((h) => h.onNewResponse?.(data));
+      } catch {}
+    });
+
+    es.addEventListener('account_approved', (event: MessageEvent) => {
+      try {
+        const data = JSON.parse(event.data || '{}');
+        streamSubscribers.forEach((h) => h.onAccountApproved?.(data));
       } catch {}
     });
 

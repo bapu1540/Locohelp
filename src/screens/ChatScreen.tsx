@@ -16,7 +16,10 @@ import {
   unblockUserInChatOnServer,
   submitChatReportToServer,
   fetchPostConversations,
-  getCachedPostConversations
+  getCachedPostConversations,
+  saveLocalChatReadTimestamp,
+  saveLocalUserDeletedChat,
+  normalizeAndDedupeConversations
 } from '../api';
 import { validateUploadedFile, sanitizeText } from '../lib/security';
 import { compressImageToWebP } from '../lib/imageCompression';
@@ -37,44 +40,12 @@ interface ChatScreenProps {
   onExpandFullScreen?: () => void;
 }
 
-function normalizeAndDedupeConversations(list: any[]): any[] {
-  const dedupedMap = new Map<string, any>();
-  (Array.isArray(list) ? list : []).forEach((c: any) => {
-    if (!c) return;
-    const msgText = String(c.lastMessage || c.last_message || '').trim() || 'Sent a message';
-    const pId = String(c.postId || c.post_id || 'general').trim().toLowerCase();
-    const hId = String(c.helperId || c.helper_id || c.senderId || '').trim().toLowerCase();
-    const key = hId ? `${pId}__${hId}` : String(c.id || c.conversationId || Math.random());
-    const normalizedConv = {
-      ...c,
-      lastMessage: msgText,
-      last_message: msgText
-    };
-    const existing = dedupedMap.get(key);
-    if (!existing) {
-      dedupedMap.set(key, normalizedConv);
-    } else {
-      const existingTime = new Date(existing.lastMessageAt || existing.updatedAt || 0).getTime();
-      const newTime = new Date(normalizedConv.lastMessageAt || normalizedConv.updatedAt || 0).getTime();
-      if (newTime >= existingTime) {
-        dedupedMap.set(key, {
-          ...existing,
-          ...normalizedConv,
-          unreadCount: Math.max(Number(existing.unreadCount || 0), Number(normalizedConv.unreadCount || 0))
-        });
-      }
-    }
-  });
-  return Array.from(dedupedMap.values()).sort(
-    (a, b) => new Date(b.lastMessageAt || b.updatedAt || 0).getTime() - new Date(a.lastMessageAt || a.updatedAt || 0).getTime()
-  );
-}
-
 export default function ChatScreen({ intent, onIntentChange, onBack, onReport, isModal = false, onExpandFullScreen }: ChatScreenProps) {
   const { language, t, tr } = useLanguage();
   const [currentIntent, setCurrentIntent] = useState<Intent | null>(intent);
   const openedFromListRef = useRef<boolean>(!intent);
   const [chatSearchQuery, setChatSearchQuery] = useState('');
+  const [chatToDeleteFromList, setChatToDeleteFromList] = useState<any | null>(null);
 
   useEffect(() => {
     setCurrentIntent(intent);
@@ -111,8 +82,60 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
       const activeUser = getCurrentUser();
       const myUid = activeUser?.uid || '';
       const myEmail = (activeUser?.email || localStorage.getItem('locohelp_last_logged_in_email') || '').toLowerCase();
-      if (!myUid && !myEmail) return;
+      const myPhone =
+        activeUser?.phone ||
+        localStorage.getItem('locohelp_last_logged_in_phone') ||
+        localStorage.getItem('locohelp_profile_phone') ||
+        '';
+      const nowMs = Date.now();
       const postIdToUse = targetPostId || chatId || 'all';
+
+      if (markAll) {
+        const allKeys: string[] = [];
+        allUserConversations.forEach((c: any) => {
+          if (!c) return;
+          const cId = String(c.id || c.conversationId || '').trim();
+          const pId = String(c.postId || c.post_id || '').trim();
+          const hId = String(c.helperId || c.helper_id || c.senderId || '').trim();
+          if (cId) allKeys.push(cId);
+          if (pId) allKeys.push(pId);
+          if (pId && hId) {
+            allKeys.push(`${pId}__${hId}`);
+            allKeys.push(`conv_${pId}__${hId}`);
+          }
+        });
+        saveLocalChatReadTimestamp(allKeys, nowMs);
+        setAllUserConversations(prev => prev.map(c => ({ ...c, unreadCount: 0, unreadPosterCount: 0, unreadHelperCount: 0 })));
+        setInboxConversations(prev => prev.map(c => ({ ...c, unreadCount: 0, unreadPosterCount: 0, unreadHelperCount: 0 })));
+      } else {
+        const keysToMark = [
+          targetConvId,
+          targetPostId,
+          targetPostId && targetHelperId ? `${targetPostId}__${targetHelperId}` : '',
+          targetPostId && targetHelperId ? `conv_${targetPostId}__${targetHelperId}` : ''
+        ];
+        saveLocalChatReadTimestamp(keysToMark, nowMs);
+        const matchConv = (c: any) => {
+          if (!c) return false;
+          const cId = String(c.id || c.conversationId || '').trim().toLowerCase();
+          const pId = String(c.postId || c.post_id || '').trim().toLowerCase();
+          const hId = String(c.helperId || c.helper_id || c.senderId || '').trim().toLowerCase();
+          if (targetConvId && cId === String(targetConvId).trim().toLowerCase()) return true;
+          if (targetPostId && pId === String(targetPostId).trim().toLowerCase()) {
+            if (!targetHelperId || hId === String(targetHelperId).trim().toLowerCase()) return true;
+          }
+          return false;
+        };
+        setAllUserConversations(prev =>
+          prev.map(c => (matchConv(c) ? { ...c, unreadCount: 0, unreadPosterCount: 0, unreadHelperCount: 0 } : c))
+        );
+        setInboxConversations(prev =>
+          prev.map(c => (matchConv(c) ? { ...c, unreadCount: 0, unreadPosterCount: 0, unreadHelperCount: 0 } : c))
+        );
+      }
+      window.dispatchEvent(new CustomEvent('locohelp_chat_read_updated'));
+
+      if (!myUid && !myEmail && !myPhone) return;
       await fetch(`/api/intents/${encodeURIComponent(postIdToUse)}/mark-read`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -121,21 +144,10 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
           helperId: targetHelperId,
           userId: myUid,
           userEmail: myEmail,
+          userPhone: myPhone,
           markAllForUser: markAll
         })
       });
-      if (markAll) {
-        setAllUserConversations(prev => prev.map(c => ({ ...c, unreadCount: 0, unreadPosterCount: 0, unreadHelperCount: 0 })));
-      } else if (targetConvId) {
-        setAllUserConversations(prev =>
-          prev.map(c =>
-            (c.id || c.conversationId) === targetConvId
-              ? { ...c, unreadCount: 0, unreadPosterCount: 0, unreadHelperCount: 0 }
-              : c
-          )
-        );
-      }
-      window.dispatchEvent(new CustomEvent('locohelp_chat_read_updated'));
     } catch {}
   };
 
@@ -645,6 +657,13 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
         const myUid = activeUser?.uid || '';
         const myEmail = (activeUser?.email || '').toLowerCase();
 
+        const myPhone = String(
+          activeUser?.phone ||
+          localStorage.getItem('locohelp_last_logged_in_phone') ||
+          localStorage.getItem('locohelp_profile_phone') ||
+          ''
+        ).trim();
+
         let effectiveHelperId = activeHelperId;
         let effectiveConvId = activeConversationId;
 
@@ -653,7 +672,7 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
               try {
                 const token = localStorage.getItem('locohelp_token');
                 const convRes = await fetch(
-                  `/api/chat/conversations?postId=${encodeURIComponent(chatId)}&userId=${encodeURIComponent(myUid)}&ownerEmail=${encodeURIComponent(myEmail)}&_t=${Date.now()}`,
+                  `/api/chat/conversations?postId=${encodeURIComponent(chatId)}&userId=${encodeURIComponent(myUid)}&ownerEmail=${encodeURIComponent(myEmail)}&userPhone=${encodeURIComponent(myPhone)}&_t=${Date.now()}`,
                   {
                     cache: 'no-store',
                     headers: token ? { Authorization: `Bearer ${token}` } : undefined
@@ -662,9 +681,10 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
                 if (convRes.ok) {
                   const convList = await convRes.json();
                   if (isMounted && Array.isArray(convList)) {
-                    setInboxConversations(convList);
-                    if (!selectedReplierId && convList.length > 0) {
-                      const firstHelper = convList[0];
+                    const normalizedInbox = normalizeAndDedupeConversations(convList);
+                    setInboxConversations(normalizedInbox);
+                    if (!selectedReplierId && normalizedInbox.length > 0) {
+                      const firstHelper = normalizedInbox[0];
                       const firstHelperId = firstHelper.helperId || firstHelper.senderId || firstHelper.helper_id;
                       if (firstHelperId) {
                         effectiveHelperId = String(firstHelperId);
@@ -756,7 +776,7 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
             }
           }
           if (isPostOwner && Array.isArray(payload?.repliers) && payload.repliers.length > 0) {
-            setInboxConversations(payload.repliers);
+            setInboxConversations(normalizeAndDedupeConversations(payload.repliers));
           }
           syncChat();
         }
@@ -1362,19 +1382,107 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
     }
   };
 
-  const handleDeleteAndArchiveChat = () => {
+  const handleDeleteAndArchiveChat = async (targetConvFromList?: any) => {
     setIsDeleting(true);
     try {
-      localStorage.removeItem(`locohelp_chat_${chatId}`);
-      const deletedIds = JSON.parse(localStorage.getItem('locohelp_deleted_chats') || '[]');
-      if (!deletedIds.includes(chatId)) {
-        deletedIds.push(chatId);
-        localStorage.setItem('locohelp_deleted_chats', JSON.stringify(deletedIds));
+      const activeUser = getCurrentUser();
+      const myUid = activeUser?.uid || '';
+      const myEmail = (activeUser?.email || localStorage.getItem('locohelp_last_logged_in_email') || '').toLowerCase();
+      const myPhone =
+        activeUser?.phone ||
+        localStorage.getItem('locohelp_last_logged_in_phone') ||
+        localStorage.getItem('locohelp_profile_phone') ||
+        '';
+
+      const targetItem = targetConvFromList || chatToDeleteFromList;
+      const targetConvId = targetItem
+        ? String(targetItem.id || targetItem.conversationId || targetItem.postId || '')
+        : String(activeConversationId || chatId || '');
+      const targetPostId = targetItem
+        ? String(targetItem.postId || targetItem.post_id || targetItem.id || '')
+        : String(chatId || '');
+      const targetHelperId = targetItem
+        ? String(targetItem.helperId || targetItem.helper_id || targetItem.senderId || '')
+        : String(activeHelperId || selectedReplierId || '');
+
+      const deleteKeys = [
+        targetConvId,
+        targetPostId && targetHelperId ? `${targetPostId}__${targetHelperId}` : '',
+        targetPostId && targetHelperId ? `conv_${targetPostId}__${targetHelperId}` : '',
+        !targetHelperId ? targetPostId : ''
+      ].filter(Boolean);
+
+      saveLocalUserDeletedChat(deleteKeys, Date.now());
+
+      if (targetPostId) {
+        localStorage.removeItem(`locohelp_chat_${targetPostId}`);
       }
+      if (targetConvId) {
+        localStorage.removeItem(`locohelp_chat_${targetConvId}`);
+      }
+
+      // Immediately filter out of local conversation state for this user
+      setAllUserConversations(prev =>
+        prev.filter((c: any) => {
+          if (!c) return false;
+          const cId = String(c.id || c.conversationId || '').trim().toLowerCase();
+          const pId = String(c.postId || c.post_id || '').trim().toLowerCase();
+          const hId = String(c.helperId || c.helper_id || c.senderId || '').trim().toLowerCase();
+          if (targetConvId && cId === targetConvId.toLowerCase()) return false;
+          if (targetPostId && pId === targetPostId.toLowerCase()) {
+            if (!targetHelperId || hId === targetHelperId.toLowerCase()) return false;
+          }
+          return true;
+        })
+      );
+      setInboxConversations(prev =>
+        prev.filter((c: any) => {
+          if (!c) return false;
+          const cId = String(c.id || c.conversationId || '').trim().toLowerCase();
+          const pId = String(c.postId || c.post_id || '').trim().toLowerCase();
+          const hId = String(c.helperId || c.helper_id || c.senderId || '').trim().toLowerCase();
+          if (targetConvId && cId === targetConvId.toLowerCase()) return false;
+          if (targetPostId && pId === targetPostId.toLowerCase()) {
+            if (!targetHelperId || hId === targetHelperId.toLowerCase()) return false;
+          }
+          return true;
+        })
+      );
+
+      if (targetConvId) {
+        const token = localStorage.getItem('locohelp_token') || '';
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        if (myUid) headers['x-user-id'] = myUid;
+        if (myEmail) headers['x-user-email'] = myEmail;
+        if (myPhone) headers['x-user-phone'] = myPhone;
+
+        const qs = new URLSearchParams();
+        if (myUid) qs.set('userId', myUid);
+        if (myEmail) qs.set('userEmail', myEmail);
+        if (myPhone) qs.set('userPhone', myPhone);
+        if (targetPostId) qs.set('postId', targetPostId);
+        if (targetHelperId) qs.set('helperId', targetHelperId);
+
+        await fetch(`/api/chat/conversations/${encodeURIComponent(targetConvId)}?${qs.toString()}`, {
+          method: 'DELETE',
+          headers
+        }).catch(() => {});
+      }
+      window.dispatchEvent(new CustomEvent('locohelp_chat_read_updated'));
     } catch (e) {}
     setIsDeleting(false);
     setIsDeleteConfirmOpen(false);
-    onBack();
+    const wasFromList = Boolean(targetConvFromList || chatToDeleteFromList);
+    setChatToDeleteFromList(null);
+    if (!wasFromList) {
+      if (openedFromListRef.current && !isModal) {
+        setCurrentIntent(null);
+        onIntentChange?.(null);
+      } else {
+        onBack();
+      }
+    }
   };
 
   const submitRating = async () => {
@@ -1899,7 +2007,9 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
                             partnerName.slice(0, 2).toUpperCase()
                           )}
                         </div>
-                        <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-white dark:border-slate-900 rounded-full" />
+                        {hasUnread && (
+                          <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-white dark:border-slate-900 rounded-full shadow-xs" />
+                        )}
                       </div>
 
                       <div className="min-w-0 flex-1">
@@ -1907,11 +2017,25 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
                           <span className={`text-sm truncate ${hasUnread ? 'font-black text-slate-950 dark:text-white' : 'font-extrabold text-slate-900 dark:text-slate-100'}`}>
                             {partnerName}
                           </span>
-                          {lastTime && (
-                            <span className={`text-[11px] shrink-0 ${hasUnread ? 'font-black text-emerald-600 dark:text-emerald-400' : 'font-semibold text-slate-400 dark:text-slate-500'}`}>
-                              {formatWhatsAppTime(lastTime)}
-                            </span>
-                          )}
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {lastTime && (
+                              <span className={`text-[11px] shrink-0 ${hasUnread ? 'font-black text-emerald-600 dark:text-emerald-400' : 'font-semibold text-slate-400 dark:text-slate-500'}`}>
+                                {formatWhatsAppTime(lastTime)}
+                              </span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setChatToDeleteFromList(conv);
+                                setIsDeleteConfirmOpen(true);
+                              }}
+                              className="p-1 rounded-full text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                              title={tr('Delete chat from my phone', 'मेरे फोन से चैट हटाएं', 'મારા ફોનમાંથી ચેટ ડિલીટ કરો')}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
 
                         {postTopic && postTopic !== lastMsg && (
@@ -1938,6 +2062,52 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
             </div>
           )}
         </div>
+
+        {/* Delete Confirmation Modal inside Chat List */}
+        <AnimatePresence>
+          {isDeleteConfirmOpen && (
+            <div
+              className="fixed inset-x-0 bottom-0 top-[52px] z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs"
+              style={{ position: 'fixed', top: '52px', left: 0, right: 0, bottom: 0, zIndex: 5000 }}
+            >
+              <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 w-full max-w-sm shadow-2xl text-center border border-slate-200 dark:border-slate-700">
+                <div className="w-12 h-12 rounded-2xl bg-rose-100 dark:bg-rose-950/60 text-rose-600 flex items-center justify-center mx-auto mb-3">
+                  <Trash2 className="w-6 h-6" />
+                </div>
+                <h3 className="text-base font-black text-slate-900 dark:text-white mb-2">
+                  {tr('Delete Chat for Me?', 'मेरे फोन से चैट हटाएं?', 'ચેટ ડિલીટ કરવી છે?')}
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mb-4 leading-relaxed">
+                  {tr(
+                    'This chat will only be deleted from your phone.',
+                    'यह चैट केवल आपके फोन से हटेगी।',
+                    'આ ચેટ ફક્ત તમારા ફોનમાંથી જ ડિલીટ થશે.'
+                  )}
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsDeleteConfirmOpen(false);
+                      setChatToDeleteFromList(null);
+                    }}
+                    className="flex-1 py-2.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold cursor-pointer"
+                  >
+                    {tr('Cancel', 'रद्द करें', 'રદ કરો')}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isDeleting}
+                    onClick={() => handleDeleteAndArchiveChat()}
+                    className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-black cursor-pointer disabled:opacity-50"
+                  >
+                    {isDeleting ? tr('Deleting...', 'हटा रहे हैं...', 'ડિલીટ થાય છે...') : tr('Delete for Me', 'हटाएं', 'ડિલીટ કરો')}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </AnimatePresence>
       </div>
     );
   }
@@ -1945,7 +2115,7 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
   return (
     <div className="flex flex-col h-full bg-[#FCFAF5] dark:bg-slate-900 relative overflow-hidden transition-colors">
       
-      {/* 1. COMPACT UNIFIED WHATSAPP-STYLE TOP HEADER */}
+      {/* 1. COMPACT UNATSAPP-STYLE TOP HEADER */}
       <div className="flex items-center justify-between px-3 py-2.5 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 shadow-xs z-30 sticky top-0 gap-2">
         <div className="flex items-center gap-2.5 min-w-0 flex-1">
           <button 
@@ -1982,7 +2152,9 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
               <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-indigo-600 to-purple-600 text-white font-black text-xs flex items-center justify-center shadow-xs">
                 {peerName[0]?.toUpperCase() || 'U'}
               </div>
-              <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 border-2 border-white dark:border-slate-800 rounded-full"></span>
+              {unreadNewScrollCount > 0 && (
+                <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 border-2 border-white dark:border-slate-800 rounded-full"></span>
+              )}
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5">
@@ -2144,6 +2316,19 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
                       ? tr('Unblock User', 'यूज़र अनब्लॉक करें', 'યુઝર અનબ્લોક કરો')
                       : tr('Block User', 'यूज़र ब्लॉक करें', 'યુઝર બ્લોક કરો')}
                   </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsHeaderMenuOpen(false);
+                    setChatToDeleteFromList(null);
+                    setIsDeleteConfirmOpen(true);
+                  }}
+                  className="w-full px-3.5 py-2.5 text-left flex items-center gap-2.5 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 cursor-pointer"
+                >
+                  <Trash2 className="w-4 h-4 shrink-0" />
+                  <span>{tr('Delete Chat (For Me)', 'चैट हटाएं (मेरे लिए)', 'ચેટ ડિલીટ કરો (મારા ફોનમાંથી)')}</span>
                 </button>
 
                 <button
@@ -2344,6 +2529,19 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
                         <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
                           {rep.lastMessage || tr('Tap to open chat', 'चैट खोलने के लिए टैप करें', 'ચેટ ખોલવા માટે ક્લિક કરો')}
                         </p>
+                        {rep.updatedAt && (
+                          <span className="text-[10px] text-slate-400 font-semibold block mt-0.5">
+                            {(() => {
+                              const d = new Date(rep.updatedAt);
+                              if (Number.isNaN(d.getTime())) return '';
+                              const dd = String(d.getDate()).padStart(2, '0');
+                              const mm = String(d.getMonth() + 1).padStart(2, '0');
+                              const yyyy = d.getFullYear();
+                              const t = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                              return `${dd}/${mm}/${yyyy} • ${t}`;
+                            })()}
+                          </span>
+                        )}
                       </div>
                     </div>
                     <span className="px-3 py-1.5 rounded-xl bg-emerald-600 text-white text-[11px] font-black shrink-0">
@@ -2355,7 +2553,7 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
             )}
           </div>
         ) : null}
-        {visibleMessages.map((msg) => {
+        {visibleMessages.map((msg, idx) => {
           const activeUser = getCurrentUser();
           const isMe = isMessageSentByUser(msg, activeUser);
           const isSystem = msg.authorId === 'system' || msg.type === 'task_completed';
@@ -2365,12 +2563,76 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
             (msg.senderEmail ? msg.senderEmail.split('@')[0] : peerName) ||
             'Community Peer';
 
+          const getMsgDateObj = (iso?: string) => {
+            if (!iso) return null;
+            const d = new Date(iso);
+            return Number.isNaN(d.getTime()) ? null : d;
+          };
+
+          const getMsgDateKey = (iso?: string) => {
+            const d = getMsgDateObj(iso);
+            if (!d) return '';
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+          };
+
+          const formatDateSeparatorLabel = (iso?: string) => {
+            const d = getMsgDateObj(iso);
+            if (!d) return '';
+            const dd = String(d.getDate()).padStart(2, '0');
+            const mm = String(d.getMonth() + 1).padStart(2, '0');
+            const yyyy = d.getFullYear();
+            const dateStr = `${dd}/${mm}/${yyyy}`;
+
+            const now = new Date();
+            const isToday =
+              d.getDate() === now.getDate() &&
+              d.getMonth() === now.getMonth() &&
+              d.getFullYear() === now.getFullYear();
+            if (isToday) {
+              return `${tr('Today', 'आज', 'આજે')} (${dateStr})`;
+            }
+            const yesterday = new Date(now);
+            yesterday.setDate(now.getDate() - 1);
+            const isYesterday =
+              d.getDate() === yesterday.getDate() &&
+              d.getMonth() === yesterday.getMonth() &&
+              d.getFullYear() === yesterday.getFullYear();
+            if (isYesterday) {
+              return `${tr('Yesterday', 'कल', 'ગઈકાલે')} (${dateStr})`;
+            }
+            return dateStr;
+          };
+
+          const formatBubbleDateTime = (iso?: string) => {
+            const d = getMsgDateObj(iso);
+            if (!d) return tr('Just now', 'अभी', 'હમણાં જ');
+            const dd = String(d.getDate()).padStart(2, '0');
+            const mm = String(d.getMonth() + 1).padStart(2, '0');
+            const yyyy = d.getFullYear();
+            const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            return `${dd}/${mm}/${yyyy} • ${timeStr}`;
+          };
+
+          const currDateKey = getMsgDateKey(msg.createdAt);
+          const prevDateKey = idx > 0 ? getMsgDateKey(visibleMessages[idx - 1]?.createdAt) : '';
+          const showDateHeader = Boolean(currDateKey && currDateKey !== prevDateKey);
+          const dateHeaderNode = showDateHeader ? (
+            <div className="w-full flex justify-center my-2.5 select-none">
+              <span className="px-3 py-1 rounded-full bg-slate-200/90 dark:bg-slate-800/90 text-slate-700 dark:text-slate-300 text-[10px] font-black shadow-2xs border border-slate-300/60 dark:border-slate-700">
+                📅 {formatDateSeparatorLabel(msg.createdAt)}
+              </span>
+            </div>
+          ) : null;
+
           if (isSystem) {
             return (
-              <div key={msg.id} className="my-2 p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-center text-xs font-bold text-emerald-800 dark:text-emerald-300 shadow-xs flex items-center justify-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>{msg.text}</span>
-              </div>
+              <React.Fragment key={msg.id}>
+                {dateHeaderNode}
+                <div className="my-2 p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-center text-xs font-bold text-emerald-800 dark:text-emerald-300 shadow-xs flex items-center justify-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>{msg.text}</span>
+                </div>
+              </React.Fragment>
             );
           }
 
@@ -2379,111 +2641,132 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
             const extractedMapUrl = urlMatch ? urlMatch[0] : `https://www.google.com/maps?q=${encodeURIComponent(peerLocation)}`;
             const cleanPinLabel = msg.text.replace(/\|\s*https?:\/\/[^\s]+/, '').trim();
             return (
-              <div key={msg.id} className={`w-full flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                <div 
-                  className={`max-w-[82%] p-3.5 rounded-2xl flex flex-col gap-2 text-xs font-bold shadow-xs ${
-                    isMe
-                      ? 'bg-emerald-600 text-white ml-auto rounded-tr-xs'
-                      : 'bg-white dark:bg-slate-800 border border-emerald-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 mr-auto rounded-tl-xs'
-                  }`}
-                >
-                  {!isMe && (
-                    <span className="text-[10px] font-black text-emerald-600 dark:text-emerald-400">
-                      {senderDisplayName}
-                    </span>
-                  )}
-                  <div className="flex items-center gap-2">
-                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${isMe ? 'bg-white/20 text-white' : 'bg-emerald-100 dark:bg-emerald-950 text-emerald-600'}`}>
-                      <MapPin className="w-4 h-4 animate-bounce" />
-                    </div>
-                    <span className="leading-snug">{cleanPinLabel}</span>
-                  </div>
-                  <a
-                    href={extractedMapUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={`w-full py-2 px-3 rounded-xl text-[11px] font-black flex items-center justify-center gap-1.5 transition-colors ${
+              <React.Fragment key={msg.id}>
+                {dateHeaderNode}
+                <div className={`w-full flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                  <div 
+                    className={`max-w-[82%] p-3.5 rounded-2xl flex flex-col gap-2 text-xs font-bold shadow-xs ${
                       isMe
-                        ? 'bg-white text-emerald-700 hover:bg-emerald-50'
-                        : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                        ? 'bg-emerald-600 text-white ml-auto rounded-tr-xs'
+                        : 'bg-white dark:bg-slate-800 border border-emerald-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 mr-auto rounded-tl-xs'
                     }`}
                   >
-                    <Navigation className="w-3.5 h-3.5" />
-                    <span>{tr('🗺️ View Location on Google Maps', '🗺️ Google Maps पर लोकेशन देखें', '🗺️ Google Maps પર લોકેશન જુઓ')}</span>
-                  </a>
+                    {!isMe && (
+                      <span className="text-[10px] font-black text-emerald-600 dark:text-emerald-400">
+                        {senderDisplayName}
+                      </span>
+                    )}
+                    <div className="flex items-center gap-2">
+                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${isMe ? 'bg-white/20 text-white' : 'bg-emerald-100 dark:bg-emerald-950 text-emerald-600'}`}>
+                        <MapPin className="w-4 h-4 animate-bounce" />
+                      </div>
+                      <span className="leading-snug">{cleanPinLabel}</span>
+                    </div>
+                    <a
+                      href={extractedMapUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={`w-full py-2 px-3 rounded-xl text-[11px] font-black flex items-center justify-center gap-1.5 transition-colors ${
+                        isMe
+                          ? 'bg-white text-emerald-700 hover:bg-emerald-50'
+                          : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                      }`}
+                    >
+                      <Navigation className="w-3.5 h-3.5" />
+                      <span>{tr('🗺️ View Location on Google Maps', '🗺️ Google Maps पर लोकेशन देखें', '🗺️ Google Maps પર લોકેશન જુઓ')}</span>
+                    </a>
+                    <div className={`flex items-center justify-between gap-2 pt-1 border-t ${isMe ? 'border-white/15' : 'border-slate-100 dark:border-slate-700/60'}`}>
+                      <span className={`text-[9px] font-semibold ${isMe ? 'text-emerald-100' : 'text-slate-400'}`}>
+                        {formatBubbleDateTime(msg.createdAt)}
+                      </span>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              </React.Fragment>
             );
           }
 
           if (msg.type === 'phone_request') {
             return (
-              <div key={msg.id} className={`w-full flex ${isMe ? 'justify-end' : 'justify-start'} my-1`}>
-                {isMe ? (
-                  <div className="max-w-[85%] p-3.5 rounded-2xl bg-sky-600 text-white ml-auto rounded-tr-xs shadow-md space-y-1.5">
-                    <div className="flex items-center gap-1.5 font-black text-xs text-sky-100">
-                      <Phone className="w-3.5 h-3.5 fill-sky-200 shrink-0" />
-                      <span>
-                        {language === 'GU'
-                          ? 'મોબાઇલ નંબર માટે વિનંતી મોકલી છે'
-                          : language === 'HI'
-                          ? 'मोबाइल नंबर का अनुरोध भेजा गया'
-                          : 'Phone Number Requested'}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-sky-100 leading-snug font-medium">
-                      {language === 'GU'
-                        ? 'સામેવાળી વ્યક્તિ વિનંતી સ્વીકારશે એટલે તેમનો નંબર અહીં કૉલ બટન સાથે આપમેળે દેખાશે.'
-                        : language === 'HI'
-                        ? 'सामने वाले व्यक्ति के स्वीकार करते ही उनका नंबर यहाँ सीधे कॉल बटन के साथ दिखेगा।'
-                        : 'Their direct phone number and 1-tap call button will appear here once approved.'}
-                    </p>
-                  </div>
-                ) : (
-                  <div className="max-w-[88%] p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/70 border-2 border-emerald-500 rounded-tl-xs shadow-md space-y-2">
-                    <div className="flex items-center gap-2 text-emerald-900 dark:text-emerald-200 font-black text-xs">
-                      <Phone className="w-4 h-4 text-emerald-600 animate-pulse shrink-0" />
-                      <span>
-                        {language === 'GU'
-                          ? 'ગ્રાહકે તમારા મોબાઇલ નંબરની વિનંતી કરી છે'
-                          : language === 'HI'
-                          ? 'ग्राहक ने आपके मोबाइल नंबर का अनुरोध किया है'
-                          : 'Client Requested Your Mobile Number'}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-emerald-800 dark:text-emerald-300 font-medium leading-relaxed">
-                      {language === 'GU'
-                        ? 'ગ્રાહક તમારી સાથે સીધો સંપર્ક કરવા માંગે છે. "✓ નંબર આપો" પર ક્લિક કરતાં જ તમારો મોબાઇલ નંબર આ ચેટમાં શેર થઈ જશે.'
-                        : language === 'HI'
-                        ? 'ग्राहक आपसे सीधे बात करना चाहता है। "✓ नंबर दें" पर क्लिक करते ही आपका नंबर चैट में शेयर हो जाएगा।'
-                        : 'Client wants to call you directly. Tap "Approve" to share your phone number in this chat.'}
-                    </p>
-                    <div className="flex items-center gap-2 pt-1">
-                      <button
-                        type="button"
-                        onClick={() => handleApprovePhoneRequest(msg)}
-                        className="flex-1 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black flex items-center justify-center gap-1.5 shadow-sm active:scale-95 transition-all cursor-pointer"
-                      >
-                        <Check className="w-4 h-4 stroke-[3]" />
+              <React.Fragment key={msg.id}>
+                {dateHeaderNode}
+                <div className={`w-full flex ${isMe ? 'justify-end' : 'justify-start'} my-1`}>
+                  {isMe ? (
+                    <div className="max-w-[85%] p-3.5 rounded-2xl bg-sky-600 text-white ml-auto rounded-tr-xs shadow-md space-y-1.5">
+                      <div className="flex items-center gap-1.5 font-black text-xs text-sky-100">
+                        <Phone className="w-3.5 h-3.5 fill-sky-200 shrink-0" />
                         <span>
                           {language === 'GU'
-                            ? '✓ નંબર આપો (Approve)'
+                            ? 'મોબાઇલ નંબર માટે વિનંતી મોકલી છે'
                             : language === 'HI'
-                            ? '✓ नंबर दें (Approve)'
-                            : '✓ Approve & Share'}
+                            ? 'मोबाइल नंबर का अनुरोध भेजा गया'
+                            : 'Phone Number Requested'}
                         </span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDeclinePhoneRequest(msg)}
-                        className="py-2 px-3 rounded-xl bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 text-slate-700 dark:text-slate-200 text-xs font-bold transition-all cursor-pointer"
-                      >
-                        <span>{language === 'GU' ? '✕ નકારો' : language === 'HI' ? '✕ नकारें' : '✕ Decline'}</span>
-                      </button>
+                      </div>
+                      <p className="text-[11px] text-sky-100 leading-snug font-medium">
+                        {language === 'GU'
+                          ? 'સામેવાળી વ્યક્તિ વિનંતી સ્વીકારશે એટલે તેમનો નંબર અહીં કૉલ બટન સાથે આપમેળે દેખાશે.'
+                          : language === 'HI'
+                          ? 'सामने वाले व्यक्ति के स्वीकार करते ही उनका नंबर यहाँ सीधे कॉल बटन के साथ दिखेगा।'
+                          : 'Their direct phone number and 1-tap call button will appear here once approved.'}
+                      </p>
+                      <div className="pt-1 border-t border-white/15 flex items-center justify-end">
+                        <span className="text-[9px] font-semibold text-sky-100">
+                          {formatBubbleDateTime(msg.createdAt)}
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                )}
-              </div>
+                  ) : (
+                    <div className="max-w-[88%] p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/70 border-2 border-emerald-500 rounded-tl-xs shadow-md space-y-2">
+                      <div className="flex items-center gap-2 text-emerald-900 dark:text-emerald-200 font-black text-xs">
+                        <Phone className="w-4 h-4 text-emerald-600 animate-pulse shrink-0" />
+                        <span>
+                          {language === 'GU'
+                            ? 'ગ્રાહકે તમારા મોબાઇલ નંબરની વિનંતી કરી છે'
+                            : language === 'HI'
+                            ? 'ग्राहक ने आपके मोबाइल नंबर का अनुरोध किया है'
+                            : 'Client Requested Your Mobile Number'}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-emerald-800 dark:text-emerald-300 font-medium leading-relaxed">
+                        {language === 'GU'
+                          ? 'ગ્રાહક તમારી સાથે સીધો સંપર્ક કરવા માંગે છે. "✓ નંબર આપો" પર ક્લિક કરતાં જ તમારો મોબાઇલ નંબર આ ચેટમાં શેર થઈ જશે.'
+                          : language === 'HI'
+                          ? 'ग्राहक आपसे सीधे बात करना चाहता है। "✓ नंबर दें" पर क्लिक करते ही आपका नंबर चैट में शेयर हो जाएगा।'
+                          : 'Client wants to call you directly. Tap "Approve" to share your phone number in this chat.'}
+                      </p>
+                      <div className="flex items-center gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => handleApprovePhoneRequest(msg)}
+                          className="flex-1 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black flex items-center justify-center gap-1.5 shadow-sm active:scale-95 transition-all cursor-pointer"
+                        >
+                          <Check className="w-4 h-4 stroke-[3]" />
+                          <span>
+                            {language === 'GU'
+                              ? '✓ નંબર આપો (Approve)'
+                              : language === 'HI'
+                              ? '✓ नंबर दें (Approve)'
+                              : '✓ Approve & Share'}
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeclinePhoneRequest(msg)}
+                          className="py-2 px-3 rounded-xl bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 text-slate-700 dark:text-slate-200 text-xs font-bold transition-all cursor-pointer"
+                        >
+                          <span>{language === 'GU' ? '✕ નકારો' : language === 'HI' ? '✕ नकारें' : '✕ Decline'}</span>
+                        </button>
+                      </div>
+                      <div className="pt-1 border-t border-emerald-200 dark:border-emerald-800/60 flex items-center justify-end">
+                        <span className="text-[9px] font-semibold text-emerald-700 dark:text-emerald-400">
+                          {formatBubbleDateTime(msg.createdAt)}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </React.Fragment>
             );
           }
 
@@ -2491,100 +2774,111 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
             const rawPhone = String(msg.attachmentUrl || msg.text.replace(/\D/g, '').slice(-10)).replace(/\D/g, '').slice(-10);
             const displayPhone = rawPhone && /^[6-9]\d{9}$/.test(rawPhone) ? rawPhone : '';
             return (
-              <div key={msg.id} className="w-full flex justify-center my-2">
-                <div className="w-full max-w-[88%] p-3.5 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-700 text-white shadow-md flex flex-col gap-2 border border-emerald-400/40">
-                  <div className="flex items-center justify-between gap-2 border-b border-white/20 pb-1.5">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <ShieldCheck className="w-4 h-4 text-emerald-200 shrink-0" />
-                      <span className="text-xs font-black truncate">
-                        {language === 'GU'
-                          ? 'વેરિફાઇડ મોબાઇલ નંબર શેર કર્યો'
-                          : language === 'HI'
-                          ? 'वेरिफाइड मोबाइल नंबर साझा किया गया'
-                          : 'Verified Phone Number Shared'}
+              <React.Fragment key={msg.id}>
+                {dateHeaderNode}
+                <div className="w-full flex justify-center my-2">
+                  <div className="w-full max-w-[88%] p-3.5 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-700 text-white shadow-md flex flex-col gap-2 border border-emerald-400/40">
+                    <div className="flex items-center justify-between gap-2 border-b border-white/20 pb-1.5">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <ShieldCheck className="w-4 h-4 text-emerald-200 shrink-0" />
+                        <span className="text-xs font-black truncate">
+                          {language === 'GU'
+                            ? 'વેરિફાઇડ મોબાઇલ નંબર શેર કર્યો'
+                            : language === 'HI'
+                            ? 'वेरिफाइड मोबाइल नंबर साझा किया गया'
+                            : 'Verified Phone Number Shared'}
+                        </span>
+                      </div>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/20 font-extrabold shrink-0">
+                        100% Free
                       </span>
                     </div>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/20 font-extrabold shrink-0">
-                      100% Free
-                    </span>
-                  </div>
 
-                  <div className="flex items-center justify-between gap-2 pt-0.5 flex-wrap">
-                    <div className="font-mono text-base font-black tracking-wider text-white">
-                      📞 {displayPhone ? `+91 ${displayPhone}` : msg.text}
-                    </div>
-                    {displayPhone && (
-                      <div className="flex items-center gap-2">
-                        <a
-                          href={`tel:${displayPhone}`}
-                          className="py-1.5 px-3 rounded-xl bg-white text-emerald-800 hover:bg-emerald-50 text-xs font-black flex items-center gap-1 shadow-sm active:scale-95 transition-all text-decoration-none"
-                        >
-                          <Phone className="w-3.5 h-3.5 fill-emerald-800" />
-                          <span>{language === 'GU' ? 'કૉલ કરો' : language === 'HI' ? 'कॉल करें' : 'Call'}</span>
-                        </a>
-                        <a
-                          href={`https://wa.me/91${displayPhone}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="py-1.5 px-2.5 rounded-xl bg-emerald-500/80 hover:bg-emerald-500 text-white text-xs font-black flex items-center gap-1 shadow-sm active:scale-95 transition-all text-decoration-none"
-                        >
-                          <span>WhatsApp</span>
-                        </a>
+                    <div className="flex items-center justify-between gap-2 pt-0.5 flex-wrap">
+                      <div className="font-mono text-base font-black tracking-wider text-white">
+                        📞 {displayPhone ? `+91 ${displayPhone}` : msg.text}
                       </div>
-                    )}
+                      {displayPhone && (
+                        <div className="flex items-center gap-2">
+                          <a
+                            href={`tel:${displayPhone}`}
+                            className="py-1.5 px-3 rounded-xl bg-white text-emerald-800 hover:bg-emerald-50 text-xs font-black flex items-center gap-1 shadow-sm active:scale-95 transition-all text-decoration-none"
+                          >
+                            <Phone className="w-3.5 h-3.5 fill-emerald-800" />
+                            <span>{language === 'GU' ? 'કૉલ કરો' : language === 'HI' ? 'कॉल करें' : 'Call'}</span>
+                          </a>
+                          <a
+                            href={`https://wa.me/91${displayPhone}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="py-1.5 px-2.5 rounded-xl bg-emerald-500/80 hover:bg-emerald-500 text-white text-xs font-black flex items-center gap-1 shadow-sm active:scale-95 transition-all text-decoration-none"
+                          >
+                            <span>WhatsApp</span>
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                    <div className="pt-1 border-t border-white/15 flex items-center justify-end">
+                      <span className="text-[9px] font-semibold text-emerald-100">
+                        {formatBubbleDateTime(msg.createdAt)}
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </div>
+              </React.Fragment>
             );
           }
 
           return (
-            <div key={msg.id} className={`w-full flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-              <motion.div 
-                initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-                className={`max-w-[80%] p-3.5 rounded-2xl shadow-xs flex flex-col gap-1.5 ${
-                  isMe 
-                    ? 'bg-indigo-600 text-white self-end ml-auto rounded-tr-xs' 
-                    : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 self-start mr-auto rounded-tl-xs'
-                }`}
-              >
-                {!isMe && (
-                  <div className="flex items-center gap-1.5 pb-0.5 border-b border-slate-100 dark:border-slate-700/60">
-                    <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 truncate">
-                      {senderDisplayName}
-                    </span>
-                  </div>
-                )}
-                {Boolean(msg.attachmentUrl) && (
-                  <div 
-                    onClick={() => setZoomedImage(msg.attachmentUrl!)}
-                    className="cursor-pointer overflow-hidden rounded-xl border border-white/20 mb-1 bg-black/10"
-                  >
-                    <img src={msg.attachmentUrl} alt="Chat photo" loading="lazy" decoding="async" className="w-full max-h-64 object-cover hover:scale-102 transition-transform" />
-                  </div>
-                )}
-                <p className={`text-xs font-medium leading-relaxed whitespace-pre-wrap ${isMe ? 'text-white' : 'text-slate-900 dark:text-slate-100'}`}>
-                  {msg.text}
-                </p>
-                <div className={`flex items-center justify-between gap-2 mt-0.5 pt-1 border-t ${isMe ? 'border-white/15' : 'border-slate-100 dark:border-slate-700/60'}`}>
-                  <span className={`text-[9px] font-semibold ${isMe ? 'text-indigo-100' : 'text-slate-400'}`}>
-                    {msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Just now'}
-                  </span>
-                  {isMe && (
-                    <span
-                      className="flex items-center text-[11px] font-extrabold leading-none tracking-tighter"
-                      title={Boolean(msg.isRead || (msg as any).is_read) ? 'Read (✓✓)' : 'Sent (✓)'}
-                    >
-                      {Boolean(msg.isRead || (msg as any).is_read) ? (
-                        <span className="text-sky-300">✓✓</span>
-                      ) : (
-                        <span className="text-white/80">✓</span>
-                      )}
-                    </span>
+            <React.Fragment key={msg.id}>
+              {dateHeaderNode}
+              <div className={`w-full flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                <motion.div 
+                  initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                  className={`max-w-[80%] p-3.5 rounded-2xl shadow-xs flex flex-col gap-1.5 ${
+                    isMe 
+                      ? 'bg-indigo-600 text-white self-end ml-auto rounded-tr-xs' 
+                      : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 self-start mr-auto rounded-tl-xs'
+                  }`}
+                >
+                  {!isMe && (
+                    <div className="flex items-center gap-1.5 pb-0.5 border-b border-slate-100 dark:border-slate-700/60">
+                      <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 truncate">
+                        {senderDisplayName}
+                      </span>
+                    </div>
                   )}
-                </div>
-              </motion.div>
-            </div>
+                  {Boolean(msg.attachmentUrl) && (
+                    <div 
+                      onClick={() => setZoomedImage(msg.attachmentUrl!)}
+                      className="cursor-pointer overflow-hidden rounded-xl border border-white/20 mb-1 bg-black/10"
+                    >
+                      <img src={msg.attachmentUrl} alt="Chat photo" loading="lazy" decoding="async" className="w-full max-h-64 object-cover hover:scale-102 transition-transform" />
+                    </div>
+                  )}
+                  <p className={`text-xs font-medium leading-relaxed whitespace-pre-wrap ${isMe ? 'text-white' : 'text-slate-900 dark:text-slate-100'}`}>
+                    {msg.text}
+                  </p>
+                  <div className={`flex items-center justify-between gap-2 mt-0.5 pt-1 border-t ${isMe ? 'border-white/15' : 'border-slate-100 dark:border-slate-700/60'}`}>
+                    <span className={`text-[9px] font-semibold ${isMe ? 'text-indigo-100' : 'text-slate-400'}`}>
+                      {formatBubbleDateTime(msg.createdAt)}
+                    </span>
+                    {isMe && (
+                      <span
+                        className="flex items-center text-[11px] font-extrabold leading-none tracking-tighter"
+                        title={Boolean(msg.isRead || (msg as any).is_read) ? 'Read (✓✓)' : 'Sent (✓)'}
+                      >
+                        {Boolean(msg.isRead || (msg as any).is_read) ? (
+                          <span className="text-sky-300">✓✓</span>
+                        ) : (
+                          <span className="text-white/80">✓</span>
+                        )}
+                      </span>
+                    )}
+                  </div>
+                </motion.div>
+              </div>
+            </React.Fragment>
           );
         })}
         {showScrollBottomBtn && (
@@ -2957,19 +3251,38 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
             className="fixed inset-x-0 bottom-0 top-[52px] z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs"
             style={{ position: 'fixed', top: '52px', left: 0, right: 0, bottom: 0, zIndex: 5000 }}
           >
-            <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 w-full max-w-sm shadow-2xl text-center">
+            <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 w-full max-w-sm shadow-2xl text-center border border-slate-200 dark:border-slate-700">
+              <div className="w-12 h-12 rounded-2xl bg-rose-100 dark:bg-rose-950/60 text-rose-600 flex items-center justify-center mx-auto mb-3">
+                <Trash2 className="w-6 h-6" />
+              </div>
               <h3 className="text-base font-black text-slate-900 dark:text-white mb-2">
-                {tr('Delete Chat?', 'चैट हटाएं?', 'ચેટ ડિલીટ કરવી છે?')}
+                {tr('Delete Chat for Me?', 'मेरे फोन से चैट हटाएं?', 'ચેટ ડિલીટ કરવી છે?')}
               </h3>
-              <p className="text-xs text-slate-500 mb-4">
-                {tr('This will clear chat history from your device view.', 'यह आपके डिवाइस से इस चैट को हटा देगा।', 'આ તમારા ડિવાઇસમાંથી આ ચેટ હિસ્ટ્રી દૂર કરશે.')}
+              <p className="text-xs text-slate-500 dark:text-slate-400 mb-4 leading-relaxed">
+                {tr(
+                  'This chat will only be deleted from your phone.',
+                  'यह चैट केवल आपके फोन से हटेगी।',
+                  'આ ચેટ ફક્ત તમારા ફોનમાંથી જ ડિલીટ થશે.'
+                )}
               </p>
               <div className="flex gap-2">
-                <button onClick={() => setIsDeleteConfirmOpen(false)} className="flex-1 py-2.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsDeleteConfirmOpen(false);
+                    setChatToDeleteFromList(null);
+                  }}
+                  className="flex-1 py-2.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold cursor-pointer"
+                >
                   {tr('Cancel', 'रद्द करें', 'રદ કરો')}
                 </button>
-                <button onClick={handleDeleteAndArchiveChat} className="flex-1 py-2.5 bg-rose-600 text-white rounded-xl text-xs font-bold">
-                  {tr('Delete', 'हटाएं', 'ડિલીટ કરો')}
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={() => handleDeleteAndArchiveChat()}
+                  className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-black cursor-pointer disabled:opacity-50"
+                >
+                  {isDeleting ? tr('Deleting...', 'हटा रहे हैं...', 'ડિલીટ થાય છે...') : tr('Delete for Me', 'हटाएं', 'ડિલીટ કરો')}
                 </button>
               </div>
             </div>

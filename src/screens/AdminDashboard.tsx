@@ -713,6 +713,13 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
     }
   };
 
+  const cleanDisplayEmail = (val?: any): string => {
+    if (!val || typeof val !== 'string') return '';
+    const trimmed = val.trim();
+    if (trimmed.toLowerCase().endsWith('@phone.locohelp.com')) return '';
+    return trimmed;
+  };
+
   // View Full Details / ID Document Modal State
   const [viewingItem, setViewingItem] = useState<{ module: AdminModuleId; data: any } | null>(null);
 
@@ -728,6 +735,8 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
     descriptionOrBio: string;
     salaryOrPrice: string;
     photoUrl?: string;
+    visitingCardUrl?: string;
+    isPhonePublic?: boolean;
     status: 'pending' | 'approved' | 'rejected';
     raw: any;
   } | null>(null);
@@ -750,6 +759,8 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
     salaryOrUrgency: string;
     description: string;
     photoUrl: string;
+    visitingCardUrl: string;
+    isPhonePublic: boolean;
     photos: string[];
     resumeUrl: string;
     resumeFileName: string;
@@ -776,6 +787,8 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
       salaryOrUrgency: '',
       description: '',
       photoUrl: '',
+      visitingCardUrl: '',
+      isPhonePublic: mod === 'businesses',
       photos: [],
       resumeUrl: '',
       resumeFileName: ''
@@ -1769,6 +1782,8 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
       item.photoOrLogoUrl ||
       item.attachmentUrl ||
       '';
+    const existingVisitingCard = item.visitingCardUrl || item.visiting_card_url || item.workPhotoUrl || '';
+    const existingPhonePublic = Boolean(item.isPhonePublic);
     if (mod === 'help_posts') {
       setEditingItem({
         module: mod,
@@ -1776,56 +1791,95 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         nameOrTitle: item.userName || item.user_name || item.authorName || 'Community User',
         categoryOrRole: item.category || 'General Help',
         phone: item.phone || item.contactPhone || '',
-        email: item.email || '',
+        email: cleanDisplayEmail(item.email || item.authorEmail),
         areaOrLocation: item.area || item.locationName || '',
         descriptionOrBio: item.description || '',
         salaryOrPrice: item.urgency || 'normal',
         photoUrl: existingPhoto,
+        visitingCardUrl: existingVisitingCard,
+        isPhonePublic: existingPhonePublic,
         status,
         raw: item
       });
     } else if (mod === 'helpers') {
+      const helperSelfie =
+        item.watermarkedSelfieUrl ||
+        item.idDocUrl ||
+        item.rawSelfieUrl ||
+        item.idDocumentWatermarked ||
+        item.photoUrl ||
+        item.photo_url ||
+        existingPhoto;
+      const helperCard =
+        existingVisitingCard && existingVisitingCard !== helperSelfie ? existingVisitingCard : '';
       setEditingItem({
         module: mod,
         id: item.id,
         nameOrTitle: item.name || '',
         categoryOrRole: item.category || item.service || '',
         phone: item.phone || item.whatsapp || '',
-        email: item.email || '',
+        email: cleanDisplayEmail(item.email),
         areaOrLocation: item.area || item.address || '',
         descriptionOrBio: item.bio || item.description || item.experience || '',
         salaryOrPrice: item.priceRange || '',
-        photoUrl: existingPhoto,
+        photoUrl: helperSelfie,
+        visitingCardUrl: helperCard,
+        isPhonePublic: existingPhonePublic,
         status,
         raw: item
       });
     } else if (mod === 'simple_users') {
+      const userSelfie =
+        item.avatarUrl ||
+        item.avatar_url ||
+        item.liveSelfieUrl ||
+        item.idDocumentWatermarked ||
+        item.photoUrl ||
+        existingPhoto;
+      const userCard =
+        existingVisitingCard && existingVisitingCard !== userSelfie ? existingVisitingCard : '';
       setEditingItem({
         module: mod,
         id: item.id,
         nameOrTitle: item.name || item.userName || '',
         categoryOrRole: item.category || 'Simple User Profile',
         phone: item.phone || item.userPhone || '',
-        email: item.email || item.userEmail || '',
+        email: cleanDisplayEmail(item.email || item.userEmail),
         areaOrLocation: item.area || item.address || '',
         descriptionOrBio: item.bio || item.adminNotes || '',
         salaryOrPrice: '',
-        photoUrl: existingPhoto,
+        photoUrl: userSelfie,
+        visitingCardUrl: userCard,
+        isPhonePublic: existingPhonePublic,
         status,
         raw: item
       });
     } else if (mod === 'businesses') {
+      const bizSelfie =
+        item.watermarkedSelfieUrl ||
+        item.idDocumentWatermarked ||
+        item.rawSelfieUrl ||
+        '';
+      const bizPhoto =
+        (item.photoUrl && item.photoUrl !== bizSelfie ? item.photoUrl : '') ||
+        (Array.isArray(item.photos) && item.photos[0] && item.photos[0] !== bizSelfie ? item.photos[0] : '') ||
+        existingPhoto;
+      const bizCard =
+        (existingVisitingCard && existingVisitingCard !== bizSelfie ? existingVisitingCard : '') ||
+        bizPhoto;
       setEditingItem({
         module: mod,
         id: item.id,
         nameOrTitle: item.name || item.businessName || '',
         categoryOrRole: item.category || '',
         phone: item.phone || item.whatsapp || '',
-        email: item.email || '',
+        email: cleanDisplayEmail(item.email || item.ownerEmail),
         areaOrLocation: item.area || item.address || '',
         descriptionOrBio: item.description || item.offerTitle || '',
         salaryOrPrice: item.timings || item.openingHours || '',
-        photoUrl: existingPhoto,
+        photoUrl: bizPhoto,
+        visitingCardUrl: bizCard,
+        isPhonePublic: item.isPhonePublic !== undefined ? Boolean(item.isPhonePublic) : true,
         status,
         raw: item
       });
@@ -1836,7 +1890,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         nameOrTitle: item.fullName || '',
         categoryOrRole: item.category || item.headline || '',
         phone: item.phone || item.whatsapp || '',
-        email: item.email || '',
+        email: cleanDisplayEmail(item.email),
         areaOrLocation: item.area || '',
         descriptionOrBio: item.skills || item.experience || '',
         salaryOrPrice: item.expectedSalary || '',
@@ -1851,7 +1905,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         nameOrTitle: item.companyOrShopName || '',
         categoryOrRole: item.jobRole || item.category || '',
         phone: item.phone || item.whatsapp || '',
-        email: item.email || '',
+        email: cleanDisplayEmail(item.email),
         areaOrLocation: item.jobLocation || item.area || '',
         descriptionOrBio: item.jobDescription || '',
         salaryOrPrice: item.salaryOffer || '',
@@ -1866,7 +1920,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         nameOrTitle: item.reporterName || item.targetType || 'User Feedback',
         categoryOrRole: item.reason || 'Feedback / Suggestion',
         phone: item.phone || '',
-        email: item.email || '',
+        email: cleanDisplayEmail(item.email),
         areaOrLocation: item.targetId || '',
         descriptionOrBio: item.details || item.reason || '',
         salaryOrPrice: '',
@@ -1914,7 +1968,9 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
           categoryLabel: catLabel,
           ownerName: creatingItem.ownerOrRole.trim() || 'Shop Owner',
           phone: creatingItem.phone.trim(), // 100% optional for Admin
-          ownerEmail: creatingItem.email.trim(), // 100% optional for Admin
+          ownerEmail: cleanDisplayEmail(creatingItem.email), // 100% optional for Admin
+          isPhonePublic: Boolean(creatingItem.isPhonePublic),
+          visitingCardUrl: creatingItem.visitingCardUrl || '',
           timings: creatingItem.timingsOrExperience.trim() || '9:00 AM - 9:00 PM',
           area: creatingItem.areaOrLocation.trim() || 'Local Market',
           address: creatingItem.address.trim() || creatingItem.areaOrLocation.trim() || 'Local Market',
@@ -1962,7 +2018,9 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
           customCategoryName: norm.customCategoryName,
           skills: [primarySkill, ...(creatingItem.description.trim() ? [creatingItem.description.trim()] : [])],
           phone: creatingItem.phone.trim(), // 100% optional for Admin
-          email: creatingItem.email.trim(), // 100% optional for Admin
+          email: cleanDisplayEmail(creatingItem.email), // 100% optional for Admin
+          isPhonePublic: Boolean(creatingItem.isPhonePublic),
+          visitingCardUrl: creatingItem.visitingCardUrl || '',
           experience: creatingItem.timingsOrExperience.trim() || '2+ Years',
           area: creatingItem.areaOrLocation.trim() || 'Local Area',
           photoUrl: creatingItem.photoUrl || '',
@@ -1980,6 +2038,8 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         if (!res.ok) throw new Error(data.error || 'Failed to add Profile');
         const enrichedData = {
           ...data,
+          isPhonePublic: Boolean(creatingItem.isPhonePublic),
+          visitingCardUrl: creatingItem.visitingCardUrl || data.visitingCardUrl || '',
           adminDirectCreate: true,
           registeredByAdmin: true
         };
@@ -2002,8 +2062,10 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
             name: creatingItem.nameOrTitle.trim(),
             full_name: creatingItem.nameOrTitle.trim(),
             displayName: creatingItem.nameOrTitle.trim(),
-            email: creatingItem.email.trim(),
+            email: cleanDisplayEmail(creatingItem.email),
             phone: creatingItem.phone.trim(),
+            isPhonePublic: Boolean(creatingItem.isPhonePublic),
+            visitingCardUrl: creatingItem.visitingCardUrl || '',
             address: creatingItem.areaOrLocation.trim() || 'Local Area',
             skills: primarySkill,
             experience: creatingItem.timingsOrExperience.trim() || '2+ Years',
@@ -2099,7 +2161,8 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
     if (!editingItem) return;
     setIsSavingEdit(true);
 
-    const { module: mod, id, nameOrTitle, categoryOrRole, phone, email, areaOrLocation, descriptionOrBio, salaryOrPrice, photoUrl, status, raw } = editingItem;
+    const { module: mod, id, nameOrTitle, categoryOrRole, phone, email: rawEditEmail, areaOrLocation, descriptionOrBio, salaryOrPrice, photoUrl, visitingCardUrl, isPhonePublic, status, raw } = editingItem;
+    const email = cleanDisplayEmail(rawEditEmail);
     const isApproved = status === 'approved';
 
     try {
@@ -2135,6 +2198,8 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
           customCategoryName: norm.customCategoryName,
           phone,
           email,
+          isPhonePublic: Boolean(isPhonePublic),
+          visitingCardUrl: visitingCardUrl || '',
           area: areaOrLocation,
           bio: descriptionOrBio,
           experience: descriptionOrBio,
@@ -2161,16 +2226,20 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
           showToast(res.error || 'Failed to update Service Expert Profile');
         }
       } else if (mod === 'simple_users') {
+        const cleanUserCard = visitingCardUrl && visitingCardUrl !== photoUrl ? visitingCardUrl : '';
         const updates = {
           ...(raw || {}),
           name: nameOrTitle,
           category: categoryOrRole,
           phone,
           email,
+          isPhonePublic: Boolean(isPhonePublic),
+          visitingCardUrl: cleanUserCard,
           area: areaOrLocation,
           bio: descriptionOrBio,
           skills: descriptionOrBio,
           avatarUrl: photoUrl || '',
+          liveSelfieUrl: photoUrl || '',
           photoUrl: photoUrl || '',
           status,
           isVerified: isApproved
@@ -2193,6 +2262,8 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
           phone,
           email,
           ownerEmail: email,
+          isPhonePublic: Boolean(isPhonePublic),
+          visitingCardUrl: visitingCardUrl || '',
           area: areaOrLocation,
           address: areaOrLocation,
           description: descriptionOrBio,
@@ -3240,8 +3311,8 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
             },
             {
               step: '3',
-              title: '🛠️ Main Categories & Service Experts (सभी 10 मुख्य केटेगरी और कारीगर)',
-              subtitle: 'मेन वेबसाइट की तरह सभी केटेगरी (Electrician, Plumber आदि) खोलें और हर कारीगर की डिटेल्स Approve/Block करें',
+              title: `🛠️ Main Categories & Service Experts (બધી ${MASTER_CATEGORIES.length} મુખ્ય કેટેગરી અને કારીગરો)`,
+              subtitle: 'મેઈન વેબસાઈટની જેમ જ બધી ૧૬ કેટેગરી (ઈલેક્ટ્રીશિયન, પ્લમ્બર વગેરે) ખોલો અને દરેક કારીગરની વિગતો Approve/Block કરો',
               icon: <Wrench className="w-5 h-5 text-white" />,
               gradient: 'from-emerald-500 to-teal-600',
               border: 'border-emerald-500/40 hover:border-emerald-400',
@@ -4381,7 +4452,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                     )}
                   </div>
 
-                  {/* 10 Main Categories Folders Grid */}
+                  {/* 16 Main Categories Folders Grid */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
                     <button
                       type="button"
@@ -4398,7 +4469,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                       <div className="min-w-0">
                         <div className="text-xs sm:text-sm font-black truncate">📂 All Website Categories</div>
                         <div className={`text-[11px] font-bold truncate ${selectedMainCatFilter === 'all' ? 'text-emerald-100' : 'text-slate-400'}`}>
-                          सभी 10 मुख्य केटेगरी ({CATEGORIES.length} सब-केटेगरी)
+                          બધી {MASTER_CATEGORIES.length} મુખ્ય કેટેગરી ({CATEGORIES.length} સબ-કેટેગરી)
                         </div>
                       </div>
                       <span className={`px-2.5 py-1 rounded-xl text-xs font-black shrink-0 ${
@@ -4408,7 +4479,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                       </span>
                     </button>
 
-                    {MASTER_CATEGORIES.map((mCat) => {
+                    {MASTER_CATEGORIES.map((mCat, mIdx) => {
                       const cnt = countByMainCat[mCat.id] || 0;
                       const isSel = selectedMainCatFilter === mCat.id;
                       return (
@@ -4429,7 +4500,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                         >
                           <div className="min-w-0">
                             <div className="text-xs sm:text-sm font-black leading-snug break-words">
-                              {mCat.nameEn}
+                              {mIdx + 1}. {mCat.emoji} {mCat.nameGu} ({mCat.nameEn})
                             </div>
                             <div className={`text-[11px] font-semibold leading-snug break-words mt-0.5 ${isSel ? 'text-amber-100' : 'text-slate-400'}`}>
                               {mCat.nameHi}
@@ -4785,7 +4856,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                     item.user_name ||
                     item.reporterName ||
                     item.reason ||
-                    (item.email ? String(item.email).split('@')[0] : '') ||
+                    (cleanDisplayEmail(item.email) ? cleanDisplayEmail(item.email).split('@')[0] : '') ||
                     'User #' + String(item.id).slice(-5);
 
                   const catMeta = activeModule === 'helpers'
@@ -5975,7 +6046,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                             </div>
                             <div className="flex items-center gap-1.5 text-slate-200 font-bold truncate">
                               <Mail className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                              <span className="truncate">{rec.email || rec.realAccountEmail || 'No Email'}</span>
+                              <span className="truncate">{cleanDisplayEmail(rec.email || rec.realAccountEmail) || 'No Email (Mobile Login)'}</span>
                             </div>
                             <div className="flex items-center gap-1.5 text-slate-300 font-bold sm:col-span-2">
                               <MapPin className="w-3.5 h-3.5 text-amber-400 shrink-0" />
@@ -5984,15 +6055,15 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                           </div>
 
                           {/* Forensic & Real Login Account Details (IP / Device / Real Account) */}
-                          {(rec.realAccountEmail || rec.realAccountPhone || rec.ipAddress || rec.userAgent) && (
+                          {(cleanDisplayEmail(rec.realAccountEmail) || rec.realAccountPhone || rec.ipAddress || rec.userAgent) && (
                             <div className="p-2.5 rounded-xl bg-indigo-950/30 border border-indigo-500/30 space-y-1 text-[11px]">
                               <p className="font-black text-indigo-300 flex items-center gap-1">
                                 🕵️ Real Login Account &amp; Device Evidence:
                               </p>
-                              {(rec.realAccountEmail || rec.realAccountPhone) && (
+                              {(cleanDisplayEmail(rec.realAccountEmail) || rec.realAccountPhone) && (
                                 <p className="text-slate-200 font-bold break-all">
                                   Account: <span className="text-cyan-300">{rec.realAccountName || rec.name}</span>
-                                  {rec.realAccountEmail ? ` • ${rec.realAccountEmail}` : ''}
+                                  {cleanDisplayEmail(rec.realAccountEmail) ? ` • ${cleanDisplayEmail(rec.realAccountEmail)}` : ''}
                                   {rec.realAccountPhone ? ` • ${rec.realAccountPhone}` : ''}
                                 </p>
                               )}
@@ -6102,7 +6173,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
 
               <div className="p-6 overflow-y-auto space-y-4 text-xs sm:text-sm">
                 {/* Forensic & Real Login Account Evidence Box */}
-                {(viewingItem.data.realAccountEmail || viewingItem.data.realAccountPhone || viewingItem.data.ipAddress || viewingItem.data.userAgent) && (
+                {(cleanDisplayEmail(viewingItem.data.realAccountEmail) || viewingItem.data.realAccountPhone || viewingItem.data.ipAddress || viewingItem.data.userAgent) && (
                   <div className="p-3.5 rounded-2xl bg-indigo-950/35 border border-indigo-500/40 space-y-2">
                     <p className="text-xs font-black text-indigo-300 flex items-center gap-1.5">
                       🕵️ Real Registered Account &amp; Forensic Evidence (Cyber Cell / Admin Proof):
@@ -6114,7 +6185,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                       </div>
                       <div className="p-2 rounded-lg bg-slate-900/90 border border-slate-800">
                         <span className="text-[10px] font-black uppercase text-slate-400 block">Registered Email</span>
-                        <span className="font-bold text-cyan-300 break-all">{viewingItem.data.realAccountEmail || viewingItem.data.email || 'N/A'}</span>
+                        <span className="font-bold text-cyan-300 break-all">{cleanDisplayEmail(viewingItem.data.realAccountEmail || viewingItem.data.email) || 'Not Provided (Mobile Login)'}</span>
                       </div>
                       <div className="p-2 rounded-lg bg-slate-900/90 border border-slate-800">
                         <span className="text-[10px] font-black uppercase text-slate-400 block">Registered Phone</span>
@@ -6168,7 +6239,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                     <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
                       <span className="text-[10px] font-black uppercase text-slate-400 block">Email ID (ईमेल)</span>
                       <span className="font-bold text-cyan-300 break-all">
-                        {viewingItem.data.email || viewingItem.data.userEmail || 'Not Provided'}
+                        {cleanDisplayEmail(viewingItem.data.email || viewingItem.data.userEmail) || 'Not Provided'}
                       </span>
                     </div>
                     <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
@@ -6248,51 +6319,80 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                 )}
 
                 {/* Optional Visiting Card / Work Photo Section */}
-                {(viewingItem.data.visitingCardUrl || viewingItem.data.photoUrl || viewingItem.data.workPhotoUrl) && (
-                  <div className="p-3.5 rounded-2xl bg-slate-950 border border-cyan-500/35 space-y-2">
-                    <p className="text-xs sm:text-sm font-black text-cyan-300">
-                      🪪 Optional Visiting Card / Work Photo / Attachment (विज़िटिंग कार्ड / काम का फोटो):
-                    </p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {(viewingItem.data.visitingCardUrl || viewingItem.data.photoUrl) && (
-                        <div className="rounded-xl border border-slate-800 bg-slate-900 p-2 text-center">
-                          <img
-                            src={viewingItem.data.visitingCardUrl || viewingItem.data.photoUrl}
-                            alt="Visiting Card or Photo"
-                            loading="lazy"
-                            className="max-h-64 w-auto mx-auto object-contain rounded-lg"
-                          />
-                          <a
-                            href={viewingItem.data.visitingCardUrl || viewingItem.data.photoUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-block mt-2 text-[11px] font-black text-cyan-400 hover:underline"
-                          >
-                            Open Full Visiting Card / Photo ↗
-                          </a>
-                        </div>
-                      )}
-                      {viewingItem.data.workPhotoUrl && (
-                        <div className="rounded-xl border border-slate-800 bg-slate-900 p-2 text-center">
-                          <img
-                            src={viewingItem.data.workPhotoUrl}
-                            alt="Preserved Work Photo"
-                            loading="lazy"
-                            className="max-h-64 w-auto mx-auto object-contain rounded-lg"
-                          />
-                          <a
-                            href={viewingItem.data.workPhotoUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-block mt-2 text-[11px] font-black text-cyan-400 hover:underline"
-                          >
-                            Open Work Photo Link ↗
-                          </a>
-                        </div>
-                      )}
+                {(() => {
+                  const modalSelfie =
+                    viewingItem.data.rawSelfieUrl ||
+                    viewingItem.data.idDocumentWatermarked ||
+                    viewingItem.data.liveSelfieUrl ||
+                    viewingItem.data.avatarUrl ||
+                    '';
+                  const isPersonModule =
+                    viewingItem.module === 'helpers' || viewingItem.module === 'simple_users';
+                  const rawPrimaryCard = isPersonModule
+                    ? viewingItem.data.visitingCardUrl || viewingItem.data.visiting_card_url || ''
+                    : viewingItem.data.visitingCardUrl ||
+                      viewingItem.data.visiting_card_url ||
+                      viewingItem.data.photoUrl ||
+                      viewingItem.data.imageUrl ||
+                      viewingItem.data.attachmentUrl ||
+                      '';
+                  const primaryCardUrl =
+                    rawPrimaryCard && rawPrimaryCard !== modalSelfie ? rawPrimaryCard : '';
+                  const secondaryWorkPhotoUrl =
+                    viewingItem.data.workPhotoUrl &&
+                    viewingItem.data.workPhotoUrl !== modalSelfie &&
+                    viewingItem.data.workPhotoUrl !== primaryCardUrl
+                      ? viewingItem.data.workPhotoUrl
+                      : '';
+
+                  if (!primaryCardUrl && !secondaryWorkPhotoUrl) return null;
+
+                  return (
+                    <div className="p-3.5 rounded-2xl bg-slate-950 border border-cyan-500/35 space-y-2">
+                      <p className="text-xs sm:text-sm font-black text-cyan-300">
+                        🪪 Optional Visiting Card / Work Photo / Attachment (विज़िटिंग कार्ड / काम का फोटो):
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {primaryCardUrl && (
+                          <div className="rounded-xl border border-slate-800 bg-slate-900 p-2 text-center">
+                            <img
+                              src={primaryCardUrl}
+                              alt="Visiting Card or Photo"
+                              loading="lazy"
+                              className="max-h-64 w-auto mx-auto object-contain rounded-lg"
+                            />
+                            <a
+                              href={primaryCardUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-block mt-2 text-[11px] font-black text-cyan-400 hover:underline"
+                            >
+                              Open Full Visiting Card / Photo ↗
+                            </a>
+                          </div>
+                        )}
+                        {secondaryWorkPhotoUrl && (
+                          <div className="rounded-xl border border-slate-800 bg-slate-900 p-2 text-center">
+                            <img
+                              src={secondaryWorkPhotoUrl}
+                              alt="Preserved Work Photo"
+                              loading="lazy"
+                              className="max-h-64 w-auto mx-auto object-contain rounded-lg"
+                            />
+                            <a
+                              href={secondaryWorkPhotoUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-block mt-2 text-[11px] font-black text-cyan-400 hover:underline"
+                            >
+                              Open Work Photo Link ↗
+                            </a>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
 
                 {viewingItem.data.originalRegistrationSnapshot && (
                   <div className="p-3.5 rounded-2xl bg-emerald-950/30 border border-emerald-500/30 space-y-2">
@@ -6406,6 +6506,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                       key === 'photoUrl' ||
                       key === 'avatar' ||
                       key === 'chatSnapshot' ||
+                      (typeof val === 'string' && val.toLowerCase().endsWith('@phone.locohelp.com')) ||
                       typeof val === 'object'
                     ) {
                       return null;
@@ -6502,11 +6603,11 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                           return (
                             <optgroup
                               key={mainCat.id}
-                              label={`${idx + 1}. ${mainCat.emoji} ${mainCat.nameEn} (${mainCat.nameHi})`}
+                              label={`${idx + 1}. ${mainCat.emoji} ${mainCat.nameGu} — ${mainCat.nameEn}`}
                             >
                               {subs.map((c) => (
                                 <option key={c.id} value={c.id}>
-                                  {c.nameEn} ({c.nameHi})
+                                  {c.nameGu} ({c.nameEn})
                                 </option>
                               ))}
                             </optgroup>
@@ -6535,15 +6636,48 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                     />
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-300 mb-1">Email</label>
+                    <label className="block font-bold text-slate-300 mb-1">Email (સાચો ઈમેલ હોય તો જ)</label>
                     <input
                       type="text"
                       value={editingItem.email}
                       onChange={(e) => setEditingItem({ ...editingItem, email: e.target.value })}
+                      placeholder="Optional Email"
                       className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
                     />
                   </div>
                 </div>
+
+                {(editingItem.module === 'helpers' || editingItem.module === 'businesses' || editingItem.module === 'simple_users') && (
+                  <div className="p-3 rounded-2xl bg-slate-950/90 border border-cyan-500/30 space-y-2">
+                    <label className="block font-black text-cyan-300">
+                      📞 મોબાઈલ નંબર પ્રાઈવસી (Phone Number Privacy on Website)
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setEditingItem({ ...editingItem, isPhonePublic: true })}
+                        className={`py-2 px-3 rounded-xl font-black text-xs border cursor-pointer transition-all ${
+                          editingItem.isPhonePublic
+                            ? 'bg-emerald-600 text-white border-emerald-400 shadow-md'
+                            : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                        }`}
+                      >
+                        🌐 Public (ડાયરેક્ટ કોલ)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingItem({ ...editingItem, isPhonePublic: false })}
+                        className={`py-2 px-3 rounded-xl font-black text-xs border cursor-pointer transition-all ${
+                          !editingItem.isPhonePublic
+                            ? 'bg-indigo-600 text-white border-indigo-400 shadow-md'
+                            : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                        }`}
+                      >
+                        🔒 Private (રિકવેસ્ટથી જ નંબર મળે)
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
@@ -6597,7 +6731,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                 {/* Photo / Banner / Attachment Upload (Firebase Storage locohelp/) */}
                 <div className="p-3 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-2">
                   <label className="block font-bold text-slate-300">
-                    Photo / Banner / Attachment (Firebase Storage: locohelp/)
+                    📸 પ્રોફાઈલ / બેનર ફોટો (Profile / Banner Photo)
                   </label>
                   <div className="flex flex-wrap items-center gap-3">
                     {editingItem.photoUrl && (
@@ -6635,7 +6769,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                             folder: editingItem.module
                           });
                           setEditingItem((prev) => (prev ? { ...prev, photoUrl: uploadedUrl } : prev));
-                          showToast('✅ Photo uploaded to Firebase Storage!');
+                          showToast('✅ Photo uploaded!');
                         } catch {
                           const fallbackUrl = await uploadFileToFirebaseStorage(file, editingItem.module, file.name);
                           setEditingItem((prev) => (prev ? { ...prev, photoUrl: fallbackUrl } : prev));
@@ -6645,6 +6779,60 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                     />
                   </div>
                 </div>
+
+                {/* Visiting Card Upload for Helpers, Simple Users & Businesses */}
+                {(editingItem.module === 'helpers' || editingItem.module === 'simple_users' || editingItem.module === 'businesses') && (
+                  <div className="p-3 rounded-2xl bg-slate-950/80 border border-cyan-500/30 space-y-2">
+                    <label className="block font-bold text-cyan-300">
+                      🪪 વિઝિટિંગ કાર્ડ / કામનો ફોટો (Optional Visiting Card)
+                    </label>
+                    <div className="flex flex-wrap items-center gap-3">
+                      {editingItem.visitingCardUrl && (
+                        <div className="relative w-20 h-14 rounded-xl overflow-hidden border border-cyan-500/60 shrink-0">
+                          <img
+                            src={editingItem.visitingCardUrl}
+                            alt="Visiting Card Preview"
+                            className="w-full h-full object-cover"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setEditingItem({ ...editingItem, visitingCardUrl: '' })}
+                            className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-rose-600 text-white text-[9px] font-black flex items-center justify-center cursor-pointer"
+                            title="Remove Visiting Card"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      )}
+                      <input
+                        type="file"
+                        accept=".jpg,.jpeg,.png,.webp"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          const check = await validateUploadedFile(file, { allowPdf: false, maxSizeBytes: 25 * 1024 * 1024 });
+                          if (!check.valid) {
+                            showToast(check.error || 'Invalid image file');
+                            return;
+                          }
+                          try {
+                            const uploadedUrl = await compressImageToWebP(file, {
+                              maxWidth: 1200,
+                              quality: 0.78,
+                              folder: 'visiting_cards'
+                            });
+                            setEditingItem((prev) => (prev ? { ...prev, visitingCardUrl: uploadedUrl } : prev));
+                            showToast('✅ વિઝિટિંગ કાર્ડ અપલોડ થઈ ગયું!');
+                          } catch {
+                            const fallbackUrl = await uploadFileToFirebaseStorage(file, 'visiting_cards', file.name);
+                            setEditingItem((prev) => (prev ? { ...prev, visitingCardUrl: fallbackUrl } : prev));
+                          }
+                        }}
+                        className="text-xs text-slate-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-black file:bg-slate-800 file:text-cyan-400 hover:file:bg-slate-700"
+                      />
+                    </div>
+                  </div>
+                )}
 
                 <div className="pt-2 flex items-center justify-end gap-2">
                   <button
@@ -6798,11 +6986,11 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                             return (
                               <optgroup
                                 key={mainCat.id}
-                                label={`${idx + 1}. ${mainCat.emoji} ${mainCat.nameEn} (${mainCat.nameHi})`}
+                                label={`${idx + 1}. ${mainCat.emoji} ${mainCat.nameGu} — ${mainCat.nameEn}`}
                               >
                                 {subs.map((c) => (
                                   <option key={c.id} value={c.id}>
-                                    {c.nameEn} ({c.nameHi})
+                                    {c.nameGu} ({c.nameEn})
                                   </option>
                                 ))}
                               </optgroup>
@@ -6869,6 +7057,38 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                     />
                   </div>
                 </div>
+
+                {(creatingItem.module === 'helpers' || creatingItem.module === 'businesses' || creatingItem.module === 'simple_users') && (
+                  <div className="p-3 rounded-2xl bg-slate-950/90 border border-cyan-500/30 space-y-2">
+                    <label className="block font-black text-cyan-300">
+                      📞 મોબાઈલ નંબર પ્રાઈવસી (Phone Number Privacy on Website)
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setCreatingItem({ ...creatingItem, isPhonePublic: true })}
+                        className={`py-2 px-3 rounded-xl font-black text-xs border cursor-pointer transition-all ${
+                          creatingItem.isPhonePublic
+                            ? 'bg-emerald-600 text-white border-emerald-400 shadow-md'
+                            : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                        }`}
+                      >
+                        🌐 Public (ડાયરેક્ટ કોલ)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCreatingItem({ ...creatingItem, isPhonePublic: false })}
+                        className={`py-2 px-3 rounded-xl font-black text-xs border cursor-pointer transition-all ${
+                          !creatingItem.isPhonePublic
+                            ? 'bg-indigo-600 text-white border-indigo-400 shadow-md'
+                            : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                        }`}
+                      >
+                        🔒 Private (રિકવેસ્ટથી જ નંબર મળે)
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
@@ -7021,6 +7241,56 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                     </p>
                   )}
                 </div>
+
+                {/* Visiting Card Upload in Admin Direct Create */}
+                {(creatingItem.module === 'helpers' || creatingItem.module === 'simple_users' || creatingItem.module === 'businesses') && (
+                  <div className="p-3 rounded-2xl bg-slate-900 border border-cyan-500/30 space-y-2">
+                    <label className="block font-bold text-cyan-300">
+                      🪪 વિઝિટિંગ કાર્ડ / કામનો ફોટો (Optional Visiting Card Upload)
+                    </label>
+                    <div className="flex flex-wrap items-center gap-3">
+                      {creatingItem.visitingCardUrl && (
+                        <div className="relative w-20 h-14 rounded-xl overflow-hidden border border-cyan-500/60 shrink-0">
+                          <img
+                            src={creatingItem.visitingCardUrl}
+                            alt="Visiting Card Preview"
+                            className="w-full h-full object-cover"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setCreatingItem({ ...creatingItem, visitingCardUrl: '' })}
+                            className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-rose-600 text-white text-[9px] font-black flex items-center justify-center cursor-pointer"
+                            title="Remove Visiting Card"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      )}
+                      <input
+                        type="file"
+                        accept=".jpg,.jpeg,.png,.webp"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          const check = await validateUploadedFile(file, { allowPdf: false, maxSizeBytes: 25 * 1024 * 1024 });
+                          if (!check.valid) {
+                            showToast(check.error || 'Invalid file');
+                            return;
+                          }
+                          try {
+                            const dataUrl = await compressImageToWebP(file, { maxWidth: 1200, quality: 0.78, folder: 'visiting_cards' });
+                            setCreatingItem((prev) => (prev ? { ...prev, visitingCardUrl: dataUrl } : prev));
+                            showToast('✅ વિઝિટિંગ કાર્ડ જોડાઈ ગયું!');
+                          } catch {
+                            const fallbackUrl = await uploadFileToFirebaseStorage(file, 'visiting_cards', file.name);
+                            setCreatingItem((prev) => (prev ? { ...prev, visitingCardUrl: fallbackUrl } : prev));
+                          }
+                        }}
+                        className="text-xs text-slate-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-black file:bg-slate-800 file:text-cyan-400 hover:file:bg-slate-700"
+                      />
+                    </div>
+                  </div>
+                )}
 
                 <div className="pt-2 flex items-center justify-end gap-2">
                   <button
@@ -7379,7 +7649,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
                           <div className="p-2 rounded-xl bg-slate-950 border border-slate-800">
                             <span className="text-[10px] text-slate-400 block">રજિસ્ટર્ડ ઈમેલ</span>
                             <span className="font-black text-cyan-300 break-all">
-                              {fullUserRecordModal.data.userSummary?.email || 'N/A'}
+                              {cleanDisplayEmail(fullUserRecordModal.data.userSummary?.email) || 'મોબાઈલ લોગિન (No Email)'}
                             </span>
                           </div>
                           <div className="p-2 rounded-xl bg-slate-950 border border-slate-800">

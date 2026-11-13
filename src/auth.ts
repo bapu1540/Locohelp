@@ -18,7 +18,6 @@ import {
   verifyFirebasePhoneOtpCode,
   normalizeIndianPhoneE164
 } from './lib/firebase';
-export { signInWithGoogle } from './lib/firebase';
 
 
 export interface AppUser {
@@ -157,6 +156,159 @@ export function ensureValidUUID(str: string): string {
   return `${full.slice(0, 8)}-${full.slice(8, 12)}-4${full.slice(13, 16)}-a${full.slice(17, 20)}-${full.slice(20, 32)}`.toLowerCase();
 }
 
+function isGenericDisplayNameClient(name?: string | null, email?: string | null): boolean {
+  const n = String(name || '').trim();
+  if (!n) return true;
+  const lower = n.toLowerCase();
+  if (
+    lower === 'community member' ||
+    lower === 'locohelper member' ||
+    lower === 'user' ||
+    lower === 'member' ||
+    lower === 'verified member' ||
+    lower.startsWith('member +91') ||
+    lower.startsWith('user ') ||
+    /^member\s+\d+/i.test(n) ||
+    /^\+?\d+$/.test(n.replace(/\s+/g, ''))
+  ) {
+    return true;
+  }
+  if (email) {
+    const emailPrefix = String(email).trim().toLowerCase().split('@')[0];
+    if (emailPrefix && lower === emailPrefix) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Centralized helper that safely merges and saves `locohelp_user` in localStorage
+ * without EVER overwriting an existing phone number, real human displayName, or real photoURL.
+ */
+export function mergeAndSaveCurrentUser(
+  incoming?: (Partial<AppUser> & { id?: string; user_metadata?: Record<string, any> }) | null
+): AppUser {
+  try {
+    const rawSaved = localStorage.getItem('locohelp_user');
+    const existing: Partial<AppUser> = rawSaved ? JSON.parse(rawSaved) : {};
+
+    const savedProfileName = (localStorage.getItem('locohelp_profile_name') || '').trim();
+    const savedLastName = (localStorage.getItem('locohelp_last_logged_in_name') || '').trim();
+    const savedEmail = (localStorage.getItem('locohelp_last_logged_in_email') || '').trim().toLowerCase();
+    const savedPhoneRaw =
+      localStorage.getItem('locohelp_profile_phone') ||
+      localStorage.getItem('locohelp_last_logged_in_phone') ||
+      '';
+    const savedPhoneDigits = savedPhoneRaw.replace(/\D/g, '').slice(-10);
+    const savedPhoto =
+      localStorage.getItem('locohelp_profile_photo') ||
+      localStorage.getItem('locohelp_last_logged_in_photo') ||
+      '';
+
+    const incomingEmail = String(incoming?.email || '').trim().toLowerCase();
+    const existingEmail = String(existing?.email || '').trim().toLowerCase();
+    const effectiveEmail =
+      incomingEmail ||
+      existingEmail ||
+      savedEmail ||
+      (savedPhoneDigits.length === 10 ? `${savedPhoneDigits}@phone.locohelp.com` : '');
+
+    const incomingPhoneRaw = String(incoming?.phone || incoming?.user_metadata?.phone || '').trim();
+    const existingPhoneRaw = String(existing?.phone || '').trim();
+    const incomingPhoneDigits = incomingPhoneRaw.replace(/\D/g, '').slice(-10);
+    const existingPhoneDigits = existingPhoneRaw.replace(/\D/g, '').slice(-10);
+    const finalPhoneDigits =
+      (incomingPhoneDigits.length === 10 ? incomingPhoneDigits : '') ||
+      (existingPhoneDigits.length === 10 ? existingPhoneDigits : '') ||
+      (savedPhoneDigits.length === 10 ? savedPhoneDigits : '');
+    const finalPhone =
+      incomingPhoneRaw ||
+      existingPhoneRaw ||
+      (finalPhoneDigits.length === 10 ? `+91 ${finalPhoneDigits}` : undefined);
+
+    const rawUidCandidate =
+      (incoming?.uid && incoming.uid !== 'guest_user' ? incoming.uid : '') ||
+      (incoming?.id && incoming.id !== 'guest_user' ? incoming.id : '') ||
+      (existing?.uid && existing.uid !== 'guest_user' ? existing.uid : '') ||
+      (finalPhoneDigits.length === 10
+        ? `phone_${finalPhoneDigits}`
+        : effectiveEmail
+        ? `email_${effectiveEmail.replace(/[^a-z0-9]/g, '_')}`
+        : '');
+
+    const finalUid = rawUidCandidate ? ensureValidUUID(String(rawUidCandidate)) : 'guest_user';
+
+    const incomingName = String(
+      incoming?.displayName || incoming?.user_metadata?.full_name || incoming?.user_metadata?.name || ''
+    ).trim();
+    const existingName = String(existing?.displayName || '').trim();
+
+    let finalDisplayName = 'Community Member';
+    if (incomingName && !isGenericDisplayNameClient(incomingName, effectiveEmail)) {
+      finalDisplayName = incomingName;
+    } else if (savedProfileName && !isGenericDisplayNameClient(savedProfileName, effectiveEmail)) {
+      finalDisplayName = savedProfileName;
+    } else if (existingName && !isGenericDisplayNameClient(existingName, effectiveEmail)) {
+      finalDisplayName = existingName;
+    } else if (savedLastName && !isGenericDisplayNameClient(savedLastName, effectiveEmail)) {
+      finalDisplayName = savedLastName;
+    } else if (incomingName) {
+      finalDisplayName = incomingName;
+    } else if (existingName) {
+      finalDisplayName = existingName;
+    } else if (savedProfileName || savedLastName) {
+      finalDisplayName = savedProfileName || savedLastName;
+    } else if (effectiveEmail && !effectiveEmail.endsWith('@phone.locohelp.com')) {
+      finalDisplayName = effectiveEmail.split('@')[0];
+    } else if (finalPhoneDigits.length === 10) {
+      finalDisplayName = `Member +91 ${finalPhoneDigits.slice(-4)}`;
+    }
+
+    const cleanPhoto = (url?: string | null) => {
+      const u = String(url || '').trim();
+      if (!u || u === 'https://lh3.googleusercontent.com/a/default-user') return '';
+      return u;
+    };
+    const finalPhoto =
+      cleanPhoto(incoming?.photoURL || incoming?.user_metadata?.avatar_url) ||
+      cleanPhoto(savedPhoto) ||
+      cleanPhoto(existing?.photoURL) ||
+      undefined;
+
+    const mergedUser: AppUser = {
+      ...existing,
+      uid: finalUid,
+      displayName: finalDisplayName,
+      email: effectiveEmail,
+      ...(finalPhone ? { phone: finalPhone } : {}),
+      ...(finalPhoto ? { photoURL: finalPhoto } : {}),
+      isGuest: finalUid === 'guest_user'
+    };
+
+    if (finalUid !== 'guest_user') {
+      localStorage.setItem('locohelp_user', JSON.stringify(mergedUser));
+      localStorage.setItem('locohelp_logged_in', 'true');
+      if (effectiveEmail) {
+        localStorage.setItem('locohelp_last_logged_in_email', effectiveEmail);
+      }
+      if (finalPhoneDigits.length === 10) {
+        localStorage.setItem('locohelp_last_logged_in_phone', finalPhoneDigits);
+      }
+      if (finalDisplayName && !isGenericDisplayNameClient(finalDisplayName, effectiveEmail)) {
+        localStorage.setItem('locohelp_last_logged_in_name', finalDisplayName);
+      }
+      if (finalPhoto) {
+        localStorage.setItem('locohelp_last_logged_in_photo', finalPhoto);
+      }
+    }
+
+    return mergedUser;
+  } catch {
+    return getCurrentUser();
+  }
+}
+
 /**
  * Returns active user from persistent local session or guest default.
  */
@@ -164,23 +316,63 @@ export function getCurrentUser(): AppUser {
   try {
     const saved = localStorage.getItem('locohelp_user');
     const lastEmail = (localStorage.getItem('locohelp_last_logged_in_email') || '').trim().toLowerCase();
-    const lastPhone = (localStorage.getItem('locohelp_last_logged_in_phone') || '').replace(/\D/g, '').slice(-10);
-    const lastName = localStorage.getItem('locohelp_last_logged_in_name') || '';
+    const lastPhone = (
+      localStorage.getItem('locohelp_last_logged_in_phone') ||
+      localStorage.getItem('locohelp_profile_phone') ||
+      ''
+    )
+      .replace(/\D/g, '')
+      .slice(-10);
+    const savedProfileName = (localStorage.getItem('locohelp_profile_name') || '').trim();
+    const lastName = (localStorage.getItem('locohelp_last_logged_in_name') || '').trim();
+    const savedPhoto = (
+      localStorage.getItem('locohelp_profile_photo') ||
+      localStorage.getItem('locohelp_last_logged_in_photo') ||
+      ''
+    ).trim();
 
     if (saved) {
       const parsed = JSON.parse(saved);
-      const effectiveEmail = (parsed?.email || lastEmail || (lastPhone.length === 10 ? `${lastPhone}@phone.locohelp.com` : '')).trim().toLowerCase();
-      const rawUid = parsed?.uid && parsed.uid !== 'guest_user'
-        ? String(parsed.uid)
-        : (lastPhone.length === 10 ? `phone_${lastPhone}` : (effectiveEmail ? `email_${effectiveEmail.replace(/[^a-z0-9]/g, '_')}` : ''));
+      const effectiveEmail = (
+        parsed?.email ||
+        lastEmail ||
+        (lastPhone.length === 10 ? `${lastPhone}@phone.locohelp.com` : '')
+      )
+        .trim()
+        .toLowerCase();
+      const rawUid =
+        parsed?.uid && parsed.uid !== 'guest_user'
+          ? String(parsed.uid)
+          : lastPhone.length === 10
+          ? `phone_${lastPhone}`
+          : effectiveEmail
+          ? `email_${effectiveEmail.replace(/[^a-z0-9]/g, '_')}`
+          : '';
 
       if (rawUid && rawUid !== 'guest_user') {
+        const parsedName = String(parsed?.displayName || '').trim();
+        const bestName =
+          (!isGenericDisplayNameClient(parsedName, effectiveEmail) ? parsedName : '') ||
+          (!isGenericDisplayNameClient(savedProfileName, effectiveEmail) ? savedProfileName : '') ||
+          (!isGenericDisplayNameClient(lastName, effectiveEmail) ? lastName : '') ||
+          parsedName ||
+          savedProfileName ||
+          lastName ||
+          (effectiveEmail ? effectiveEmail.split('@')[0] : 'Community Member');
+
+        const rawPhoto = String(parsed?.photoURL || '').trim();
+        const bestPhoto =
+          (rawPhoto && rawPhoto !== 'https://lh3.googleusercontent.com/a/default-user' ? rawPhoto : '') ||
+          (savedPhoto && savedPhoto !== 'https://lh3.googleusercontent.com/a/default-user' ? savedPhoto : '') ||
+          undefined;
+
         return {
           ...parsed,
           uid: ensureValidUUID(rawUid),
           email: effectiveEmail || parsed?.email || '',
           phone: parsed?.phone || (lastPhone.length === 10 ? `+91 ${lastPhone}` : undefined),
-          displayName: parsed?.displayName || lastName || (effectiveEmail ? effectiveEmail.split('@')[0] : 'Community Member'),
+          displayName: bestName,
+          ...(bestPhoto ? { photoURL: bestPhoto } : {}),
           isGuest: false
         };
       }
@@ -191,9 +383,14 @@ export function getCurrentUser(): AppUser {
       const rawId = lastPhone.length === 10 ? `phone_${lastPhone}` : `email_${resolvedEmail.replace(/[^a-z0-9]/g, '_')}`;
       return {
         uid: ensureValidUUID(rawId),
-        displayName: lastName || (lastPhone.length === 10 ? `Member +91 ${lastPhone.slice(-4)}` : resolvedEmail.split('@')[0]) || 'Community Member',
+        displayName:
+          savedProfileName ||
+          lastName ||
+          (lastPhone.length === 10 ? `Member +91 ${lastPhone.slice(-4)}` : resolvedEmail.split('@')[0]) ||
+          'Community Member',
         email: resolvedEmail,
         phone: lastPhone.length === 10 ? `+91 ${lastPhone}` : undefined,
+        ...(savedPhoto && savedPhoto !== 'https://lh3.googleusercontent.com/a/default-user' ? { photoURL: savedPhoto } : {}),
         isGuest: false
       };
     }
@@ -403,11 +600,11 @@ export async function restoreSessionFromServer(): Promise<AppUser | null> {
     if (!res.ok) {
       try {
         const errData = await res.json().catch(() => ({}));
-        if (errData?.status === 'deleted' || errData?.status === 'not_found') {
+        // ONLY log out if Admin explicitly deleted the account ('deleted') — never log out on 'not_found' or transient errors!
+        if (errData?.status === 'deleted') {
           await logoutUser();
           return null;
         }
-        // If browser still thinks user is logged in, verify account still exists in PostgreSQL
         if (localStorage.getItem('locohelp_logged_in') === 'true' || localStorage.getItem('locohelp_user')) {
           const localU = getCurrentUser();
           if (localU && !localU.isGuest && localU.uid !== 'guest_user') {
@@ -417,11 +614,12 @@ export async function restoreSessionFromServer(): Promise<AppUser | null> {
             );
             if (stRes.ok) {
               const stData = await stRes.json();
-              if (stData?.status === 'deleted' || stData?.status === 'not_found') {
+              if (stData?.status === 'deleted') {
                 await logoutUser();
                 return null;
               }
             }
+            return localU;
           }
         }
       } catch {}
@@ -431,30 +629,60 @@ export async function restoreSessionFromServer(): Promise<AppUser | null> {
     if (!data || !data.success || !data.user) return null;
 
     const u = data.user;
-    const userData: AppUser = {
-      uid: ensureValidUUID(u.uid || u.id || u.email),
-      displayName: sanitizeText(u.displayName || u.name || (u.email ? u.email.split('@')[0] : 'Community Member')),
-      email: u.email || '',
-      phone: u.phone || '',
-      photoURL: u.photoURL || 'https://lh3.googleusercontent.com/a/default-user',
-      isGuest: false
-    };
+    const prof = data.restoredProfile && typeof data.restoredProfile === 'object' ? data.restoredProfile : {};
+    const rawCanonicalUid = String(u.uid || u.id || u.email || '').trim();
 
     if (data.token) {
       localStorage.setItem('locohelp_token', data.token);
     }
-    localStorage.setItem('locohelp_user', JSON.stringify(userData));
-    localStorage.setItem('locohelp_logged_in', 'true');
-    if (userData.email) {
-      localStorage.setItem('locohelp_last_logged_in_email', userData.email);
-      localStorage.setItem('locohelp_last_logged_in_name', userData.displayName);
-    }
+
+    const userData: AppUser = mergeAndSaveCurrentUser({
+      uid: ensureValidUUID(rawCanonicalUid),
+      displayName: sanitizeText(
+        u.displayName || u.name || prof.full_name || prof.name || (u.email ? u.email.split('@')[0] : 'Community Member')
+      ),
+      email: u.email || prof.email || '',
+      phone: u.phone || prof.phone || '',
+      photoURL: u.photoURL || prof.avatar_url || prof.liveSelfieUrl || 'https://lh3.googleusercontent.com/a/default-user',
+      isGuest: false
+    });
+
     if (userData.phone) {
       const cleanP = String(userData.phone).replace(/\D/g, '').slice(-10);
       if (cleanP.length === 10) {
-        localStorage.setItem('locohelp_last_logged_in_phone', cleanP);
+        localStorage.setItem('locohelp_profile_phone', userData.phone);
       }
     }
+
+    // Restore full cloud account data (Profile, Helper Profile, Shop/Business Profile, and User Posts)
+    try {
+      if (data.restoredProfile && typeof data.restoredProfile === 'object') {
+        localStorage.setItem(`locohelp_user_profile_${userData.uid}`, JSON.stringify(data.restoredProfile));
+        if (rawCanonicalUid && rawCanonicalUid !== userData.uid) {
+          localStorage.setItem(`locohelp_user_profile_${rawCanonicalUid}`, JSON.stringify(data.restoredProfile));
+        }
+      }
+      if (data.myHelperProfile && typeof data.myHelperProfile === 'object') {
+        localStorage.setItem('locohelp_my_helper_profile', JSON.stringify(data.myHelperProfile));
+      }
+      if (data.myBusinessProfile && typeof data.myBusinessProfile === 'object') {
+        localStorage.setItem('locohelp_my_business_profile', JSON.stringify(data.myBusinessProfile));
+      }
+      if (Array.isArray(data.myPostIds) && data.myPostIds.length > 0) {
+        const existingMyPosts: string[] = JSON.parse(localStorage.getItem('locohelp_my_post_ids') || '[]');
+        const mergedPostIds = Array.from(new Set([...data.myPostIds.map(String), ...existingMyPosts]));
+        localStorage.setItem('locohelp_my_post_ids', JSON.stringify(mergedPostIds));
+      }
+      if (data.isApproved === true || data.approvalStatus === 'approved') {
+        localStorage.setItem('locohelp_account_approved', 'true');
+        localStorage.setItem('locohelp_profile_verified', 'true');
+        localStorage.setItem('locohelp_helper_verification_status', 'approved');
+      } else if (data.approvalStatus) {
+        localStorage.setItem('locohelp_account_status', String(data.approvalStatus));
+      }
+    } catch {}
+
+    window.dispatchEvent(new Event('storage'));
     notifyAuthState('SIGNED_IN', userData);
     return userData;
   } catch {
@@ -830,28 +1058,28 @@ export async function verifyMobileOtp(
 
     const resolvedEmail = data.user?.email || `${norm.tenDigits}@phone.locohelp.com`;
     const resolvedPhone = data.user?.phone || `+91 ${norm.tenDigits}`;
-    const userData: AppUser = {
-      uid: ensureValidUUID(data.user?.uid || `phone_${norm.tenDigits}`),
-      displayName: sanitizeText(
-        data.user?.displayName || name || `Member +91 ${norm.tenDigits.slice(-4)}`
-      ),
-      email: resolvedEmail,
-      phone: resolvedPhone,
-      photoURL: 'https://lh3.googleusercontent.com/a/default-user',
-      isGuest: false
-    };
-
     if (data.token) {
       localStorage.setItem('locohelp_token', data.token);
     }
-    localStorage.setItem('locohelp_user', JSON.stringify(userData));
-    localStorage.setItem('locohelp_logged_in', 'true');
-    localStorage.setItem('locohelp_last_logged_in_email', resolvedEmail);
-    localStorage.setItem('locohelp_last_logged_in_phone', norm.tenDigits);
-    localStorage.setItem('locohelp_last_logged_in_name', userData.displayName);
+    const userData: AppUser = mergeAndSaveCurrentUser({
+      uid: ensureValidUUID(data.user?.uid || `phone_${norm.tenDigits}`),
+      displayName: sanitizeText(
+        data.user?.displayName || data.user?.name || name || `Member +91 ${norm.tenDigits.slice(-4)}`
+      ),
+      email: resolvedEmail,
+      phone: resolvedPhone,
+      photoURL: data.user?.photoURL || data.user?.avatar_url || 'https://lh3.googleusercontent.com/a/default-user',
+      isGuest: false
+    });
 
     try {
-      await saveUserProfile(userData);
+      if (name && name.trim()) {
+        await saveUserProfile(userData);
+      }
+      const restored = await restoreSessionFromServer();
+      if (restored) {
+        Object.assign(userData, restored);
+      }
     } catch {}
 
     window.dispatchEvent(new Event('storage'));
@@ -986,36 +1214,31 @@ export async function smartPhoneAuth(params: {
 
     const resolvedEmail =
       data.user?.email || (isPhone ? `${normalizedIdentifier}@phone.locohelp.com` : cleanInput);
-    const userData: AppUser = {
+    if (data.token) {
+      localStorage.setItem('locohelp_token', data.token);
+    }
+    const userData: AppUser = mergeAndSaveCurrentUser({
       uid: ensureValidUUID(data.user?.uid || resolvedEmail),
       displayName: sanitizeText(
         data.user?.displayName ||
+          data.user?.name ||
           params.name ||
           (isPhone ? `Member +91 ${normalizedIdentifier.slice(-4)}` : resolvedEmail.split('@')[0])
       ),
       email: resolvedEmail,
       phone: sanitizeText(data.user?.phone || (isPhone ? `+91 ${normalizedIdentifier}` : '')),
-      photoURL: 'https://lh3.googleusercontent.com/a/default-user',
+      photoURL: data.user?.photoURL || data.user?.avatar_url || 'https://lh3.googleusercontent.com/a/default-user',
       isGuest: false
-    };
-
-    if (data.token) {
-      localStorage.setItem('locohelp_token', data.token);
-    }
-    localStorage.setItem('locohelp_user', JSON.stringify(userData));
-    localStorage.setItem('locohelp_logged_in', 'true');
-    localStorage.setItem('locohelp_last_logged_in_email', resolvedEmail);
-    if (isPhone) {
-      localStorage.setItem('locohelp_last_logged_in_phone', normalizedIdentifier);
-    } else if (data.user?.phone) {
-      localStorage.setItem('locohelp_last_logged_in_phone', normalizeIndianPhone(data.user.phone));
-    } else {
-      localStorage.removeItem('locohelp_last_logged_in_phone');
-    }
-    localStorage.setItem('locohelp_last_logged_in_name', userData.displayName);
+    });
 
     try {
-      await saveUserProfile(userData);
+      if (params.name && params.name.trim()) {
+        await saveUserProfile(userData);
+      }
+      const restored = await restoreSessionFromServer();
+      if (restored) {
+        Object.assign(userData, restored);
+      }
     } catch {}
 
     window.dispatchEvent(new Event('storage'));
@@ -1103,32 +1326,28 @@ export async function signInWithPassword(identifier: string, password: string): 
 
     const resolvedEmail =
       data.user?.email || (isPhone ? `${normalizedIdentifier}@phone.locohelp.com` : cleanInput);
-    const userData: AppUser = {
+    if (data.token) {
+      localStorage.setItem('locohelp_token', data.token);
+    }
+    const userData: AppUser = mergeAndSaveCurrentUser({
       uid: ensureValidUUID(data.user?.uid || resolvedEmail),
       displayName: sanitizeText(
         data.user?.displayName ||
+          data.user?.name ||
           (isPhone ? `Member +91 ${normalizedIdentifier.slice(-4)}` : resolvedEmail.split('@')[0])
       ),
       email: resolvedEmail,
       phone: sanitizeText(data.user?.phone || (isPhone ? `+91 ${normalizedIdentifier}` : '')),
-      photoURL: 'https://lh3.googleusercontent.com/a/default-user',
+      photoURL: data.user?.photoURL || data.user?.avatar_url || 'https://lh3.googleusercontent.com/a/default-user',
       isGuest: false
-    };
+    });
 
-    if (data.token) {
-      localStorage.setItem('locohelp_token', data.token);
-    }
-    localStorage.setItem('locohelp_user', JSON.stringify(userData));
-    localStorage.setItem('locohelp_logged_in', 'true');
-    localStorage.setItem('locohelp_last_logged_in_email', resolvedEmail);
-    if (isPhone) {
-      localStorage.setItem('locohelp_last_logged_in_phone', normalizedIdentifier);
-    } else if (data.user?.phone) {
-      localStorage.setItem('locohelp_last_logged_in_phone', normalizeIndianPhone(data.user.phone));
-    } else {
-      localStorage.removeItem('locohelp_last_logged_in_phone');
-    }
-    localStorage.setItem('locohelp_last_logged_in_name', userData.displayName);
+    try {
+      const restored = await restoreSessionFromServer();
+      if (restored) {
+        Object.assign(userData, restored);
+      }
+    } catch {}
 
     window.dispatchEvent(new Event('storage'));
     window.postMessage({ type: 'LOCOHELP_AUTH_SUCCESS' }, '*');
@@ -1227,22 +1446,17 @@ export async function signUpWithPassword(
       };
     }
 
-    const userData: AppUser = {
-      uid: ensureValidUUID(data.user?.uid || cleanEmail),
-      displayName: sanitizeText(data.user?.displayName || cleanName || cleanEmail.split('@')[0]),
-      email: cleanEmail,
-      phone: cleanPhone || '',
-      photoURL: 'https://lh3.googleusercontent.com/a/default-user',
-      isGuest: false
-    };
-
     if (data.token) {
       localStorage.setItem('locohelp_token', data.token);
     }
-    localStorage.setItem('locohelp_user', JSON.stringify(userData));
-    localStorage.setItem('locohelp_logged_in', 'true');
-    localStorage.setItem('locohelp_last_logged_in_email', cleanEmail);
-    localStorage.setItem('locohelp_last_logged_in_name', userData.displayName);
+    const userData: AppUser = mergeAndSaveCurrentUser({
+      uid: ensureValidUUID(data.user?.uid || cleanEmail),
+      displayName: sanitizeText(data.user?.displayName || data.user?.name || cleanName || cleanEmail.split('@')[0]),
+      email: cleanEmail,
+      phone: cleanPhone || data.user?.phone || '',
+      photoURL: data.user?.photoURL || data.user?.avatar_url || 'https://lh3.googleusercontent.com/a/default-user',
+      isGuest: false
+    });
 
     window.dispatchEvent(new Event('storage'));
     window.postMessage({ type: 'LOCOHELP_AUTH_SUCCESS' }, '*');
@@ -1406,22 +1620,24 @@ export async function resetUserPassword(
       };
     }
 
-    const userData: AppUser = {
-      uid: ensureValidUUID(data.user?.uid || cleanEmail),
-      displayName: sanitizeText(data.user?.displayName || cleanName || cleanEmail.split('@')[0]),
-      email: cleanEmail,
-      phone: sanitizeText(data.user?.phone || ''),
-      photoURL: 'https://lh3.googleusercontent.com/a/default-user',
-      isGuest: false
-    };
-
     if (data.token) {
       localStorage.setItem('locohelp_token', data.token);
     }
-    localStorage.setItem('locohelp_user', JSON.stringify(userData));
-    localStorage.setItem('locohelp_logged_in', 'true');
-    localStorage.setItem('locohelp_last_logged_in_email', cleanEmail);
-    localStorage.setItem('locohelp_last_logged_in_name', userData.displayName);
+    const userData: AppUser = mergeAndSaveCurrentUser({
+      uid: ensureValidUUID(data.user?.uid || cleanEmail),
+      displayName: sanitizeText(data.user?.displayName || data.user?.name || cleanName || cleanEmail.split('@')[0]),
+      email: cleanEmail,
+      phone: sanitizeText(data.user?.phone || ''),
+      photoURL: data.user?.photoURL || data.user?.avatar_url || 'https://lh3.googleusercontent.com/a/default-user',
+      isGuest: false
+    });
+
+    try {
+      const restored = await restoreSessionFromServer();
+      if (restored) {
+        Object.assign(userData, restored);
+      }
+    } catch {}
 
     window.dispatchEvent(new Event('storage'));
     window.postMessage({ type: 'LOCOHELP_AUTH_SUCCESS' }, '*');
@@ -1499,30 +1715,26 @@ export async function verifyEmailOtp(
       };
     }
 
-    const userData: AppUser = {
-      uid: ensureValidUUID(data.user?.uid || cleanEmail),
-      displayName: sanitizeText(data.user?.displayName || name || cleanEmail.split('@')[0]),
-      email: cleanEmail,
-      phone: sanitizeText(data.user?.phone || ''),
-      photoURL: 'https://lh3.googleusercontent.com/a/default-user',
-      isGuest: false
-    };
-
     if (data.token) {
       localStorage.setItem('locohelp_token', data.token);
     }
-    localStorage.setItem('locohelp_user', JSON.stringify(userData));
-    localStorage.setItem('locohelp_logged_in', 'true');
-    localStorage.setItem('locohelp_last_logged_in_email', cleanEmail);
-    if (userData.phone) {
-      localStorage.setItem('locohelp_last_logged_in_phone', normalizeIndianPhone(userData.phone));
-    } else {
-      localStorage.removeItem('locohelp_last_logged_in_phone');
-    }
-    localStorage.setItem('locohelp_last_logged_in_name', userData.displayName);
+    const userData: AppUser = mergeAndSaveCurrentUser({
+      uid: ensureValidUUID(data.user?.uid || cleanEmail),
+      displayName: sanitizeText(data.user?.displayName || data.user?.name || name || cleanEmail.split('@')[0]),
+      email: cleanEmail,
+      phone: sanitizeText(data.user?.phone || ''),
+      photoURL: data.user?.photoURL || data.user?.avatar_url || 'https://lh3.googleusercontent.com/a/default-user',
+      isGuest: false
+    });
 
     try {
-      await saveUserProfile(userData);
+      if (name && name.trim()) {
+        await saveUserProfile(userData);
+      }
+      const restored = await restoreSessionFromServer();
+      if (restored) {
+        Object.assign(userData, restored);
+      }
     } catch (e) {}
 
     window.dispatchEvent(new Event('storage'));
@@ -1625,7 +1837,8 @@ export async function verifyDatabaseReauth(options: {
 export async function logoutUser() {
   try {
     await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
-    // Remove ONLY authentication/session keys — never delete cached profiles, shops, ads, or category images
+    // Clear active user session & current-account local caches so logging in with a different account never shows the previous user's data
+    // (When logging back into the same account, restoreSessionFromServer restores everything from the server)
     const sessionKeysToRemove = [
       'locohelp_user',
       'locohelp_logged_in',
@@ -1636,8 +1849,18 @@ export async function logoutUser() {
       'locohelp_last_logged_in_phone',
       'locohelp_last_logged_in_name',
       'locohelp_profile_phone',
+      'locohelp_profile_name',
+      'locohelp_profile_photo',
+      'locohelp_profile_address',
+      'locohelp_profile_skills',
+      'locohelp_profile_visiting_card',
+      'locohelp_my_helper_profile',
+      'locohelp_my_business_profile',
+      'locohelp_my_post_ids',
+      'locohelp_chatted_post_ids',
       'locohelp_account_approved',
-      'locohelp_account_status'
+      'locohelp_account_status',
+      'locohelp_cached_convs_latest'
     ];
     sessionKeysToRemove.forEach(key => {
       localStorage.removeItem(key);
@@ -1727,11 +1950,64 @@ export async function saveUserProfile(userData: Record<string, any>): Promise<vo
     }
   } catch {}
 
+  const isGenericName = (n?: string | null, em?: string | null) => {
+    const clean = String(n || '').trim();
+    if (!clean) return true;
+    const lower = clean.toLowerCase();
+    if (
+      lower === 'community member' ||
+      lower === 'user' ||
+      lower === 'guest user' ||
+      lower === 'member' ||
+      lower.startsWith('member +91') ||
+      lower.startsWith('user_') ||
+      lower.startsWith('phone_')
+    ) {
+      return true;
+    }
+    const emailPrefix = String(em || '').trim().toLowerCase().split('@')[0];
+    if (emailPrefix && lower === emailPrefix) return true;
+    return false;
+  };
+
+  const resolvedEmail =
+    userData.email ||
+    existingCached.email ||
+    localStorage.getItem('locohelp_last_logged_in_email') ||
+    '';
+  const incomingName = String(userData.displayName || userData.full_name || userData.name || '').trim();
+  const cachedName = String(
+    existingCached.full_name ||
+      existingCached.name ||
+      localStorage.getItem('locohelp_profile_name') ||
+      ''
+  ).trim();
+  const resolvedFullName =
+    (!isGenericName(incomingName, resolvedEmail) ? incomingName : '') ||
+    (!isGenericName(cachedName, resolvedEmail) ? cachedName : '') ||
+    incomingName ||
+    cachedName ||
+    'Community Member';
+
+  const resolvedPhone =
+    userData.phone ||
+    existingCached.phone ||
+    localStorage.getItem('locohelp_profile_phone') ||
+    localStorage.getItem('locohelp_last_logged_in_phone') ||
+    '';
+
   const rawAvatarCandidate = userData.liveSelfieUrl || userData.photoURL || userData.avatar_url || '';
   const cleanAvatar =
     rawAvatarCandidate && rawAvatarCandidate !== 'https://lh3.googleusercontent.com/a/default-user'
       ? rawAvatarCandidate
-      : existingCached.avatar_url || '';
+      : existingCached.avatar_url || existingCached.liveSelfieUrl || '';
+
+  const resolvedVisitingCard =
+    userData.visitingCardUrl !== undefined
+      ? String(userData.visitingCardUrl || '')
+      : userData.visiting_card_url !== undefined
+      ? String(userData.visiting_card_url || '')
+      : String(existingCached.visitingCardUrl || existingCached.visiting_card_url || '');
 
   const resolvedPhonePublic =
     userData.isPhonePublic !== undefined
@@ -1742,14 +2018,19 @@ export async function saveUserProfile(userData: Record<string, any>): Promise<vo
 
   const payloadRaw: Record<string, any> = {
     uid: targetUid,
-    full_name: userData.displayName || userData.full_name || existingCached.full_name || 'Community Member',
-    email: userData.email || existingCached.email || '',
-    phone: userData.phone || existingCached.phone || '',
+    full_name: resolvedFullName,
+    name: resolvedFullName,
+    email: resolvedEmail,
+    phone: resolvedPhone,
     updated_at: new Date().toISOString(),
   };
 
   if (cleanAvatar) {
     payloadRaw.avatar_url = cleanAvatar;
+    payloadRaw.liveSelfieUrl = cleanAvatar;
+  }
+  if (resolvedVisitingCard !== undefined && (userData.visitingCardUrl !== undefined || resolvedVisitingCard !== '')) {
+    payloadRaw.visitingCardUrl = resolvedVisitingCard;
   }
   if (resolvedPhonePublic !== undefined) {
     payloadRaw.is_phone_public = resolvedPhonePublic;
@@ -2141,10 +2422,20 @@ export async function getHelpers(includePending = false): Promise<any[]> {
             const myHelperRaw = localStorage.getItem('locohelp_my_helper_profile');
             if (myHelperRaw) {
               const myHelper = JSON.parse(myHelperRaw);
-              const updatedMy = merged.find(h => h.id === myHelper.id || (myHelper.phone && h.phone === myHelper.phone));
+              const myHelperPhoneDigits = String(myHelper.phone || '').replace(/\D/g, '').slice(-10);
+              const updatedMy = merged.find(h =>
+                h.id === myHelper.id ||
+                (myHelper.userId && h.userId === myHelper.userId) ||
+                (myHelper.email && h.email && String(h.email).toLowerCase() === String(myHelper.email).toLowerCase()) ||
+                (myHelperPhoneDigits && String(h.phone || '').replace(/\D/g, '').slice(-10) === myHelperPhoneDigits)
+              );
               if (updatedMy) {
-                localStorage.setItem('locohelp_my_helper_profile', JSON.stringify({ ...myHelper, ...updatedMy }));
-              } else if (includePending) {
+                localStorage.setItem('locohelp_my_helper_profile', JSON.stringify({
+                  ...myHelper,
+                  ...updatedMy,
+                  phone: updatedMy.phone || myHelper.phone || ''
+                }));
+              } else if (myHelper.id && deletedIds.includes(String(myHelper.id))) {
                 localStorage.removeItem('locohelp_my_helper_profile');
               }
             }

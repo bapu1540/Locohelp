@@ -63,7 +63,7 @@ export default function FreeHelperRegisterModal({
     const cleanPhone = (activeUser?.phone || localStorage.getItem('locohelp_last_logged_in_phone') || '').replace(/\D/g, '').slice(-10);
 
     if (activeUser?.displayName && !formName) setFormName(activeUser.displayName);
-    if (cleanEmail) setFormEmail(cleanEmail);
+    if (cleanEmail && !cleanEmail.endsWith('@phone.locohelp.com')) setFormEmail(cleanEmail);
     if (cleanPhone) setFormPhone(cleanPhone);
 
     const resolvedDefault = defaultCategoryId || defaultCategory || 'plumber';
@@ -71,7 +71,9 @@ export default function FreeHelperRegisterModal({
     const populateFormFromProfile = (prof: any) => {
       if (!prof) return;
       setFormName(prof.name || activeUser?.displayName || '');
-      setFormEmail(prof.email || cleanEmail || '');
+      const profEmail = String(prof.email || '').trim().toLowerCase().endsWith('@phone.locohelp.com') ? '' : (prof.email || '');
+      const fallbackEmail = cleanEmail.endsWith('@phone.locohelp.com') ? '' : cleanEmail;
+      setFormEmail(profEmail || fallbackEmail || '');
       setFormCategory(prof.categoryId || resolvedDefault);
       setCustomCategoryName(prof.customCategoryName || '');
       setFormPhone(prof.phone || cleanPhone || '');
@@ -80,12 +82,19 @@ export default function FreeHelperRegisterModal({
       setFormCity(prof.city || '');
       setFormExp(prof.experience || '2 Years');
       setFormSkills(Array.isArray(prof.skills) ? prof.skills.join(', ') : (prof.skills || ''));
-      setFormPhotoUrl(prof.visitingCardUrl || prof.workPhotoUrl || prof.visiting_card_url || prof.work_photo_url || null);
-      if (prof.watermarkedSelfieUrl || prof.watermarked_selfie_url || prof.photoUrl || prof.idDocUrl || prof.id_doc_url) {
-        setFormIdDoc(prof.watermarkedSelfieUrl || prof.watermarked_selfie_url || prof.photoUrl || prof.idDocUrl || prof.id_doc_url);
+      const cardPhoto = prof.visitingCardUrl || prof.workPhotoUrl || prof.visiting_card_url || prof.work_photo_url || null;
+      setFormPhotoUrl(cardPhoto);
+      const selfieWatermarked =
+        prof.watermarkedSelfieUrl ||
+        prof.watermarked_selfie_url ||
+        prof.idDocUrl ||
+        prof.id_doc_url ||
+        (prof.photoUrl && prof.photoUrl !== cardPhoto ? prof.photoUrl : null);
+      if (selfieWatermarked) {
+        setFormIdDoc(selfieWatermarked);
       }
-      if (prof.rawSelfieUrl || prof.raw_selfie_url || prof.idDocUrl || prof.id_doc_url) {
-        setFormRawSelfie(prof.rawSelfieUrl || prof.raw_selfie_url || prof.idDocUrl || prof.id_doc_url);
+      if (prof.rawSelfieUrl || prof.raw_selfie_url || prof.idDocUrl || prof.id_doc_url || selfieWatermarked) {
+        setFormRawSelfie(prof.rawSelfieUrl || prof.raw_selfie_url || prof.idDocUrl || prof.id_doc_url || selfieWatermarked);
       }
     };
 
@@ -227,10 +236,10 @@ export default function FreeHelperRegisterModal({
       rating: existingProfile?.rating,
       reviewCount: (existingProfile as any)?.reviewCount,
       completedTasks: existingProfile?.completedTasks,
-      photoUrl: publicWatermarkedSelfie || formPhotoUrl || undefined,
+      photoUrl: publicWatermarkedSelfie || undefined,
       watermarkedSelfieUrl: publicWatermarkedSelfie || undefined,
-      visitingCardUrl: formPhotoUrl || undefined,
-      workPhotoUrl: formPhotoUrl || undefined,
+      visitingCardUrl: formPhotoUrl || '',
+      workPhotoUrl: formPhotoUrl || '',
       govtIdUploaded: true,
       idDocUrl: adminCleanSelfie,
       rawSelfieUrl: adminCleanSelfie,
@@ -257,10 +266,10 @@ export default function FreeHelperRegisterModal({
         ...newHelper,
         isPhonePublic,
         website_url_hp: hpWebsiteUrl,
-        photoUrl: publicWatermarkedSelfie || formPhotoUrl || undefined,
+        photoUrl: publicWatermarkedSelfie || undefined,
         watermarkedSelfieUrl: publicWatermarkedSelfie || undefined,
-        visitingCardUrl: formPhotoUrl || undefined,
-        workPhotoUrl: formPhotoUrl || undefined,
+        visitingCardUrl: formPhotoUrl || '',
+        workPhotoUrl: formPhotoUrl || '',
         idDocUrl: adminCleanSelfie,
         rawSelfieUrl: adminCleanSelfie,
         isVerified: wasAlreadyApproved,

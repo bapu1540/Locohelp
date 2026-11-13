@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Screen, Intent } from './types';
 import { LanguageProvider, useLanguage, SUPPORTED_LANGUAGES } from './i18n';
-import { logoutUser, ensureProfileExists, onAuthStateChange, restoreSessionFromServer, getCurrentUser } from './auth';
-import { syncBrowserDataToPostgres, fetchPostConversations, subscribeToRealtimeStream } from './api';
+import { logoutUser, ensureProfileExists, onAuthStateChange, restoreSessionFromServer, getCurrentUser, mergeAndSaveCurrentUser } from './auth';
+import { syncBrowserDataToPostgres, fetchPostConversations, subscribeToRealtimeStream, normalizeAndDedupeConversations } from './api';
 import { isGuestUser } from './lib/authUtils';
 import LocoHelpLogo from './components/LocoHelpLogo';
 import PanIndiaLocationModal from './components/PanIndiaLocationModal';
@@ -95,7 +95,60 @@ function AppContent() {
 
   const currentLangObj = SUPPORTED_LANGUAGES.find(l => l.code === language) || SUPPORTED_LANGUAGES[0];
 
-  // Poll /api/users/approval-status to enforce immediate 100% Total Account Lockdown if Admin blocks this user/mobile/email
+  const ACCOUNT_APPROVED_MESSAGE = '🎉 અભિનંદન! તમારું LocoHelp એકાઉન્ટ વેરિફાઈ (Approve) થઈ ગયું છે!';
+
+  const triggerAccountApprovedNotification = (userKey: string) => {
+    try {
+      const cleanKey = String(userKey || 'user').trim().toLowerCase();
+      localStorage.setItem(`locohelp_account_approved_notified_${cleanKey}`, 'true');
+      localStorage.removeItem(`locohelp_pending_approval_${cleanKey}`);
+      localStorage.setItem('locohelp_helper_verification_status', 'approved');
+      localStorage.setItem('locohelp_profile_verified', 'true');
+
+      setGlobalPushToast({
+        title: ACCOUNT_APPROVED_MESSAGE,
+        body: ''
+      });
+      setTimeout(() => setGlobalPushToast(null), 7000);
+
+      const existingNotifs = JSON.parse(localStorage.getItem('locohelp_notifications') || '[]');
+      const notifId = `notif_account_approved_${cleanKey}`;
+      const filteredNotifs = Array.isArray(existingNotifs)
+        ? existingNotifs.filter((n: any) => n && n.id !== notifId)
+        : [];
+      const updatedNotifs = [
+        {
+          id: notifId,
+          type: 'account_approved',
+          title: ACCOUNT_APPROVED_MESSAGE,
+          body: '',
+          createdAt: new Date().toISOString(),
+          isRead: false
+        },
+        ...filteredNotifs
+      ].slice(0, 50);
+      localStorage.setItem('locohelp_notifications', JSON.stringify(updatedNotifs));
+      window.dispatchEvent(new CustomEvent('locohelp_notifications_updated'));
+      window.dispatchEvent(new Event('storage'));
+
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.ready
+            .then((reg) => {
+              reg.showNotification(ACCOUNT_APPROVED_MESSAGE, {
+                body: '',
+                icon: '/pwa-192x192.png',
+                badge: '/pwa-192x192.png',
+                data: { url: '/?screen=profile' }
+              });
+            })
+            .catch(() => {});
+        }
+      }
+    } catch {}
+  };
+
+  // Poll /api/users/approval-status to enforce immediate 100% Total Account Lockdown if Admin blocks this user/mobile/email, and notify on Approval
   useEffect(() => {
     let active = true;
     const checkBlockStatus = async () => {
@@ -113,6 +166,10 @@ function AppContent() {
           if (active) setBlockedAccountState({ isBlocked: false });
           return;
         }
+        const phoneDigitsRaw = phone.replace(/\D/g, '');
+        const phoneDigits = phoneDigitsRaw.length >= 10 ? phoneDigitsRaw.slice(-10) : '';
+        const userKey = (phoneDigits || uid || email).toLowerCase();
+
         const qs = new URLSearchParams();
         if (uid) qs.set('uid', uid);
         if (email) qs.set('email', email);
@@ -131,6 +188,22 @@ function AppContent() {
           });
         } else {
           setBlockedAccountState({ isBlocked: false });
+          if (data?.status === 'pending') {
+            try {
+              localStorage.setItem(`locohelp_pending_approval_${userKey}`, 'true');
+            } catch {}
+          } else if (data?.isApproved === true || data?.status === 'approved') {
+            try {
+              const wasPending =
+                localStorage.getItem(`locohelp_pending_approval_${userKey}`) === 'true' ||
+                localStorage.getItem('locohelp_helper_verification_status') === 'pending';
+              const alreadyNotified =
+                localStorage.getItem(`locohelp_account_approved_notified_${userKey}`) === 'true';
+              if (wasPending && !alreadyNotified) {
+                triggerAccountApprovedNotification(userKey);
+              }
+            } catch {}
+          }
         }
       } catch {}
     };
@@ -169,13 +242,20 @@ function AppContent() {
         const u = getCurrentUser();
         const uid = String(u?.uid || '').trim();
         const email = String(u?.email || localStorage.getItem('locohelp_last_logged_in_email') || '').trim();
-        if (!uid && !email) {
+        const userPhone = String(
+          u?.phone ||
+          localStorage.getItem('locohelp_last_logged_in_phone') ||
+          localStorage.getItem('locohelp_profile_phone') ||
+          ''
+        ).trim();
+        if (!uid && !email && !userPhone) {
           if (active) setUnreadChatCount(0);
           return;
         }
-        const convs = await fetchPostConversations({ userId: uid || email, userEmail: email });
+        const convs = await fetchPostConversations({ userId: uid || email, userEmail: email, userPhone });
         if (!active) return;
-        const total = (Array.isArray(convs) ? convs : []).reduce(
+        const normalized = normalizeAndDedupeConversations(convs);
+        const total = normalized.reduce(
           (sum: number, c: any) => sum + (Number(c?.unreadCount) || 0),
           0
         );
@@ -261,6 +341,42 @@ function AppContent() {
       },
       onNewResponse: () => {
         refreshUnread();
+      },
+      onAccountApproved: (payload: any) => {
+        try {
+          if (isGuestUser()) return;
+          const u = getCurrentUser();
+          const myUid = String(u?.uid || '').trim().toLowerCase();
+          const myEmail = String(
+            u?.email || localStorage.getItem('locohelp_last_logged_in_email') || ''
+          ).trim().toLowerCase();
+          const myPhoneRaw = String(
+            u?.phone ||
+              localStorage.getItem('locohelp_profile_phone') ||
+              localStorage.getItem('locohelp_last_logged_in_phone') ||
+              (myUid.startsWith('phone_') ? myUid.slice(6) : '') ||
+              (myEmail.endsWith('@phone.locohelp.com') ? myEmail.split('@')[0] : '') ||
+              ''
+          ).replace(/\D/g, '');
+          const myPhoneDigits = myPhoneRaw.length >= 10 ? myPhoneRaw.slice(-10) : '';
+
+          const evUid = String(payload?.userId || '').trim().toLowerCase();
+          const evEmail = String(payload?.email || '').trim().toLowerCase();
+          const evPhoneRaw = String(payload?.phone || '').replace(/\D/g, '');
+          const evPhoneDigits = evPhoneRaw.length >= 10 ? evPhoneRaw.slice(-10) : '';
+
+          const isMatch = Boolean(
+            (myUid && evUid && (myUid === evUid || myUid === `phone_${evPhoneDigits}`)) ||
+              (myEmail && evEmail && myEmail === evEmail) ||
+              (myPhoneDigits && evPhoneDigits && myPhoneDigits === evPhoneDigits) ||
+              (myPhoneDigits && evUid && evUid.includes(myPhoneDigits))
+          );
+
+          if (isMatch) {
+            const userKey = (myPhoneDigits || myUid || myEmail || 'user').toLowerCase();
+            triggerAccountApprovedNotification(userKey);
+          }
+        } catch {}
       }
     });
     const handleChatReadUpdated = (e: any) => {
@@ -453,31 +569,14 @@ function AppContent() {
     };
   }, []);
 
-  // Listen to Supabase Auth state for seamless persistent login
+  // Listen to Auth state for seamless persistent login without overwriting phone, real name, or photo
   useEffect(() => {
     const { data: { subscription } } = onAuthStateChange(async (event, session) => {
       try {
         if (session?.user) {
           const u = session.user;
-          // Auto-create profile if missing
           await ensureProfileExists(u);
-          const resolvedUid = u.uid || u.id;
-          const userData = {
-            uid: resolvedUid,
-            displayName: u.displayName || u.user_metadata?.full_name || u.email?.split('@')[0] || 'Community Member',
-            email: u.email || '',
-            photoURL: u.photoURL || u.user_metadata?.avatar_url || 'https://lh3.googleusercontent.com/a/default-user',
-          };
-          
-          if (userData && userData.uid) {
-            localStorage.setItem('locohelp_user', JSON.stringify(userData));
-            localStorage.setItem('locohelp_logged_in', 'true');
-            if (u.email) {
-              localStorage.setItem('locohelp_last_logged_in_email', u.email);
-              localStorage.setItem('locohelp_last_logged_in_name', userData.displayName);
-              if (userData.photoURL) localStorage.setItem('locohelp_last_logged_in_photo', userData.photoURL);
-            }
-          }
+          mergeAndSaveCurrentUser(u);
 
           // Auto-advance if currently on login screen (though login screen is currently disabled)
           setCurrentScreen((prev) => (prev === 'login' as any ? 'home' : prev));
@@ -803,8 +902,12 @@ function AppContent() {
           className="fixed top-14 left-1/2 -translate-x-1/2 z-50 w-[92%] max-w-md bg-indigo-950/95 text-white px-4 py-3 rounded-2xl shadow-2xl border border-indigo-400/40 flex items-center justify-between gap-3 cursor-pointer"
         >
           <div className="min-w-0 flex-1">
-            <div className="text-xs font-black text-amber-300 truncate">{globalPushToast.title}</div>
-            <div className="text-[11px] font-bold text-slate-100 truncate mt-0.5">{globalPushToast.body}</div>
+            <div className={`text-xs font-black text-amber-300 ${globalPushToast.body ? 'truncate' : 'leading-snug'}`}>
+              {globalPushToast.title}
+            </div>
+            {globalPushToast.body && globalPushToast.body !== globalPushToast.title && (
+              <div className="text-[11px] font-bold text-slate-100 truncate mt-0.5">{globalPushToast.body}</div>
+            )}
           </div>
           <span className="px-2.5 py-1 rounded-xl bg-emerald-500 text-white text-[10px] font-black shrink-0">
             {tr('View', 'देखें', 'જુઓ')}
