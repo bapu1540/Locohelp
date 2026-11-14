@@ -19,7 +19,9 @@ import {
   getCachedPostConversations,
   saveLocalChatReadTimestamp,
   saveLocalUserDeletedChat,
-  normalizeAndDedupeConversations
+  normalizeAndDedupeConversations,
+  deleteIntentOnServer,
+  getAuthHeaders
 } from '../api';
 import { validateUploadedFile, sanitizeText } from '../lib/security';
 import { compressImageToWebP } from '../lib/imageCompression';
@@ -265,6 +267,7 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
   }, [chatId, currentIntent, currentUser]);
 
   const [selectedReplierId, setSelectedReplierId] = useState<string | null>(() => {
+    if (!isPostOwner) return null;
     const rawRep = (currentIntent as any)?.selectedReplierId || (currentIntent as any)?.helperId || null;
     if (
       rawRep &&
@@ -275,14 +278,14 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
     }
     return rawRep;
   });
-  const [selectedReplierName, setSelectedReplierName] = useState<string | null>(
-    (currentIntent as any)?.selectedReplierName || null
+  const [selectedReplierName, setSelectedReplierName] = useState<string | null>(() =>
+    isPostOwner ? ((currentIntent as any)?.selectedReplierName || null) : null
   );
-  const [selectedReplierEmail, setSelectedReplierEmail] = useState<string | null>(
-    (currentIntent as any)?.selectedReplierEmail || null
+  const [selectedReplierEmail, setSelectedReplierEmail] = useState<string | null>(() =>
+    isPostOwner ? ((currentIntent as any)?.selectedReplierEmail || null) : null
   );
-  const [selectedReplierAvatar, setSelectedReplierAvatar] = useState<string | null>(
-    (currentIntent as any)?.selectedReplierAvatar || null
+  const [selectedReplierAvatar, setSelectedReplierAvatar] = useState<string | null>(() =>
+    isPostOwner ? ((currentIntent as any)?.selectedReplierAvatar || null) : null
   );
 
   // For Helper/Customer (User B), helperId is their own UID (never the post owner/provider's ID); for Post Owner (User A), helperId MUST be selectedReplierId
@@ -296,12 +299,13 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
     if (isPostOwner) {
       return selectedReplierId || safeIntentHelperId || '';
     }
-    return (
-      safeIntentHelperId ||
+    const myEmailFallback = String(currentUser?.email || '').trim().toLowerCase();
+    const myPhoneFallback = String(currentUser?.phone || '').replace(/\D/g, '').slice(-10);
+    const resolvedOwnId =
       (currentUser?.uid && currentUser.uid !== 'guest_user' ? currentUser.uid : '') ||
-      selectedReplierId ||
-      ''
-    );
+      (myEmailFallback ? `email_${myEmailFallback.replace(/[^a-z0-9]/g, '_')}` : '') ||
+      (myPhoneFallback ? `phone_${myPhoneFallback}` : '');
+    return resolvedOwnId || safeIntentHelperId || '';
   }, [isPostOwner, selectedReplierId, currentIntent, currentUser]);
 
   // Deterministic 1-on-1 conversation ID per (post_id, helper_id)
@@ -341,6 +345,9 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
     attachmentType?: string;
     isRead?: boolean;
     is_read?: boolean;
+    isSending?: boolean;
+    sendFailed?: boolean;
+    sendError?: string;
     createdAt?: string;
   }[]>([]);
   const [collaboratorId, setCollaboratorId] = useState<string | null>(null);
@@ -350,6 +357,8 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
   const [isCompletionSummaryOpen, setIsCompletionSummaryOpen] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isPostDeleteConfirmOpen, setIsPostDeleteConfirmOpen] = useState(false);
+  const [isDeletingPost, setIsDeletingPost] = useState(false);
   const [rating, setRating] = useState(5);
   const [ratingComment, setRatingComment] = useState('');
   const [isTaskDone, setIsTaskDone] = useState(currentIntent?.status === 'completed');
@@ -400,18 +409,19 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
   const [promptPhoneError, setPromptPhoneError] = useState('');
   const phoneRequestSentRef = useRef(false);
 
-  // Sync selected replier if currentIntent changes (e.g., opened from My Chats list, View Responses modal, or post card)
+  // Sync selected replier if currentIntent changes (strictly only for Post Owner)
   useEffect(() => {
-    if (currentIntent) {
+    if (currentIntent && isPostOwner) {
       const rawExplicitRepId = (currentIntent as any).selectedReplierId || (currentIntent as any).helperId || null;
       const explicitRepId =
         rawExplicitRepId &&
-        (!currentIntent.authorId || String(rawExplicitRepId).toLowerCase() !== String(currentIntent.authorId).toLowerCase())
+        (!currentIntent.authorId || String(rawExplicitRepId).toLowerCase() !== String(currentIntent.authorId).toLowerCase()) &&
+        !isMessageSentByUser({ sender_id: rawExplicitRepId, sender_email: (currentIntent as any).selectedReplierEmail || (currentIntent as any).helperEmail }, getCurrentUser())
           ? rawExplicitRepId
           : null;
       if (explicitRepId) {
         setSelectedReplierId(explicitRepId);
-        setSelectedReplierName((currentIntent as any).selectedReplierName || (currentIntent as any).helperName || (currentIntent as any).authorName || null);
+        setSelectedReplierName((currentIntent as any).selectedReplierName || (currentIntent as any).helperName || null);
         setSelectedReplierEmail((currentIntent as any).selectedReplierEmail || (currentIntent as any).helperEmail || null);
         setSelectedReplierAvatar((currentIntent as any).selectedReplierAvatar || null);
       } else {
@@ -420,20 +430,17 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
           : Array.isArray((currentIntent as any).responses)
           ? (currentIntent as any).responses
           : [];
-        const firstOther =
-          preloadedRepliers.find((r: any) => {
-            const rId = String(r?.sender_id || r?.senderId || r?.helperId || r?.id || '').trim();
-            const rEmail = String(r?.sender_email || r?.senderEmail || r?.helperEmail || '').trim();
-            return rId && !isMessageSentByUser({ sender_id: rId, sender_email: rEmail }, getCurrentUser());
-          }) || preloadedRepliers[0];
+        const firstOther = preloadedRepliers.find((r: any) => {
+          const rId = String(r?.sender_id || r?.senderId || r?.helperId || r?.id || '').trim();
+          const rEmail = String(r?.sender_email || r?.senderEmail || r?.helperEmail || '').trim();
+          return rId && rId !== 'system' && !isMessageSentByUser({ sender_id: rId, sender_email: rEmail }, getCurrentUser());
+        });
         if (firstOther) {
           const rId = String(firstOther.sender_id || firstOther.senderId || firstOther.helperId || firstOther.id || '').trim();
-          if (rId && rId !== 'system') {
-            setSelectedReplierId(rId);
-            setSelectedReplierName(firstOther.sender_name || firstOther.senderName || firstOther.helperName || firstOther.name || 'Community Helper');
-            setSelectedReplierEmail(firstOther.sender_email || firstOther.senderEmail || firstOther.helperEmail || null);
-            setSelectedReplierAvatar(firstOther.sender_avatar || firstOther.senderAvatar || firstOther.helperAvatar || null);
-          }
+          setSelectedReplierId(rId);
+          setSelectedReplierName(firstOther.sender_name || firstOther.senderName || firstOther.helperName || firstOther.name || 'Community Helper');
+          setSelectedReplierEmail(firstOther.sender_email || firstOther.senderEmail || firstOther.helperEmail || null);
+          setSelectedReplierAvatar(firstOther.sender_avatar || firstOther.senderAvatar || firstOther.helperAvatar || null);
         }
       }
     } else {
@@ -442,7 +449,7 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
       setSelectedReplierEmail(null);
       setSelectedReplierAvatar(null);
     }
-  }, [currentIntent]);
+  }, [currentIntent, isPostOwner]);
 
   // Push history state and listen for hardware Back button when any modal is open inside ChatScreen
   const isAnyChatModalOpen = Boolean(
@@ -663,11 +670,12 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
     }
   }, [messages]);
 
-  // Persist 1-on-1 conversation locally (do not overwrite with empty array)
+  // Persist confirmed 1-on-1 conversation locally (never persist failed/unsent optimistic bubbles)
   useEffect(() => {
-    if (!activeConversationId || messages.length === 0) return;
+    const confirmedMsgs = messages.filter(m => m && !m.sendFailed && !m.isSending);
+    if (!activeConversationId || confirmedMsgs.length === 0) return;
     try {
-      localStorage.setItem(`locohelp_chat_${activeConversationId}`, JSON.stringify(messages));
+      localStorage.setItem(`locohelp_chat_${activeConversationId}`, JSON.stringify(confirmedMsgs));
     } catch (e) {}
   }, [messages, activeConversationId]);
 
@@ -753,12 +761,11 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
 
         const fetchInboxPromise = (async () => {
           try {
-            const token = localStorage.getItem('locohelp_token');
             const convRes = await fetch(
               `/api/chat/conversations?postId=${encodeURIComponent(chatId)}&userId=${encodeURIComponent(myUid)}&ownerEmail=${encodeURIComponent(myEmail)}&userPhone=${encodeURIComponent(myPhone)}&_t=${Date.now()}`,
               {
                 cache: 'no-store',
-                headers: token ? { Authorization: `Bearer ${token}` } : undefined
+                headers: getAuthHeaders()
               }
             );
             if (convRes.ok) {
@@ -766,10 +773,14 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
               if (isMounted && Array.isArray(convList)) {
                 const normalizedInbox = normalizeAndDedupeConversations(convList);
                 setInboxConversations(normalizedInbox);
-                if (!selectedReplierId && normalizedInbox.length > 0) {
-                  const firstHelper = normalizedInbox[0];
-                  const firstHelperId = firstHelper.helperId || firstHelper.senderId || firstHelper.helper_id;
-                  if (firstHelperId) {
+                if (isPostOwner && !selectedReplierId && normalizedInbox.length > 0) {
+                  const firstHelper = normalizedInbox.find(c => {
+                    const hId = c?.helperId || c?.senderId || c?.helper_id;
+                    const hEmail = c?.helperEmail || c?.senderEmail || '';
+                    return hId && hId !== 'system' && !isMessageSentByUser({ sender_id: hId, sender_email: hEmail }, activeUser);
+                  });
+                  const firstHelperId = firstHelper?.helperId || firstHelper?.senderId || firstHelper?.helper_id;
+                  if (firstHelper && firstHelperId) {
                     effectiveHelperId = String(firstHelperId);
                     effectiveConvId = firstHelper.id || firstHelper.conversationId || `conv_${chatId}__${String(firstHelperId).toLowerCase()}`;
                     setSelectedReplierId(firstHelperId);
@@ -797,8 +808,9 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
             })
           ]);
           serverMessages = Array.isArray(msgs) ? msgs : [];
-          // If filtered by effectiveHelperId returned 0 messages, also fetch all messages on this postId
-          if (serverMessages.length === 0 && chatId && effectiveHelperId) {
+          // Only Post Owner falls back to loading all replies on postId when no helperId filter matches yet;
+          // Repliers (!isPostOwner) stay strictly isolated to their own 1-on-1 conversation.
+          if (isPostOwner && serverMessages.length === 0 && chatId && effectiveHelperId) {
             const allPostMsgs = await fetchChatMessages(chatId, {
               postId: chatId,
               userId: myUid,
@@ -813,9 +825,8 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
         }
 
         if (isMounted && Array.isArray(serverMessages) && serverMessages.length > 0) {
-          if (!selectedReplierId) {
-            const firstIncoming =
-              serverMessages.find((m: any) => !isMessageSentByUser(m, activeUser)) || serverMessages[0];
+          if (isPostOwner && !selectedReplierId) {
+            const firstIncoming = serverMessages.find((m: any) => !isMessageSentByUser(m, activeUser));
             if (firstIncoming) {
               const autoHelperId = String(firstIncoming.sender_id || firstIncoming.senderId || firstIncoming.authorId || '').trim();
               if (autoHelperId && autoHelperId !== 'system') {
@@ -1072,8 +1083,24 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
     setInput('');
 
     const activeUser = getCurrentUser();
-    const activeUid = activeUser?.uid || 'my_user';
     const activeEmail = (activeUser?.email || localStorage.getItem('locohelp_last_logged_in_email') || '').trim().toLowerCase();
+    const activePhone = String(
+      activeUser?.phone ||
+      localStorage.getItem('locohelp_last_logged_in_phone') ||
+      localStorage.getItem('locohelp_profile_phone') ||
+      ''
+    ).replace(/\D/g, '').slice(-10);
+    const activeUid =
+      (activeUser?.uid && activeUser.uid !== 'guest_user' ? activeUser.uid : '') ||
+      (activeEmail ? `email_${activeEmail.replace(/[^a-z0-9]/g, '_')}` : '') ||
+      (activePhone ? `phone_${activePhone}` : '') ||
+      'guest_user';
+
+    if (activeUid === 'guest_user') {
+      setIsLoginPromptOpen(true);
+      return;
+    }
+
     const activeName =
       activeUser?.displayName ||
       localStorage.getItem('locohelp_profile_name') ||
@@ -1122,13 +1149,15 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
       receiver_id: targetReceiverId,
       text: trimmed,
       type,
+      isSending: true,
+      sendFailed: false,
       createdAt: new Date().toISOString()
     };
 
     if (attachmentUrl) messageData.attachmentUrl = attachmentUrl;
     if (attachmentType) messageData.attachmentType = attachmentType;
 
-    // Optimistic UI update
+    // Optimistic UI update (shows subtle pending indicator until server confirms)
     setMessages(prev => [...prev, messageData]);
 
     // User's own message scrolls to bottom
@@ -1141,34 +1170,112 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
       }
     }, 50);
 
-    // Track that the current user has participated in chat on this post
-    try {
-      if (chatId) {
-        const chatted: string[] = JSON.parse(localStorage.getItem('locohelp_chatted_post_ids') || '[]');
-        if (!chatted.includes(chatId)) {
-          chatted.push(chatId);
-          localStorage.setItem('locohelp_chatted_post_ids', JSON.stringify(chatted));
-          window.dispatchEvent(new CustomEvent('locohelp_chatted_posts_updated'));
-        }
-      }
-    } catch (e) {}
-
     // Store in backend PostgreSQL conversations + messages via POST /api/chat/send
     try {
       const sendRes: any = await sendChatMessage(chatId, messageData);
-      if (sendRes && (sendRes.code === 'ACCOUNT_PENDING_APPROVAL' || sendRes.httpStatus === 403)) {
-        // Remove optimistic message if blocked by Admin Approval check
+      if (sendRes && (sendRes.code === 'ACCOUNT_PENDING_APPROVAL' || sendRes.code === 'ACCOUNT_BLOCKED_BY_ADMIN' || sendRes.code === 'CHAT_BLOCKED' || sendRes.httpStatus === 403)) {
         setMessages(prev => prev.filter(m => m.id !== messageData.id));
         setReportStatusBanner(
-          tr(
-            '⏳ Your account is pending Admin approval. After approval, you will be able to send chat messages.',
-            '⏳ आपका अकाउंट अभी एडमिन अप्रूवल के लिए पेंडिंग है। अप्रूवल के बाद आप चैट मैसेज भेज सकेंगे।',
-            '⏳ તમારું એકાઉન્ટ એડમિન અપ્રૂવલ માટે પેન્ડિંગ છે. અપ્રૂવલ બાદ તમે ચેટ મેસેજ મોકલી શકશો.'
-          )
+          sendRes.error ||
+            tr(
+              '⏳ Your account is pending Admin approval. After approval, you will be able to send chat messages.',
+              '⏳ आपका अकाउंट अभी एडमिन अप्रूवल के लिए पेंडिंग है। अप्रूवल के बाद आप चैट मैसेज भेज सकेंगे।',
+              '⏳ તમારું એકાઉન્ટ એડમિન અપ્રૂવલ માટે પેન્ડિંગ છે. અપ્રૂવલ બાદ તમે ચેટ મેસેજ મોકલી શકશો.'
+            )
         );
         setTimeout(() => setReportStatusBanner(null), 6000);
+        return;
       }
-    } catch (e) {}
+      if (sendRes && (sendRes.code === 'LOGIN_REQUIRED' || sendRes.httpStatus === 401)) {
+        setMessages(prev => prev.filter(m => m.id !== messageData.id));
+        if (type === 'text' && trimmed) setInput(trimmed);
+        setIsLoginPromptOpen(true);
+        return;
+      }
+      if (!sendRes || sendRes.sendFailed || (typeof sendRes.httpStatus === 'number' && sendRes.httpStatus >= 400)) {
+        const failReason = sendRes?.error || tr(
+          'Message could not be delivered. Please retry.',
+          'संदेश भेजा नहीं जा सका। कृपया पुनः प्रयास करें।',
+          'મેસેજ મોકલી શકાયો નથી — કૃપા કરીને ફરી પ્રયાસ કરો.'
+        );
+        setMessages(prev =>
+          prev.map(m => (m.id === messageData.id ? { ...m, isSending: false, sendFailed: true, sendError: failReason } : m))
+        );
+        setReportStatusBanner(`⚠️ ${failReason}`);
+        setTimeout(() => setReportStatusBanner(null), 5000);
+        return;
+      }
+
+      // Confirmed saved by server
+      setMessages(prev =>
+        prev.map(m =>
+          m.id === messageData.id
+            ? { ...m, isSending: false, sendFailed: false, sendError: undefined }
+            : m
+        )
+      );
+      try {
+        if (chatId) {
+          const chatted: string[] = JSON.parse(localStorage.getItem('locohelp_chatted_post_ids') || '[]');
+          if (!chatted.includes(chatId)) {
+            chatted.push(chatId);
+            localStorage.setItem('locohelp_chatted_post_ids', JSON.stringify(chatted));
+            window.dispatchEvent(new CustomEvent('locohelp_chatted_posts_updated'));
+          }
+        }
+      } catch (e) {}
+    } catch (e: any) {
+      const failReason = e?.message || tr(
+        'Network error. Tap Retry to send.',
+        'नेटवर्क त्रुटि। फिर से भेजें पर टैप करें।',
+        'નેટવર્ક ખામી — કૃપા કરીને ફરી પ્રયાસ કરો.'
+      );
+      setMessages(prev =>
+        prev.map(m => (m.id === messageData.id ? { ...m, isSending: false, sendFailed: true, sendError: failReason } : m))
+      );
+      setReportStatusBanner(`⚠️ ${failReason}`);
+      setTimeout(() => setReportStatusBanner(null), 5000);
+    }
+  };
+
+  const handleRetryMessage = async (failedMsg: any) => {
+    if (!failedMsg) return;
+    setMessages(prev =>
+      prev.map(m => (m.id === failedMsg.id ? { ...m, isSending: true, sendFailed: false, sendError: undefined } : m))
+    );
+    try {
+      const sendRes: any = await sendChatMessage(chatId, failedMsg);
+      if (!sendRes || sendRes.sendFailed || (typeof sendRes.httpStatus === 'number' && sendRes.httpStatus >= 400)) {
+        const failReason = sendRes?.error || tr(
+          'Message could not be delivered. Please retry.',
+          'संदेश भेजा नहीं जा सका। कृपया पुनः प्रयास करें।',
+          'મેસેજ મોકલી શકાયો નથી — કૃપા કરીને ફરી પ્રયાસ કરો.'
+        );
+        setMessages(prev =>
+          prev.map(m => (m.id === failedMsg.id ? { ...m, isSending: false, sendFailed: true, sendError: failReason } : m))
+        );
+        setReportStatusBanner(`⚠️ ${failReason}`);
+        setTimeout(() => setReportStatusBanner(null), 5000);
+        return;
+      }
+      setMessages(prev =>
+        prev.map(m => (m.id === failedMsg.id ? { ...m, isSending: false, sendFailed: false, sendError: undefined } : m))
+      );
+      try {
+        if (chatId) {
+          const chatted: string[] = JSON.parse(localStorage.getItem('locohelp_chatted_post_ids') || '[]');
+          if (!chatted.includes(chatId)) {
+            chatted.push(chatId);
+            localStorage.setItem('locohelp_chatted_post_ids', JSON.stringify(chatted));
+            window.dispatchEvent(new CustomEvent('locohelp_chatted_posts_updated'));
+          }
+        }
+      } catch (e) {}
+    } catch {
+      setMessages(prev =>
+        prev.map(m => (m.id === failedMsg.id ? { ...m, isSending: false, sendFailed: true } : m))
+      );
+    }
   };
 
   const handleDeleteMessage = async (msgId: string) => {
@@ -1596,20 +1703,25 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
     }, 1200);
   };
 
-  const savedProfileName = (() => {
-    try {
-      const p = localStorage.getItem('locohelp_profile_name');
-      if (p && p !== 'Ramesh Sharma') return p;
-      return currentUser?.displayName;
-    } catch(e) { return null; }
-  })();
+  const resolvedPostOwnerName = [
+    (currentIntent as any)?.posterName,
+    (currentIntent as any)?.sellerName,
+    (currentIntent as any)?.authorName,
+    (currentIntent as any)?.name
+  ].find(
+    n =>
+      typeof n === 'string' &&
+      n.trim() &&
+      n.trim() !== 'Post Owner' &&
+      n.trim() !== 'Ramesh Sharma'
+  );
 
   const rawSeller = isPostOwner
     ? (selectedReplierName || 'Select a Responder')
-    : (selectedReplierName || (currentIntent as any)?.sellerName || (currentIntent as any)?.authorName || (currentIntent as any)?.name);
+    : resolvedPostOwnerName;
   const validSeller = rawSeller && rawSeller !== 'Ramesh Sharma' ? rawSeller : null;
 
-  const peerName = validSeller || (!isPostOwner ? savedProfileName : null) || "Community Peer";
+  const peerName = validSeller || "Community Peer";
   const peerBadge = (currentIntent as any)?.badge || "Verified Community Peer";
 
   const matchedConvForPeer = React.useMemo(() => {
@@ -1696,6 +1808,7 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
   }, [currentIntent, selectedReplierEmail, selectedReplierId]);
 
   const distinctRepliers = React.useMemo(() => {
+    if (!isPostOwner) return [];
     const map = new Map<string, {
       id: string;
       name: string;
@@ -1775,9 +1888,8 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
       }
     });
     const allList = Array.from(map.values());
-    const othersOnly = allList.filter(item => !isMessageSentByUser({ sender_id: item.id, sender_email: item.email }, currentUser));
-    return othersOnly.length > 0 ? othersOnly : allList;
-  }, [inboxConversations, messages, currentUser, currentIntent]);
+    return allList.filter(item => !isMessageSentByUser({ sender_id: item.id, sender_email: item.email }, currentUser));
+  }, [isPostOwner, inboxConversations, messages, currentUser, currentIntent]);
 
   // Auto-select the responder when Post Owner has responders and none is selected yet so replies are visible immediately
   useEffect(() => {
@@ -2407,6 +2519,20 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
                   </span>
                 </button>
 
+                {isPostOwner && currentIntent?.id && !String(currentIntent.id).startsWith('provider_chat_') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsHeaderMenuOpen(false);
+                      setIsPostDeleteConfirmOpen(true);
+                    }}
+                    className="w-full px-3.5 py-2.5 text-left flex items-center gap-2.5 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 cursor-pointer"
+                  >
+                    <Trash2 className="w-4 h-4 shrink-0" />
+                    <span>{tr('Delete My Post', 'मेरी पोस्ट डिलीट करें', 'મારી પોસ્ટ ડિલીટ કરો')}</span>
+                  </button>
+                )}
+
                 <button
                   type="button"
                   onClick={() => {
@@ -2582,7 +2708,7 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
             </div>
           </div>
         )}
-        {distinctRepliers.length > 0 && (
+        {isPostOwner && distinctRepliers.length > 0 && (
           <div className="max-w-md mx-auto mb-3 p-3 rounded-2xl bg-emerald-50/90 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 space-y-2">
             <div className="flex items-center justify-between gap-2">
               <p className="text-[11px] font-black text-emerald-900 dark:text-emerald-200">
@@ -2966,16 +3092,30 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
                       {formatBubbleDateTime(msg.createdAt)}
                     </span>
                     {isMe && (
-                      <span
-                        className="flex items-center text-[11px] font-extrabold leading-none tracking-tighter"
-                        title={Boolean(msg.isRead || (msg as any).is_read) ? 'Read (✓✓)' : 'Sent (✓)'}
-                      >
-                        {Boolean(msg.isRead || (msg as any).is_read) ? (
-                          <span className="text-sky-300">✓✓</span>
-                        ) : (
-                          <span className="text-white/80">✓</span>
-                        )}
-                      </span>
+                      msg.sendFailed ? (
+                        <button
+                          type="button"
+                          onClick={() => handleRetryMessage(msg)}
+                          className="px-2 py-0.5 rounded-lg bg-rose-500 hover:bg-rose-600 text-white text-[10px] font-black flex items-center gap-1 shadow-xs cursor-pointer"
+                          title={msg.sendError || 'Failed to send'}
+                        >
+                          <RefreshCw className="w-2.5 h-2.5" />
+                          <span>{tr('Not Sent • Retry', 'नहीं गया • फिर से भेजें', 'મોકલાયો નથી • ફરી મોકલો')}</span>
+                        </button>
+                      ) : msg.isSending ? (
+                        <span className="text-[10px] font-bold text-indigo-200" title="Sending...">⏳</span>
+                      ) : (
+                        <span
+                          className="flex items-center text-[11px] font-extrabold leading-none tracking-tighter"
+                          title={Boolean(msg.isRead || (msg as any).is_read) ? 'Read (✓✓)' : 'Sent (✓)'}
+                        >
+                          {Boolean(msg.isRead || (msg as any).is_read) ? (
+                            <span className="text-sky-300">✓✓</span>
+                          ) : (
+                            <span className="text-white/80">✓</span>
+                          )}
+                        </span>
+                      )
                     )}
                   </div>
                 </motion.div>
@@ -3385,6 +3525,74 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
                   className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-black cursor-pointer disabled:opacity-50"
                 >
                   {isDeleting ? tr('Deleting...', 'हटा रहे हैं...', 'ડિલીટ થાય છે...') : tr('Delete for Me', 'हटाएं', 'ડિલીટ કરો')}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Delete Own Post Confirmation Modal */}
+      <AnimatePresence>
+        {isPostDeleteConfirmOpen && currentIntent?.id && (
+          <div
+            className="fixed inset-x-0 bottom-0 top-[52px] z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs"
+            style={{ position: 'fixed', top: '52px', left: 0, right: 0, bottom: 0, zIndex: 5200 }}
+          >
+            <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 w-full max-w-sm shadow-2xl text-center border border-rose-200 dark:border-rose-800">
+              <div className="w-12 h-12 rounded-2xl bg-rose-100 dark:bg-rose-950/60 text-rose-600 flex items-center justify-center mx-auto mb-3">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <h3 className="text-base font-black text-slate-900 dark:text-white mb-2">
+                {tr('Delete Broadcast Post?', 'मेरी पोस्ट डिलीट करें?', 'પોસ્ટ ડિલીટ કરવી છે?')}
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mb-4 leading-relaxed">
+                {tr(
+                  'This post will be permanently deleted for everyone.',
+                  'यह पोस्ट सभी लोगों के लिए हमेशा के लिए हट जाएगी।',
+                  'આ પોસ્ટ બધા ફોન પરથી કાયમ માટે ડિલીટ થઈ જશે.'
+                )}
+              </p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={isDeletingPost}
+                  onClick={() => setIsPostDeleteConfirmOpen(false)}
+                  className="flex-1 py-2.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold cursor-pointer"
+                >
+                  {tr('Cancel', 'रद्द करें', 'રદ કરો')}
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeletingPost}
+                  onClick={async () => {
+                    if (!currentIntent?.id) return;
+                    setIsDeletingPost(true);
+                    const ok = await deleteIntentOnServer(currentIntent.id, currentIntent.description);
+                    setIsDeletingPost(false);
+                    setIsPostDeleteConfirmOpen(false);
+                    if (ok) {
+                      window.dispatchEvent(
+                        new CustomEvent('locohelp_intents_updated', { detail: { deletedId: currentIntent.id } })
+                      );
+                      setCurrentIntent(null);
+                      onIntentChange?.(null);
+                      if (!openedFromListRef.current || isModal) {
+                        onBack();
+                      }
+                    } else {
+                      setReportStatusBanner(
+                        tr(
+                          'Could not delete post. Please sign in again and retry.',
+                          'पोस्ट डिलीट नहीं हो सकी। कृपया दोबारा लॉगिन करें।',
+                          'પોસ્ટ ડિલીટ ન થઈ શકી. કૃપા કરીને ફરી લોગિન કરીને પ્રયાસ કરો.'
+                        )
+                      );
+                    }
+                  }}
+                  className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-black cursor-pointer disabled:opacity-50"
+                >
+                  {isDeletingPost ? tr('Deleting...', 'हटा रहे हैं...', 'ડિલીટ થાય છે...') : tr('Yes, Delete', 'हाँ, हटाएं', 'હા, ડિલીટ કરો')}
                 </button>
               </div>
             </div>

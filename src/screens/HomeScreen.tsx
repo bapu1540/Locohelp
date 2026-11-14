@@ -892,18 +892,11 @@ export default function HomeScreen({
     if (item.authorId && blockedUserIds.includes(item.authorId)) return false;
 
     const createdAtTime = new Date(item.createdAt || (item as any).created_at || Date.now()).getTime();
-    const lastInteractionTime = (item as any).lastInteractionAt ? new Date((item as any).lastInteractionAt).getTime() : 0;
-    const effectiveTime = Math.max(createdAtTime, lastInteractionTime);
-
-    // Auto-Delete: If 1 hour (60 mins) has elapsed without reply/interaction, filter out
-    if (now - effectiveTime > ONE_HOUR_MS) return false;
+    if (!createdAtTime || isNaN(createdAtTime) || now - createdAtTime >= ONE_HOUR_MS) return false;
     return true;
   }).map((item, index) => {
     const createdAtTime = new Date(item.createdAt || (item as any).created_at || Date.now()).getTime();
-    const lastInteractionTime = (item as any).lastInteractionAt ? new Date((item as any).lastInteractionAt).getTime() : 0;
-    const effectiveTime = Math.max(createdAtTime, lastInteractionTime);
-
-    const msRemaining = Math.max(0, ONE_HOUR_MS - (now - effectiveTime));
+    const msRemaining = Math.max(0, ONE_HOUR_MS - (now - createdAtTime));
     const minsRemaining = Math.max(1, Math.ceil(msRemaining / (60 * 1000)));
 
     const { area: resolvedArea, city: resolvedCity, badge: resolvedLocationBadge } = resolveIntentAreaAndCity(item, index);

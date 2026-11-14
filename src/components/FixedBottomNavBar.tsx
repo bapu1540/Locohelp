@@ -29,6 +29,7 @@ import {
   fetchPostConversations,
   getCachedPostConversations,
   deleteIntentOnServer,
+  isClientDummyOrExpiredPost,
   getLocalUserDeletedChatsMap,
   subscribeToRealtimeStream
 } from '../api';
@@ -77,6 +78,17 @@ export default function FixedBottomNavBar({
   const [isLoadingBookings, setIsLoadingBookings] = useState(false);
   const [favoriteProviders, setFavoriteProviders] = useState<ShowcaseProviderItem[]>([]);
   const [activeLocation, setActiveLocation] = useState<UserManualLocation>(() => getSavedUserLocation());
+  const [postToDeleteConfirm, setPostToDeleteConfirm] = useState<Intent | null>(null);
+  const [isDeletingPost, setIsDeletingPost] = useState(false);
+  const [deleteToast, setDeleteToast] = useState<{ text: string; isError?: boolean } | null>(null);
+  const [expiryTick, setExpiryTick] = useState(0);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setExpiryTick((t) => t + 1);
+    }, 15000);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     const syncLoc = (e?: any) => {
@@ -367,12 +379,48 @@ export default function FixedBottomNavBar({
     };
   }, [activeBottomModal]);
 
+  const showPostToast = (text: string, isError = false) => {
+    setDeleteToast({ text, isError });
+    setTimeout(() => setDeleteToast(null), 3500);
+  };
+
+  const executeServerDeletePost = async (post: Intent) => {
+    setIsDeletingPost(true);
+    const ok = await deleteIntentOnServer(post.id, post.description);
+    setIsDeletingPost(false);
+    if (ok) {
+      setMyBookingsList((prev) => prev.filter((item) => item.id !== post.id));
+      setAllLivePostsList((prev) => prev.filter((item) => item.id !== post.id));
+      setPostToDeleteConfirm(null);
+      window.dispatchEvent(new CustomEvent('locohelp_intents_updated', { detail: { deletedId: post.id } }));
+      showPostToast(
+        language === 'GU'
+          ? '🗑️ પોસ્ટ સફળતાપૂર્વક ડિલીટ થઈ ગઈ!'
+          : language === 'HI'
+          ? '🗑️ पोस्ट सफलतापूर्वक डिलीट हो गई!'
+          : '🗑️ Post deleted successfully!'
+      );
+    } else {
+      setPostToDeleteConfirm(null);
+      showPostToast(
+        language === 'GU'
+          ? '⚠️ પોસ્ટ ડિલીટ ન થઈ શકી. કૃપા કરીને ફરી લોગિન કરીને પ્રયાસ કરો.'
+          : language === 'HI'
+          ? '⚠️ पोस्ट डिलीट नहीं हो सकी। कृपया दोबारा लॉगिन करके प्रयास करें।'
+          : '⚠️ Could not delete post. Please sign in again and retry.',
+        true
+      );
+    }
+  };
+
+  const handleOpenDeletePostConfirm = (e: React.MouseEvent, post: Intent) => {
+    e.stopPropagation();
+    setPostToDeleteConfirm(post);
+  };
+
   const handleCompleteOrDeleteMyBooking = async (e: React.MouseEvent, post: Intent) => {
     e.stopPropagation();
-    setMyBookingsList((prev) => prev.filter((item) => item.id !== post.id));
-    setAllLivePostsList((prev) => prev.filter((item) => item.id !== post.id));
-    await deleteIntentOnServer(post.id, post.description);
-    window.dispatchEvent(new CustomEvent('locohelp_intents_updated', { detail: { deletedId: post.id } }));
+    await executeServerDeletePost(post);
   };
 
   useEffect(() => {
@@ -547,8 +595,18 @@ export default function FixedBottomNavBar({
   };
 
   const activeVisiblePosts = allLivePostsList.filter((post: any) => {
+    void expiryTick;
     if (!post || !post.id) return false;
     if (post.is_flagged || post.hidden || post.is_deleted) return false;
+    if (isClientDummyOrExpiredPost(post)) return false;
+    return true;
+  });
+
+  const activeMyBookingsList = myBookingsList.filter((post: any) => {
+    void expiryTick;
+    if (!post || !post.id) return false;
+    if (post.is_flagged || post.hidden || post.is_deleted) return false;
+    if (isClientDummyOrExpiredPost(post)) return false;
     return true;
   });
 
@@ -957,14 +1015,25 @@ export default function FixedBottomNavBar({
                           </p>
                           <div className="flex items-center gap-1.5 shrink-0">
                             {isMine && (
-                              <button
-                                type="button"
-                                onClick={(e) => handleCompleteOrDeleteMyBooking(e, post)}
-                                className="px-2.5 py-1.5 rounded-xl bg-emerald-100 hover:bg-emerald-200 text-emerald-800 text-[11px] font-black flex items-center gap-1 cursor-pointer"
-                              >
-                                <span>✅</span>
-                                <span>{language === 'GU' ? 'પૂર્ણ થયું' : 'Done'}</span>
-                              </button>
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleOpenDeletePostConfirm(e, post)}
+                                  className="px-2.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[11px] font-black flex items-center gap-1 cursor-pointer"
+                                  title={language === 'GU' ? 'પોસ્ટ ડિલીટ કરો' : language === 'HI' ? 'पोस्ट डिलीट करें' : 'Delete Post'}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span>{language === 'GU' ? 'ડિલીટ' : language === 'HI' ? 'डिलीट' : 'Delete'}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleCompleteOrDeleteMyBooking(e, post)}
+                                  className="px-2.5 py-1.5 rounded-xl bg-emerald-100 hover:bg-emerald-200 text-emerald-800 text-[11px] font-black flex items-center gap-1 cursor-pointer"
+                                >
+                                  <span>✅</span>
+                                  <span>{language === 'GU' ? 'પૂર્ણ થયું' : 'Done'}</span>
+                                </button>
+                              </>
                             )}
                             <button
                               type="button"
@@ -1086,7 +1155,7 @@ export default function FixedBottomNavBar({
                 >
                   <span>📋</span>
                   <span className="truncate">
-                    {language === 'GU' ? 'મારી પોસ્ટ' : language === 'HI' ? 'मेरी पोस्ट' : 'My Posts'} ({myBookingsList.length})
+                    {language === 'GU' ? 'મારી પોસ્ટ' : language === 'HI' ? 'मेरी पोस्ट' : 'My Posts'} ({activeMyBookingsList.length})
                   </span>
                 </button>
                 <button
@@ -1125,7 +1194,7 @@ export default function FixedBottomNavBar({
                     ⏳ {language === 'GU' ? 'લોડ થઈ રહ્યું છે...' : 'Loading...'}
                   </div>
                 ) : bookingsSubTab === 'requests' ? (
-                  myBookingsList.length === 0 ? (
+                  activeMyBookingsList.length === 0 ? (
                     <div className="py-8 px-4 text-center space-y-3 bg-slate-50 rounded-2xl border border-dashed border-slate-300">
                       <div className="w-12 h-12 rounded-2xl bg-blue-100 text-blue-600 mx-auto flex items-center justify-center text-2xl">
                         📅
@@ -1182,7 +1251,7 @@ export default function FixedBottomNavBar({
                     </div>
                   ) : (
                     <div className="space-y-2.5">
-                      {myBookingsList.map((post: any) => {
+                      {activeMyBookingsList.map((post: any) => {
                         const postRepliersList = Array.isArray(post.repliers) && post.repliers.length > 0
                           ? post.repliers
                           : Array.isArray(post.responses) && post.responses.length > 0
@@ -1267,6 +1336,15 @@ export default function FixedBottomNavBar({
                                 <span className="truncate">{formatPostLocationDisplay(post)}</span>
                               </p>
                               <div className="flex items-center gap-1.5 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleOpenDeletePostConfirm(e, post)}
+                                  className="px-2.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[11px] font-black flex items-center gap-1 cursor-pointer"
+                                  title={language === 'GU' ? 'પોસ્ટ ડિલીટ કરો' : language === 'HI' ? 'पोस्ट डिलीट करें' : 'Delete Post'}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span>{language === 'GU' ? 'ડિલીટ' : language === 'HI' ? 'डिलीट' : 'Delete'}</span>
+                                </button>
                                 <button
                                   type="button"
                                   onClick={(e) => handleCompleteOrDeleteMyBooking(e, post)}
@@ -1820,6 +1898,103 @@ export default function FixedBottomNavBar({
               )}
             </motion.div>
           </>
+        )}
+      </AnimatePresence>
+
+      {/* Delete Post Confirmation Modal */}
+      <AnimatePresence>
+        {postToDeleteConfirm && (
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 9900,
+              backgroundColor: 'rgba(15, 23, 42, 0.72)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '16px'
+            }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.94 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.94 }}
+              className="w-full max-w-sm bg-white rounded-3xl p-5 shadow-2xl border border-rose-200 flex flex-col gap-4 text-center"
+            >
+              <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 mx-auto flex items-center justify-center">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-slate-900">
+                  {language === 'GU'
+                    ? 'પોસ્ટ ડિલીટ કરવી છે?'
+                    : language === 'HI'
+                    ? 'पोस्ट डिलीट करें?'
+                    : 'Delete Post?'}
+                </h3>
+                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  {language === 'GU'
+                    ? 'આ પોસ્ટ બધા ફોન પરથી કાયમ માટે ડિલીટ થઈ જશે.'
+                    : language === 'HI'
+                    ? 'यह पोस्ट सभी फ़ोन से हमेशा के लिए हट जाएगी।'
+                    : 'This post will be permanently deleted for everyone.'}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={isDeletingPost}
+                  onClick={() => setPostToDeleteConfirm(null)}
+                  className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs hover:bg-slate-100 cursor-pointer"
+                >
+                  {language === 'GU' ? 'રદ કરો' : language === 'HI' ? 'रद्द करें' : 'Cancel'}
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeletingPost}
+                  onClick={() => executeServerDeletePost(postToDeleteConfirm)}
+                  style={{ backgroundColor: '#E11D48', color: '#ffffff' }}
+                  className="flex-1 py-2.5 rounded-xl font-black text-xs shadow-md cursor-pointer disabled:opacity-60"
+                >
+                  {isDeletingPost
+                    ? language === 'GU'
+                      ? 'ડિલીટ થાય છે...'
+                      : 'Deleting...'
+                    : language === 'GU'
+                    ? 'હા, ડિલીટ કરો'
+                    : language === 'HI'
+                    ? 'हाँ, डिलीट करें'
+                    : 'Yes, Delete'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Delete Status Toast */}
+      <AnimatePresence>
+        {deleteToast && (
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 16 }}
+            style={{
+              position: 'fixed',
+              bottom: '76px',
+              left: '16px',
+              right: '16px',
+              zIndex: 9950,
+              maxWidth: '420px',
+              margin: '0 auto',
+              backgroundColor: deleteToast.isError ? '#E11D48' : '#059669',
+              color: '#ffffff'
+            }}
+            className="px-4 py-2.5 rounded-2xl shadow-xl text-xs font-black text-center"
+          >
+            {deleteToast.text}
+          </motion.div>
         )}
       </AnimatePresence>
 

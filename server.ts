@@ -1736,27 +1736,116 @@ function requireAdmin(req: express.Request, res: express.Response, next: express
   next();
 }
 
+function normalizeTopLevelUUID(str: string): string {
+  if (!str) return "00000000-0000-4000-a000-000000000000";
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (uuidRegex.test(str)) return str.toLowerCase();
+  let h1 = 0xdeadbeef,
+    h2 = 0x41c6ce57;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  const hex1 = (h1 >>> 0).toString(16).padStart(8, "0");
+  const hex2 = (h2 >>> 0).toString(16).padStart(8, "0");
+  const hex3 = (Math.imul(h1, 31) >>> 0).toString(16).padStart(8, "0");
+  const hex4 = (Math.imul(h2, 127) >>> 0).toString(16).padStart(8, "0");
+  const full = (hex1 + hex2 + hex3 + hex4).slice(0, 32);
+  return `${full.slice(0, 8)}-${full.slice(8, 12)}-4${full.slice(13, 16)}-a${full.slice(17, 20)}-${full.slice(20, 32)}`.toLowerCase();
+}
+
 function isSameUserOrAdmin(
   req: express.Request,
   targetUid?: string,
-  targetEmail?: string
+  targetEmail?: string,
+  targetPhone?: string
 ): boolean {
   if (isRequestAdmin(req)) return true;
   const caller = (req as any).user || extractRequestUser(req);
   if (!caller) return false;
   const callerUid = String(caller.uid || "").trim().toLowerCase();
-  const callerEmail = String(caller.email || "").trim().toLowerCase();
+  const callerEmail = String(caller.email || req.headers["x-user-email"] || "").trim().toLowerCase();
+  const callerPhoneRaw = String(caller.phone || req.headers["x-user-phone"] || "").trim();
+  const headerUid = String(req.headers["x-user-id"] || "").trim().toLowerCase();
   const tUid = String(targetUid || "").trim().toLowerCase();
   const tEmail = String(targetEmail || "").trim().toLowerCase();
+  const tPhoneRaw = String(targetPhone || "").trim();
 
-  if (callerUid && tUid && (callerUid === tUid || callerUid === `email_${tEmail.replace(/[^a-z0-9]/g, "_")}`)) {
+  const extractTenDigits = (val: string): string => {
+    if (!val) return "";
+    const low = val.trim().toLowerCase();
+    let d = "";
+    if (low.startsWith("phone_")) {
+      d = low.replace(/\D/g, "");
+    } else if (low.endsWith("@phone.locohelp.com")) {
+      d = low.split("@")[0].replace(/\D/g, "");
+    } else if (!low.includes("@")) {
+      d = low.replace(/\D/g, "");
+    }
+    return d.length >= 10 ? d.slice(-10) : "";
+  };
+
+  const callerUids = new Set<string>();
+  const addCallerCandidate = (v: string) => {
+    if (!v) return;
+    const c = v.trim().toLowerCase();
+    if (!c || c === "guest" || c === "guest_user") return;
+    callerUids.add(c);
+    callerUids.add(normalizeTopLevelUUID(c));
+  };
+  addCallerCandidate(callerUid);
+  addCallerCandidate(headerUid);
+  if (callerEmail) {
+    addCallerCandidate(callerEmail);
+    addCallerCandidate(`email_${callerEmail.replace(/[^a-z0-9]/g, "_")}`);
+  }
+  const callerPhoneTen =
+    extractTenDigits(callerPhoneRaw) ||
+    extractTenDigits(callerUid) ||
+    extractTenDigits(headerUid) ||
+    extractTenDigits(callerEmail);
+  if (callerPhoneTen) {
+    addCallerCandidate(`phone_${callerPhoneTen}`);
+    addCallerCandidate(`${callerPhoneTen}@phone.locohelp.com`);
+    addCallerCandidate(`email_${callerPhoneTen}_phone_locohelp_com`);
+  }
+
+  const targetUids = new Set<string>();
+  const addTargetCandidate = (v: string) => {
+    if (!v) return;
+    const c = v.trim().toLowerCase();
+    if (!c || c === "guest" || c === "guest_user") return;
+    targetUids.add(c);
+    targetUids.add(normalizeTopLevelUUID(c));
+  };
+  addTargetCandidate(tUid);
+  if (tEmail) {
+    addTargetCandidate(tEmail);
+    addTargetCandidate(`email_${tEmail.replace(/[^a-z0-9]/g, "_")}`);
+  }
+  const targetPhoneTen =
+    extractTenDigits(tPhoneRaw) ||
+    extractTenDigits(tUid) ||
+    extractTenDigits(tEmail);
+  if (targetPhoneTen) {
+    addTargetCandidate(`phone_${targetPhoneTen}`);
+    addTargetCandidate(`${targetPhoneTen}@phone.locohelp.com`);
+    addTargetCandidate(`email_${targetPhoneTen}_phone_locohelp_com`);
+  }
+
+  if (callerPhoneTen && targetPhoneTen && callerPhoneTen === targetPhoneTen) {
     return true;
   }
   if (callerEmail && tEmail && callerEmail === tEmail) {
     return true;
   }
-  if (callerEmail && tUid && (`email_${callerEmail.replace(/[^a-z0-9]/g, "_")}` === tUid || callerEmail === tUid)) {
-    return true;
+  for (const cu of callerUids) {
+    if (targetUids.has(cu)) {
+      return true;
+    }
   }
   return false;
 }
@@ -8277,28 +8366,23 @@ async function startServer() {
 
       const combined = Array.from(mergedMap.values())
         .filter(item => {
-          if (isAdmin) return true;
           if (item.status === 'rejected' || item.status === 'flagged' || item.is_flagged === true || item.hidden === true || item.is_deleted === true) {
             return false;
           }
           if (isDummyPostRecord(item.id, item.description || item.title, item.authorName)) {
             return false;
           }
-          if (includeExpired) return true;
-          const postResps = responsesListByIntent.get(item.id) || [];
-          const latestReplyMs = postResps.reduce((max: number, r: any) => {
-            const t = new Date(r?.createdAt || 0).getTime();
-            return !isNaN(t) && t > max ? t : max;
-          }, 0);
+          // Only explicit ?all=true from an authorized Admin bypasses the 1-hour expiry
+          if (includeExpired && isAdmin) return true;
+          const createdMs = new Date(item.createdAt || item.created_at || 0).getTime();
+          if (!createdMs || isNaN(createdMs) || nowMs - createdMs >= ONE_HOUR_MS) {
+            return false;
+          }
           if (item.expiresAt) {
             const expMs = new Date(item.expiresAt).getTime();
-            const effectiveExpMs = Math.max(isNaN(expMs) ? 0 : expMs, latestReplyMs ? latestReplyMs + ONE_HOUR_MS : 0);
-            if (effectiveExpMs > 0 && nowMs > effectiveExpMs) return false;
-          }
-          const createdMs = new Date(item.createdAt || item.created_at || 0).getTime();
-          const lastActiveMs = Math.max(isNaN(createdMs) ? 0 : createdMs, latestReplyMs);
-          if (!lastActiveMs || nowMs - lastActiveMs > ONE_HOUR_MS) {
-            return false;
+            if (!isNaN(expMs) && expMs > 0 && nowMs >= expMs) {
+              return false;
+            }
           }
           return true;
         })
@@ -8740,7 +8824,42 @@ async function startServer() {
       const intents = readJsonFile<any[]>(INTENTS_FILE, []);
       const existingPost = intents.find(i => i.id === id);
 
-      if (existingPost && !isSameUserOrAdmin(req, existingPost.authorId, existingPost.authorEmail)) {
+      let dbRow: any = null;
+      let dbRawObj: any = {};
+      if (dbPool && isDbConnected) {
+        const postRows = await dbPool.query("SELECT * FROM posts WHERE id = $1", [id]).catch(() => ({ rows: [] as any[] }));
+        if (postRows.rows.length > 0) {
+          dbRow = postRows.rows[0];
+          dbRawObj = typeof dbRow.raw_json === "object" && dbRow.raw_json ? dbRow.raw_json : {};
+        } else {
+          const bpRows = await dbPool.query("SELECT * FROM broadcast_posts WHERE id = $1", [id]).catch(() => ({ rows: [] as any[] }));
+          if (bpRows.rows.length > 0) {
+            dbRow = bpRows.rows[0];
+          }
+        }
+      }
+
+      const ownerTargetUid =
+        existingPost?.authorId ||
+        existingPost?.userId ||
+        dbRawObj?.authorId ||
+        dbRow?.user_id ||
+        dbRow?.author_id ||
+        "";
+      const ownerTargetEmail =
+        existingPost?.authorEmail ||
+        existingPost?.email ||
+        dbRawObj?.authorEmail ||
+        dbRow?.author_email ||
+        "";
+      const ownerTargetPhone =
+        existingPost?.authorPhone ||
+        existingPost?.phone ||
+        dbRawObj?.authorPhone ||
+        dbRow?.author_phone ||
+        "";
+
+      if ((existingPost || dbRow) && !isSameUserOrAdmin(req, ownerTargetUid, ownerTargetEmail, ownerTargetPhone)) {
         return res.status(403).json({
           error: "Forbidden: You can only edit or delete your own posts."
         });
@@ -8761,22 +8880,19 @@ async function startServer() {
       // Preserve Firebase Storage photos in Security Vault as permanent forensic evidence (do not call deleteFilesFromFirebaseStorage)
       if (dbPool && isDbConnected) {
         try {
-          const postRows = await dbPool.query("SELECT * FROM posts WHERE id = $1", [id]).catch(() => ({ rows: [] as any[] }));
-          if (!existingPost && postRows.rows.length > 0) {
-            const dbRow = postRows.rows[0];
-            const rawObj = typeof dbRow.raw_json === "object" && dbRow.raw_json ? dbRow.raw_json : {};
+          if (!existingPost && dbRow) {
             await archiveToSecurityVault(
               "help_post",
               id,
               {
-                ...rawObj,
+                ...dbRawObj,
                 id,
-                userId: dbRow.user_id || rawObj.authorId || rawObj.userId,
-                authorName: dbRow.author_name || rawObj.authorName,
-                description: dbRow.content || rawObj.description,
-                photoUrl: dbRow.image_url || rawObj.photoUrl,
-                category: dbRow.category || rawObj.category,
-                area: dbRow.city || rawObj.location
+                userId: dbRow.user_id || dbRow.author_id || dbRawObj.authorId || dbRawObj.userId,
+                authorName: dbRow.author_name || dbRawObj.authorName,
+                description: dbRow.content || dbRow.description || dbRawObj.description,
+                photoUrl: dbRow.image_url || dbRawObj.photoUrl,
+                category: dbRow.category || dbRawObj.category,
+                area: dbRow.city || dbRawObj.location
               },
               isAdminDel ? "ADMIN_REMOVED_PUBLIC" : "DELETED_BY_USER",
               req
@@ -8821,6 +8937,93 @@ async function startServer() {
   app.delete("/api/intents/:id", requireAuth, deleteListingHandler);
   app.delete("/api/listings/:id", requireAuth, deleteListingHandler);
   app.delete("/api/broadcast-posts/:id", requireAuth, deleteListingHandler);
+
+  // Automatic 1-Hour Post Expiry Cleanup (Fixed 1 hour strictly from creation time)
+  const cleanupExpiredBroadcastPosts = async () => {
+    try {
+      const ONE_HOUR_MS = 60 * 60 * 1000;
+      const nowMs = Date.now();
+      const expiredIds = new Set<string>();
+
+      // 1. Clean expired posts in local INTENTS_FILE
+      const localIntents = readJsonFile<any[]>(INTENTS_FILE, []);
+      const remainingLocal: any[] = [];
+      for (const item of localIntents) {
+        if (!item || !item.id) continue;
+        const createdMs = new Date(item.createdAt || item.created_at || 0).getTime();
+        const expMs = item.expiresAt ? new Date(item.expiresAt).getTime() : 0;
+        const isExpired =
+          !createdMs ||
+          isNaN(createdMs) ||
+          nowMs - createdMs >= ONE_HOUR_MS ||
+          (!isNaN(expMs) && expMs > 0 && nowMs >= expMs);
+        if (isExpired) {
+          expiredIds.add(String(item.id));
+        } else {
+          remainingLocal.push(item);
+        }
+      }
+      if (remainingLocal.length !== localIntents.length) {
+        writeJsonFile(INTENTS_FILE, remainingLocal);
+      }
+
+      // 2. Clean expired posts in PostgreSQL tables (posts, listings, broadcast_posts)
+      if (dbPool && isDbConnected) {
+        const [expiredPostsRes, expiredBpRes, expiredListRes] = await Promise.all([
+          dbPool
+            .query(`DELETE FROM posts WHERE created_at <= NOW() - INTERVAL '1 hour' RETURNING id`)
+            .catch(() => ({ rows: [] as any[] })),
+          dbPool
+            .query(
+              `DELETE FROM broadcast_posts WHERE created_at <= NOW() - INTERVAL '1 hour' OR (expires_at IS NOT NULL AND expires_at <= NOW()) RETURNING id`
+            )
+            .catch(() => ({ rows: [] as any[] })),
+          dbPool
+            .query(`DELETE FROM listings WHERE created_at <= NOW() - INTERVAL '1 hour' RETURNING id`)
+            .catch(() => ({ rows: [] as any[] }))
+        ]);
+
+        for (const r of [
+          ...(expiredPostsRes.rows || []),
+          ...(expiredBpRes.rows || []),
+          ...(expiredListRes.rows || [])
+        ]) {
+          if (r?.id) expiredIds.add(String(r.id));
+        }
+      }
+
+      if (expiredIds.size > 0) {
+        const deletedIds = readJsonFile<string[]>(DELETED_INTENTS_FILE, []);
+        let added = false;
+        for (const expId of expiredIds) {
+          deletedEntitiesMemorySet.add(expId);
+          if (!deletedIds.includes(expId)) {
+            deletedIds.push(expId);
+            added = true;
+          }
+          broadcastRealtimeEvent("post_deleted", {
+            postId: expId,
+            id: expId,
+            reason: "expired_1h"
+          });
+        }
+        if (added) {
+          writeJsonFile(DELETED_INTENTS_FILE, deletedIds.slice(-500));
+        }
+        invalidatePublicCache();
+        console.log(`[Auto-Expiry 1h] Cleaned ${expiredIds.size} expired post(s).`);
+      }
+    } catch (err: any) {
+      console.warn("[Auto-Expiry 1h] Cleanup note:", err?.message || err);
+    }
+  };
+
+  setTimeout(() => {
+    void cleanupExpiredBroadcastPosts();
+  }, 8000);
+  setInterval(() => {
+    void cleanupExpiredBroadcastPosts();
+  }, 60 * 1000);
 
   // ==========================================
   // CHATS API (Table: chats - id, sender_id, receiver_id, message, sent_at)
@@ -9471,8 +9674,10 @@ async function startServer() {
         parsedFromQuery?.helperId ||
         parsedFromParam?.helperId ||
         (queryHelperId && !posterIdentities.has(queryHelperId.toLowerCase()) ? queryHelperId : "") ||
-        (!isCallerPostOwner && userId && userId !== "guest_user" ? userId : "");
-      let helperEmail = "";
+        (!isCallerPostOwner && ((userId && userId !== "guest_user") || userEmail)
+          ? (userId && userId !== "guest_user" ? userId : `email_${userEmail.replace(/[^a-z0-9]/g, "_")}`)
+          : "");
+      let helperEmail = !isCallerPostOwner && userEmail ? userEmail : "";
 
       // If conversationId was passed directly in DB, look up conversations row for authoritative postId, posterId, helperId
       let activeConvId =
@@ -9548,7 +9753,11 @@ async function startServer() {
         try {
           let result;
           if (activeConvId && postId && helperId) {
-            const helperIdVariants = Array.from(buildServerIdentitySet(helperId, helperEmail));
+            const helperIdentityExpanded = await expandIdentitySetFromDb(buildServerIdentitySet(helperId, helperEmail));
+            if (!isCallerPostOwner) {
+              callerIdentities.forEach((id) => helperIdentityExpanded.add(id));
+            }
+            const helperIdVariants = Array.from(helperIdentityExpanded);
             if (helperIdVariants.length === 0) helperIdVariants.push(helperId.toLowerCase());
             const convIdVariants = Array.from(
               new Set([
@@ -9572,8 +9781,9 @@ async function startServer() {
             );
           }
 
-          // Fallback: if 1-on-1 filter returned 0 rows for this postId (e.g., ID format mismatch or viewing post replies), load all messages for postId
-          if ((!result || result.rows.length === 0) && (postId || activeConvId)) {
+          // Fallback: ONLY for Post Owner (or un-scoped legacy read), load all messages for postId if 1-on-1 filter had 0 rows;
+          // Non-owners stay strictly isolated to their own 1-on-1 messages.
+          if ((!result || result.rows.length === 0) && (postId || activeConvId) && (isCallerPostOwner || callerIdentities.size === 0)) {
             const targetId = postId || activeConvId;
             const convPrefix = `conv_${targetId.toLowerCase()}__%`;
             result = await dbPool.query(
@@ -9646,11 +9856,25 @@ async function startServer() {
             const respRes = await dbPool
               .query(`SELECT * FROM responses WHERE post_id = $1 ORDER BY created_at ASC`, [postId])
               .catch(() => ({ rows: [] as any[] }));
+            const allowedNonOwnerSet = !isCallerPostOwner && callerIdentities.size > 0
+              ? new Set<string>([
+                  ...Array.from(callerIdentities),
+                  ...(helperId ? Array.from(buildServerIdentitySet(helperId, helperEmail)) : [])
+                ])
+              : null;
             respRes.rows.forEach((r: any) => {
               if (!r || !r.id || mergedMap.has(r.id)) return;
               const sId = String(r.sender_id || "").trim();
               const sName = String(r.sender_name || "").trim() || "Community Peer";
               const sEmail = String(r.sender_email || "").trim().toLowerCase();
+              const rId = String(r.receiver_id || "").trim();
+              if (allowedNonOwnerSet) {
+                const matchesCaller =
+                  allowedNonOwnerSet.has(sId.toLowerCase()) ||
+                  (sEmail && allowedNonOwnerSet.has(sEmail)) ||
+                  allowedNonOwnerSet.has(rId.toLowerCase());
+                if (!matchesCaller) return;
+              }
               const sAvatar = String(r.sender_avatar || "").trim();
               const msgText = String(r.message || "").trim();
               if (!msgText && !r.attachment_url) return;
@@ -9830,7 +10054,7 @@ async function startServer() {
             const matchesConv =
               (activeConvId && mConv.toLowerCase() === activeConvId.toLowerCase()) ||
               (helperLower && (sId.toLowerCase() === helperLower || rId.toLowerCase() === helperLower)) ||
-              (postLower && (mPost.toLowerCase() === postLower || cKey.toLowerCase().includes(postLower)));
+              ((isCallerPostOwner || callerIdentities.size === 0) && postLower && (mPost.toLowerCase() === postLower || cKey.toLowerCase().includes(postLower)));
             if (!matchesConv) return;
 
             const isSentByViewer =
@@ -9943,6 +10167,11 @@ async function startServer() {
           .filter(Boolean)
       );
       const viewerIdentityArray = Array.from(viewerIdentitySet);
+      const isCallerPostOwner = Boolean(
+        postId &&
+        viewerIdentitySet.size > 0 &&
+        Array.from(viewerIdentitySet).some((id) => ownerIds.has(id) || ownerEmails.has(id))
+      );
 
       // Normalized key helper so conversations table and messages table rows for the same (postId, helperId) ALWAYS merge into one thread
       const getThreadKey = (pId: string, hId: string) => `${String(pId || "general").trim().toLowerCase()}__${ensureServerValidUUID(String(hId || "").trim().toLowerCase())}`;
@@ -10551,6 +10780,10 @@ async function startServer() {
       const list = Array.from(conversationsMap.values())
         .filter((c) => {
           if (!c) return false;
+          // For a specific postId, non-owners only see their own 1-on-1 conversation (never other helpers' replies)
+          if (postId && viewerIdentitySet.size > 0 && !isCallerPostOwner && !c.isViewerHelper && !c.isViewerPoster) {
+            return false;
+          }
           if (viewerDeleteState.deletedConvs.size > 0) {
             const cIdLower = String(c.id || c.conversationId || "").trim().toLowerCase();
             const pIdLower = String(c.postId || c.post_id || "").trim().toLowerCase();
@@ -11429,14 +11662,7 @@ async function startServer() {
       if (postId && postId !== "general") {
         try {
           if (dbPool && isDbConnected) {
-            void Promise.all([
-              dbPool
-                .query(`UPDATE broadcast_posts SET expires_at = NOW() + INTERVAL '1 hour' WHERE id = $1`, [postId])
-                .catch(() => {}),
-              dbPool
-                .query(`UPDATE posts SET expires_at = NOW() + INTERVAL '1 hour' WHERE id = $1`, [postId])
-                .catch(() => {})
-            ]);
+            // Do not extend 1-hour post auto-expiry on chat replies (fixed 1h from post creation time)
 
             const [convRowsRes, msgRowsRes] = await Promise.all([
               dbPool
@@ -11463,6 +11689,7 @@ async function startServer() {
               const hId = String(c.helper_id || "").trim();
               const hEmail = String(c.helper_email || "").trim().toLowerCase();
               if (!hId || hId.toLowerCase() === "system") return;
+              if (posterIdentities.has(hId.toLowerCase()) || (hEmail && posterIdentities.has(hEmail))) return;
               const normH = hEmail
                 ? "email_" + hEmail.replace(/[^a-z0-9]/g, "_")
                 : hId.includes("@")
@@ -11499,6 +11726,7 @@ async function startServer() {
               const sEmail = String(m.sender_email || "").trim().toLowerCase();
               const mText = String(m.text || m.content || "").trim();
               if (!sId || sId.toLowerCase() === "system" || !mText) return;
+              if (posterIdentities.has(sId.toLowerCase()) || (sEmail && posterIdentities.has(sEmail))) return;
               const normS = sEmail
                 ? "email_" + sEmail.replace(/[^a-z0-9]/g, "_")
                 : sId.includes("@")

@@ -262,40 +262,17 @@ export const isClientDummyOrExpiredPost = (item: any): boolean => {
   if (!descStr) return true;
 
   const nowMs = Date.now();
-  let latestReplyMs = 0;
-  try {
-    const lastIntMs = item.lastInteractionAt ? new Date(item.lastInteractionAt).getTime() : 0;
-    if (!isNaN(lastIntMs) && lastIntMs > latestReplyMs) latestReplyMs = lastIntMs;
-    if (Array.isArray(item.responses)) {
-      for (const r of item.responses) {
-        const t = new Date(r?.createdAt || r?.created_at || 0).getTime();
-        if (!isNaN(t) && t > latestReplyMs) latestReplyMs = t;
-      }
-    }
-    if (Array.isArray(item.repliers)) {
-      for (const rep of item.repliers) {
-        const t = new Date(rep?.lastMessageAt || rep?.updatedAt || 0).getTime();
-        if (!isNaN(t) && t > latestReplyMs) latestReplyMs = t;
-      }
-    }
-  } catch {}
-
-  if (item.expiresAt) {
-    const expMs = new Date(item.expiresAt).getTime();
-    const effectiveExpMs = Math.max(
-      isNaN(expMs) ? 0 : expMs,
-      latestReplyMs ? latestReplyMs + ONE_HOUR_POST_EXPIRY_MS : 0
-    );
-    if (effectiveExpMs > 0 && nowMs > effectiveExpMs) {
-      return true;
-    }
-  }
   const createdRaw = item.createdAt || item.created_at;
   if (!createdRaw) return true;
   const createdMs = new Date(createdRaw).getTime();
-  const lastActiveMs = Math.max(isNaN(createdMs) ? 0 : createdMs, latestReplyMs);
-  if (!lastActiveMs || nowMs - lastActiveMs > ONE_HOUR_POST_EXPIRY_MS) {
+  if (!createdMs || isNaN(createdMs) || nowMs - createdMs >= ONE_HOUR_POST_EXPIRY_MS) {
     return true;
+  }
+  if (item.expiresAt) {
+    const expMs = new Date(item.expiresAt).getTime();
+    if (!isNaN(expMs) && expMs > 0 && nowMs >= expMs) {
+      return true;
+    }
   }
   return false;
 };
@@ -459,25 +436,6 @@ export async function broadcastIntentToServer(intent: Intent): Promise<Intent> {
  */
 export async function deleteIntentOnServer(id: string, description?: string): Promise<boolean> {
   try {
-    const delRaw = localStorage.getItem('locohelp_deleted_posts');
-    const deletedIds: string[] = delRaw ? JSON.parse(delRaw) : [];
-    if (!deletedIds.includes(id)) {
-      deletedIds.push(id);
-      localStorage.setItem('locohelp_deleted_posts', JSON.stringify(deletedIds));
-    }
-    ['locohelp_cached_intents', 'locohelp_custom_intents'].forEach(key => {
-      const raw = localStorage.getItem(key);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          localStorage.setItem(key, JSON.stringify(parsed.filter((i: any) => i && i.id !== id)));
-        }
-      }
-    });
-    window.dispatchEvent(new CustomEvent('locohelp_intents_updated', { detail: { deletedId: id } }));
-  } catch {}
-
-  try {
     const cleanDesc = description ? sanitizeText(description) : undefined;
     const url = `/api/intents/${encodeURIComponent(id)}?_t=${Date.now()}${cleanDesc ? `&desc=${encodeURIComponent(cleanDesc)}` : ''}`;
     const res = await fetch(url, { 
@@ -489,7 +447,29 @@ export async function deleteIntentOnServer(id: string, description?: string): Pr
       },
       body: JSON.stringify({ description: cleanDesc })
     });
-    return res.ok;
+
+    if (res.ok) {
+      try {
+        const delRaw = localStorage.getItem('locohelp_deleted_posts');
+        const deletedIds: string[] = delRaw ? JSON.parse(delRaw) : [];
+        if (!deletedIds.includes(id)) {
+          deletedIds.push(id);
+          localStorage.setItem('locohelp_deleted_posts', JSON.stringify(deletedIds));
+        }
+        ['locohelp_cached_intents', 'locohelp_custom_intents'].forEach(key => {
+          const raw = localStorage.getItem(key);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+              localStorage.setItem(key, JSON.stringify(parsed.filter((i: any) => i && i.id !== id)));
+            }
+          }
+        });
+        window.dispatchEvent(new CustomEvent('locohelp_intents_updated', { detail: { deletedId: id } }));
+      } catch {}
+      return true;
+    }
+    return false;
   } catch (e) {
     return false;
   }
@@ -927,21 +907,27 @@ export async function sendChatMessage(
           })
         );
       } catch {}
-      return saved;
+      return { ...saved, serverConfirmed: true };
     } else {
       const errJson = await res.json().catch(() => ({}));
       return {
         ...payload,
         error: errJson?.error || 'Failed to send message',
-        code: errJson?.code || (res.status === 403 ? 'ACCOUNT_PENDING_APPROVAL' : 'SEND_FAILED'),
-        httpStatus: res.status
+        code: errJson?.code || (res.status === 403 ? 'ACCOUNT_PENDING_APPROVAL' : res.status === 401 ? 'LOGIN_REQUIRED' : 'SEND_FAILED'),
+        httpStatus: res.status,
+        sendFailed: true
       } as any;
     }
-  } catch (err) {
+  } catch (err: any) {
     console.warn("Failed to send 1-on-1 chat message to server:", err);
+    return {
+      ...payload,
+      error: err?.message || 'Network error while sending message',
+      code: 'NETWORK_ERROR',
+      httpStatus: 0,
+      sendFailed: true
+    } as any;
   }
-
-  return payload as ChatMessage;
 }
 
 export const respondToPostOnServer = sendChatMessage;

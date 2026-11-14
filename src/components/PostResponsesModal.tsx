@@ -209,7 +209,7 @@ export default function PostResponsesModal({
             { cache: 'no-store', headers }
           ).catch(() => null),
           fetch(
-            `/api/chat/messages?postId=${encodeURIComponent(intent.id)}&userId=${encodeURIComponent(ownerId)}&_t=${Date.now()}`,
+            `/api/chat/messages?postId=${encodeURIComponent(intent.id)}&userId=${encodeURIComponent(ownerId)}&userEmail=${encodeURIComponent(ownerEmail)}&_t=${Date.now()}`,
             { cache: 'no-store', headers }
           ).catch(() => null)
         ]);
@@ -287,7 +287,7 @@ export default function PostResponsesModal({
             !(ownerId && g.senderId.toLowerCase() === ownerId.toLowerCase()) &&
             !(ownerEmail && g.senderEmail && g.senderEmail.toLowerCase() === ownerEmail.toLowerCase())
         );
-        const list = nonSelf.length > 0 ? nonSelf : allList;
+        const list = nonSelf;
         list.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 
         if (isMounted) {
