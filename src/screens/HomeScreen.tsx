@@ -3,13 +3,13 @@ import { Screen, Intent, Language } from '../types';
 import { Settings, Bell, Zap, Search, Globe, Clock, MapPin, Rocket, User, Trophy, Wrench, Filter, Star, UserCheck, MessageSquare, Plus, Check, X, Share2, MessageCircle, HelpCircle, Smartphone, RefreshCw, ChevronDown, ChevronRight, Sparkles, Trash2, Shield, ShieldAlert, MoreVertical, LogIn, LogOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useLanguage, SUPPORTED_LANGUAGES } from '../i18n';
-import { getCurrentUser, onAuthStateChange, getHelpers, getShops, logoutUser, isMessageSentByUser, mergeAndSaveCurrentUser } from '../auth';
+import { getCurrentUser, getUserIdentitySet, onAuthStateChange, getHelpers, getShops, logoutUser, isMessageSentByUser, mergeAndSaveCurrentUser } from '../auth';
 import { CATEGORIES, MASTER_CATEGORIES, getCategoryName, getFreeHelperProfiles, matchesCategorySearch } from '../data/categories';
 import UserProfileModal from './UserProfileModal';
 import AppGuideModal from './AppGuideModal';
 import PostIntentSheet from './PostIntentSheet';
 import ChatScreen from './ChatScreen';
-import { fetchLiveIntents, deleteIntentOnServer, getCachedCategoryImages, fetchCategoryImages, subscribeToRealtimeStream } from '../api';
+import { fetchLiveIntents, deleteIntentOnServer, getCachedCategoryImages, fetchCategoryImages, subscribeToRealtimeStream, getAuthHeaders } from '../api';
 import AdBannerSection from '../components/AdBannerSection';
 import LocoHelpLogo from '../components/LocoHelpLogo';
 import RegisterShopModal from '../components/RegisterShopModal';
@@ -21,7 +21,7 @@ import JobPortalBrowseModal from '../components/JobPortalBrowseModal';
 import FreeHelperRegisterModal from '../components/FreeHelperRegisterModal';
 import PostResponsesModal from '../components/PostResponsesModal';
 import PanIndiaLocationModal from '../components/PanIndiaLocationModal';
-import { getSavedUserLocation, getConnectedTwinDistricts, calculateLocationDistanceKm, localizePlaceName, UserManualLocation } from '../data/panIndiaLocations';
+import { getSavedUserLocation, getConnectedTwinDistricts, calculateLocationDistanceKm, localizePlaceName, matchesUserLocationFilter, getLocalizedLocationButtonText, UserManualLocation } from '../data/panIndiaLocations';
 import { isGuestUser } from '../lib/authUtils';
 import { requestAndRegisterFcmToken, subscribeToForegroundPushMessages } from '../lib/firebase';
 import InstallAppModal from '../components/InstallAppModal';
@@ -61,6 +61,8 @@ export default function HomeScreen({
   const initialLoadRef = useRef(true);
   const previousCountRef = useRef(0);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const livePostsSectionRef = useRef<HTMLDivElement>(null);
+  const [homePostsScope, setHomePostsScope] = useState<'all' | 'local'>('all');
 
   // Real-Time Search & Voice Search States across Entire Website
   const [homeSearchQuery, setHomeSearchQuery] = useState('');
@@ -505,7 +507,13 @@ export default function HomeScreen({
     try {
       const res = await fetch(
         `/api/users/approval-status?uid=${encodeURIComponent(uid)}&email=${encodeURIComponent(email)}&phone=${encodeURIComponent(phone)}&_t=${Date.now()}`,
-        { cache: 'no-store' }
+        {
+          cache: 'no-store',
+          headers: {
+            'Cache-Control': 'no-cache',
+            ...getAuthHeaders()
+          }
+        }
       );
       if (res.ok) {
         const data = await res.json();
@@ -580,13 +588,16 @@ export default function HomeScreen({
     void verifyUserApprovalBeforeAction(() => setIsPostSheetOpen(true));
   };
 
+  const openPostSheetRef = useRef(handleSafeOpenPostSheet);
+  openPostSheetRef.current = handleSafeOpenPostSheet;
+
   useEffect(() => {
     const onOpenPostFromBottomBar = () => {
-      handleSafeOpenPostSheet();
+      openPostSheetRef.current();
     };
     window.addEventListener('locohelp_open_post_sheet', onOpenPostFromBottomBar);
     return () => window.removeEventListener('locohelp_open_post_sheet', onOpenPostFromBottomBar);
-  }, [activeUser]);
+  }, []);
 
   const handleSafeProfileClick = () => {
     if (isGuestUser()) {
@@ -955,13 +966,24 @@ export default function HomeScreen({
     }
   }, [intents.length, newlyCreatedId]);
 
+  const isAllCitiesHeader = !activeHeaderDistrict || activeHeaderDistrict === 'all';
+  const localCityIntentsCount = baseCategoryIntents.filter((item: any) => {
+    if (myPostIdsList.includes(String(item.id))) return true;
+    const c = String(item.resolvedCity || item.city || '').trim().toLowerCase();
+    const l = String(item.location || '').trim().toLowerCase();
+    if (!c || c === 'all' || c === 'all cities' || l === 'all' || l === 'all cities') return true;
+    const itemLocText = `${item.resolvedCity || ''} ${item.city || ''} ${item.resolvedArea || ''} ${item.area || ''} ${item.location || ''} ${item.resolvedLocationBadge || ''} ${item.description || ''}`;
+    return matchesUserLocationFilter(itemLocText, userLocation);
+  }).length;
+
   const displayIntents = filterAndSortLiveBroadcastPosts({
     baseCategoryIntents,
     activeHeaderDistrict,
     userArea: userLocation.area,
     newlyCreatedId,
     myPostIdsList,
-    activeUser
+    activeUser,
+    strictCityOnly: homePostsScope === 'local'
   });
 
   // Real-time filtered feed for home screen broadcast list
@@ -1647,6 +1669,9 @@ export default function HomeScreen({
   const handlePostCreated = (newIntent: Intent) => {
     mergeAndDeduplicateIntents([newIntent]);
     setNewlyCreatedId(newIntent.id);
+    try {
+      window.dispatchEvent(new CustomEvent('locohelp_intents_updated', { detail: newIntent }));
+    } catch {}
     setCreatedToast(
       language === 'EN'
         ? "⚡ Post Uploaded! Your post is now live on all phones."
@@ -1655,12 +1680,14 @@ export default function HomeScreen({
         : "⚡ पोस्ट अपलोड हो गई! आपकी पोस्ट सभी फ़ोन पर लाइव है।"
     );
     setTimeout(() => setCreatedToast(null), 5000);
-    // Smoothly scroll to top so user sees their newly created post immediately
+    // Smoothly scroll so user sees their newly created post immediately
     setTimeout(() => {
-      if (scrollContainerRef.current) {
+      if (livePostsSectionRef.current) {
+        livePostsSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      } else if (scrollContainerRef.current) {
         scrollContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
       }
-    }, 100);
+    }, 120);
   };
 
   const handleDeletePost = (intentId: string, e: React.MouseEvent) => {
@@ -1674,6 +1701,9 @@ export default function HomeScreen({
 
     // 1. Immediately remove from local UI state
     setIntents(prev => prev.filter(i => i.id !== intentId && (!targetDesc || i.description?.trim() !== targetDesc)));
+    try {
+      window.dispatchEvent(new CustomEvent('locohelp_intents_updated', { detail: { deletedId: intentId } }));
+    } catch {}
 
     // 2. CLOSE DELETE MODAL IMMEDIATELY! Zero UI delay
     setPostToDelete(null);
@@ -1946,16 +1976,13 @@ export default function HomeScreen({
                             myPostIds = JSON.parse(localStorage.getItem('locohelp_my_post_ids') || '[]');
                           } catch (e) {}
                           const currentUserObj = activeUser || getCurrentUser();
-                          const currentUid = String(currentUserObj?.uid || '').trim().toLowerCase();
-                          const currentEmail = String(currentUserObj?.email || localStorage.getItem('locohelp_last_logged_in_email') || '').trim().toLowerCase();
-                          const currentEmailUid = currentEmail ? 'email_' + currentEmail.replace(/[^a-z0-9]/g, '_') : '';
+                          const identitySet = getUserIdentitySet(currentUserObj);
                           const postAuthorId = String(post.authorId || (post as any).userId || '').trim().toLowerCase();
                           const postAuthorEmail = String((post as any).authorEmail || '').trim().toLowerCase();
                           const isOwn = Boolean(
-                            (currentUid && postAuthorId === currentUid) ||
-                            (currentEmailUid && postAuthorId === currentEmailUid) ||
-                            (currentEmail && (postAuthorEmail === currentEmail || postAuthorId === currentEmail)) ||
-                            myPostIds.includes(post.id)
+                            myPostIds.includes(post.id) ||
+                            (postAuthorId && identitySet.has(postAuthorId)) ||
+                            (postAuthorEmail && identitySet.has(postAuthorEmail))
                           );
                           return (
                             <div
@@ -2107,10 +2134,11 @@ export default function HomeScreen({
           </div>
 
           {/* 3. Create Post Button (Orange #FF8800) - Compact, matching height */}
-          <div
+          <button
+            type="button"
             onClick={handleSafeOpenPostSheet}
             style={{ background: 'linear-gradient(135deg, #FF8800 0%, #FF6600 100%)' }}
-            className="w-full rounded-xl py-2 px-3 sm:px-3.5 text-white shadow-md shadow-orange-500/20 cursor-pointer active:scale-[0.98] transition-all border border-orange-300 dark:border-orange-400 hover:brightness-105 flex items-center justify-between gap-2"
+            className="w-full min-h-[44px] rounded-xl py-2 px-3 sm:px-3.5 text-white shadow-md shadow-orange-500/20 cursor-pointer active:scale-[0.98] transition-all border border-orange-300 dark:border-orange-400 hover:brightness-105 flex items-center justify-between gap-2 text-left"
             title={language === 'EN' ? 'Post Requirement for Local Service' : language === 'GU' ? 'કારીગર કે સેવા માટે અહીં પોસ્ટ કરો' : 'कारीगर या सेवा के लिए यहाँ पोस्ट करें'}
           >
             <div className="flex items-center gap-2 min-w-0">
@@ -2122,7 +2150,278 @@ export default function HomeScreen({
             <div className="w-6 h-6 rounded-lg bg-white text-slate-900 flex items-center justify-center shrink-0 shadow-xs">
               <ChevronRight className="w-3.5 h-3.5 stroke-[2.5] text-slate-900" />
             </div>
-          </div>
+          </button>
+
+          {/* 3A. Live Broadcast Posts Feed Section (Always visible for both own & other users' posts in real time) */}
+          <section
+            ref={livePostsSectionRef}
+            className="rounded-2xl border border-orange-200/80 dark:border-slate-700 bg-orange-50/40 dark:bg-slate-800/70 p-2.5 sm:p-3 space-y-2.5"
+          >
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-2 min-w-0">
+                <Zap className="w-4 h-4 text-orange-600 dark:text-orange-400 shrink-0" />
+                <h2 className="text-xs sm:text-sm font-black text-slate-900 dark:text-white truncate">
+                  {language === 'GU'
+                    ? `લાઈવ પોસ્ટ્સ (${searchedIntents.length})`
+                    : language === 'HI'
+                    ? `लाइव पोस्ट (${searchedIntents.length})`
+                    : `Live Broadcast Posts (${searchedIntents.length})`}
+                </h2>
+              </div>
+
+              <div className="flex items-center gap-1.5 shrink-0">
+                {!isAllCitiesHeader && (
+                  <div className="flex items-center gap-1 bg-white dark:bg-slate-900 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700">
+                    <button
+                      type="button"
+                      onClick={() => setHomePostsScope('all')}
+                      className={`px-2 py-1 rounded-md text-[10px] font-black transition-colors cursor-pointer whitespace-nowrap ${
+                        homePostsScope === 'all'
+                          ? 'bg-orange-600 text-white'
+                          : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      {language === 'GU' ? `બધા શહેરો (${baseCategoryIntents.length})` : language === 'HI' ? `सभी (${baseCategoryIntents.length})` : `All (${baseCategoryIntents.length})`}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setHomePostsScope('local')}
+                      className={`px-2 py-1 rounded-md text-[10px] font-black transition-colors cursor-pointer whitespace-nowrap truncate max-w-[120px] ${
+                        homePostsScope === 'local'
+                          ? 'bg-orange-600 text-white'
+                          : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      {getLocalizedLocationButtonText(userLocation, language)} ({localCityIntentsCount})
+                    </button>
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => syncServerBroadcasts(true)}
+                  className="p-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:text-orange-600 cursor-pointer"
+                  title={language === 'GU' ? 'રિફ્રેશ કરો' : language === 'HI' ? 'रिफ्रेश करें' : 'Refresh live posts'}
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-orange-600' : ''}`} />
+                </button>
+              </div>
+            </div>
+
+            {searchedIntents.length === 0 ? (
+              <div className="py-2.5 px-3 rounded-xl bg-white/90 dark:bg-slate-900/70 border border-dashed border-orange-200 dark:border-slate-700 flex items-center justify-between gap-2 flex-wrap">
+                <p className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                  {language === 'GU'
+                    ? 'હાલ કોઈ લાઈવ પોસ્ટ નથી — ઉપરના બટનથી પહેલી પોસ્ટ મૂકો.'
+                    : language === 'HI'
+                    ? 'अभी कोई लाइव पोस्ट नहीं है — ऊपर के बटन से पहली पोस्ट डालें।'
+                    : 'No active live posts right now — tap above to post your need.'}
+                </p>
+                {homePostsScope === 'local' && baseCategoryIntents.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setHomePostsScope('all')}
+                    className="px-2.5 py-1 rounded-lg bg-orange-600 text-white text-[10px] font-black cursor-pointer"
+                  >
+                    {language === 'GU' ? `બધા શહેરો જુઓ (${baseCategoryIntents.length})` : `View All (${baseCategoryIntents.length})`}
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                {searchedIntents.map((item: any) => {
+                  const currentIdentitySet = getUserIdentitySet(activeUser || getCurrentUser());
+                  const itemAuthorId = String(item.authorId || item.userId || item.user_id || '').trim().toLowerCase();
+                  const itemAuthorEmail = String(item.authorEmail || item.email || '').trim().toLowerCase();
+                  const isOwn = Boolean(
+                    myPostIdsList.includes(String(item.id)) ||
+                    (itemAuthorId && currentIdentitySet.has(itemAuthorId)) ||
+                    (itemAuthorEmail && currentIdentitySet.has(itemAuthorEmail))
+                  );
+                  const postRepliersList =
+                    Array.isArray(item.repliers) && item.repliers.length > 0
+                      ? item.repliers
+                      : Array.isArray(item.responses) && item.responses.length > 0
+                      ? item.responses
+                      : [];
+                  const respCount = Math.max(
+                    Number(item.responseCount ?? item.response_count ?? 0),
+                    postRepliersList.length
+                  );
+                  const matchedCat = item.category
+                    ? CATEGORIES.find(c => c.id.toLowerCase() === String(item.category).toLowerCase())
+                    : undefined;
+                  const catLabel = matchedCat ? getCategoryName(matchedCat, language) : item.category;
+                  const locLabel =
+                    String(item.resolvedCity || item.city || '').toLowerCase() === 'all' ||
+                    String(item.location || '').toLowerCase() === 'all cities'
+                      ? language === 'GU'
+                        ? 'બધા શહેરો'
+                        : language === 'HI'
+                        ? 'सभी शहर'
+                        : 'All Cities'
+                      : item.resolvedLocationBadge || item.location || localizePlaceName(item.city || 'All Cities', language);
+                  const photoSrc = item.imageUrl || item.attachmentUrl || item.image_url;
+
+                  return (
+                    <div
+                      key={item.id}
+                      onClick={() => {
+                        if (isOwn && respCount > 0) {
+                          setSelectedIntentForResponses(item);
+                          setIsResponsesModalOpen(true);
+                        } else {
+                          handleSafeOpenChat(item);
+                        }
+                      }}
+                      className={`p-3 rounded-2xl border transition-colors cursor-pointer space-y-2 ${
+                        item.id === newlyCreatedId || isOwn
+                          ? 'bg-emerald-50/80 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-700/70'
+                          : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 hover:border-orange-400'
+                      }`}
+                    >
+                      {/* Clean Metadata Line */}
+                      <div className="flex items-center justify-between gap-2 text-[11px] font-bold">
+                        <div className="flex items-center gap-1.5 min-w-0 truncate">
+                          <span className={isOwn ? 'text-emerald-700 dark:text-emerald-300 font-black' : 'text-indigo-700 dark:text-indigo-300 font-black'}>
+                            {isOwn
+                              ? language === 'GU'
+                                ? '⚡ તમારી પોસ્ટ (લાઈવ)'
+                                : language === 'HI'
+                                ? '⚡ आपकी पोस्ट (लाइव)'
+                                : '⚡ Your Post (Live)'
+                              : `👤 ${item.authorName || 'Community Member'}`}
+                          </span>
+                          {catLabel && (
+                            <>
+                              <span className="text-slate-300 dark:text-slate-600">·</span>
+                              <span className="text-orange-700 dark:text-orange-300 truncate">{catLabel}</span>
+                            </>
+                          )}
+                        </div>
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400 shrink-0 tabular-nums">
+                          {item.minsRemaining || 60}m
+                        </span>
+                      </div>
+
+                      {/* Description */}
+                      <p className="text-xs sm:text-sm font-black text-slate-900 dark:text-white leading-snug break-words">
+                        {item.description}
+                      </p>
+
+                      {/* Optional Attachment Photo */}
+                      {Boolean(photoSrc) && (
+                        <div className="w-full max-h-44 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800">
+                          <img
+                            src={photoSrc}
+                            alt="Post attachment"
+                            referrerPolicy="no-referrer"
+                            className="w-full max-h-44 object-cover"
+                            loading="lazy"
+                          />
+                        </div>
+                      )}
+
+                      {/* Inline Replies Preview */}
+                      {postRepliersList.length > 0 && (
+                        <div className="p-2 rounded-xl bg-emerald-50/70 dark:bg-slate-800 border border-emerald-200/80 dark:border-slate-700 space-y-1">
+                          <p className="text-[10px] font-black text-emerald-800 dark:text-emerald-300">
+                            💬 {language === 'GU' ? `આવેલા જવાબો (${postRepliersList.length}):` : language === 'HI' ? `आए हुए जवाब (${postRepliersList.length}):` : `Replies (${postRepliersList.length}):`}
+                          </p>
+                          {postRepliersList.slice(0, 2).map((rep: any, rIdx: number) => {
+                            const repId = String(rep.senderId || rep.sender_id || rep.helperId || '').trim();
+                            const repName = rep.senderName || rep.sender_name || rep.helperName || 'Community Helper';
+                            const repMsg = rep.lastMessage || rep.last_message || rep.text || rep.message || '';
+                            return (
+                              <div
+                                key={rep.id || `${repId}_${rIdx}`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleSafeOpenChat({
+                                    ...item,
+                                    selectedReplierId: repId || undefined,
+                                    selectedReplierName: repName,
+                                    selectedReplierEmail: rep.senderEmail || rep.helperEmail || undefined,
+                                    selectedReplierAvatar: rep.senderAvatar || rep.helperAvatar || undefined
+                                  });
+                                }}
+                                className="px-2 py-1 rounded-lg bg-white dark:bg-slate-900 border border-emerald-200/70 dark:border-slate-700 flex items-center justify-between gap-2 text-[11px]"
+                              >
+                                <div className="min-w-0 truncate">
+                                  <span className="font-black text-slate-900 dark:text-white">{repName}: </span>
+                                  <span className="font-semibold text-slate-700 dark:text-slate-300">{repMsg}</span>
+                                </div>
+                                <span className="text-[10px] font-black text-emerald-700 dark:text-emerald-400 shrink-0">
+                                  {language === 'GU' ? 'ચેટ →' : 'Chat →'}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* Footer Row */}
+                      <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-slate-200/70 dark:border-slate-700/70">
+                        <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300 flex items-center gap-1 truncate min-w-0">
+                          <MapPin className="w-3 h-3 text-orange-600 shrink-0" />
+                          <span className="truncate">{locLabel}</span>
+                        </span>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={(e) => handleSharePostToWhatsAppGroup(item, e)}
+                            className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-emerald-100 dark:hover:bg-emerald-950 text-slate-700 dark:text-slate-200 cursor-pointer"
+                            title="WhatsApp Share"
+                          >
+                            <Share2 className="w-3.5 h-3.5" />
+                          </button>
+                          {isOwn && (
+                            <button
+                              type="button"
+                              onClick={(e) => handleDeletePost(item.id, e)}
+                              className="p-2 rounded-xl bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 text-rose-600 dark:text-rose-400 cursor-pointer"
+                              title={language === 'GU' ? 'પોસ્ટ ડિલીટ કરો' : 'Delete Post'}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (isOwn && respCount > 0) {
+                                setSelectedIntentForResponses(item);
+                                setIsResponsesModalOpen(true);
+                              } else {
+                                handleSafeOpenChat(item);
+                              }
+                            }}
+                            style={{ backgroundColor: isOwn ? '#2563EB' : '#EA580C', color: '#ffffff' }}
+                            className="px-3 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1 cursor-pointer whitespace-nowrap"
+                          >
+                            <MessageCircle className="w-3.5 h-3.5" />
+                            <span>
+                              {isOwn
+                                ? language === 'GU'
+                                  ? `જવાબ જુઓ${respCount > 0 ? ` (${respCount})` : ''}`
+                                  : language === 'HI'
+                                  ? `जवाब देखें${respCount > 0 ? ` (${respCount})` : ''}`
+                                  : `View Replies${respCount > 0 ? ` (${respCount})` : ''}`
+                                : language === 'GU'
+                                ? 'ચેટ / મદદ કરો'
+                                : language === 'HI'
+                                ? 'चैट / मदद करें'
+                                : 'Chat / Help'}
+                            </span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
 
           {/* 4. Browse Service Experts Heading Banner (Blue #0066FF) - Compact, matching height */}
           <div

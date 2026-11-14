@@ -1,4 +1,5 @@
 import { Intent } from '../../types';
+import { getUserIdentitySet } from '../../auth';
 import { getConnectedTwinDistricts, matchesUserLocationFilter } from '../../data/panIndiaLocations';
 
 /**
@@ -13,7 +14,8 @@ export function filterAndSortLiveBroadcastPosts(params: {
   userArea?: string;
   newlyCreatedId?: string | null;
   myPostIdsList?: string[];
-  activeUser?: { uid?: string; email?: string } | null;
+  activeUser?: { uid?: string; email?: string; phone?: string } | null;
+  strictCityOnly?: boolean;
 }): any[] {
   const {
     baseCategoryIntents,
@@ -22,28 +24,31 @@ export function filterAndSortLiveBroadcastPosts(params: {
     newlyCreatedId = null,
     myPostIdsList = [],
     activeUser = null,
+    strictCityOnly = false,
   } = params;
 
   const cleanDistrict = (activeHeaderDistrict || '').trim().toLowerCase();
   const connectedDistricts = getConnectedTwinDistricts(cleanDistrict);
   const prefArea = (userArea || '').trim().toLowerCase();
-  const myUid = String(activeUser?.uid || '').trim().toLowerCase();
-  const myEmail = String(activeUser?.email || '').trim().toLowerCase();
+  const identitySet = getUserIdentitySet(activeUser);
 
   const filteredList =
-    !cleanDistrict || cleanDistrict === 'all'
+    !strictCityOnly || !cleanDistrict || cleanDistrict === 'all'
       ? baseCategoryIntents
       : baseCategoryIntents.filter((item) => {
+          if (!item || !item.id) return false;
           if (newlyCreatedId && item.id === newlyCreatedId) return true;
           if (myPostIdsList.includes(String(item.id))) return true;
+
           const itemAuthorId = String(item.authorId || item.userId || item.user_id || '').trim().toLowerCase();
           const itemAuthorEmail = String(item.authorEmail || item.email || '').trim().toLowerCase();
-          if (myUid && myUid !== 'guest' && myUid !== 'guest_user' && itemAuthorId === myUid) return true;
-          if (myEmail && itemAuthorEmail === myEmail) return true;
+          if (itemAuthorId && identitySet.has(itemAuthorId)) return true;
+          if (itemAuthorEmail && identitySet.has(itemAuthorEmail)) return true;
 
           const itemCityLower = String(item.resolvedCity || item.city || '').trim().toLowerCase();
           const itemLocLower = String(item.location || '').trim().toLowerCase();
           if (
+            !itemCityLower ||
             itemCityLower === 'all' ||
             itemCityLower === 'all cities' ||
             itemLocLower === 'all' ||
@@ -90,7 +95,7 @@ export function filterAndSortLiveBroadcastPosts(params: {
 
       const getDistrictRank = (cityStr: string) => {
         if (!cleanDistrict || cleanDistrict === 'all') return 0;
-        if (!cityStr) return 2;
+        if (!cityStr || cityStr === 'all' || cityStr === 'all cities') return 0;
         if (
           cityStr === cleanDistrict ||
           cityStr.includes(cleanDistrict) ||

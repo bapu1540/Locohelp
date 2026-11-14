@@ -262,16 +262,39 @@ export const isClientDummyOrExpiredPost = (item: any): boolean => {
   if (!descStr) return true;
 
   const nowMs = Date.now();
+  let latestReplyMs = 0;
+  try {
+    const lastIntMs = item.lastInteractionAt ? new Date(item.lastInteractionAt).getTime() : 0;
+    if (!isNaN(lastIntMs) && lastIntMs > latestReplyMs) latestReplyMs = lastIntMs;
+    if (Array.isArray(item.responses)) {
+      for (const r of item.responses) {
+        const t = new Date(r?.createdAt || r?.created_at || 0).getTime();
+        if (!isNaN(t) && t > latestReplyMs) latestReplyMs = t;
+      }
+    }
+    if (Array.isArray(item.repliers)) {
+      for (const rep of item.repliers) {
+        const t = new Date(rep?.lastMessageAt || rep?.updatedAt || 0).getTime();
+        if (!isNaN(t) && t > latestReplyMs) latestReplyMs = t;
+      }
+    }
+  } catch {}
+
   if (item.expiresAt) {
     const expMs = new Date(item.expiresAt).getTime();
-    if (!isNaN(expMs) && nowMs > expMs) {
+    const effectiveExpMs = Math.max(
+      isNaN(expMs) ? 0 : expMs,
+      latestReplyMs ? latestReplyMs + ONE_HOUR_POST_EXPIRY_MS : 0
+    );
+    if (effectiveExpMs > 0 && nowMs > effectiveExpMs) {
       return true;
     }
   }
   const createdRaw = item.createdAt || item.created_at;
   if (!createdRaw) return true;
   const createdMs = new Date(createdRaw).getTime();
-  if (isNaN(createdMs) || nowMs - createdMs > ONE_HOUR_POST_EXPIRY_MS) {
+  const lastActiveMs = Math.max(isNaN(createdMs) ? 0 : createdMs, latestReplyMs);
+  if (!lastActiveMs || nowMs - lastActiveMs > ONE_HOUR_POST_EXPIRY_MS) {
     return true;
   }
   return false;
@@ -391,39 +414,44 @@ export async function broadcastIntentToServer(intent: Intent): Promise<Intent> {
       body: JSON.stringify(cleanIntent)
     });
 
-    if (res.status === 429 || res.status === 403 || res.status === 401) {
+    if (!res.ok) {
       const errData = await res.json().catch(() => ({}));
-      throw new Error(
-        errData.error ||
-          (res.status === 403
-            ? 'आपका अकाउंट अभी एडमिन अप्रूवल (Admin Approval) के लिए पेंडिंग है। अप्रूव होने के बाद ही आप पोस्ट कर सकते हैं।'
-            : 'Rate limit: Please wait 30 seconds before posting again.')
+      const fallbackMsg =
+        res.status === 403
+          ? 'તમારું એકાઉન્ટ હજી એડમિન અપ્રૂવલ માટે પેન્ડિંગ છે. અપ્રૂવલ પછી જ તમે પોસ્ટ કરી શકશો.'
+          : res.status === 401
+          ? 'પોસ્ટ કરવા માટે કૃપા કરીને પહેલા લોગિન કરો.'
+          : res.status === 429
+          ? 'Anti-Spam: કૃપા કરીને થોડી સેકન્ડ રાહ જોઈને ફરી પ્રયાસ કરો.'
+          : `પોસ્ટ અપલોડ કરવામાં ભૂલ આવી (${res.status}). કૃપા કરીને ફરી પ્રયાસ કરો.`;
+      throw new Error(errData.error || fallbackMsg);
+    }
+
+    recordPostCreatedTimestamp();
+    const saved = await res.json();
+    try {
+      const stored = localStorage.getItem('locohelp_custom_intents');
+      const existing: Intent[] = stored ? JSON.parse(stored) : [];
+      localStorage.setItem(
+        'locohelp_custom_intents',
+        JSON.stringify([saved, ...existing.filter(i => i.id !== saved.id && i.id !== cleanIntent.id).slice(0, 50)])
       );
-    }
 
-    if (res.ok) {
-      recordPostCreatedTimestamp();
-      const saved = await res.json();
-      try {
-        const stored = localStorage.getItem('locohelp_custom_intents');
-        const existing: Intent[] = stored ? JSON.parse(stored) : [];
-        localStorage.setItem('locohelp_custom_intents', JSON.stringify([saved, ...existing.filter(i => i.id !== saved.id && i.id !== cleanIntent.id).slice(0, 50)]));
-
-        const cachedRaw = localStorage.getItem('locohelp_cached_intents');
-        const existingCached: Intent[] = cachedRaw ? JSON.parse(cachedRaw) : [];
-        localStorage.setItem('locohelp_cached_intents', JSON.stringify([saved, ...existingCached.filter(i => i.id !== saved.id && i.id !== cleanIntent.id).slice(0, 50)]));
-      } catch {}
-      return saved;
-    }
+      const cachedRaw = localStorage.getItem('locohelp_cached_intents');
+      const existingCached: Intent[] = cachedRaw ? JSON.parse(cachedRaw) : [];
+      localStorage.setItem(
+        'locohelp_cached_intents',
+        JSON.stringify([saved, ...existingCached.filter(i => i.id !== saved.id && i.id !== cleanIntent.id).slice(0, 50)])
+      );
+      window.dispatchEvent(new CustomEvent('locohelp_intents_updated', { detail: saved }));
+    } catch {}
+    return saved;
   } catch (err: any) {
-    if (err?.message && (err.message.includes('wait') || err.message.includes('Approval') || err.message.includes('अप्रूव') || err.message.includes('અપ્રૂવલ') || err.message.includes('लॉगिन'))) {
+    if (err instanceof Error) {
       throw err;
     }
-    console.warn("Failed to broadcast to server (operating offline):", err);
+    throw new Error(err?.message || 'સર્વર સાથે કનેક્ટ કરવામાં સમસ્યા આવી. કૃપા કરીને ફરી પ્રયાસ કરો.');
   }
-
-  recordPostCreatedTimestamp();
-  return cleanIntent;
 }
 
 /**
@@ -446,6 +474,7 @@ export async function deleteIntentOnServer(id: string, description?: string): Pr
         }
       }
     });
+    window.dispatchEvent(new CustomEvent('locohelp_intents_updated', { detail: { deletedId: id } }));
   } catch {}
 
   try {

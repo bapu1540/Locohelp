@@ -68,6 +68,7 @@ export default function FixedBottomNavBar({
   const [activeBottomModal, setActiveBottomModal] = useState<'posts' | 'bookings' | 'favorites' | null>(null);
   const [allLivePostsList, setAllLivePostsList] = useState<Intent[]>(() => getCachedLiveIntents());
   const [postsSearchQuery, setPostsSearchQuery] = useState('');
+  const [postsScope, setPostsScope] = useState<'all' | 'local'>('all');
   const [isLoadingLivePosts, setIsLoadingLivePosts] = useState(false);
   const [bookingsSubTab, setBookingsSubTab] = useState<'requests' | 'contacted' | 'replies'>('requests');
   const [myBookingsList, setMyBookingsList] = useState<Intent[]>([]);
@@ -105,9 +106,10 @@ export default function FixedBottomNavBar({
   const filterMyOwnPosts = (posts: Intent[]): Intent[] => {
     let myIds: string[] = [];
     try {
-      myIds = JSON.parse(localStorage.getItem('locohelp_my_post_ids') || '[]');
+      myIds = JSON.parse(localStorage.getItem('locohelp_my_post_ids') || '[]').map((x: any) => String(x));
     } catch {}
     const user = getCurrentUser();
+    const myIdentitySet = getUserIdentitySet(user);
     const myUid = String(user?.uid || '').trim().toLowerCase();
     const myEmail = String(
       user?.email || localStorage.getItem('locohelp_last_logged_in_email') || ''
@@ -127,21 +129,20 @@ export default function FixedBottomNavBar({
 
     return (Array.isArray(posts) ? posts : []).filter((post: any) => {
       if (!post || !post.id) return false;
-      const pAuthorId = String(post.authorId || post.userId || '').trim().toLowerCase();
-      const pAuthorEmail = String(post.authorEmail || '').trim().toLowerCase();
+      if (myIds.includes(String(post.id))) return true;
+      const pAuthorId = String(post.authorId || post.userId || post.user_id || '').trim().toLowerCase();
+      const pAuthorEmail = String(post.authorEmail || post.email || '').trim().toLowerCase();
       const pAuthorPhoneDigits = String(post.authorPhone || post.phone || '').replace(/\D/g, '').slice(-10);
-      const matchesUserIdentity = Boolean(
-        (myUid && pAuthorId === myUid) ||
+      return Boolean(
+        (pAuthorId && myIdentitySet.has(pAuthorId)) ||
+          (pAuthorEmail && myIdentitySet.has(pAuthorEmail)) ||
+          (myUid && pAuthorId === myUid) ||
           (myEmailUid && pAuthorId === myEmailUid) ||
           (myEmail && (pAuthorEmail === myEmail || pAuthorId === myEmail)) ||
           (myPhoneUid && pAuthorId === myPhoneUid) ||
           (myPhoneSynthEmail && (pAuthorEmail === myPhoneSynthEmail || pAuthorId === myPhoneSynthEmail)) ||
           (myPhoneDigits.length === 10 && pAuthorPhoneDigits.length === 10 && pAuthorPhoneDigits === myPhoneDigits)
       );
-      if (pAuthorId || pAuthorEmail) {
-        return matchesUserIdentity;
-      }
-      return myIds.includes(post.id);
     });
   };
 
@@ -350,8 +351,19 @@ export default function FixedBottomNavBar({
     };
 
     loadMyBookings();
+    const onBookingsSyncEvent = () => {
+      loadMyBookings();
+    };
+    window.addEventListener('locohelp_intents_updated', onBookingsSyncEvent);
+    const unsubBookingsStream = subscribeToRealtimeStream({
+      onNewPost: () => loadMyBookings(),
+      onPostDeleted: () => loadMyBookings(),
+      onNewResponse: () => loadMyBookings()
+    });
     return () => {
       active = false;
+      unsubBookingsStream();
+      window.removeEventListener('locohelp_intents_updated', onBookingsSyncEvent);
     };
   }, [activeBottomModal]);
 
@@ -360,15 +372,27 @@ export default function FixedBottomNavBar({
     setMyBookingsList((prev) => prev.filter((item) => item.id !== post.id));
     setAllLivePostsList((prev) => prev.filter((item) => item.id !== post.id));
     await deleteIntentOnServer(post.id, post.description);
-    window.dispatchEvent(new CustomEvent('locohelp_intents_updated'));
+    window.dispatchEvent(new CustomEvent('locohelp_intents_updated', { detail: { deletedId: post.id } }));
   };
 
   useEffect(() => {
     let active = true;
     const syncLivePosts = async () => {
       const cached = getCachedLiveIntents();
-      if (active) {
-        setAllLivePostsList(Array.isArray(cached) ? cached : []);
+      if (active && cached.length > 0) {
+        setAllLivePostsList(prev => {
+          const map = new Map<string, Intent>();
+          cached.forEach(item => { if (item?.id) map.set(item.id, item); });
+          prev.forEach(item => {
+            if (item?.id && !map.has(item.id)) {
+              const cachedIds = new Set(cached.map(c => c.id));
+              if (!cachedIds.has(item.id) && (Date.now() - new Date(item.createdAt || 0).getTime() < 60000)) {
+                map.set(item.id, item);
+              }
+            }
+          });
+          return Array.from(map.values()).sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+        });
       }
       if (activeBottomModal === 'posts' && cached.length === 0) {
         setIsLoadingLivePosts(true);
@@ -382,14 +406,37 @@ export default function FixedBottomNavBar({
         if (active) setIsLoadingLivePosts(false);
       }
     };
+    const handleIntentsUpdatedEvent = (e: Event) => {
+      const detail = (e as CustomEvent)?.detail;
+      if (detail?.deletedId) {
+        setAllLivePostsList(prev => prev.filter(item => item.id !== detail.deletedId));
+      } else if (detail && detail.id) {
+        setAllLivePostsList(prev => [detail, ...prev.filter(item => item.id !== detail.id)]);
+      }
+      syncLivePosts();
+    };
     syncLivePosts();
     // Refresh live posts & replies frequently when modal is open
     const timer = setInterval(() => {
       syncLivePosts();
-    }, activeBottomModal === 'posts' || activeBottomModal === 'bookings' ? 4000 : 25000);
-    window.addEventListener('locohelp_intents_updated', syncLivePosts);
+    }, activeBottomModal === 'posts' || activeBottomModal === 'bookings' ? 4000 : 12000);
+    window.addEventListener('locohelp_intents_updated', handleIntentsUpdatedEvent);
     window.addEventListener('locohelp_realtime_new_response', syncLivePosts);
     const unsubStream = subscribeToRealtimeStream({
+      onNewPost: (payload) => {
+        const newPost = payload?.post || payload?.intent;
+        if (newPost && newPost.id && active) {
+          setAllLivePostsList(prev => [newPost, ...prev.filter(item => item.id !== newPost.id)]);
+        }
+        syncLivePosts();
+      },
+      onPostDeleted: (payload) => {
+        const deletedId = String(payload?.postId || payload?.id || '').trim();
+        if (deletedId && active) {
+          setAllLivePostsList(prev => prev.filter(item => item.id !== deletedId));
+          setMyBookingsList(prev => prev.filter(item => item.id !== deletedId));
+        }
+      },
       onNewResponse: () => {
         syncLivePosts();
       }
@@ -398,7 +445,7 @@ export default function FixedBottomNavBar({
       active = false;
       clearInterval(timer);
       unsubStream();
-      window.removeEventListener('locohelp_intents_updated', syncLivePosts);
+      window.removeEventListener('locohelp_intents_updated', handleIntentsUpdatedEvent);
       window.removeEventListener('locohelp_realtime_new_response', syncLivePosts);
     };
   }, [activeBottomModal]);
@@ -499,33 +546,61 @@ export default function FixedBottomNavBar({
     return language === 'GU' ? 'બધા શહેરો' : language === 'HI' ? 'सभी शहर' : 'All Cities';
   };
 
-  const filteredLivePosts = allLivePostsList.filter((post: any) => {
+  const activeVisiblePosts = allLivePostsList.filter((post: any) => {
     if (!post || !post.id) return false;
     if (post.is_flagged || post.hidden || post.is_deleted) return false;
+    return true;
+  });
 
-    const isMyOwn = myOwnPostIdsSet.has(String(post.id));
+  const localCityPostsCount = activeVisiblePosts.filter((post: any) => {
+    if (myOwnPostIdsSet.has(String(post.id))) return true;
     const postCityLower = String(post.city || '').trim().toLowerCase();
     const postLocLower = String(post.location || '').trim().toLowerCase();
-    const isPostForAllCities =
+    if (
+      !postCityLower ||
       postCityLower === 'all' ||
       postCityLower === 'all cities' ||
       postLocLower === 'all' ||
-      postLocLower === 'all cities';
-
-    if (!isMyOwn && !isAllCitiesMode && !isPostForAllCities && !postsSearchQuery.trim()) {
-      const postLocText = `${post.city || ''} ${post.area || ''} ${post.location || ''} ${post.resolvedLocationBadge || ''} ${post.description || ''}`;
-      if (!matchesUserLocationFilter(postLocText, activeLocation)) return false;
+      postLocLower === 'all cities'
+    ) {
+      return true;
     }
+    const postLocText = `${post.city || ''} ${post.area || ''} ${post.location || ''} ${post.resolvedLocationBadge || ''} ${post.description || ''}`;
+    return matchesUserLocationFilter(postLocText, activeLocation);
+  }).length;
 
-    if (!postsSearchQuery.trim()) return true;
-    const q = postsSearchQuery.toLowerCase().trim();
-    return (
-      String(post.description || '').toLowerCase().includes(q) ||
-      String(post.category || '').toLowerCase().includes(q) ||
-      String(post.location || post.area || '').toLowerCase().includes(q) ||
-      String(post.authorName || '').toLowerCase().includes(q)
-    );
-  });
+  const filteredLivePosts = activeVisiblePosts
+    .filter((post: any) => {
+      const isMyOwn = myOwnPostIdsSet.has(String(post.id));
+      const postCityLower = String(post.city || '').trim().toLowerCase();
+      const postLocLower = String(post.location || '').trim().toLowerCase();
+      const isPostForAllCities =
+        !postCityLower ||
+        postCityLower === 'all' ||
+        postCityLower === 'all cities' ||
+        postLocLower === 'all' ||
+        postLocLower === 'all cities';
+
+      if (postsScope === 'local' && !isMyOwn && !isAllCitiesMode && !isPostForAllCities && !postsSearchQuery.trim()) {
+        const postLocText = `${post.city || ''} ${post.area || ''} ${post.location || ''} ${post.resolvedLocationBadge || ''} ${post.description || ''}`;
+        if (!matchesUserLocationFilter(postLocText, activeLocation)) return false;
+      }
+
+      if (!postsSearchQuery.trim()) return true;
+      const q = postsSearchQuery.toLowerCase().trim();
+      return (
+        String(post.description || '').toLowerCase().includes(q) ||
+        String(post.category || '').toLowerCase().includes(q) ||
+        String(post.location || post.area || post.city || '').toLowerCase().includes(q) ||
+        String(post.authorName || '').toLowerCase().includes(q)
+      );
+    })
+    .slice()
+    .sort((a: any, b: any) => {
+      const aTime = new Date(a.createdAt || a.created_at || 0).getTime();
+      const bTime = new Date(b.createdAt || b.created_at || 0).getTime();
+      return bTime - aTime;
+    });
 
   const handleTriggerCreatePost = () => {
     setActiveBottomModal(null);
@@ -645,8 +720,8 @@ export default function FixedBottomNavBar({
                 </div>
               </div>
 
-              {/* Search Bar */}
-              <div className="px-3.5 py-2.5 bg-slate-50 border-b border-slate-200">
+              {/* Search Bar & City Scope Filter */}
+              <div className="px-3.5 py-2.5 bg-slate-50 border-b border-slate-200 space-y-2">
                 <div className="relative flex items-center">
                   <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3" />
                   <input
@@ -672,6 +747,32 @@ export default function FixedBottomNavBar({
                     </button>
                   )}
                 </div>
+                {!isAllCitiesMode && (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setPostsScope('all')}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-black transition-colors cursor-pointer ${
+                        postsScope === 'all'
+                          ? 'bg-orange-600 text-white shadow-2xs'
+                          : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      🌐 {language === 'GU' ? `બધા શહેરો (${activeVisiblePosts.length})` : language === 'HI' ? `सभी शहर (${activeVisiblePosts.length})` : `All Cities (${activeVisiblePosts.length})`}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPostsScope('local')}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-black transition-colors cursor-pointer ${
+                        postsScope === 'local'
+                          ? 'bg-orange-600 text-white shadow-2xs'
+                          : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      📍 {getLocalizedLocationButtonText(activeLocation, language)} ({localCityPostsCount})
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Posts Feed */}

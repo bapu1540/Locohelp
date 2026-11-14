@@ -1800,6 +1800,8 @@ function redactBulkItemForPrivacy(
     clone.id,
     clone.userId,
     clone.user_id,
+    clone.authorId,
+    clone.author_id,
     clone.owner_id
   ]
     .filter(Boolean)
@@ -1813,7 +1815,7 @@ function redactBulkItemForPrivacy(
     .filter(Boolean)
     .map((v) => String(v).trim().toLowerCase());
   const itemPhoneDigits = normalizePhoneDigitsServer(
-    clone.phone || clone.userPhone || clone.whatsapp || ""
+    clone.phone || clone.userPhone || clone.authorPhone || clone.whatsapp || ""
   );
 
   const isOwner = Boolean(
@@ -1838,7 +1840,8 @@ function redactBulkItemForPrivacy(
     delete clone.phone;
     delete clone.whatsapp;
     delete clone.userPhone;
-  } else if (!isAuthenticatedCaller && !isAdminCaller && !isOwner) {
+  }
+  if (!isAuthenticatedCaller && !isAdminCaller && !isOwner) {
     delete clone.email;
     delete clone.ownerEmail;
     delete clone.userEmail;
@@ -5694,11 +5697,14 @@ async function startServer() {
     return record;
   };
 
-  const MASTER_ADMIN_EMAILS = [
-    "sanjaysinhchauhan1540@gmail.com",
-    "admin@locohelp.com",
-    ...ALLOWED_ADMIN_OTP_EMAILS
-  ];
+  const MASTER_ADMIN_EMAILS = Array.from(
+    new Set([
+      "sanjaysinhchauhan1540@gmail.com",
+      "admin@locohelp.com",
+      ...ALLOWED_ADMIN_OTP_EMAILS,
+      ...Array.from(AUTHORIZED_ADMIN_EMAILS)
+    ])
+  );
 
   // ==========================================
   // GLOBAL ADMIN BLOCKLIST (100% LOCKDOWN ON UID, MOBILE NUMBER & EMAIL)
@@ -8297,7 +8303,7 @@ async function startServer() {
           return true;
         })
         .map(i => {
-          const safe = redactBulkItemForPrivacy(i, isAuth, isAdmin);
+          const safe = redactBulkItemForPrivacy(i, isAuth, isAdmin, caller);
           const postResponses = responsesListByIntent.get(i.id) || [];
           const allRepliers = Array.from(repliersByIntent.get(i.id)?.values() || []).sort(
             (a, b) => new Date(b.lastMessageAt || 0).getTime() - new Date(a.lastMessageAt || 0).getTime()
