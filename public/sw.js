@@ -132,23 +132,23 @@ try {
   // Fallback to standard Web Push event listener below if compat scripts are unreachable
 }
 
-// Fallback push listener for data-only or standard Web Push payloads when Firebase compat isn't active
+// Push listener for standard Web Push (VAPID) and fallback FCM payloads when app is closed
 self.addEventListener('push', (event) => {
-  if (fcmMessagingInitialized) {
-    return;
-  }
   if (!event.data) return;
 
   try {
     const payload = event.data.json();
+    if (fcmMessagingInitialized && !payload.isWebPush) {
+      return;
+    }
     const title =
       (payload.notification && payload.notification.title) ||
       (payload.data && payload.data.title) ||
-      '🔔 New Local Request on LocoHelp!';
+      '🔔 LocoHelp પર નવી પોસ્ટ / મેસેજ!';
     const body =
       (payload.notification && payload.notification.body) ||
       (payload.data && payload.data.body) ||
-      'Tap to view and help on LocoHelp';
+      'LocoHelp ખોલવા માટે અહીં ક્લિક કરો';
     const targetUrl =
       (payload.fcmOptions && payload.fcmOptions.link) ||
       (payload.data && (payload.data.url || payload.data.click_action)) ||
@@ -173,7 +173,19 @@ self.addEventListener('push', (event) => {
       })
     );
   } catch (e) {
-    // Ignore non-JSON push events
+    // Fallback if plain text push payload
+    try {
+      const text = event.data.text();
+      if (text) {
+        event.waitUntil(
+          self.registration.showNotification('🔔 LocoHelp નોટિફિકેશન', {
+            body: text,
+            icon: '/pwa-192x192.png',
+            badge: '/pwa-192x192.png'
+          })
+        );
+      }
+    } catch (_err) {}
   }
 });
 

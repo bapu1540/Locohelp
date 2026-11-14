@@ -61,28 +61,42 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
     return () => clearInterval(timer);
   }, [postError]);
 
-  // Pan-India State, District & Taluka Selection (Pre-filled from active header location if specific city is chosen, otherwise registered profile location)
+  // Pan-India State, District & Taluka Selection (Synced directly with top header location including "All Cities")
   const initialSavedLoc = React.useMemo(() => {
     const activeLoc = getSavedUserLocation();
-    if (activeLoc && activeLoc.district && activeLoc.district.trim().toLowerCase() !== 'all') {
+    if (activeLoc && activeLoc.district) {
       return activeLoc;
     }
     return getProfileRegisteredLocation();
   }, []);
-  const [selectedState, setSelectedState] = useState<string>(initialSavedLoc.state || 'Gujarat');
-  const [selectedCity, setSelectedCity] = useState<string>(initialSavedLoc.district || 'Gandhinagar');
+  const isInitialAll =
+    !initialSavedLoc.district || initialSavedLoc.district.trim().toLowerCase() === 'all';
+  const [selectedState, setSelectedState] = useState<string>(
+    isInitialAll ? 'All' : initialSavedLoc.state || 'Gujarat'
+  );
+  const [selectedCity, setSelectedCity] = useState<string>(
+    isInitialAll ? 'All' : initialSavedLoc.district || 'Gandhinagar'
+  );
   const [customCity] = useState<string>('');
   const [localArea, setLocalArea] = useState<string>(
-    initialSavedLoc.taluka || initialSavedLoc.area || (getTalukasForDistrict(initialSavedLoc.district || 'Gandhinagar')[0] || 'Gandhinagar')
+    isInitialAll
+      ? ''
+      : initialSavedLoc.taluka ||
+        initialSavedLoc.area ||
+        getTalukasForDistrict(initialSavedLoc.district || 'Gandhinagar')[0] ||
+        ''
   );
 
   const statesList = React.useMemo(() => Object.keys(PAN_INDIA_STATES_DISTRICTS), []);
   const districtsForSelectedState = React.useMemo(
-    () => PAN_INDIA_STATES_DISTRICTS[selectedState] || PAN_INDIA_STATES_DISTRICTS['Gujarat'],
+    () =>
+      selectedState === 'All'
+        ? PAN_INDIA_STATES_DISTRICTS['Gujarat'] || []
+        : PAN_INDIA_STATES_DISTRICTS[selectedState] || PAN_INDIA_STATES_DISTRICTS['Gujarat'],
     [selectedState]
   );
   const talukasForCity = React.useMemo(
-    () => getTalukasForDistrict(selectedCity),
+    () => (!selectedCity || selectedCity === 'All' ? [] : getTalukasForDistrict(selectedCity)),
     [selectedCity]
   );
 
@@ -195,10 +209,24 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
         ).trim();
       const intentId = 'intent_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
 
-      const finalState = sanitizeText((selectedState || 'Gujarat').trim(), 100);
-      const finalCity = sanitizeText((selectedCity || 'Gandhinagar').trim(), 100);
-      const finalArea = sanitizeText((localArea.trim() || (talukasForCity[0] || finalCity)).trim(), 150);
-      const fullLocationLabel = `${finalArea}, ${finalCity}`;
+      const isAllCitiesSelected =
+        !selectedCity ||
+        selectedCity.trim().toLowerCase() === 'all' ||
+        selectedState.trim().toLowerCase() === 'all';
+      const finalState = isAllCitiesSelected
+        ? 'All'
+        : sanitizeText((selectedState || 'Gujarat').trim(), 100);
+      const finalCity = isAllCitiesSelected
+        ? 'All'
+        : sanitizeText((selectedCity || 'Gandhinagar').trim(), 100);
+      const finalArea = isAllCitiesSelected
+        ? 'All Cities'
+        : sanitizeText((localArea.trim() || finalCity).trim(), 150);
+      const fullLocationLabel = isAllCitiesSelected
+        ? 'All Cities'
+        : finalArea && finalArea.toLowerCase() !== finalCity.toLowerCase()
+        ? `${finalArea}, ${finalCity}`
+        : finalCity;
       
       const selectedCatObj = CATEGORIES.find(c => c.id === selectedCategoryId);
       const finalTags = Array.from(
@@ -483,7 +511,16 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
                 </span>
               </label>
               <span className="text-[10px] font-black bg-emerald-600 text-white px-2 py-0.5 rounded-md truncate max-w-[170px]">
-                📍 {localArea || selectedCity}, {selectedCity}
+                📍{' '}
+                {selectedCity === 'All' || selectedState === 'All'
+                  ? language === 'GU'
+                    ? 'બધા શહેરો'
+                    : language === 'HI'
+                    ? 'सभी शहर'
+                    : 'All Cities'
+                  : localArea && localArea.toLowerCase() !== selectedCity.toLowerCase()
+                  ? `${localArea}, ${selectedCity}`
+                  : selectedCity}
               </span>
             </div>
 
@@ -497,14 +534,22 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
                   onChange={(e) => {
                     const newState = e.target.value;
                     setSelectedState(newState);
-                    const dists = PAN_INDIA_STATES_DISTRICTS[newState] || [];
-                    const firstDist = dists[0] || '';
-                    setSelectedCity(firstDist);
-                    const defaultTals = getTalukasForDistrict(firstDist);
-                    setLocalArea(defaultTals[0] || '');
+                    if (newState === 'All') {
+                      setSelectedCity('All');
+                      setLocalArea('');
+                    } else {
+                      const dists = PAN_INDIA_STATES_DISTRICTS[newState] || [];
+                      const firstDist = dists[0] || '';
+                      setSelectedCity(firstDist);
+                      const defaultTals = getTalukasForDistrict(firstDist);
+                      setLocalArea(defaultTals[0] || '');
+                    }
                   }}
                   className="w-full h-9 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-2 text-[11px] font-extrabold text-slate-900 dark:text-white outline-none focus:border-emerald-500 cursor-pointer"
                 >
+                  <option value="All">
+                    {language === 'GU' ? '🌐 બધા શહેરો' : language === 'HI' ? '🌐 सभी शहर' : '🌐 All Cities'}
+                  </option>
                   {statesList.map((st) => (
                     <option key={st} value={st}>
                       {st}
@@ -522,11 +567,21 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
                   onChange={(e) => {
                     const newCity = e.target.value;
                     setSelectedCity(newCity);
-                    const defaultTals = getTalukasForDistrict(newCity);
-                    setLocalArea(defaultTals[0] || '');
+                    if (newCity === 'All') {
+                      setLocalArea('');
+                    } else {
+                      if (selectedState === 'All') {
+                        setSelectedState('Gujarat');
+                      }
+                      const defaultTals = getTalukasForDistrict(newCity);
+                      setLocalArea(defaultTals[0] || '');
+                    }
                   }}
                   className="w-full h-9 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-2 text-[11px] font-extrabold text-slate-900 dark:text-white outline-none focus:border-emerald-500 cursor-pointer"
                 >
+                  <option value="All">
+                    {language === 'GU' ? '🌐 બધા શહેરો' : language === 'HI' ? '🌐 सभी शहर' : '🌐 All Cities'}
+                  </option>
                   {districtsForSelectedState.map((dist) => (
                     <option key={dist} value={dist}>
                       {dist}
@@ -541,14 +596,21 @@ export default function PostIntentSheet({ onClose, onPostCreated }: PostIntentSh
                 </span>
                 <select
                   value={localArea}
+                  disabled={selectedCity === 'All'}
                   onChange={(e) => setLocalArea(e.target.value)}
-                  className="w-full h-9 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-2 text-[11px] font-extrabold text-slate-900 dark:text-white outline-none focus:border-emerald-500 cursor-pointer"
+                  className="w-full h-9 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-2 text-[11px] font-extrabold text-slate-900 dark:text-white outline-none focus:border-emerald-500 cursor-pointer disabled:opacity-60"
                 >
-                  {talukasForCity.map((tal) => (
-                    <option key={tal} value={tal}>
-                      {tal}
+                  {selectedCity === 'All' ? (
+                    <option value="">
+                      {language === 'GU' ? 'બધા વિસ્તારો' : language === 'HI' ? 'सभी क्षेत्र' : 'All Areas'}
                     </option>
-                  ))}
+                  ) : (
+                    talukasForCity.map((tal) => (
+                      <option key={tal} value={tal}>
+                        {tal}
+                      </option>
+                    ))
+                  )}
                 </select>
               </div>
             </div>

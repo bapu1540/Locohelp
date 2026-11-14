@@ -223,25 +223,30 @@ let cachedMessagingInstance: Messaging | null = null;
 let cachedRuntimePublicConfig: {
   firebaseConfig?: Record<string, string>;
   vapidKey?: string;
+  webPushPublicKey?: string;
 } | null = null;
+
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
 
 async function getRuntimeFirebasePublicConfig(): Promise<{
   firebaseConfig: typeof firebaseConfig;
   vapidKey: string;
+  webPushPublicKey: string;
 }> {
   const inlineVapidKey = String(
     (import.meta as any).env?.VITE_FIREBASE_VAPID_KEY ||
       process.env.VITE_FIREBASE_VAPID_KEY ||
       ''
   ).trim();
-
-  if (
-    firebaseConfig.apiKey &&
-    firebaseConfig.apiKey !== 'AIzaSyDummyKeyForLocoHelpAuthInit2026' &&
-    inlineVapidKey
-  ) {
-    return { firebaseConfig, vapidKey: inlineVapidKey };
-  }
 
   if (!cachedRuntimePublicConfig) {
     try {
@@ -266,10 +271,14 @@ async function getRuntimeFirebasePublicConfig(): Promise<{
   };
   const resolvedVapidKey =
     inlineVapidKey || String(cachedRuntimePublicConfig?.vapidKey || '').trim();
+  const resolvedWebPushKey = String(
+    cachedRuntimePublicConfig?.webPushPublicKey || resolvedVapidKey || ''
+  ).trim();
 
   return {
     firebaseConfig: mergedConfig,
-    vapidKey: resolvedVapidKey
+    vapidKey: resolvedVapidKey,
+    webPushPublicKey: resolvedWebPushKey
   };
 }
 
@@ -281,12 +290,12 @@ export async function getFirebaseMessagingInstance(): Promise<Messaging | null> 
     if (!supported) return null;
 
     const { firebaseConfig: liveConfig } = await getRuntimeFirebasePublicConfig();
+    if (!liveConfig.apiKey || liveConfig.apiKey === 'AIzaSyDummyKeyForLocoHelpAuthInit2026') {
+      return null;
+    }
+
     let targetApp = app;
-    if (
-      liveConfig.apiKey &&
-      liveConfig.apiKey !== 'AIzaSyDummyKeyForLocoHelpAuthInit2026' &&
-      firebaseConfig.apiKey === 'AIzaSyDummyKeyForLocoHelpAuthInit2026'
-    ) {
+    if (firebaseConfig.apiKey === 'AIzaSyDummyKeyForLocoHelpAuthInit2026') {
       const existingRuntimeApp = getApps().find((a) => a.name === 'locohelp-fcm-runtime');
       targetApp = existingRuntimeApp || initializeApp(liveConfig, 'locohelp-fcm-runtime');
     }
@@ -347,16 +356,56 @@ export async function requestAndRegisterFcmToken(options?: {
         swRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', {
           scope: '/'
         });
-        await navigator.serviceWorker.ready.catch(() => {});
+        const readyReg = await navigator.serviceWorker.ready.catch(() => undefined);
+        if (readyReg) swRegistration = readyReg;
       } catch (swErr) {
-        console.warn('[FCM] Service worker registration notice:', swErr);
+        console.warn('[WebPush] Service worker registration notice:', swErr);
       }
     }
 
-    const { vapidKey } = await getRuntimeFirebasePublicConfig();
-    const messaging = await getFirebaseMessagingInstance();
+    const { vapidKey, webPushPublicKey } = await getRuntimeFirebasePublicConfig();
+    let webPushSubscriptionToken = '';
     let fcmToken = '';
 
+    // 1. Primary: Register native browser Web Push subscription using server VAPID public key (works even when app is closed)
+    if (swRegistration && swRegistration.pushManager && webPushPublicKey) {
+      try {
+        const appServerKey = urlBase64ToUint8Array(webPushPublicKey);
+        let sub = await swRegistration.pushManager.getSubscription();
+        if (!sub) {
+          sub = await swRegistration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: appServerKey as unknown as BufferSource
+          });
+        } else {
+          // Verify existing subscription uses our current VAPID public key; re-subscribe if mismatched
+          try {
+            const existingKey = sub.options?.applicationServerKey
+              ? new Uint8Array(sub.options.applicationServerKey)
+              : null;
+            const keysMatch =
+              existingKey &&
+              existingKey.length === appServerKey.length &&
+              existingKey.every((val, idx) => val === appServerKey[idx]);
+            if (!keysMatch) {
+              await sub.unsubscribe().catch(() => {});
+              sub = await swRegistration.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: appServerKey as unknown as BufferSource
+              });
+            }
+          } catch {}
+        }
+        if (sub) {
+          webPushSubscriptionToken = JSON.stringify(sub.toJSON());
+        }
+      } catch (wpErr: any) {
+        console.warn('[WebPush] PushManager subscribe notice:', wpErr?.message || wpErr);
+      }
+    }
+
+    // 2. Secondary: Also try Firebase FCM token if Firebase project credentials are configured
+    const messaging = await getFirebaseMessagingInstance();
     if (messaging) {
       try {
         fcmToken = await getToken(messaging, {
@@ -368,18 +417,12 @@ export async function requestAndRegisterFcmToken(options?: {
       }
     }
 
-    if (!fcmToken) {
-      try {
-        fcmToken = localStorage.getItem('locohelp_fcm_token') || '';
-      } catch {}
-    }
-
-    if (!fcmToken) {
+    const primaryToken = webPushSubscriptionToken || fcmToken || localStorage.getItem('locohelp_fcm_token') || '';
+    if (!primaryToken) {
       return {
         success: false,
         permission,
-        error:
-          'FCM token could not be retrieved. Ensure VITE_FIREBASE_VAPID_KEY and Firebase project credentials are configured.'
+        error: 'Push subscription could not be created in this browser.'
       };
     }
 
@@ -405,7 +448,7 @@ export async function requestAndRegisterFcmToken(options?: {
     } catch {}
 
     const syncRes = await saveUserFcmTokenOnServer({
-      fcmToken,
+      fcmToken: primaryToken,
       area: options?.area,
       city: options?.city || options?.district,
       district: options?.district,
@@ -418,14 +461,30 @@ export async function requestAndRegisterFcmToken(options?: {
       name: fallbackName
     });
 
+    if (webPushSubscriptionToken && fcmToken && webPushSubscriptionToken !== fcmToken) {
+      await saveUserFcmTokenOnServer({
+        fcmToken,
+        area: options?.area,
+        city: options?.city || options?.district,
+        district: options?.district,
+        state: options?.state,
+        location: options?.location,
+        latitude: options?.latitude,
+        longitude: options?.longitude,
+        userId: fallbackUserId,
+        email: fallbackEmail,
+        name: fallbackName
+      }).catch(() => {});
+    }
+
     try {
-      localStorage.setItem('locohelp_fcm_token', fcmToken);
+      localStorage.setItem('locohelp_fcm_token', primaryToken);
       localStorage.setItem('locohelp_push_enabled', 'true');
     } catch {}
 
     return {
       success: syncRes.success,
-      token: fcmToken,
+      token: primaryToken,
       permission,
       error: syncRes.error
     };

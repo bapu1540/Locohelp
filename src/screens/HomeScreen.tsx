@@ -21,7 +21,7 @@ import JobPortalBrowseModal from '../components/JobPortalBrowseModal';
 import FreeHelperRegisterModal from '../components/FreeHelperRegisterModal';
 import PostResponsesModal from '../components/PostResponsesModal';
 import PanIndiaLocationModal from '../components/PanIndiaLocationModal';
-import { getSavedUserLocation, getConnectedTwinDistricts, calculateLocationDistanceKm, UserManualLocation } from '../data/panIndiaLocations';
+import { getSavedUserLocation, getConnectedTwinDistricts, calculateLocationDistanceKm, localizePlaceName, UserManualLocation } from '../data/panIndiaLocations';
 import { isGuestUser } from '../lib/authUtils';
 import { requestAndRegisterFcmToken, subscribeToForegroundPushMessages } from '../lib/firebase';
 import InstallAppModal from '../components/InstallAppModal';
@@ -777,6 +777,21 @@ export default function HomeScreen({
     let city = (item.city || '').trim();
     const rawLoc = (item.location || '').trim();
 
+    if (
+      city.toLowerCase() === 'all' ||
+      city.toLowerCase() === 'all cities' ||
+      area.toLowerCase() === 'all cities' ||
+      rawLoc.toLowerCase() === 'all cities' ||
+      rawLoc.toLowerCase() === 'all'
+    ) {
+      const allLabel = language === 'GU' ? 'બધા શહેરો' : language === 'HI' ? 'सभी शहर' : 'All Cities';
+      return {
+        area: 'All Cities',
+        city: 'All',
+        badge: allLabel
+      };
+    }
+
     if ((!area || !city) && rawLoc && rawLoc.includes(',')) {
       const parts = rawLoc.split(',').map(s => s.trim()).filter(Boolean);
       if (parts.length >= 3) {
@@ -808,17 +823,35 @@ export default function HomeScreen({
       else if (combinedText.includes('surat')) city = 'Surat';
       else if (combinedText.includes('vadodara') || combinedText.includes('baroda')) city = 'Vadodara';
       else if (combinedText.includes('rajkot')) city = 'Rajkot';
-      else city = userLocation.district || 'Gandhinagar';
+      else if (userLocation.district && userLocation.district.toLowerCase() !== 'all') {
+        city = userLocation.district;
+      } else {
+        city = 'All';
+      }
+    }
+
+    if (city.toLowerCase() === 'all') {
+      const allLabel = language === 'GU' ? 'બધા શહેરો' : language === 'HI' ? 'सभी शहर' : 'All Cities';
+      return {
+        area: 'All Cities',
+        city: 'All',
+        badge: allLabel
+      };
     }
 
     if (!area) {
-      area = (item as any).area || 'Main Area';
+      area = (item as any).area || city;
     }
+
+    const badge =
+      area && city && area.toLowerCase() !== city.toLowerCase()
+        ? `${area}, ${city}`
+        : city || area;
 
     return {
       area,
       city,
-      badge: `${area}, ${city}`
+      badge
     };
   };
 
@@ -1211,10 +1244,26 @@ export default function HomeScreen({
       if (isMyOwnPost) return;
 
       const areaLabel = newPost.area || newPost.city || newPost.location || 'Local Area';
-      const catLabel = newPost.category || newPost.title || 'New Request';
+      const catLabel = newPost.category || newPost.title || '';
       const descSnippet = String(newPost.description || newPost.title || '').slice(0, 80);
-      const notifTitle = `🔔 New Request in ${areaLabel}!`;
-      const notifBody = `${catLabel}: ${descSnippet}`;
+      const currentLang = (localStorage.getItem('locohelp_language') || language || 'GU').toUpperCase();
+      const locArea = localizePlaceName(areaLabel, currentLang) || areaLabel;
+      const matchedCatObj = catLabel
+        ? CATEGORIES.find(
+            (c) =>
+              c.id.toLowerCase() === String(catLabel).toLowerCase() ||
+              c.nameEn.toLowerCase() === String(catLabel).toLowerCase()
+          )
+        : undefined;
+      const locCat = matchedCatObj ? getCategoryName(matchedCatObj, currentLang as any) : catLabel;
+
+      const notifTitle =
+        currentLang === 'GU'
+          ? `🔔 ${locArea} માં નવી જરૂરિયાત પોસ્ટ!`
+          : currentLang === 'HI'
+          ? `🔔 ${locArea} में नई आवश्यकता पोस्ट!`
+          : `🔔 New Request in ${locArea}!`;
+      const notifBody = locCat ? `${locCat}: ${descSnippet}` : descSnippet;
 
       setCreatedToast(`${notifTitle} ${notifBody}`);
       setTimeout(() => setCreatedToast(null), 6000);
@@ -1229,6 +1278,9 @@ export default function HomeScreen({
               type: 'new_post',
               title: notifTitle,
               body: notifBody,
+              area: areaLabel,
+              category: catLabel,
+              description: descSnippet,
               postId: postIdStr,
               post: newPost,
               createdAt: new Date().toISOString(),
@@ -1495,9 +1547,22 @@ export default function HomeScreen({
           );
 
         if (isForMe) {
-          const responderName = payload.response?.senderName || payload.response?.authorName || 'Someone';
-          const msgPreview = String(payload.response?.text || payload.response?.message || 'Sent a message').slice(0, 80);
-          const notifTitle = `💬 New Message from ${responderName}`;
+          const currentLang = (localStorage.getItem('locohelp_language') || language || 'GU').toUpperCase();
+          const responderName =
+            payload.response?.senderName ||
+            payload.response?.authorName ||
+            (currentLang === 'GU' ? 'સભ્ય' : currentLang === 'HI' ? 'सदस्य' : 'Someone');
+          const msgPreview = String(
+            payload.response?.text ||
+              payload.response?.message ||
+              (currentLang === 'GU' ? 'નવો મેસેજ મોકલ્યો' : currentLang === 'HI' ? 'नया संदेश भेजा' : 'Sent a message')
+          ).slice(0, 80);
+          const notifTitle =
+            currentLang === 'GU'
+              ? `💬 ${responderName} તરફથી નવો મેસેજ`
+              : currentLang === 'HI'
+              ? `💬 ${responderName} से नया संदेश`
+              : `💬 New Message from ${responderName}`;
           const notifBody = msgPreview;
 
           setCreatedToast(`${notifTitle}: "${notifBody}"`);

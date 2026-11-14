@@ -89,7 +89,7 @@ function filterApprovedServiceExpertsList(list: any[]): any[] {
   if (!Array.isArray(list)) return [];
   return list.filter((h: any) => {
     if (!h || !h.name) return false;
-    if (h.status && h.status !== 'approved') return false;
+    if (h.status !== 'approved' && h.isVerified !== true) return false;
     const idStr = String(h.id || '').trim();
     // Exclude Simple User Profiles — only include genuine Service Expert registrations
     if (!idStr.startsWith('helper_') && !idStr.startsWith('hp_')) return false;
@@ -289,11 +289,19 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
 
   const locationFilteredHelpers = React.useMemo(() => {
     if (!filterByMyCity || isAllCitiesSelected || !selectedCityName) return liveHelpers;
-    return liveHelpers.filter((prov: any) => {
+    const matchedInCity: any[] = [];
+    const otherApproved: any[] = [];
+    liveHelpers.forEach((prov: any) => {
       const pArea = String(prov.area || prov.city || prov.location || '');
-      if (!pArea) return false;
-      return matchesUserLocationFilter(pArea, userLocation);
+      if (pArea && matchesUserLocationFilter(pArea, userLocation)) {
+        matchedInCity.push(prov);
+      } else {
+        otherApproved.push(prov);
+      }
     });
+    // Prioritize providers from the user's selected city first, followed by other approved providers
+    // so every phone displays a consistent showcase count without hiding available experts
+    return [...matchedInCity, ...otherApproved];
   }, [liveHelpers, filterByMyCity, isAllCitiesSelected, selectedCityName, userLocation]);
 
   // Build uniform ShowcaseProviderItem list (strictly max 6 Service Experts, never Simple User Profiles)

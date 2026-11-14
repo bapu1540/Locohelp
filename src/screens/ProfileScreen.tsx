@@ -479,20 +479,38 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
         }
         if (userScoped.skills) setUserSkills(userScoped.skills);
         if (userScoped.exp || userScoped.experience) setUserExp(userScoped.exp || userScoped.experience);
+        if (userScoped.myHelperProfile) {
+          foundHelper = userScoped.myHelperProfile;
+        }
         if (userScoped.address) {
           setUserAddress(userScoped.address);
-          setHelperArea(userScoped.address);
-          setShopArea(userScoped.address);
+          if (!foundHelper?.area) {
+            setHelperArea((prev) => prev || userScoped.address);
+          }
+          try {
+            const savedBizRaw = localStorage.getItem('locohelp_my_business_profile');
+            const savedBiz = savedBizRaw ? JSON.parse(savedBizRaw) : null;
+            if (!savedBiz?.area) {
+              setShopArea((prev) => prev || userScoped.address);
+            }
+          } catch {
+            setShopArea((prev) => prev || userScoped.address);
+          }
         }
-        const candidateLocalPhoto = userScoped.profilePhoto || userScoped.avatar_url || '';
+        const candidateLocalPhoto = userScoped.watermarkedSelfieUrl || userScoped.profilePhoto || userScoped.avatar_url || '';
         if (candidateLocalPhoto && candidateLocalPhoto !== 'https://lh3.googleusercontent.com/a/default-user') {
           setProfilePhoto(candidateLocalPhoto);
         }
+        const candidateLocalRawSelfie =
+          userScoped.rawSelfieUrl ||
+          userScoped.idDocumentWatermarked ||
+          userScoped.liveSelfieUrl ||
+          '';
+        if (candidateLocalRawSelfie && candidateLocalRawSelfie !== 'https://lh3.googleusercontent.com/a/default-user') {
+          setRawProfilePhoto(candidateLocalRawSelfie);
+        }
         if (userScoped.visitingCardUrl !== undefined || userScoped.visiting_card_url !== undefined) {
           setUserVisitingCard(String(userScoped.visitingCardUrl || userScoped.visiting_card_url || ''));
-        }
-        if (userScoped.myHelperProfile) {
-          foundHelper = userScoped.myHelperProfile;
         }
       } else {
         const savedName = localStorage.getItem('locohelp_profile_name');
@@ -512,6 +530,18 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
         }
       }
 
+      const helperData = localStorage.getItem('locohelp_my_helper_profile');
+      if (helperData) {
+        const parsed = JSON.parse(helperData);
+        if (parsed && parsed.name) {
+          const pEmail = (parsed.email || '').toLowerCase();
+          if (!pEmail || !cleanEmail || pEmail === cleanEmail) {
+            // Prefer dedicated locohelp_my_helper_profile over older snapshot in userScoped
+            foundHelper = { ...(foundHelper || {}), ...parsed };
+          }
+        }
+      }
+
       if (!foundHelper) {
         const allLocalHelpers = getFreeHelperProfiles(true);
         foundHelper = allLocalHelpers.find(h =>
@@ -521,25 +551,14 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
         ) || null;
       }
 
-      if (!foundHelper) {
-        const helperData = localStorage.getItem('locohelp_my_helper_profile');
-        if (helperData) {
-          const parsed = JSON.parse(helperData);
-          if (parsed && parsed.name) {
-            const pEmail = (parsed.email || '').toLowerCase();
-            if (!pEmail || !cleanEmail || pEmail === cleanEmail) {
-              foundHelper = parsed;
-            }
-          }
-        }
-      }
-
       if (foundHelper) {
         setMyHelperProfile(foundHelper);
         populateHelperForm(foundHelper);
         setHasExistingUserProfile(true);
       }
     } catch (e) {}
+
+    let serverHelperSynced = false;
 
     // Cloud profile load
     const loadProfile = async () => {
@@ -586,13 +605,20 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
           if (data.visitingCardUrl !== undefined || data.visiting_card_url !== undefined) {
             setUserVisitingCard(String(data.visitingCardUrl || data.visiting_card_url || ''));
           }
-          if (data.myHelperProfile) {
+          if (data.myHelperProfile && !serverHelperSynced && !foundHelper) {
+            foundHelper = data.myHelperProfile;
             setMyHelperProfile(data.myHelperProfile);
             populateHelperForm(data.myHelperProfile);
             setHasExistingUserProfile(true);
           }
 
-          localStorage.setItem(`locohelp_user_profile_${userKey}`, JSON.stringify(data));
+          localStorage.setItem(
+            `locohelp_user_profile_${userKey}`,
+            JSON.stringify({
+              ...data,
+              myHelperProfile: foundHelper || data.myHelperProfile || null
+            })
+          );
         }
       } catch (err) {
         console.warn("Profile sync notice:", err);
@@ -614,11 +640,13 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
           );
         });
         if (matched) {
+          serverHelperSynced = true;
           const mergedHelper = {
             ...(foundHelper || {}),
             ...matched,
             phone: matched.phone || foundHelper?.phone || ''
           };
+          foundHelper = mergedHelper;
           setMyHelperProfile(mergedHelper);
           populateHelperForm(mergedHelper);
           setHasExistingUserProfile(true);
@@ -673,6 +701,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
         if (parsedBiz && parsedBiz.name) {
           localBiz = parsedBiz;
           setMyBusinessProfile(parsedBiz);
+          if (parsedBiz.area) setShopArea(parsedBiz.area);
         }
       }
     } catch (e) {}
@@ -705,6 +734,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
               phone: matchedMyShop.phone || localBiz?.phone || ''
             };
             setMyBusinessProfile(mergedShop);
+            if (mergedShop.area) setShopArea(mergedShop.area);
             try {
               localStorage.setItem('locohelp_my_business_profile', JSON.stringify(mergedShop));
             } catch (e) {}
@@ -974,11 +1004,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
       skillsList.unshift(safeCustomCat);
     }
 
-    const finalWorkPhoto =
-      helperWorkPhoto ||
-      (myHelperProfile as any)?.visitingCardUrl ||
-      (myHelperProfile as any)?.workPhotoUrl ||
-      '';
+    const finalWorkPhoto = helperWorkPhoto || '';
     const helperLocParts = helperArea.split(',').map(s => s.trim()).filter(Boolean);
     const parsedHelperTaluka = helperLocParts[0] || helperArea.trim() || 'Local Area';
     const parsedHelperCity = helperLocParts[1] || parsedHelperTaluka;
@@ -1003,7 +1029,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
       phone: sanitizeText(resolvedHelperPhone, 30),
       isPhonePublic: isHelperPhonePublic,
       skills: skillsList,
-      area: sanitizeText(parsedHelperTaluka, 150),
+      area: sanitizeText(helperArea.trim() || parsedHelperTaluka, 150),
       city: sanitizeText(parsedHelperCity, 100),
       experience: sanitizeText(helperExp.trim() || '1 Year', 60),
       distance: 0.5,
@@ -1039,7 +1065,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
       await saveHelper({
         ...newHelper,
         id: helperId,
-        area: sanitizeText(parsedHelperTaluka, 150),
+        area: sanitizeText(helperArea.trim() || parsedHelperTaluka, 150),
         city: sanitizeText(parsedHelperCity, 100),
         photoUrl: publicWatermarkedSelfie,
         watermarkedSelfieUrl: publicWatermarkedSelfie,
@@ -1116,13 +1142,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
     );
     const nextBizStatus = wasBizApproved ? 'approved' : 'pending';
 
-    const existingBizPhoto =
-      myBusinessProfile?.photoUrl &&
-      myBusinessProfile.photoUrl !== finalShopSelfie &&
-      myBusinessProfile.photoUrl !== adminCleanShopSelfie
-        ? myBusinessProfile.photoUrl
-        : undefined;
-    const resolvedBizCardOrPhoto = finalPhotos[0] || shopPhoto || (myBusinessProfile as any)?.visitingCardUrl || existingBizPhoto || undefined;
+    const resolvedBizCardOrPhoto = finalPhotos[0] || shopPhoto || undefined;
 
     const newShop: RegisteredShop = {
       id: shopId,
@@ -1419,7 +1439,12 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800">
                     <span className="text-[10px] font-bold text-slate-400 uppercase block">{tr('Mobile Number', 'मोबाइल नंबर', 'મોબાઈલ નંબર')}</span>
                     <span className="font-extrabold text-slate-900 dark:text-white">
-                      {userPhone || myHelperProfile?.phone ? `+91 ${userPhone || myHelperProfile?.phone}` : '—'}
+                      {(() => {
+                        const rawPh = String(userPhone || myHelperProfile?.phone || '').trim();
+                        if (!rawPh) return '—';
+                        const ten = rawPh.replace(/\D/g, '').slice(-10);
+                        return ten.length === 10 ? `+91 ${ten}` : rawPh;
+                      })()}
                     </span>
                   </div>
                   <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800">
@@ -1529,7 +1554,11 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                 <PhonePrivacyToggle
                   isPhonePublic={isUserPhonePublic}
                   onChange={setIsUserPhonePublic}
-                  phoneDisplay={userPhone || getCurrentUser()?.phone || ''}
+                  phoneDisplay={(() => {
+                    const rawPh = String(userPhone || getCurrentUser()?.phone || '').trim();
+                    const ten = rawPh.replace(/\D/g, '').slice(-10);
+                    return ten.length === 10 ? `+91 ${ten}` : rawPh;
+                  })()}
                 />
 
                 {uploadErrorMsg && (
@@ -1604,7 +1633,14 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   <div className="grid grid-cols-2 gap-2.5 text-xs">
                     <div className="bg-white dark:bg-slate-850 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
                       <span className="text-[10px] text-slate-400 font-bold block">{tr('Mobile Number', 'मोबाइल नंबर', 'મોબાઈલ નંબર')}</span>
-                      <span className="font-extrabold text-slate-800 dark:text-slate-200">+91 {myHelperProfile.phone}</span>
+                      <span className="font-extrabold text-slate-800 dark:text-slate-200">
+                        {(() => {
+                          const rawPh = String(myHelperProfile.phone || userPhone || '').trim();
+                          if (!rawPh) return '—';
+                          const ten = rawPh.replace(/\D/g, '').slice(-10);
+                          return ten.length === 10 ? `+91 ${ten}` : rawPh;
+                        })()}
+                      </span>
                     </div>
                     <div className="bg-white dark:bg-slate-850 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
                       <span className="text-[10px] text-slate-400 font-bold block">{tr('Experience', 'अनुभव', 'અનુભવ')}</span>
@@ -1784,7 +1820,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
 
                 {/* 8. Visiting Card / Work Photo (Optional) */}
                 <VisitingCardUploadField
-                  value={helperWorkPhoto || myHelperProfile?.photoUrl || ''}
+                  value={helperWorkPhoto || ''}
                   onChange={(url) => {
                     setHelperWorkPhoto(url || null);
                     setUploadErrorMsg(null);

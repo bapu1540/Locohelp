@@ -8,6 +8,8 @@ import nodemailer from "nodemailer";
 import pg from "pg";
 import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
+import * as webpushNamespace from "web-push";
+const webpush: typeof webpushNamespace = (webpushNamespace as any).default || webpushNamespace;
 import { initializeApp as initFirebaseApp, getApps as getFirebaseApps, getApp as getFirebaseApp } from "firebase/app";
 import {
   getStorage as getFirebaseStorage,
@@ -67,6 +69,8 @@ const CATEGORY_IMAGES_FILE = path.join(DATA_DIR, "category_images.json");
 const AUTH_USERS_FILE = path.join(DATA_DIR, "auth_users.json");
 const SECURITY_VAULT_FILE = path.join(DATA_DIR, "security_vault.enc");
 const ADMIN_GLOBAL_BLOCKS_FILE = path.join(DATA_DIR, "admin_global_blocks.json");
+const VAPID_KEYS_FILE = path.join(DATA_DIR, "vapid_keys.json");
+const PUSH_TOKENS_FILE = path.join(DATA_DIR, "push_tokens.json");
 
 const inMemoryJsonCache = new Map<string, any>();
 
@@ -236,6 +240,52 @@ async function getFcmHttpV1AccessToken(serviceAccount: any): Promise<string | nu
   return null;
 }
 
+interface StoredPushTokenRecord {
+  token: string;
+  userId?: string;
+  email?: string;
+  name?: string;
+  area?: string;
+  city?: string;
+  location?: string;
+  updatedAt?: string;
+}
+
+let cachedServerVapidKeys: { publicKey: string; privateKey: string } | null = null;
+
+function getOrGenerateServerVapidKeys(): { publicKey: string; privateKey: string } {
+  if (cachedServerVapidKeys) return cachedServerVapidKeys;
+  const envPub = (process.env.VAPID_PUBLIC_KEY || "").trim();
+  const envPriv = (process.env.VAPID_PRIVATE_KEY || "").trim();
+  if (envPub && envPriv) {
+    cachedServerVapidKeys = { publicKey: envPub, privateKey: envPriv };
+  } else {
+    const saved = readJsonFile<{ publicKey?: string; privateKey?: string }>(VAPID_KEYS_FILE, {});
+    if (saved && saved.publicKey && saved.privateKey) {
+      cachedServerVapidKeys = { publicKey: saved.publicKey, privateKey: saved.privateKey };
+    } else {
+      const generated = webpush.generateVAPIDKeys();
+      cachedServerVapidKeys = {
+        publicKey: generated.publicKey,
+        privateKey: generated.privateKey
+      };
+      writeJsonFile(VAPID_KEYS_FILE, cachedServerVapidKeys);
+    }
+  }
+  try {
+    webpush.setVapidDetails(
+      "mailto:support@locohelp.com",
+      cachedServerVapidKeys.publicKey,
+      cachedServerVapidKeys.privateKey
+    );
+  } catch (err: any) {
+    console.warn("[WebPush VAPID] setVapidDetails warning:", err?.message || err);
+  }
+  return cachedServerVapidKeys;
+}
+
+getOrGenerateServerVapidKeys();
+
 async function sendFcmMulticastPush(payload: {
   tokens: string[];
   title: string;
@@ -250,12 +300,73 @@ async function sendFcmMulticastPush(payload: {
   }
 
   const notificationTag = data?.conversationId || data?.postId || "locohelp-local-request";
+  let totalSuccess = 0;
+  let totalFailure = 0;
 
-  // 1. Try firebase-admin sendEachForMulticast if available
+  // Separate standard Web Push JSON subscriptions from Firebase FCM token strings
+  const webPushTokens: string[] = [];
+  const fcmTokens: string[] = [];
+  for (const rawTok of tokens) {
+    const trimmed = String(rawTok || "").trim();
+    if (!trimmed) continue;
+    if (trimmed.startsWith("{") && trimmed.includes('"endpoint"')) {
+      webPushTokens.push(trimmed);
+    } else {
+      fcmTokens.push(trimmed);
+    }
+  }
+
+  // A. Deliver to standard Web Push subscriptions (works in background when app is closed without Firebase Admin credentials)
+  if (webPushTokens.length > 0) {
+    getOrGenerateServerVapidKeys();
+    const pushPayloadStr = JSON.stringify({
+      isWebPush: true,
+      notification: {
+        title,
+        body,
+        icon: "/pwa-192x192.png",
+        badge: "/pwa-192x192.png",
+        tag: notificationTag
+      },
+      data: {
+        ...data,
+        title,
+        body,
+        url: postUrl,
+        click_action: postUrl
+      },
+      fcmOptions: { link: postUrl }
+    });
+
+    await Promise.all(
+      webPushTokens.map(async (subJson) => {
+        try {
+          const subObj = JSON.parse(subJson);
+          await webpush.sendNotification(subObj, pushPayloadStr, {
+            TTL: 86400,
+            urgency: "high"
+          });
+          totalSuccess++;
+        } catch (err: any) {
+          totalFailure++;
+          const status = Number(err?.statusCode || 0);
+          if (status === 404 || status === 410) {
+            invalidTokens.push(subJson);
+          }
+        }
+      })
+    );
+  }
+
+  if (fcmTokens.length === 0) {
+    return { successCount: totalSuccess, failureCount: totalFailure, invalidTokens };
+  }
+
+  // B. Deliver to Firebase FCM tokens if Firebase Admin / Service Account is configured
   const adminMessaging = await getFirebaseAdminMessaging();
   if (adminMessaging && typeof adminMessaging.sendEachForMulticast === "function") {
     const response = await adminMessaging.sendEachForMulticast({
-      tokens,
+      tokens: fcmTokens,
       notification: { title, body },
       data,
       android: {
@@ -293,34 +404,32 @@ async function sendFcmMulticastPush(payload: {
             code === "messaging/registration-token-not-registered" ||
             code === "messaging/invalid-registration-token"
           ) {
-            invalidTokens.push(tokens[idx]);
+            invalidTokens.push(fcmTokens[idx]);
           }
         }
       });
     }
     return {
-      successCount: response.successCount || 0,
-      failureCount: response.failureCount || 0,
+      successCount: totalSuccess + (response.successCount || 0),
+      failureCount: totalFailure + (response.failureCount || 0),
       invalidTokens
     };
   }
 
-  // 2. Fallback to direct FCM HTTP v1 REST API using service account JWT
+  // C. Fallback to direct FCM HTTP v1 REST API using service account JWT
   const serviceAccount = getParsedFirebaseServiceAccount();
   if (!serviceAccount || !serviceAccount.project_id) {
-    return { successCount: 0, failureCount: 0, invalidTokens };
+    return { successCount: totalSuccess, failureCount: totalFailure, invalidTokens };
   }
   const accessToken = await getFcmHttpV1AccessToken(serviceAccount);
   if (!accessToken) {
-    return { successCount: 0, failureCount: 0, invalidTokens };
+    return { successCount: totalSuccess, failureCount: totalFailure, invalidTokens };
   }
 
-  let successCount = 0;
-  let failureCount = 0;
   const endpoint = `https://fcm.googleapis.com/v1/projects/${encodeURIComponent(serviceAccount.project_id)}/messages:send`;
 
   await Promise.all(
-    tokens.map(async (token) => {
+    fcmTokens.map(async (token) => {
       try {
         const res = await fetch(endpoint, {
           method: "POST",
@@ -361,21 +470,21 @@ async function sendFcmMulticastPush(payload: {
           })
         });
         if (res.ok) {
-          successCount++;
+          totalSuccess++;
         } else {
-          failureCount++;
+          totalFailure++;
           const errText = await res.text().catch(() => "");
           if (errText.includes("UNREGISTERED") || errText.includes("INVALID_ARGUMENT")) {
             invalidTokens.push(token);
           }
         }
       } catch {
-        failureCount++;
+        totalFailure++;
       }
     })
   );
 
-  return { successCount, failureCount, invalidTokens };
+  return { successCount: totalSuccess, failureCount: totalFailure, invalidTokens };
 }
 
 // ==========================================
@@ -4338,15 +4447,15 @@ async function startServer() {
         });
       }
 
-      // Validate uploaded profile Live Selfie and optional Visiting Card, and upload to Firebase Storage (`locohelp/profiles/`)
+      // Validate uploaded profile Live Selfie (both watermarked public avatar and unwatermarked admin selfie) and optional Visiting Card
       const rawAvatarCandidate =
-        profile.liveSelfieUrl ||
         profile.watermarkedSelfieUrl ||
-        profile.idDocumentWatermarked ||
         profile.avatarUrl ||
         profile.avatar_url ||
         profile.profilePhoto ||
-        profile.photoURL;
+        profile.photoURL ||
+        profile.liveSelfieUrl ||
+        profile.idDocumentWatermarked;
       const rawAvatar =
         rawAvatarCandidate && rawAvatarCandidate !== "https://lh3.googleusercontent.com/a/default-user"
           ? rawAvatarCandidate
@@ -4360,6 +4469,27 @@ async function startServer() {
       const uploadedAvatar = rawAvatar
         ? await uploadDataToFirebaseServer(rawAvatar, "profiles")
         : "";
+
+      const rawAdminSelfieCandidate =
+        profile.rawSelfieUrl ||
+        profile.idDocumentWatermarked ||
+        profile.liveSelfieUrl ||
+        "";
+      const rawAdminSelfie =
+        rawAdminSelfieCandidate && rawAdminSelfieCandidate !== "https://lh3.googleusercontent.com/a/default-user"
+          ? rawAdminSelfieCandidate
+          : "";
+      let uploadedAdminSelfie = "";
+      if (rawAdminSelfie) {
+        if (rawAdminSelfie === rawAvatar) {
+          uploadedAdminSelfie = uploadedAvatar;
+        } else {
+          const adminSelfieCheck = validateServerUploadedData(rawAdminSelfie, { allowPdf: false });
+          if (adminSelfieCheck.valid) {
+            uploadedAdminSelfie = await uploadDataToFirebaseServer(rawAdminSelfie, "profiles");
+          }
+        }
+      }
 
       const rawVisitingCard = profile.visitingCardUrl || profile.visiting_card_url || "";
       if (rawVisitingCard) {
@@ -4450,13 +4580,33 @@ async function startServer() {
           : existingLocalOrDb?.isPhonePublic ?? existingLocalOrDb?.is_phone_public ?? existingRawJson?.isPhonePublic ?? false
       );
       const prevCleanAvatar =
+        (existingLocalOrDb?.watermarkedSelfieUrl && existingLocalOrDb.watermarkedSelfieUrl !== "https://lh3.googleusercontent.com/a/default-user"
+          ? existingLocalOrDb.watermarkedSelfieUrl
+          : "") ||
         (existingLocalOrDb?.avatar_url && existingLocalOrDb.avatar_url !== "https://lh3.googleusercontent.com/a/default-user"
           ? existingLocalOrDb.avatar_url
           : "") ||
+        existingRawJson?.watermarkedSelfieUrl ||
         existingRawJson?.liveSelfieUrl ||
         existingLocalOrDb?.liveSelfieUrl ||
         "";
       const avatarUrl = uploadedAvatar || prevCleanAvatar || "";
+
+      const prevAdminSelfie =
+        existingLocalOrDb?.rawSelfieUrl ||
+        existingRawJson?.rawSelfieUrl ||
+        existingLocalOrDb?.idDocumentWatermarked ||
+        existingRawJson?.idDocumentWatermarked ||
+        existingRawJson?.liveSelfieUrl ||
+        existingLocalOrDb?.liveSelfieUrl ||
+        "";
+      // Only replace prevAdminSelfie if a new distinct rawSelfieUrl was explicitly sent, otherwise keep prevAdminSelfie so location/profile edits never overwrite the unwatermarked admin selfie with the watermarked avatarUrl
+      const adminSelfieUrl =
+        (profile.rawSelfieUrl && uploadedAdminSelfie ? uploadedAdminSelfie : "") ||
+        prevAdminSelfie ||
+        uploadedAdminSelfie ||
+        avatarUrl ||
+        "";
       const prevVisitingCard =
         existingLocalOrDb?.visitingCardUrl ||
         existingRawJson?.visitingCardUrl ||
@@ -4688,7 +4838,10 @@ async function startServer() {
             profileImageUrl,
             JSON.stringify({
               isPhonePublic,
-              liveSelfieUrl: avatarUrl,
+              watermarkedSelfieUrl: avatarUrl,
+              rawSelfieUrl: adminSelfieUrl || avatarUrl,
+              idDocumentWatermarked: adminSelfieUrl || avatarUrl,
+              liveSelfieUrl: adminSelfieUrl || avatarUrl,
               visitingCardUrl
             })
           ]);
@@ -4741,16 +4894,16 @@ async function startServer() {
               email,
               phone,
               verifTitle,
-              avatarUrl || '',
+              adminSelfieUrl || avatarUrl || '',
               finalVerifStatus
             ]
           ).catch(() => {});
 
-          if (avatarUrl) {
+          if (adminSelfieUrl || avatarUrl) {
             const normPh = normalizePhoneDigitsServer(phone || '');
             await dbPool.query(
               `UPDATE verification_requests
-               SET id_document_watermarked = $1,
+               SET id_document_watermarked = COALESCE(NULLIF($1, ''), id_document_watermarked),
                    user_name = CASE
                      WHEN $2 IS NOT NULL
                        AND TRIM($2) <> ''
@@ -4768,7 +4921,7 @@ async function startServer() {
                    OR ($4 <> '' AND LOWER(user_email) = LOWER($4))
                    OR ($6 <> '' AND RIGHT(REGEXP_REPLACE(COALESCE(user_phone, ''), '\\D', '', 'g'), 10) = $6)
                  )`,
-              [avatarUrl, fullName, phone, email, uid, normPh]
+              [adminSelfieUrl || '', fullName, phone, email, uid, normPh]
             ).catch(() => {});
           }
         } catch (dbErr) {
@@ -4794,8 +4947,10 @@ async function startServer() {
         city,
         sector,
         avatar_url: avatarUrl,
-        liveSelfieUrl: avatarUrl,
-        idDocumentWatermarked: avatarUrl,
+        watermarkedSelfieUrl: avatarUrl,
+        rawSelfieUrl: adminSelfieUrl || avatarUrl,
+        liveSelfieUrl: adminSelfieUrl || avatarUrl,
+        idDocumentWatermarked: adminSelfieUrl || avatarUrl,
         visitingCardUrl,
         image_url: profileImageUrl,
         photoURL: avatarUrl,
@@ -5002,11 +5157,12 @@ async function startServer() {
   app.post("/api/signup", authLoginLimiter, signupHandler);
   app.post("/api/users", authLoginLimiter, signupHandler);
 
-  // Expose public Firebase Web Config & VAPID key at runtime so browser push always has valid Railway keys
+  // Expose public Firebase Web Config & VAPID key at runtime so browser push always has valid keys
   app.get("/api/firebase-public-config", (_req: express.Request, res: express.Response) => {
     const vapidKey = String(
       process.env.VITE_FIREBASE_VAPID_KEY || process.env.FIREBASE_VAPID_KEY || ""
     ).trim();
+    const serverVapid = getOrGenerateServerVapidKeys();
     return res.json({
       firebaseConfig: {
         apiKey: firebaseServerConfig.apiKey || "AIzaSyDummyKeyForLocoHelpAuthInit2026",
@@ -5016,11 +5172,12 @@ async function startServer() {
         messagingSenderId: firebaseServerConfig.messagingSenderId || "1029384756",
         appId: firebaseServerConfig.appId || "1:1029384756:web:abc123def456"
       },
-      vapidKey
+      vapidKey: vapidKey || serverVapid.publicKey,
+      webPushPublicKey: serverVapid.publicKey
     });
   });
 
-  // Save or update user's FCM Web Push token and current area/location in PostgreSQL
+  // Save or update user's FCM / Web Push subscription token and current area/location in PostgreSQL & local JSON
   app.post("/api/users/fcm-token", async (req: express.Request, res: express.Response) => {
     try {
       const caller = extractRequestUser(req);
@@ -5044,7 +5201,24 @@ async function startServer() {
 
       const resolvedId =
         uid ||
-        (email ? `email_${email.replace(/[^a-z0-9]/g, "_")}` : `device_${fcmToken.slice(0, 24).replace(/[^a-zA-Z0-9]/g, "_")}`);
+        (email ? `email_${email.replace(/[^a-z0-9]/g, "_")}` : `device_${fcmToken.slice(-24).replace(/[^a-zA-Z0-9]/g, "_")}`);
+
+      // Persist in local PUSH_TOKENS_FILE as well so background push works even if DB is reconnecting
+      try {
+        const localTokens = readJsonFile<StoredPushTokenRecord[]>(PUSH_TOKENS_FILE, []);
+        const filtered = localTokens.filter((item) => item && item.token && item.token !== fcmToken);
+        filtered.push({
+          token: fcmToken,
+          userId: resolvedId,
+          email,
+          name,
+          area,
+          city,
+          location,
+          updatedAt: new Date().toISOString()
+        });
+        writeJsonFile(PUSH_TOKENS_FILE, filtered.slice(-1000));
+      } catch {}
 
       if (dbPool && isDbConnected) {
         // 1. Always upsert into multi-device user_fcm_tokens table
@@ -7853,7 +8027,7 @@ async function startServer() {
                 status: localMeta.status || 'active',
                 city: localMeta.city || (parts.length > 1 ? parts[parts.length - 1] : ''),
                 area: localMeta.area || (parts.length > 1 ? parts.slice(0, -1).join(', ') : ''),
-                location: localMeta.location || rawLoc || 'Kudasan, Gandhinagar',
+                location: localMeta.location || rawLoc || 'All Cities',
                 distance: localMeta.distance || (rawLoc && !isNaN(Number(rawLoc)) ? Number(rawLoc) : 0.5),
                 hasLocationPin: true,
                 isVerifiedUser: true,
@@ -7883,9 +8057,9 @@ async function startServer() {
                 is_flagged: Boolean(r.is_flagged || localMeta.is_flagged),
                 hidden: Boolean(r.hidden || localMeta.hidden),
                 is_deleted: Boolean(r.is_deleted || localMeta.is_deleted),
-                city: localMeta.city || 'Gandhinagar',
+                city: localMeta.city || 'All',
                 area: localMeta.area || '',
-                location: localMeta.location || 'Gandhinagar',
+                location: localMeta.location || 'All Cities',
                 imageUrl: localMeta.imageUrl || '',
                 attachmentUrl: localMeta.attachmentUrl || localMeta.imageUrl || '',
                 distance: r.distance ? Number(r.distance) : (localMeta.distance || 0.5),
@@ -7920,9 +8094,9 @@ async function startServer() {
                 authorEmail: rawObj.authorEmail || localMeta.authorEmail || '',
                 description: r.content || rawObj.description || localMeta.description || '',
                 category: r.category || rawObj.category || localMeta.category || 'General',
-                city: rawObj.city || r.city || localMeta.city || 'Gandhinagar',
+                city: rawObj.city || r.city || localMeta.city || 'All',
                 area: rawObj.area || localMeta.area || '',
-                location: rawObj.location || localMeta.location || r.city || 'Gandhinagar',
+                location: rawObj.location || localMeta.location || r.city || 'All Cities',
                 imageUrl: r.image_url || rawObj.imageUrl || localMeta.imageUrl || '',
                 status: r.status || rawObj.status || localMeta.status || 'active',
                 is_flagged: Boolean(r.is_flagged || rawObj.is_flagged || localMeta.is_flagged),
@@ -7980,15 +8154,10 @@ async function startServer() {
         if (!sId || sId === 'system' || sId === 'owner' || sId === 'me') return;
 
         const senderNormKey = normalizeUserIdentityKey(sId, sEmail);
-        if (
-          (ownerId && (sId === ownerId || senderNormKey === ownerId)) ||
-          (ownerEmail && ((sEmail && sEmail === ownerEmail) || sId === ownerEmail)) ||
-          (ownerNormKey && senderNormKey === ownerNormKey) ||
-          (entryOwnerId && (sId === entryOwnerId || senderNormKey === normalizeUserIdentityKey(entryOwnerId, entryOwnerEmail))) ||
-          (entryOwnerEmail && sEmail && sEmail === entryOwnerEmail)
-        ) {
-          return;
-        }
+        const isStrictlyPostAuthor =
+          Boolean(ownerId && (sId === ownerId || senderNormKey === ownerId)) ||
+          Boolean(ownerEmail && ((sEmail && sEmail === ownerEmail) || sId === ownerEmail)) ||
+          Boolean(ownerNormKey && senderNormKey === ownerNormKey);
 
         const responderKey = senderNormKey || sEmail || sId;
 
@@ -8044,7 +8213,8 @@ async function startServer() {
               senderAvatar,
               lastMessage: msgText,
               lastMessageAt: createdAtIso,
-              messageCount: 1
+              messageCount: 1,
+              isPostAuthorSelf: isStrictlyPostAuthor
             });
           } else {
             existing.messageCount += 1;
@@ -8061,9 +8231,11 @@ async function startServer() {
       try {
         const allLocalMsgs = readJsonFile<Record<string, any[]>>(MESSAGES_FILE, {});
         Object.entries(allLocalMsgs).forEach(([convKey, arr]) => {
+          const parsedConv = parseConversationId(convKey);
+          const fallbackPostId = parsedConv?.postId || convKey;
           if (Array.isArray(arr)) {
             arr.forEach((m: any) => {
-              addResponderAndEntry(m?.post_id || m?.postId || m?.intent_id || m?.intentId || convKey, m);
+              addResponderAndEntry(m?.post_id || m?.postId || m?.intent_id || m?.intentId || fallbackPostId, m);
             });
           }
         });
@@ -8107,12 +8279,19 @@ async function startServer() {
             return false;
           }
           if (includeExpired) return true;
+          const postResps = responsesListByIntent.get(item.id) || [];
+          const latestReplyMs = postResps.reduce((max: number, r: any) => {
+            const t = new Date(r?.createdAt || 0).getTime();
+            return !isNaN(t) && t > max ? t : max;
+          }, 0);
           if (item.expiresAt) {
             const expMs = new Date(item.expiresAt).getTime();
-            if (!isNaN(expMs) && nowMs > expMs) return false;
+            const effectiveExpMs = Math.max(isNaN(expMs) ? 0 : expMs, latestReplyMs ? latestReplyMs + ONE_HOUR_MS : 0);
+            if (effectiveExpMs > 0 && nowMs > effectiveExpMs) return false;
           }
           const createdMs = new Date(item.createdAt || item.created_at || 0).getTime();
-          if (!createdMs || isNaN(createdMs) || nowMs - createdMs > ONE_HOUR_MS) {
+          const lastActiveMs = Math.max(isNaN(createdMs) ? 0 : createdMs, latestReplyMs);
+          if (!lastActiveMs || nowMs - lastActiveMs > ONE_HOUR_MS) {
             return false;
           }
           return true;
@@ -8120,10 +8299,12 @@ async function startServer() {
         .map(i => {
           const safe = redactBulkItemForPrivacy(i, isAuth, isAdmin);
           const postResponses = responsesListByIntent.get(i.id) || [];
-          const postRepliers = Array.from(repliersByIntent.get(i.id)?.values() || []).sort(
+          const allRepliers = Array.from(repliersByIntent.get(i.id)?.values() || []).sort(
             (a, b) => new Date(b.lastMessageAt || 0).getTime() - new Date(a.lastMessageAt || 0).getTime()
           );
-          const count = postRepliers.length;
+          const nonSelfRepliers = allRepliers.filter((r: any) => !r.isPostAuthorSelf);
+          const postRepliers = nonSelfRepliers.length > 0 ? nonSelfRepliers : allRepliers;
+          const count = Math.max(postRepliers.length, postResponses.length > 0 ? 1 : 0);
           safe.responseCount = count;
           safe.response_count = count;
           safe.responses = postResponses;
@@ -8407,52 +8588,69 @@ async function startServer() {
         }
       });
 
-      // 3. Trigger 1: Background FCM Web Push Multicast to other users in the same area/location
+      // 3. Trigger 1: Background Web Push & FCM Multicast to other users when a post is created
       (async () => {
         try {
-          if (!dbPool || !isDbConnected) return;
-          if (!getParsedFirebaseServiceAccount()) return;
-
           const postArea = (intentRecord.area || intentRecord.city || intentRecord.location || "Local Area").trim();
-          const authorIdVal = String(intentRecord.authorId || "").trim();
-          const authorEmailVal = String(intentRecord.authorEmail || "").trim();
-
-          const [usersTokenQuery, multiDeviceTokenQuery] = await Promise.all([
-            dbPool
-              .query(
-                `SELECT DISTINCT u.fcm_token
-                 FROM users u
-                 WHERE u.fcm_token IS NOT NULL
-                   AND TRIM(u.fcm_token) <> ''
-                   AND ($1 = '' OR LOWER(u.id) <> LOWER($1))
-                   AND ($2 = '' OR u.email IS NULL OR LOWER(u.email) <> LOWER($2))`,
-                [authorIdVal, authorEmailVal]
-              )
-              .catch(() => ({ rows: [] as any[] })),
-            dbPool
-              .query(
-                `SELECT DISTINCT token AS fcm_token
-                 FROM user_fcm_tokens
-                 WHERE token IS NOT NULL
-                   AND TRIM(token) <> ''
-                   AND ($1 = '' OR user_id IS NULL OR LOWER(user_id) <> LOWER($1))
-                   AND ($2 = '' OR email IS NULL OR LOWER(email) <> LOWER($2))`,
-                [authorIdVal, authorEmailVal]
-              )
-              .catch(() => ({ rows: [] as any[] }))
-          ]);
+          const authorIdVal = String(intentRecord.authorId || "").trim().toLowerCase();
+          const authorEmailVal = String(intentRecord.authorEmail || "").trim().toLowerCase();
 
           const matchedTokens = new Set<string>();
-          for (const row of [...(usersTokenQuery.rows || []), ...(multiDeviceTokenQuery.rows || [])]) {
-            const token = String(row.fcm_token || "").trim();
-            if (!token) continue;
-            matchedTokens.add(token);
+
+          // Gather from local PUSH_TOKENS_FILE
+          try {
+            const localTokens = readJsonFile<StoredPushTokenRecord[]>(PUSH_TOKENS_FILE, []);
+            for (const item of localTokens) {
+              if (!item || !item.token) continue;
+              const uId = String(item.userId || "").trim().toLowerCase();
+              const uEmail = String(item.email || "").trim().toLowerCase();
+              if (authorIdVal && uId && uId === authorIdVal) continue;
+              if (authorEmailVal && uEmail && uEmail === authorEmailVal) continue;
+              matchedTokens.add(String(item.token).trim());
+            }
+          } catch {}
+
+          // Gather from PostgreSQL if connected
+          if (dbPool && isDbConnected) {
+            const [usersTokenQuery, multiDeviceTokenQuery] = await Promise.all([
+              dbPool
+                .query(
+                  `SELECT DISTINCT u.fcm_token
+                   FROM users u
+                   WHERE u.fcm_token IS NOT NULL
+                     AND TRIM(u.fcm_token) <> ''
+                     AND ($1 = '' OR LOWER(u.id) <> LOWER($1))
+                     AND ($2 = '' OR u.email IS NULL OR LOWER(u.email) <> LOWER($2))`,
+                  [authorIdVal, authorEmailVal]
+                )
+                .catch(() => ({ rows: [] as any[] })),
+              dbPool
+                .query(
+                  `SELECT DISTINCT token AS fcm_token
+                   FROM user_fcm_tokens
+                   WHERE token IS NOT NULL
+                     AND TRIM(token) <> ''
+                     AND ($1 = '' OR user_id IS NULL OR LOWER(user_id) <> LOWER($1))
+                     AND ($2 = '' OR email IS NULL OR LOWER(email) <> LOWER($2))`,
+                  [authorIdVal, authorEmailVal]
+                )
+                .catch(() => ({ rows: [] as any[] }))
+            ]);
+
+            for (const row of [...(usersTokenQuery.rows || []), ...(multiDeviceTokenQuery.rows || [])]) {
+              const token = String(row.fcm_token || "").trim();
+              if (!token) continue;
+              matchedTokens.add(token);
+            }
           }
 
           const tokens = Array.from(matchedTokens).slice(0, 500);
           if (tokens.length === 0) return;
 
-          const displayArea = postArea || "Your Area";
+          const displayArea =
+            postArea.toLowerCase() === "all" || postArea.toLowerCase() === "all cities"
+              ? "તમારા વિસ્તાર"
+              : postArea || "તમારા વિસ્તાર";
           const categoryOrTitle =
             (intentRecord.category && intentRecord.category !== "General"
               ? `${intentRecord.category}: ${intentRecord.title || intentRecord.description.slice(0, 60)}`
@@ -8466,8 +8664,8 @@ async function startServer() {
             ).replace(/\/+$/, "");
           const postUrl = `${originUrl}/?postId=${encodeURIComponent(intentRecord.id)}`;
 
-          const pushTitle = `🔔 New Request in ${displayArea}!`;
-          const pushBody = `${categoryOrTitle} - Tap to help on LocoHelp`;
+          const pushTitle = `🔔 ${displayArea} માં નવી જરૂરિયાત પોસ્ટ!`;
+          const pushBody = `${categoryOrTitle} - LocoHelp પર મદદ કરવા ક્લિક કરો`;
 
           const response = await sendFcmMulticastPush({
             tokens,
@@ -8486,16 +8684,25 @@ async function startServer() {
           });
 
           console.log(
-            `[FCM Push Multicast] Delivered to ${response.successCount} devices for post ${intentRecord.id} in "${displayArea}".`
+            `[WebPush/FCM Multicast] Delivered to ${response.successCount} devices for post ${intentRecord.id} in "${displayArea}".`
           );
 
-          if (response.invalidTokens.length > 0 && dbPool) {
-            await dbPool
-              .query(`UPDATE users SET fcm_token = NULL WHERE fcm_token = ANY($1::text[])`, [response.invalidTokens])
-              .catch(() => {});
-            await dbPool
-              .query(`DELETE FROM user_fcm_tokens WHERE token = ANY($1::text[])`, [response.invalidTokens])
-              .catch(() => {});
+          if (response.invalidTokens.length > 0) {
+            try {
+              const localTokens = readJsonFile<StoredPushTokenRecord[]>(PUSH_TOKENS_FILE, []);
+              writeJsonFile(
+                PUSH_TOKENS_FILE,
+                localTokens.filter((item) => item && !response.invalidTokens.includes(item.token))
+              );
+            } catch {}
+            if (dbPool && isDbConnected) {
+              await dbPool
+                .query(`UPDATE users SET fcm_token = NULL WHERE fcm_token = ANY($1::text[])`, [response.invalidTokens])
+                .catch(() => {});
+              await dbPool
+                .query(`DELETE FROM user_fcm_tokens WHERE token = ANY($1::text[])`, [response.invalidTokens])
+                .catch(() => {});
+            }
           }
         } catch (pushErr: any) {
           console.warn("[FCM Push Trigger Notice]:", pushErr?.message || pushErr);
@@ -9357,7 +9564,10 @@ async function startServer() {
                ORDER BY created_at ASC`,
               [convIdVariants, postId, helperIdVariants]
             );
-          } else if (postId || activeConvId) {
+          }
+
+          // Fallback: if 1-on-1 filter returned 0 rows for this postId (e.g., ID format mismatch or viewing post replies), load all messages for postId
+          if ((!result || result.rows.length === 0) && (postId || activeConvId)) {
             const targetId = postId || activeConvId;
             const convPrefix = `conv_${targetId.toLowerCase()}__%`;
             result = await dbPool.query(
@@ -9369,7 +9579,7 @@ async function startServer() {
                ORDER BY created_at ASC`,
               [activeConvId || targetId, convPrefix, targetId]
             );
-          } else if (userId && queryHelperId) {
+          } else if (!result && userId && queryHelperId) {
             result = await dbPool.query(
               `SELECT * FROM messages
                WHERE (LOWER(sender_id) = LOWER($1) AND LOWER(receiver_id) = LOWER($2))
@@ -9418,6 +9628,57 @@ async function startServer() {
                 attachment_type: r.attachment_type,
                 isCollaborator: Boolean(r.is_collaborator),
                 is_collaborator: Boolean(r.is_collaborator),
+                isRead: Boolean(r.is_read),
+                is_read: Boolean(r.is_read),
+                createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString()
+              });
+            });
+          }
+
+          // Also merge any rows from `responses` table for this postId so replies saved there are always included
+          if (postId) {
+            const respRes = await dbPool
+              .query(`SELECT * FROM responses WHERE post_id = $1 ORDER BY created_at ASC`, [postId])
+              .catch(() => ({ rows: [] as any[] }));
+            respRes.rows.forEach((r: any) => {
+              if (!r || !r.id || mergedMap.has(r.id)) return;
+              const sId = String(r.sender_id || "").trim();
+              const sName = String(r.sender_name || "").trim() || "Community Peer";
+              const sEmail = String(r.sender_email || "").trim().toLowerCase();
+              const sAvatar = String(r.sender_avatar || "").trim();
+              const msgText = String(r.message || "").trim();
+              if (!msgText && !r.attachment_url) return;
+              mergedMap.set(r.id, {
+                id: r.id,
+                conversationId: activeConvId || buildConversationId(postId, sId),
+                conversation_id: activeConvId || buildConversationId(postId, sId),
+                postId,
+                post_id: postId,
+                intent_id: postId,
+                intentId: postId,
+                authorId: sId,
+                senderId: sId,
+                sender_id: sId,
+                user_id: sId,
+                authorName: sName,
+                senderName: sName,
+                sender_name: sName,
+                senderEmail: sEmail,
+                sender_email: sEmail,
+                authorEmail: sEmail,
+                senderAvatar: sAvatar,
+                sender_avatar: sAvatar,
+                authorAvatar: sAvatar,
+                receiverId: r.receiver_id,
+                receiver_id: r.receiver_id,
+                text: msgText,
+                content: msgText,
+                message: msgText,
+                type: "text",
+                attachmentUrl: r.attachment_url,
+                attachment_url: r.attachment_url,
+                attachmentType: r.attachment_type,
+                attachment_type: r.attachment_type,
                 isRead: Boolean(r.is_read),
                 is_read: Boolean(r.is_read),
                 createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString()
@@ -9536,13 +9797,21 @@ async function startServer() {
         } catch {}
       }
 
-      // Fallback file check filtered strictly by 1-on-1 participant helperId (and persist isRead to disk so unread badges stay cleared)
-      if (activeConvId || (postId && helperId)) {
+      // Fallback file check for messages (and persist isRead to disk so unread badges stay cleared)
+      if (activeConvId || postId) {
         const allMessages = readJsonFile<Record<string, any[]>>(MESSAGES_FILE, {});
         let modifiedFile = false;
-        const candidateKeys = Array.from(new Set([activeConvId, postId].filter(Boolean)));
+        const postLower = String(postId || "").toLowerCase();
+        const convPrefix = postLower ? `conv_${postLower}__` : "";
+        const matchingKeys = Object.keys(allMessages).filter((k) => {
+          const kLower = k.toLowerCase();
+          return (
+            (activeConvId && kLower === activeConvId.toLowerCase()) ||
+            (postLower && (kLower === postLower || (convPrefix && kLower.startsWith(convPrefix))))
+          );
+        });
         const helperLower = String(helperId || "").toLowerCase();
-        for (const cKey of candidateKeys) {
+        for (const cKey of matchingKeys) {
           const list = allMessages[cKey];
           if (!Array.isArray(list)) continue;
           list.forEach((m: any) => {
@@ -9550,10 +9819,12 @@ async function startServer() {
             const sId = String(m.sender_id || m.senderId || m.authorId || "").trim();
             const sEmail = String(m.sender_email || m.senderEmail || m.authorEmail || "").trim().toLowerCase();
             const rId = String(m.receiver_id || m.receiverId || "").trim();
-            const mConv = String(m.conversationId || m.conversation_id || "").trim();
+            const mConv = String(m.conversationId || m.conversation_id || cKey || "").trim();
+            const mPost = String(m.postId || m.post_id || m.intentId || m.intent_id || "").trim();
             const matchesConv =
               (activeConvId && mConv.toLowerCase() === activeConvId.toLowerCase()) ||
-              (helperLower && (sId.toLowerCase() === helperLower || rId.toLowerCase() === helperLower));
+              (helperLower && (sId.toLowerCase() === helperLower || rId.toLowerCase() === helperLower)) ||
+              (postLower && (mPost.toLowerCase() === postLower || cKey.toLowerCase().includes(postLower)));
             if (!matchesConv) return;
 
             const isSentByViewer =
@@ -9682,7 +9953,6 @@ async function startServer() {
                    WHERE post_id = $1
                      AND last_message IS NOT NULL
                      AND TRIM(last_message) <> ''
-                     AND LOWER(COALESCE(helper_id, '')) <> LOWER(COALESCE(poster_id, ''))
                      AND (last_message_at IS NULL OR last_message_at >= NOW() - INTERVAL '7 days')
                    ORDER BY last_message_at DESC`,
                   [postId]
@@ -9701,7 +9971,6 @@ async function startServer() {
                    )
                      AND last_message IS NOT NULL
                      AND TRIM(last_message) <> ''
-                     AND LOWER(COALESCE(helper_id, '')) <> LOWER(COALESCE(poster_id, ''))
                      AND (last_message_at IS NULL OR last_message_at >= NOW() - INTERVAL '7 days')
                    ORDER BY last_message_at DESC`,
                   [viewerIdentityArray]
@@ -9742,7 +10011,8 @@ async function startServer() {
               const hId = String(c.helper_id || "").trim();
               const hEmail = String(c.helper_email || "").trim().toLowerCase();
               const pEmail = String(c.poster_email || "").trim().toLowerCase();
-              if (!hId || ownerIds.has(hId.toLowerCase()) || (hEmail && ownerEmails.has(hEmail))) return;
+              if (!hId || hId.toLowerCase() === "system") return;
+              if (!postId && (ownerIds.has(hId.toLowerCase()) || (hEmail && ownerEmails.has(hEmail)))) return;
 
               const key = getThreadKey(c.post_id, hId);
               const lastIso = c.last_message_at ? new Date(c.last_message_at).toISOString() : new Date().toISOString();
@@ -9807,14 +10077,15 @@ async function startServer() {
               if (!sId || sIdLower === "system") continue;
 
               const isSenderOwner =
-                ownerIds.has(sIdLower) ||
+                (ownerInfo.posterId && sIdLower === ownerInfo.posterId.toLowerCase()) ||
                 (sEmail && ownerEmails.has(sEmail)) ||
                 (rowPostOwnerId && sIdLower === rowPostOwnerId.toLowerCase()) ||
                 (parsedRowConv?.helperId && sIdLower !== parsedRowConv.helperId.toLowerCase());
 
               // Determine the helper for this message
-              let hId = parsedRowConv?.helperId || (isSenderOwner ? rId : sId);
-              if (!hId || hId === rowPostId || ownerIds.has(hId.toLowerCase())) continue;
+              let hId = parsedRowConv?.helperId || (isSenderOwner ? (rId && rId !== rowPostId ? rId : sId) : sId);
+              if (!hId || hId === rowPostId) hId = sId;
+              if (!postId && ownerIds.has(hId.toLowerCase())) continue;
 
               const hEmail = isSenderOwner ? "" : sEmail;
               const key = getThreadKey(rowPostId, hId);
@@ -10839,7 +11110,7 @@ async function startServer() {
         150
       );
 
-      const helperId = isSenderPostOwner
+      let helperId = isSenderPostOwner
         ? sanitizeServerText(
             message.helperId ||
               message.helper_id ||
@@ -10850,35 +11121,30 @@ async function startServer() {
           )
         : senderIdVal;
 
-      // STRICT RULE: A Post Owner can NEVER send an untargeted message on their own post without selecting a specific Helper
-      if (
-        isSenderPostOwner &&
-        (!helperId ||
-          helperId === postId ||
-          senderIdentities.has(helperId.toLowerCase()) ||
-          posterIdentities.has(helperId.toLowerCase()))
-      ) {
-        return res.status(400).json({
-          error: "Post Owner must select a specific responder from View Responses before sending a message.",
-          code: "MISSING_HELPER_TARGET"
-        });
+      // If sender was classified as post owner (e.g., multi-account on same device) and no distinct helperId was passed,
+      // try to resolve the latest responder on this post from DB, or fall back to senderIdVal so the reply is NEVER dropped!
+      if (isSenderPostOwner && (!helperId || helperId === postId)) {
+        if (dbPool && isDbConnected && postId && postId !== "general") {
+          try {
+            const latestConv = await dbPool
+              .query(
+                `SELECT helper_id FROM conversations WHERE post_id = $1 AND helper_id IS NOT NULL AND TRIM(helper_id) <> '' ORDER BY last_message_at DESC NULLS LAST LIMIT 1`,
+                [postId]
+              )
+              .catch(() => ({ rows: [] as any[] }));
+            if (latestConv.rows.length > 0 && latestConv.rows[0].helper_id) {
+              helperId = String(latestConv.rows[0].helper_id).trim();
+            }
+          } catch {}
+        }
+        if (!helperId || helperId === postId) {
+          helperId = rawReceiverId && rawReceiverId !== postId ? rawReceiverId : senderIdVal;
+        }
       }
 
       const resolvedReceiverId = isSenderPostOwner
-        ? helperId
+        ? (helperId || postOwnerId || postId)
         : sanitizeServerText(postOwnerId || rawReceiverId || postId, 150);
-
-      // Validate senderId !== receiverId (when receiverId is a real user ID, not a fallback postId)
-      if (
-        resolvedReceiverId &&
-        resolvedReceiverId !== postId &&
-        senderIdVal.toLowerCase() === resolvedReceiverId.toLowerCase()
-      ) {
-        return res.status(400).json({
-          error: "Sender and receiver cannot be the same user.",
-          code: "SELF_MESSAGE_NOT_ALLOWED"
-        });
-      }
 
       // Enforce User-to-User Chat Block & upload any attachment in parallel
       const [blockCheck, uploadedChatAttachment] = await Promise.all([
@@ -11151,51 +11417,51 @@ async function startServer() {
         ).catch(() => {});
       });
 
-      // Refresh post interaction timestamp & compute updated response_count / repliers for this post from conversations
+      // Refresh post interaction timestamp & compute updated response_count / repliers for this post from conversations & messages
       let updatedResponseCount = 1;
       const replierGroupsMap = new Map<string, any>();
       if (postId && postId !== "general") {
         try {
           if (dbPool && isDbConnected) {
-            void dbPool
-              .query(`UPDATE broadcast_posts SET expires_at = NOW() + INTERVAL '1 hour' WHERE id = $1`, [postId])
-              .catch(() => {});
+            void Promise.all([
+              dbPool
+                .query(`UPDATE broadcast_posts SET expires_at = NOW() + INTERVAL '1 hour' WHERE id = $1`, [postId])
+                .catch(() => {}),
+              dbPool
+                .query(`UPDATE posts SET expires_at = NOW() + INTERVAL '1 hour' WHERE id = $1`, [postId])
+                .catch(() => {})
+            ]);
 
-            const convRowsRes = await dbPool
-              .query(
-                `SELECT * FROM conversations
-                 WHERE post_id = $1
-                   AND last_message IS NOT NULL
-                   AND TRIM(last_message) <> ''
-                   AND LOWER(COALESCE(helper_id, '')) <> LOWER(COALESCE(poster_id, ''))
-                 ORDER BY last_message_at DESC`,
-                [postId]
-              )
-              .catch(() => ({ rows: [] as any[] }));
+            const [convRowsRes, msgRowsRes] = await Promise.all([
+              dbPool
+                .query(
+                  `SELECT * FROM conversations
+                   WHERE post_id = $1
+                     AND last_message IS NOT NULL
+                     AND TRIM(last_message) <> ''
+                   ORDER BY last_message_at DESC`,
+                  [postId]
+                )
+                .catch(() => ({ rows: [] as any[] })),
+              dbPool
+                .query(
+                  `SELECT * FROM messages
+                   WHERE (post_id = $1 OR intent_id = $1)
+                   ORDER BY created_at DESC`,
+                  [postId]
+                )
+                .catch(() => ({ rows: [] as any[] }))
+            ]);
 
             convRowsRes.rows.forEach((c: any) => {
               const hId = String(c.helper_id || "").trim();
               const hEmail = String(c.helper_email || "").trim().toLowerCase();
-              const pId = String(c.poster_id || effectivePosterId || "").trim().toLowerCase();
-              const pEmail = String(c.poster_email || postOwnerEmail || "").trim().toLowerCase();
-              if (!hId) return;
+              if (!hId || hId.toLowerCase() === "system") return;
               const normH = hEmail
                 ? "email_" + hEmail.replace(/[^a-z0-9]/g, "_")
                 : hId.includes("@")
                 ? "email_" + hId.toLowerCase().replace(/[^a-z0-9]/g, "_")
                 : hId.toLowerCase();
-              const normP = pEmail
-                ? "email_" + pEmail.replace(/[^a-z0-9]/g, "_")
-                : pId.includes("@")
-                ? "email_" + pId.replace(/[^a-z0-9]/g, "_")
-                : pId;
-              if (
-                (pId && hId.toLowerCase() === pId) ||
-                (pEmail && hEmail && hEmail === pEmail) ||
-                (normP && normH === normP)
-              ) {
-                return;
-              }
               const key = normH || hEmail || hId.toLowerCase();
               const lastIso = c.last_message_at ? new Date(c.last_message_at).toISOString() : new Date().toISOString();
               if (!replierGroupsMap.has(key)) {
@@ -11222,7 +11488,43 @@ async function startServer() {
               }
             });
 
-            updatedResponseCount = replierGroupsMap.size;
+            msgRowsRes.rows.forEach((m: any) => {
+              const sId = String(m.sender_id || "").trim();
+              const sEmail = String(m.sender_email || "").trim().toLowerCase();
+              const mText = String(m.text || m.content || "").trim();
+              if (!sId || sId.toLowerCase() === "system" || !mText) return;
+              const normS = sEmail
+                ? "email_" + sEmail.replace(/[^a-z0-9]/g, "_")
+                : sId.includes("@")
+                ? "email_" + sId.toLowerCase().replace(/[^a-z0-9]/g, "_")
+                : sId.toLowerCase();
+              const key = normS || sEmail || sId.toLowerCase();
+              const lastIso = m.created_at ? new Date(m.created_at).toISOString() : new Date().toISOString();
+              if (!replierGroupsMap.has(key)) {
+                replierGroupsMap.set(key, {
+                  id: m.conversation_id || buildConversationId(postId, sId),
+                  conversationId: m.conversation_id || buildConversationId(postId, sId),
+                  helperId: sId,
+                  senderId: sId,
+                  helperName: m.sender_name || "Community Helper",
+                  senderName: m.sender_name || "Community Helper",
+                  helperEmail: sEmail,
+                  senderEmail: sEmail,
+                  helperAvatar: m.sender_avatar || "",
+                  senderAvatar: m.sender_avatar || "",
+                  lastMessage: mText,
+                  lastMessageAt: lastIso,
+                  updatedAt: lastIso,
+                  count: 1,
+                  unreadCount: m.is_read ? 0 : 1,
+                  unreadPosterCount: m.is_read ? 0 : 1,
+                  unreadHelperCount: 0,
+                  isCollaborator: Boolean(m.is_collaborator)
+                });
+              }
+            });
+
+            updatedResponseCount = Math.max(replierGroupsMap.size, 1);
           }
         } catch (syncErr) {
           console.warn("Post interaction refresh error:", syncErr);
@@ -11259,12 +11561,9 @@ async function startServer() {
         });
       }
 
-      // 3. Trigger FCM Push Notification to receiverId (for both Post Replies AND Direct Expert/User Chats)
+      // 3. Trigger Web Push & FCM Notification to receiverId (for both Post Replies AND Direct Expert/User Chats)
       (async () => {
         try {
-          if (!dbPool || !isDbConnected) return;
-          if (!getParsedFirebaseServiceAccount()) return;
-
           const targetReceiverId = String(resolvedReceiverId || "").trim();
           const explicitReceiverEmail = sanitizeServerText(
             message.receiverEmail || message.helperEmail || "",
@@ -11281,42 +11580,61 @@ async function startServer() {
           const receiverIdentityArr = Array.from(receiverIdentitiesSet);
           if (receiverIdentityArr.length === 0) return;
 
-          const [usersTokenRes, multiTokenRes] = await Promise.all([
-            dbPool
-              .query(
-                `SELECT DISTINCT fcm_token
-                 FROM users
-                 WHERE fcm_token IS NOT NULL
-                   AND TRIM(fcm_token) <> ''
-                   AND (
-                     LOWER(id::text) = ANY($1::text[])
-                     OR (email IS NOT NULL AND LOWER(email) = ANY($1::text[]))
-                   )`,
-                [receiverIdentityArr]
-              )
-              .catch(() => ({ rows: [] as any[] })),
-            dbPool
-              .query(
-                `SELECT DISTINCT token AS fcm_token
-                 FROM user_fcm_tokens
-                 WHERE token IS NOT NULL
-                   AND TRIM(token) <> ''
-                   AND (
-                     (user_id IS NOT NULL AND LOWER(user_id) = ANY($1::text[]))
-                     OR (email IS NOT NULL AND LOWER(email) = ANY($1::text[]))
-                   )`,
-                [receiverIdentityArr]
-              )
-              .catch(() => ({ rows: [] as any[] }))
-          ]);
+          const tokenSet = new Set<string>();
 
-          const receiverTokens = Array.from(
-            new Set(
-              [...(usersTokenRes.rows || []), ...(multiTokenRes.rows || [])]
-                .map((r: any) => String(r.fcm_token || "").trim())
-                .filter(Boolean)
-            )
-          );
+          // Gather from local PUSH_TOKENS_FILE
+          try {
+            const localTokens = readJsonFile<StoredPushTokenRecord[]>(PUSH_TOKENS_FILE, []);
+            for (const item of localTokens) {
+              if (!item || !item.token) continue;
+              const uId = String(item.userId || "").trim().toLowerCase();
+              const uEmail = String(item.email || "").trim().toLowerCase();
+              if (
+                (uId && receiverIdentitiesSet.has(uId)) ||
+                (uEmail && receiverIdentitiesSet.has(uEmail))
+              ) {
+                tokenSet.add(String(item.token).trim());
+              }
+            }
+          } catch {}
+
+          if (dbPool && isDbConnected) {
+            const [usersTokenRes, multiTokenRes] = await Promise.all([
+              dbPool
+                .query(
+                  `SELECT DISTINCT fcm_token
+                   FROM users
+                   WHERE fcm_token IS NOT NULL
+                     AND TRIM(fcm_token) <> ''
+                     AND (
+                       LOWER(id::text) = ANY($1::text[])
+                       OR (email IS NOT NULL AND LOWER(email) = ANY($1::text[]))
+                     )`,
+                  [receiverIdentityArr]
+                )
+                .catch(() => ({ rows: [] as any[] })),
+              dbPool
+                .query(
+                  `SELECT DISTINCT token AS fcm_token
+                   FROM user_fcm_tokens
+                   WHERE token IS NOT NULL
+                     AND TRIM(token) <> ''
+                     AND (
+                       (user_id IS NOT NULL AND LOWER(user_id) = ANY($1::text[]))
+                       OR (email IS NOT NULL AND LOWER(email) = ANY($1::text[]))
+                     )`,
+                  [receiverIdentityArr]
+                )
+                .catch(() => ({ rows: [] as any[] }))
+            ]);
+
+            for (const r of [...(usersTokenRes.rows || []), ...(multiTokenRes.rows || [])]) {
+              const tok = String(r.fcm_token || "").trim();
+              if (tok) tokenSet.add(tok);
+            }
+          }
+
+          const receiverTokens = Array.from(tokenSet);
           if (receiverTokens.length === 0) return;
 
           const senderDisplay = newMsg.authorName || newMsg.senderName || "A neighbor";
@@ -11332,10 +11650,10 @@ async function startServer() {
             : `${originUrl}/?postId=${encodeURIComponent(postId)}&viewResponses=1`;
 
           const pushTitle = isDirectChat
-            ? `💬 New Message from ${senderDisplay}`
+            ? `💬 ${senderDisplay} તરફથી નવો મેસેજ`
             : isSenderPostOwner
-            ? `💬 Reply from ${senderDisplay}`
-            : "💬 New Response on your Post!";
+            ? `💬 ${senderDisplay} નો જવાબ`
+            : "💬 તમારી પોસ્ટ પર નવો જવાબ!";
           const pushBody = `${senderDisplay}: ${previewText.slice(0, 90)}`;
 
           const pushRes = await sendFcmMulticastPush({
@@ -11354,13 +11672,22 @@ async function startServer() {
             }
           });
 
-          if (pushRes.invalidTokens.length > 0 && dbPool) {
-            await dbPool
-              .query(`UPDATE users SET fcm_token = NULL WHERE fcm_token = ANY($1::text[])`, [pushRes.invalidTokens])
-              .catch(() => {});
-            await dbPool
-              .query(`DELETE FROM user_fcm_tokens WHERE token = ANY($1::text[])`, [pushRes.invalidTokens])
-              .catch(() => {});
+          if (pushRes.invalidTokens.length > 0) {
+            try {
+              const localTokens = readJsonFile<StoredPushTokenRecord[]>(PUSH_TOKENS_FILE, []);
+              writeJsonFile(
+                PUSH_TOKENS_FILE,
+                localTokens.filter((item) => item && !pushRes.invalidTokens.includes(item.token))
+              );
+            } catch {}
+            if (dbPool && isDbConnected) {
+              await dbPool
+                .query(`UPDATE users SET fcm_token = NULL WHERE fcm_token = ANY($1::text[])`, [pushRes.invalidTokens])
+                .catch(() => {});
+              await dbPool
+                .query(`DELETE FROM user_fcm_tokens WHERE token = ANY($1::text[])`, [pushRes.invalidTokens])
+                .catch(() => {});
+            }
           }
         } catch (err: any) {
           console.warn("[FCM Reply Push Notice]:", err?.message || err);
@@ -11489,7 +11816,16 @@ async function startServer() {
         }
       }
 
-      let allList: any[] = [];
+      const mergedMap = new Map<string, any>();
+      const localShops = readJsonFile<any[]>(SHOPS_FILE, []);
+      const localShopsById = new Map<string, any>();
+      if (Array.isArray(localShops)) {
+        localShops.forEach(s => {
+          if (s && s.id && !isEntityDeleted(s.id)) {
+            localShopsById.set(String(s.id), s);
+          }
+        });
+      }
 
       if (dbPool && isDbConnected) {
         try {
@@ -11497,77 +11833,136 @@ async function startServer() {
           if (bizRes.rows.length > 0) {
             bizRes.rows.forEach(r => {
               if (!r || !r.id || isEntityDeleted(r.id)) return;
-              const rawObj = typeof r.raw_json === 'object' && r.raw_json ? r.raw_json : {};
-              const isApproved = Boolean(r.is_approved === true || r.is_verified === true);
-              allList.push({
+              const rawObj =
+                typeof r.raw_json === 'object' && r.raw_json
+                  ? r.raw_json
+                  : typeof r.raw_json === 'string' && r.raw_json.trim().startsWith('{')
+                  ? (() => {
+                      try {
+                        return JSON.parse(r.raw_json);
+                      } catch {
+                        return {};
+                      }
+                    })()
+                  : {};
+              const localFallback = localShopsById.get(String(r.id)) || {};
+              const isApproved = Boolean(
+                r.is_approved === true ||
+                  r.is_verified === true ||
+                  rawObj.isVerified === true ||
+                  rawObj.status === 'approved' ||
+                  localFallback.isVerified === true ||
+                  localFallback.status === 'approved'
+              );
+              mergedMap.set(String(r.id), {
+                ...localFallback,
                 ...rawObj,
                 id: r.id,
-                name: r.shop_name || r.business_name || rawObj.name || 'Local Business',
-                businessName: r.business_name || r.shop_name || rawObj.businessName || 'Local Business',
-                type: rawObj.type || 'shop',
-                categoryLabel: r.category || rawObj.categoryLabel || 'Retail & Services',
-                category: r.category || rawObj.category || 'Retail & Services',
-                ownerName: rawObj.ownerName || r.owner_id || 'Owner',
-                owner_id: r.owner_id || r.user_id || rawObj.owner_id,
-                userId: r.user_id || r.owner_id || rawObj.userId,
-                phone: r.phone || rawObj.phone || '',
-                area: r.sector || rawObj.area || r.address || '',
-                address: r.address || r.sector || rawObj.address || '',
-                description: r.description || rawObj.description || '',
-                photoUrl: r.image_url || rawObj.photoUrl || null,
-                rating: Number(rawObj.rating || 5.0),
-                reviewCount: Number(rawObj.reviewCount || 1),
+                name: r.shop_name || r.business_name || rawObj.name || localFallback.name || 'Local Business',
+                businessName: r.business_name || r.shop_name || rawObj.businessName || localFallback.businessName || 'Local Business',
+                type: rawObj.type || localFallback.type || 'shop',
+                categoryLabel: r.category || rawObj.categoryLabel || localFallback.categoryLabel || 'Retail & Services',
+                category: r.category || rawObj.category || localFallback.category || 'Retail & Services',
+                ownerName: rawObj.ownerName || localFallback.ownerName || r.owner_id || 'Owner',
+                ownerEmail: rawObj.ownerEmail || localFallback.ownerEmail || '',
+                owner_id: r.owner_id || r.user_id || rawObj.owner_id || localFallback.owner_id,
+                userId: r.user_id || r.owner_id || rawObj.userId || localFallback.userId,
+                phone: r.phone || rawObj.phone || localFallback.phone || '',
+                isPhonePublic:
+                  rawObj.isPhonePublic !== undefined
+                    ? Boolean(rawObj.isPhonePublic)
+                    : localFallback.isPhonePublic !== undefined
+                    ? Boolean(localFallback.isPhonePublic)
+                    : true,
+                timings: rawObj.timings || localFallback.timings || '9:00 AM - 9:00 PM',
+                area: r.sector || rawObj.area || localFallback.area || r.address || '',
+                address: r.address || r.sector || rawObj.address || localFallback.address || '',
+                description: r.description || rawObj.description || localFallback.description || '',
+                photoUrl: r.image_url || rawObj.photoUrl || localFallback.photoUrl || null,
+                visitingCardUrl: rawObj.visitingCardUrl ?? localFallback.visitingCardUrl ?? null,
+                watermarkedSelfieUrl: rawObj.watermarkedSelfieUrl || localFallback.watermarkedSelfieUrl || null,
+                rawSelfieUrl: rawObj.rawSelfieUrl || localFallback.rawSelfieUrl || null,
+                photos: Array.isArray(rawObj.photos)
+                  ? rawObj.photos
+                  : Array.isArray(localFallback.photos)
+                  ? localFallback.photos
+                  : undefined,
+                rating: Number(rawObj.rating || localFallback.rating || 5.0),
+                reviewCount: Number(rawObj.reviewCount || localFallback.reviewCount || 1),
                 isVerified: isApproved,
                 status: isApproved ? 'approved' : (rawObj.status === 'rejected' ? 'rejected' : 'pending'),
-                createdAt: r.created_at
+                createdAt: r.created_at || rawObj.createdAt || localFallback.createdAt
               });
             });
           }
 
           const result = await dbPool.query("SELECT * FROM shops WHERE COALESCE(is_deleted, false) = false ORDER BY created_at DESC");
           if (result.rows.length > 0) {
-            const existingIds = new Set(allList.map(x => x.id));
             result.rows.forEach(r => {
-              if (!r || !r.id || existingIds.has(r.id) || isEntityDeleted(r.id)) return;
-              allList.push({
+              if (!r || !r.id || mergedMap.has(String(r.id)) || isEntityDeleted(r.id)) return;
+              const localFallback = localShopsById.get(String(r.id)) || {};
+              const isApproved = Boolean(
+                r.is_verified === true || localFallback.isVerified === true || localFallback.status === 'approved'
+              );
+              mergedMap.set(String(r.id), {
+                ...localFallback,
                 id: r.id,
-                name: r.name,
-                businessName: r.name,
-                type: r.type,
-                categoryLabel: r.category_label,
-                category: r.category_label,
-                ownerName: r.owner_name,
-                owner_id: r.owner_name,
-                phone: r.phone,
-                area: r.area,
-                address: r.address,
-                description: r.description,
-                photoUrl: r.photo_url,
-                rating: Number(r.rating || 5.0),
-                reviewCount: Number(r.review_count || 1),
-                isVerified: Boolean(r.is_verified === true),
-                status: r.is_verified === true ? 'approved' : 'pending',
-                createdAt: r.created_at
+                name: r.name || localFallback.name,
+                businessName: r.name || localFallback.businessName || localFallback.name,
+                type: r.type || localFallback.type,
+                categoryLabel: r.category_label || localFallback.categoryLabel,
+                category: r.category_label || localFallback.category,
+                ownerName: r.owner_name || localFallback.ownerName,
+                ownerEmail: localFallback.ownerEmail || '',
+                owner_id: localFallback.owner_id || localFallback.userId || r.owner_name,
+                userId: localFallback.userId || localFallback.owner_id || '',
+                phone: r.phone || localFallback.phone,
+                isPhonePublic:
+                  localFallback.isPhonePublic !== undefined ? Boolean(localFallback.isPhonePublic) : true,
+                timings: localFallback.timings || '9:00 AM - 9:00 PM',
+                area: r.area || localFallback.area,
+                address: r.address || localFallback.address,
+                description: r.description || localFallback.description,
+                photoUrl: r.photo_url || localFallback.photoUrl,
+                visitingCardUrl: localFallback.visitingCardUrl ?? null,
+                watermarkedSelfieUrl: localFallback.watermarkedSelfieUrl || null,
+                rawSelfieUrl: localFallback.rawSelfieUrl || null,
+                photos: Array.isArray(localFallback.photos) ? localFallback.photos : undefined,
+                rating: Number(r.rating || localFallback.rating || 5.0),
+                reviewCount: Number(r.review_count || localFallback.reviewCount || 1),
+                isVerified: isApproved,
+                status: isApproved ? 'approved' : (localFallback.status || 'pending'),
+                createdAt: r.created_at || localFallback.createdAt
               });
             });
           }
         } catch (e) {}
-      } else {
-        const localShops = readJsonFile<any[]>(SHOPS_FILE, []);
-        if (localShops.length > 0) {
-          const mergedMap = new Map<string, any>();
-          localShops.forEach(s => {
-            if (!s || !s.id || isEntityDeleted(s.id)) return;
-            const isApproved = Boolean(s.isVerified === true || s.is_verified === true || s.status === 'approved');
-            mergedMap.set(s.id, {
+      }
+
+      if (Array.isArray(localShops) && localShops.length > 0) {
+        localShops.forEach(s => {
+          if (!s || !s.id || isEntityDeleted(s.id)) return;
+          const sid = String(s.id);
+          const isApproved = Boolean(s.isVerified === true || s.is_verified === true || s.status === 'approved');
+          const existing = mergedMap.get(sid);
+          if (!existing) {
+            mergedMap.set(sid, {
               ...s,
               isVerified: isApproved,
-              status: s.status || (isApproved ? 'approved' : 'pending')
+              status: isApproved ? 'approved' : (s.status || 'pending')
             });
-          });
-          allList = Array.from(mergedMap.values());
-        }
+          } else if (isApproved && !existing.isVerified) {
+            mergedMap.set(sid, {
+              ...s,
+              ...existing,
+              isVerified: true,
+              status: 'approved'
+            });
+          }
+        });
       }
+
+      let allList: any[] = Array.from(mergedMap.values());
 
       // Filter out any legacy dummy/sample shops or deleted entities
       allList = allList.filter(s => s && s.id && !String(s.id).startsWith('sample_shop_') && !isEntityDeleted(s.id));
@@ -11762,6 +12157,22 @@ async function startServer() {
         existingShop?.watermarkedSelfieUrl ||
         shop.idDocumentWatermarked ||
         null;
+      const explicitlyClearedBizPhotos =
+        shop.visitingCardUrl === '' &&
+        validatedPhotos.length === 0 &&
+        !shop.photoUrl &&
+        !shop.photo_url;
+      const resolvedBizPhotoUrl = explicitlyClearedBizPhotos
+        ? null
+        : (validatedPhotos[0] || shop.photoUrl || shop.photo_url || existingShop?.photoUrl || null);
+      const resolvedBizVisitingCard =
+        shop.visitingCardUrl === ''
+          ? null
+          : (shop.visitingCardUrl || validatedPhotos[0] || existingShop?.visitingCardUrl || resolvedBizPhotoUrl || null);
+      const resolvedBizPhotosList = explicitlyClearedBizPhotos
+        ? []
+        : (validatedPhotos.length > 0 ? validatedPhotos : (Array.isArray(existingShop?.photos) ? existingShop.photos : []));
+
       const newShop = {
         id: shop.id || (isAdminCreatedShop ? 'shop_admin_' : 'shop_') + Date.now().toString(36),
         name: sanitizeStringServer(bName.trim(), 200),
@@ -11780,9 +12191,9 @@ async function startServer() {
         area: sanitizeStringServer(shop.area || shop.address || 'Local Area', 200),
         address: sanitizeStringServer(shop.address || shop.area || 'Market Area', 300),
         description: sanitizeStringServer(shop.description || '', 1500),
-        photoUrl: validatedPhotos[0] || shop.photoUrl || shop.photo_url || existingShop?.photoUrl || null,
-        visitingCardUrl: shop.visitingCardUrl || existingShop?.visitingCardUrl || validatedPhotos[0] || shop.photoUrl || existingShop?.photoUrl || null,
-        photos: validatedPhotos.length > 0 ? validatedPhotos : (Array.isArray(existingShop?.photos) ? existingShop.photos : []),
+        photoUrl: resolvedBizPhotoUrl,
+        visitingCardUrl: resolvedBizVisitingCard,
+        photos: resolvedBizPhotosList,
         watermarkedSelfieUrl: resolvedPublicShopSelfie,
         rawSelfieUrl: resolvedAdminShopSelfie,
         idDocumentWatermarked: resolvedAdminShopSelfie,
@@ -11814,7 +12225,7 @@ async function startServer() {
               address = EXCLUDED.address,
               sector = EXCLUDED.sector,
               description = EXCLUDED.description,
-              image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), businesses.image_url),
+              image_url = EXCLUDED.image_url,
               is_approved = EXCLUDED.is_approved,
               is_verified = EXCLUDED.is_verified,
               raw_json = EXCLUDED.raw_json
@@ -11843,7 +12254,7 @@ async function startServer() {
               area = EXCLUDED.area,
               address = EXCLUDED.address,
               description = EXCLUDED.description,
-              photo_url = COALESCE(NULLIF(EXCLUDED.photo_url, ''), shops.photo_url),
+              photo_url = EXCLUDED.photo_url,
               is_verified = EXCLUDED.is_verified
           `, [
             newShop.id, newShop.name, newShop.type, newShop.categoryLabel,
@@ -12093,30 +12504,30 @@ async function startServer() {
             });
           }
         } catch (e) {}
-      } else {
-        const localHelpers = readJsonFile<any[]>(HELPERS_FILE, []);
-        localHelpers.forEach(h => {
-          if (!h || !h.id || isEntityDeleted(h.id) || isEntityDeleted(h.email)) return;
-          const idStr = String(h.id).trim();
-          if (!idStr.startsWith('helper_') && !idStr.startsWith('hp_')) return;
-          const existing = mergedMap.get(h.id) || {};
-          const isApproved = Boolean(
-            existing.isVerified === true ||
-            h.isVerified === true ||
-            h.is_verified === true ||
-            h.status === 'approved' ||
-            approvedEntityIds.has(idStr)
-          );
-          mergedMap.set(h.id, {
-            ...existing,
-            ...h,
-            categoryId: h.categoryId || existing.categoryId || 'other',
-            customCategoryName: h.customCategoryName || existing.customCategoryName || '',
-            isVerified: isApproved,
-            status: isApproved ? 'approved' : (h.status || 'pending')
-          });
-        });
       }
+
+      const localHelpers = readJsonFile<any[]>(HELPERS_FILE, []);
+      localHelpers.forEach(h => {
+        if (!h || !h.id || isEntityDeleted(h.id) || isEntityDeleted(h.email)) return;
+        const idStr = String(h.id).trim();
+        if (!idStr.startsWith('helper_') && !idStr.startsWith('hp_')) return;
+        if (mergedMap.has(h.id)) return;
+        const rawStatus = String(h.status || '').toLowerCase();
+        const isRejected = rawStatus === 'rejected';
+        const isApproved = !isRejected && Boolean(
+          h.isVerified === true ||
+          h.is_verified === true ||
+          rawStatus === 'approved' ||
+          approvedEntityIds.has(idStr)
+        );
+        mergedMap.set(h.id, {
+          ...h,
+          categoryId: h.categoryId || 'other',
+          customCategoryName: h.customCategoryName || '',
+          isVerified: isApproved,
+          status: isRejected ? 'rejected' : (isApproved ? 'approved' : (h.status || 'pending'))
+        });
+      });
 
       const genericHelperPlaceholders = ['other', 'general', 'service', 'community helper', 'user', ''];
       let allHelpers = Array.from(mergedMap.values()).filter(h => {

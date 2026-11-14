@@ -127,13 +127,6 @@ export default function PostResponsesModal({
         const sId = String(rep.helperId || rep.helper_id || rep.senderId || rep.sender_id || '').trim();
         const sEmail = String(rep.helperEmail || rep.senderEmail || rep.sender_email || '').trim().toLowerCase();
         if (!sId || sId === 'system') return;
-        if (
-          isMessageSentByUser({ sender_id: sId, sender_email: sEmail }, currentUser) ||
-          (ownerId && sId.toLowerCase() === ownerId.toLowerCase()) ||
-          (ownerEmail && sEmail && sEmail === ownerEmail)
-        ) {
-          return;
-        }
         const candidateGroup = applyLocalReadAndDeleteState({
           conversationId: rep.conversationId || rep.id || `conv_${intent.id}__${sId.toLowerCase()}`,
           senderId: sId,
@@ -156,13 +149,6 @@ export default function PostResponsesModal({
         const sId = String(msg.sender_id || msg.senderId || msg.authorId || '').trim();
         const sEmail = String(msg.sender_email || msg.senderEmail || msg.authorEmail || '').trim().toLowerCase();
         if (!sId || sId === 'system') return;
-        if (
-          isMessageSentByUser(msg, currentUser) ||
-          (ownerId && sId.toLowerCase() === ownerId.toLowerCase()) ||
-          (ownerEmail && sEmail && sEmail === ownerEmail)
-        ) {
-          return;
-        }
         const key = sEmail || sId.toLowerCase();
         const sName = msg.sender_name || msg.senderName || msg.authorName || (sEmail ? sEmail.split('@')[0] : 'Community Helper');
         const msgText = msg.text || msg.message || msg.content || 'Sent a message';
@@ -217,15 +203,27 @@ export default function PostResponsesModal({
         const headers: Record<string, string> = {};
         if (token) headers['Authorization'] = `Bearer ${token}`;
 
-        const convRes = await fetch(
-          `/api/chat/conversations?postId=${encodeURIComponent(intent.id)}&userId=${encodeURIComponent(ownerId)}&ownerEmail=${encodeURIComponent(ownerEmail)}&userPhone=${encodeURIComponent(ownerPhone)}&_t=${Date.now()}`,
-          { cache: 'no-store', headers }
-        ).catch(() => null);
+        const [convRes, msgsRes] = await Promise.all([
+          fetch(
+            `/api/chat/conversations?postId=${encodeURIComponent(intent.id)}&userId=${encodeURIComponent(ownerId)}&ownerEmail=${encodeURIComponent(ownerEmail)}&userPhone=${encodeURIComponent(ownerPhone)}&_t=${Date.now()}`,
+            { cache: 'no-store', headers }
+          ).catch(() => null),
+          fetch(
+            `/api/chat/messages?postId=${encodeURIComponent(intent.id)}&userId=${encodeURIComponent(ownerId)}&_t=${Date.now()}`,
+            { cache: 'no-store', headers }
+          ).catch(() => null)
+        ]);
 
         let inboxThreads: any[] = [];
         if (convRes && convRes.ok) {
           const data = await convRes.json().catch(() => []);
           if (Array.isArray(data)) inboxThreads = data;
+        }
+
+        let rawMessages: any[] = [];
+        if (msgsRes && msgsRes.ok) {
+          const mData = await msgsRes.json().catch(() => []);
+          if (Array.isArray(mData)) rawMessages = mData;
         }
 
         const groupsMap = new Map<string, ReplierGroup>();
@@ -234,13 +232,7 @@ export default function PostResponsesModal({
         inboxThreads.forEach(item => {
           const hId = String(item?.helperId || item?.helper_id || item?.senderId || '').trim();
           const hEmail = String(item?.helperEmail || item?.senderEmail || '').trim().toLowerCase();
-          if (!hId) return;
-          const isFromMe =
-            isMessageSentByUser({ sender_id: hId, sender_email: hEmail }, currentUser) ||
-            (ownerId && hId.toLowerCase() === ownerId.toLowerCase()) ||
-            (ownerEmail && hEmail && hEmail === ownerEmail) ||
-            myIdentitySet.has(hId.toLowerCase());
-          if (isFromMe) return;
+          if (!hId || hId === 'system') return;
 
           const candidateGroup = applyLocalReadAndDeleteState({
             conversationId: item.conversationId || item.id || `conv_${intent.id}__${hId.toLowerCase()}`,
@@ -260,7 +252,42 @@ export default function PostResponsesModal({
           groupsMap.set(key, candidateGroup);
         });
 
-        const list = Array.from(groupsMap.values());
+        // Also merge from /api/chat/messages?postId=...
+        rawMessages.forEach(msg => {
+          const sId = String(msg?.sender_id || msg?.senderId || msg?.authorId || '').trim();
+          const sEmail = String(msg?.sender_email || msg?.senderEmail || msg?.authorEmail || '').trim().toLowerCase();
+          const msgText = String(msg?.text || msg?.message || msg?.content || '').trim();
+          if (!sId || sId === 'system' || !msgText) return;
+          const key = String(sEmail || sId).toLowerCase();
+          const msgTime = msg.createdAt || msg.created_at || new Date().toISOString();
+          const existing = groupsMap.get(key);
+          if (!existing) {
+            const candidateGroup = applyLocalReadAndDeleteState({
+              conversationId: msg.conversationId || msg.conversation_id || `conv_${intent.id}__${sId.toLowerCase()}`,
+              senderId: sId,
+              senderName: msg.sender_name || msg.senderName || msg.authorName || 'Community Helper',
+              senderEmail: sEmail,
+              senderAvatar: msg.sender_avatar || msg.senderAvatar || '',
+              lastMessage: msgText,
+              updatedAt: msgTime,
+              count: 1,
+              unreadCount: 0,
+              isCollaborator: Boolean(msg.isCollaborator)
+            });
+            if (candidateGroup) groupsMap.set(key, candidateGroup);
+          } else if (new Date(msgTime).getTime() >= new Date(existing.updatedAt).getTime()) {
+            existing.lastMessage = msgText;
+            existing.updatedAt = msgTime;
+          }
+        });
+
+        const allList = Array.from(groupsMap.values());
+        const nonSelf = allList.filter(
+          g =>
+            !(ownerId && g.senderId.toLowerCase() === ownerId.toLowerCase()) &&
+            !(ownerEmail && g.senderEmail && g.senderEmail.toLowerCase() === ownerEmail.toLowerCase())
+        );
+        const list = nonSelf.length > 0 ? nonSelf : allList;
         list.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 
         if (isMounted) {

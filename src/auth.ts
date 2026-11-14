@@ -291,12 +291,17 @@ export function mergeAndSaveCurrentUser(
       localStorage.setItem('locohelp_logged_in', 'true');
       if (effectiveEmail) {
         localStorage.setItem('locohelp_last_logged_in_email', effectiveEmail);
+        if (!effectiveEmail.endsWith('@phone.locohelp.com')) {
+          localStorage.setItem('locohelp_remembered_email', effectiveEmail);
+        }
       }
       if (finalPhoneDigits.length === 10) {
         localStorage.setItem('locohelp_last_logged_in_phone', finalPhoneDigits);
+        localStorage.setItem('locohelp_remembered_phone', finalPhoneDigits);
       }
       if (finalDisplayName && !isGenericDisplayNameClient(finalDisplayName, effectiveEmail)) {
         localStorage.setItem('locohelp_last_logged_in_name', finalDisplayName);
+        localStorage.setItem('locohelp_remembered_name', finalDisplayName);
       }
       if (finalPhoto) {
         localStorage.setItem('locohelp_last_logged_in_photo', finalPhoto);
@@ -493,6 +498,41 @@ export function getUserIdentitySet(user?: { uid?: string; id?: string; email?: s
           addCandidate(mb.id);
           addCandidate(`provider_chat_${mb.id}`);
           addCandidate(`direct_chat_${mb.id}`);
+        }
+      }
+      const allHelpersRaw = localStorage.getItem('locohelp_free_helper_profiles');
+      if (allHelpersRaw) {
+        const allHelpers = JSON.parse(allHelpersRaw);
+        if (Array.isArray(allHelpers)) {
+          const myPhTen = String(
+            target.phone ||
+              localStorage.getItem('locohelp_last_logged_in_phone') ||
+              localStorage.getItem('locohelp_profile_phone') ||
+              ''
+          )
+            .replace(/\D/g, '')
+            .slice(-10);
+          const myEm = String(
+            target.email || localStorage.getItem('locohelp_last_logged_in_email') || ''
+          )
+            .trim()
+            .toLowerCase();
+          const myIdNorm = String(target.uid || (target as any).id || '').trim().toLowerCase();
+          allHelpers.forEach((h: any) => {
+            if (!h || !h.id) return;
+            const hUid = String(h.userId || h.user_id || '').trim().toLowerCase();
+            const hEm = String(h.email || '').trim().toLowerCase();
+            const hPh = String(h.phone || '').replace(/\D/g, '').slice(-10);
+            if (
+              (myIdNorm && hUid && myIdNorm === hUid) ||
+              (myEm && hEm && myEm === hEm) ||
+              (myPhTen.length === 10 && hPh.length === 10 && myPhTen === hPh)
+            ) {
+              addCandidate(h.id);
+              addCandidate(`provider_chat_${h.id}`);
+              addCandidate(`direct_chat_${h.id}`);
+            }
+          });
         }
       }
     } catch {}
@@ -1837,8 +1877,34 @@ export async function verifyDatabaseReauth(options: {
 export async function logoutUser() {
   try {
     await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+    // Preserve remembered phone/email/name on this device BEFORE clearing active session keys
+    // so the user only needs to enter their PIN/Password on next login
+    try {
+      const lastPh = (
+        localStorage.getItem('locohelp_last_logged_in_phone') ||
+        localStorage.getItem('locohelp_profile_phone') ||
+        ''
+      )
+        .replace(/\D/g, '')
+        .slice(-10);
+      if (lastPh.length === 10) {
+        localStorage.setItem('locohelp_remembered_phone', lastPh);
+      }
+      const lastEm = (localStorage.getItem('locohelp_last_logged_in_email') || '').trim().toLowerCase();
+      if (lastEm && !lastEm.endsWith('@phone.locohelp.com')) {
+        localStorage.setItem('locohelp_remembered_email', lastEm);
+      }
+      const lastNm = (
+        localStorage.getItem('locohelp_profile_name') ||
+        localStorage.getItem('locohelp_last_logged_in_name') ||
+        ''
+      ).trim();
+      if (lastNm && !isGenericDisplayNameClient(lastNm, lastEm)) {
+        localStorage.setItem('locohelp_remembered_name', lastNm);
+      }
+    } catch {}
+
     // Clear active user session & current-account local caches so logging in with a different account never shows the previous user's data
-    // (When logging back into the same account, restoreSessionFromServer restores everything from the server)
     const sessionKeysToRemove = [
       'locohelp_user',
       'locohelp_logged_in',
@@ -1996,11 +2062,30 @@ export async function saveUserProfile(userData: Record<string, any>): Promise<vo
     localStorage.getItem('locohelp_last_logged_in_phone') ||
     '';
 
-  const rawAvatarCandidate = userData.liveSelfieUrl || userData.photoURL || userData.avatar_url || '';
+  const rawAvatarCandidate =
+    userData.watermarkedSelfieUrl ||
+    userData.avatar_url ||
+    userData.profilePhoto ||
+    userData.photoURL ||
+    '';
   const cleanAvatar =
     rawAvatarCandidate && rawAvatarCandidate !== 'https://lh3.googleusercontent.com/a/default-user'
       ? rawAvatarCandidate
-      : existingCached.avatar_url || existingCached.liveSelfieUrl || '';
+      : existingCached.watermarkedSelfieUrl || existingCached.avatar_url || '';
+
+  const rawAdminSelfieCandidate =
+    userData.rawSelfieUrl ||
+    userData.idDocumentWatermarked ||
+    existingCached.rawSelfieUrl ||
+    existingCached.idDocumentWatermarked ||
+    userData.liveSelfieUrl ||
+    existingCached.liveSelfieUrl ||
+    cleanAvatar ||
+    '';
+  const cleanAdminSelfie =
+    rawAdminSelfieCandidate && rawAdminSelfieCandidate !== 'https://lh3.googleusercontent.com/a/default-user'
+      ? rawAdminSelfieCandidate
+      : cleanAvatar;
 
   const resolvedVisitingCard =
     userData.visitingCardUrl !== undefined
@@ -2027,7 +2112,12 @@ export async function saveUserProfile(userData: Record<string, any>): Promise<vo
 
   if (cleanAvatar) {
     payloadRaw.avatar_url = cleanAvatar;
-    payloadRaw.liveSelfieUrl = cleanAvatar;
+    payloadRaw.watermarkedSelfieUrl = cleanAvatar;
+  }
+  if (cleanAdminSelfie) {
+    payloadRaw.rawSelfieUrl = cleanAdminSelfie;
+    payloadRaw.idDocumentWatermarked = cleanAdminSelfie;
+    payloadRaw.liveSelfieUrl = cleanAdminSelfie;
   }
   if (resolvedVisitingCard !== undefined && (userData.visitingCardUrl !== undefined || resolvedVisitingCard !== '')) {
     payloadRaw.visitingCardUrl = resolvedVisitingCard;
@@ -2253,12 +2343,6 @@ export async function saveShop(shop: any): Promise<any> {
 let inflightShopsPromise: Promise<any[]> | null = null;
 
 export async function getShops(includePending = false): Promise<any[]> {
-  let deletedIds: string[] = [];
-  try {
-    const delRaw = localStorage.getItem('locohelp_deleted_shops');
-    if (delRaw) deletedIds = JSON.parse(delRaw);
-  } catch {}
-
   try {
     if (!includePending && inflightShopsPromise) {
       return await inflightShopsPromise;
@@ -2272,19 +2356,8 @@ export async function getShops(includePending = false): Promise<any[]> {
         const list = await res.json();
         if (Array.isArray(list)) {
           const map = new Map<string, any>();
-          if (!includePending) {
-            try {
-              const prevRaw = localStorage.getItem('locohelp_registered_shops');
-              const prevList: any[] = prevRaw ? JSON.parse(prevRaw) : [];
-              prevList.forEach(s => {
-                if (s && s.id && !deletedIds.includes(String(s.id)) && s.status === 'pending') {
-                  map.set(String(s.id), s);
-                }
-              });
-            } catch {}
-          }
           list.forEach(s => {
-            if (s && s.id && !String(s.id).startsWith('sample_shop_') && !deletedIds.includes(String(s.id))) {
+            if (s && s.id && !String(s.id).startsWith('sample_shop_')) {
               map.set(String(s.id), s);
             }
           });
@@ -2319,7 +2392,7 @@ export async function getShops(includePending = false): Promise<any[]> {
     const existingRaw = localStorage.getItem('locohelp_registered_shops');
     const existing: any[] = existingRaw ? JSON.parse(existingRaw) : [];
     localShops = existing.filter(
-      s => s && s.id && !String(s.id).startsWith('sample_shop_') && !deletedIds.includes(String(s.id))
+      s => s && s.id && !String(s.id).startsWith('sample_shop_')
     );
   } catch {}
 
@@ -2339,16 +2412,11 @@ export function getCachedHelpersSync(includePending = false): any[] {
   if (!includePending && memoryApprovedHelpersCache && memoryApprovedHelpersCache.length > 0) {
     return memoryApprovedHelpersCache;
   }
-  let deletedIds: string[] = [];
-  try {
-    const delRaw = localStorage.getItem('locohelp_deleted_helpers');
-    if (delRaw) deletedIds = JSON.parse(delRaw);
-  } catch {}
   try {
     const existingRaw = localStorage.getItem('locohelp_free_helper_profiles');
     const existing: any[] = existingRaw ? JSON.parse(existingRaw) : [];
     const localHelpers = existing.filter(
-      h => h && h.id && !/^h\d+/.test(String(h.id)) && !deletedIds.includes(String(h.id))
+      h => h && h.id && !/^h\d+/.test(String(h.id))
     );
     if (!includePending) {
       return localHelpers.filter(h => h.isVerified === true || h.status === 'approved');
@@ -2375,12 +2443,6 @@ export async function saveHelper(helper: any): Promise<any> {
 }
 
 export async function getHelpers(includePending = false): Promise<any[]> {
-  let deletedIds: string[] = [];
-  try {
-    const delRaw = localStorage.getItem('locohelp_deleted_helpers');
-    if (delRaw) deletedIds = JSON.parse(delRaw);
-  } catch {}
-
   try {
     if (!includePending && inflightHelpersPromise) {
       return await inflightHelpersPromise;
@@ -2389,25 +2451,15 @@ export async function getHelpers(includePending = false): Promise<any[]> {
     const fetchTask = (async () => {
       const query = includePending ? `includePending=true&_t=${Date.now()}` : `_t=${Date.now()}`;
       const res = await fetch(`/api/helpers?${query}`, {
-        headers: getAuthHeaders()
+        headers: getAuthHeaders(),
+        cache: 'no-store'
       });
       if (res.ok) {
         const list = await res.json();
         if (Array.isArray(list)) {
           const map = new Map<string, any>();
-          if (!includePending) {
-            try {
-              const prevRaw = localStorage.getItem('locohelp_free_helper_profiles');
-              const prevList: any[] = prevRaw ? JSON.parse(prevRaw) : [];
-              prevList.forEach(h => {
-                if (h && h.id && !/^h\d+/.test(String(h.id)) && !deletedIds.includes(String(h.id)) && h.status === 'pending') {
-                  map.set(String(h.id), h);
-                }
-              });
-            } catch {}
-          }
           list.forEach(h => {
-            if (h && h.id && !/^h\d+/.test(String(h.id)) && !deletedIds.includes(String(h.id))) {
+            if (h && h.id && !/^h\d+/.test(String(h.id))) {
               map.set(String(h.id), h);
             }
           });
@@ -2435,8 +2487,6 @@ export async function getHelpers(includePending = false): Promise<any[]> {
                   ...updatedMy,
                   phone: updatedMy.phone || myHelper.phone || ''
                 }));
-              } else if (myHelper.id && deletedIds.includes(String(myHelper.id))) {
-                localStorage.removeItem('locohelp_my_helper_profile');
               }
             }
           } catch (e) {}

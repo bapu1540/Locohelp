@@ -22,14 +22,15 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useLanguage } from '../i18n';
 import { Screen, Intent } from '../types';
 import { isGuestUser } from '../lib/authUtils';
-import { getCurrentUser } from '../auth';
+import { getCurrentUser, getUserIdentitySet } from '../auth';
 import {
   fetchLiveIntents,
   getCachedLiveIntents,
   fetchPostConversations,
   getCachedPostConversations,
   deleteIntentOnServer,
-  getLocalUserDeletedChatsMap
+  getLocalUserDeletedChatsMap,
+  subscribeToRealtimeStream
 } from '../api';
 import { DEFAULT_SHOWCASE_PROVIDERS, ShowcaseProviderItem } from './HomeBelowCategorySection';
 import {
@@ -37,6 +38,7 @@ import {
   getLocalizedLocationButtonText,
   saveUserLocationPermanently,
   matchesUserLocationFilter,
+  localizePlaceName,
   UserManualLocation
 } from '../data/panIndiaLocations';
 
@@ -128,15 +130,18 @@ export default function FixedBottomNavBar({
       const pAuthorId = String(post.authorId || post.userId || '').trim().toLowerCase();
       const pAuthorEmail = String(post.authorEmail || '').trim().toLowerCase();
       const pAuthorPhoneDigits = String(post.authorPhone || post.phone || '').replace(/\D/g, '').slice(-10);
-      return Boolean(
-        myIds.includes(post.id) ||
-          (myUid && pAuthorId === myUid) ||
+      const matchesUserIdentity = Boolean(
+        (myUid && pAuthorId === myUid) ||
           (myEmailUid && pAuthorId === myEmailUid) ||
           (myEmail && (pAuthorEmail === myEmail || pAuthorId === myEmail)) ||
           (myPhoneUid && pAuthorId === myPhoneUid) ||
           (myPhoneSynthEmail && (pAuthorEmail === myPhoneSynthEmail || pAuthorId === myPhoneSynthEmail)) ||
           (myPhoneDigits.length === 10 && pAuthorPhoneDigits.length === 10 && pAuthorPhoneDigits === myPhoneDigits)
       );
+      if (pAuthorId || pAuthorEmail) {
+        return matchesUserIdentity;
+      }
+      return myIds.includes(post.id);
     });
   };
 
@@ -156,6 +161,12 @@ export default function FixedBottomNavBar({
     );
     const myPhoneDigits = rawPhone.replace(/\D/g, '').slice(-10);
     const myPhoneUid = myPhoneDigits.length === 10 ? `phone_${myPhoneDigits}` : '';
+    const myNameLower = String(
+      user?.displayName || localStorage.getItem('locohelp_profile_name') || ''
+    )
+      .trim()
+      .toLowerCase();
+    const myIdentitySet = getUserIdentitySet(user);
     const deletedMap = getLocalUserDeletedChatsMap();
 
     const contactedMap = new Map<string, any>();
@@ -177,7 +188,8 @@ export default function FixedBottomNavBar({
             (myPhoneDigits.length === 10 && reqFromPhone === myPhoneDigits)
           ) {
             const pId = String(reqItem.providerId || reqItem.helperId || reqItem.id || '');
-            if (pId) {
+            const pIdLower = pId.trim().toLowerCase();
+            if (pId && !myIdentitySet.has(pIdLower) && !myIdentitySet.has(`provider_chat_${pIdLower}`)) {
               const provChatId = `provider_chat_${pId}`;
               const delAt = Math.max(Number(deletedMap[provChatId] || 0), Number(deletedMap[pId] || 0));
               const reqTime = new Date(reqItem.createdAt || 0).getTime() || 0;
@@ -215,8 +227,30 @@ export default function FixedBottomNavBar({
       const lastMsgTime = new Date(c.lastMessageAt || c.updatedAt || c.createdAt || 0).getTime() || 0;
 
       if (postIdStr.startsWith('provider_chat_')) {
-        const provId = postIdStr.replace(/^provider_chat_/i, '');
-        if ((myUid && provId.toLowerCase() === myUid) || (myPhoneUid && provId.toLowerCase() === myPhoneUid)) return; // I am the provider
+        const provId = postIdStr.replace(/^provider_chat_/i, '').trim();
+        const provIdLower = provId.toLowerCase();
+        const posterIdLower = String(c.posterId || c.poster_id || '').trim().toLowerCase();
+        const posterEmailLower = String(c.posterEmail || c.poster_email || '').trim().toLowerCase();
+        const helperIdLower = String(c.helperId || c.helper_id || c.senderId || '').trim().toLowerCase();
+        const posterNameLower = String(c.posterName || '').trim().toLowerCase();
+        const provPhoneTen = provId.replace(/\D/g, '').slice(-10);
+
+        const isMeProvider = Boolean(
+          c.isViewerPoster === true ||
+          myIdentitySet.has(provIdLower) ||
+          myIdentitySet.has(postIdStr.toLowerCase()) ||
+          (posterIdLower && myIdentitySet.has(posterIdLower)) ||
+          (posterEmailLower && myIdentitySet.has(posterEmailLower)) ||
+          (myPhoneDigits.length === 10 && provPhoneTen.length === 10 && provPhoneTen === myPhoneDigits) ||
+          (myNameLower && posterNameLower === myNameLower && (!helperIdLower || !myIdentitySet.has(helperIdLower)))
+        );
+
+        if (isMeProvider) {
+          contactedMap.delete(provId);
+          contactedMap.delete(postIdStr);
+          return; // I am the service provider; do not list my own profile under Contacted Providers
+        }
+
         const provDeletedAt = Math.max(deletedAt, Number(deletedMap[provId] || 0));
         if (provDeletedAt > 0 && (lastMsgTime <= 0 || lastMsgTime <= provDeletedAt)) {
           contactedMap.delete(provId);
@@ -349,15 +383,23 @@ export default function FixedBottomNavBar({
       }
     };
     syncLivePosts();
-    // Auto-prune expired posts (>1 hour) every 30 seconds
+    // Refresh live posts & replies frequently when modal is open
     const timer = setInterval(() => {
       syncLivePosts();
-    }, 30000);
+    }, activeBottomModal === 'posts' || activeBottomModal === 'bookings' ? 4000 : 25000);
     window.addEventListener('locohelp_intents_updated', syncLivePosts);
+    window.addEventListener('locohelp_realtime_new_response', syncLivePosts);
+    const unsubStream = subscribeToRealtimeStream({
+      onNewResponse: () => {
+        syncLivePosts();
+      }
+    });
     return () => {
       active = false;
       clearInterval(timer);
+      unsubStream();
       window.removeEventListener('locohelp_intents_updated', syncLivePosts);
+      window.removeEventListener('locohelp_realtime_new_response', syncLivePosts);
     };
   }, [activeBottomModal]);
 
@@ -423,12 +465,54 @@ export default function FixedBottomNavBar({
   const selectedDistLower = (activeLocation?.district || '').trim().toLowerCase();
   const isAllCitiesMode = !selectedDistLower || selectedDistLower === 'all';
 
+  const formatPostLocationDisplay = (post: any): string => {
+    const rawCity = String(post?.city || '').trim();
+    const rawArea = String(post?.area || '').trim();
+    const rawLoc = String(post?.resolvedLocationBadge || post?.location || '').trim();
+
+    if (
+      rawCity.toLowerCase() === 'all' ||
+      rawCity.toLowerCase() === 'all cities' ||
+      rawArea.toLowerCase() === 'all cities' ||
+      rawLoc.toLowerCase() === 'all cities' ||
+      rawLoc.toLowerCase() === 'all' ||
+      (isAllCitiesMode && rawLoc.toLowerCase() === 'gandhinagar, gandhinagar')
+    ) {
+      return language === 'GU' ? 'બધા શહેરો' : language === 'HI' ? 'सभी शहर' : 'All Cities';
+    }
+
+    const parts = (rawLoc || [rawArea, rawCity].filter(Boolean).join(', '))
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const uniqueParts: string[] = [];
+    for (const p of parts) {
+      if (!uniqueParts.some((u) => u.toLowerCase() === p.toLowerCase())) {
+        uniqueParts.push(localizePlaceName(p, language));
+      }
+    }
+
+    if (uniqueParts.length > 0) {
+      return uniqueParts.join(', ');
+    }
+    return language === 'GU' ? 'બધા શહેરો' : language === 'HI' ? 'सभी शहर' : 'All Cities';
+  };
+
   const filteredLivePosts = allLivePostsList.filter((post: any) => {
     if (!post || !post.id) return false;
     if (post.is_flagged || post.hidden || post.is_deleted) return false;
 
     const isMyOwn = myOwnPostIdsSet.has(String(post.id));
-    if (!isMyOwn && !isAllCitiesMode && !postsSearchQuery.trim()) {
+    const postCityLower = String(post.city || '').trim().toLowerCase();
+    const postLocLower = String(post.location || '').trim().toLowerCase();
+    const isPostForAllCities =
+      postCityLower === 'all' ||
+      postCityLower === 'all cities' ||
+      postLocLower === 'all' ||
+      postLocLower === 'all cities';
+
+    if (!isMyOwn && !isAllCitiesMode && !isPostForAllCities && !postsSearchQuery.trim()) {
       const postLocText = `${post.city || ''} ${post.area || ''} ${post.location || ''} ${post.resolvedLocationBadge || ''} ${post.description || ''}`;
       if (!matchesUserLocationFilter(postLocText, activeLocation)) return false;
     }
@@ -654,10 +738,14 @@ export default function FixedBottomNavBar({
                 ) : (
                   filteredLivePosts.map((post: any) => {
                     const isMine = myOwnPostIdsSet.has(String(post.id));
-                    const respCount = Number(
-                      post.responseCount ||
-                        post.response_count ||
-                        (Array.isArray(post.repliers) ? post.repliers.length : 0)
+                    const postRepliersList = Array.isArray(post.repliers) && post.repliers.length > 0
+                      ? post.repliers
+                      : Array.isArray(post.responses) && post.responses.length > 0
+                      ? post.responses
+                      : [];
+                    const respCount = Math.max(
+                      Number(post.responseCount || post.response_count || 0),
+                      postRepliersList.length
                     );
                     return (
                       <div
@@ -715,11 +803,55 @@ export default function FixedBottomNavBar({
                           </div>
                         )}
 
+                        {/* Inline Replies Preview directly inside Post Card */}
+                        {postRepliersList.length > 0 && (
+                          <div className="p-2.5 rounded-xl bg-white/95 border border-emerald-200 space-y-1.5">
+                            <p className="text-[10px] font-black text-emerald-800 flex items-center gap-1">
+                              <span>💬</span>
+                              <span>
+                                {language === 'GU'
+                                  ? `આવેલા જવાબો (${postRepliersList.length}):`
+                                  : `Replies (${postRepliersList.length}):`}
+                              </span>
+                            </p>
+                            {postRepliersList.slice(0, 3).map((rep: any, idx: number) => {
+                              const repId = String(rep.senderId || rep.sender_id || rep.helperId || '').trim();
+                              const repName = rep.senderName || rep.sender_name || rep.helperName || 'Community Helper';
+                              const repMsg = rep.lastMessage || rep.last_message || rep.text || rep.message || '';
+                              return (
+                                <div
+                                  key={rep.id || `${repId}_${idx}`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setActiveBottomModal(null);
+                                    onOpenChat({
+                                      ...post,
+                                      selectedReplierId: repId || undefined,
+                                      selectedReplierName: repName,
+                                      selectedReplierEmail: rep.senderEmail || rep.helperEmail || undefined,
+                                      selectedReplierAvatar: rep.senderAvatar || rep.helperAvatar || undefined
+                                    });
+                                  }}
+                                  className="px-2.5 py-1.5 rounded-lg bg-emerald-50/80 hover:bg-emerald-100/80 border border-emerald-200/80 flex items-center justify-between gap-2 cursor-pointer"
+                                >
+                                  <div className="min-w-0">
+                                    <span className="text-[11px] font-black text-slate-900">{repName}: </span>
+                                    <span className="text-[11px] font-bold text-slate-700">{repMsg}</span>
+                                  </div>
+                                  <span className="text-[10px] font-black text-emerald-700 shrink-0">
+                                    {language === 'GU' ? 'ચેટ →' : 'Chat →'}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
                         <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-slate-200/80">
                           <p className="text-[11px] font-bold text-slate-500 flex items-center gap-1 truncate">
                             <MapPin className="w-3 h-3 text-orange-600 shrink-0" />
                             <span className="truncate">
-                              {post.resolvedLocationBadge || post.location || post.area || 'Local Area'}
+                              {formatPostLocationDisplay(post)}
                             </span>
                           </p>
                           <div className="flex items-center gap-1.5 shrink-0">
@@ -741,8 +873,8 @@ export default function FixedBottomNavBar({
                               <span>
                                 {isMine
                                   ? language === 'GU'
-                                    ? 'જવાબ જુઓ'
-                                    : 'View Replies'
+                                    ? `જવાબ જુઓ${respCount > 0 ? ` (${respCount})` : ''}`
+                                    : `View Replies${respCount > 0 ? ` (${respCount})` : ''}`
                                   : language === 'GU'
                                   ? 'ચેટ / મદદ કરો'
                                   : 'Chat / Help'}
@@ -950,7 +1082,15 @@ export default function FixedBottomNavBar({
                   ) : (
                     <div className="space-y-2.5">
                       {myBookingsList.map((post: any) => {
-                        const respCount = Number(post.responseCount || post.response_count || (Array.isArray(post.repliers) ? post.repliers.length : 0));
+                        const postRepliersList = Array.isArray(post.repliers) && post.repliers.length > 0
+                          ? post.repliers
+                          : Array.isArray(post.responses) && post.responses.length > 0
+                          ? post.responses
+                          : [];
+                        const respCount = Math.max(
+                          Number(post.responseCount || post.response_count || 0),
+                          postRepliersList.length
+                        );
                         return (
                           <div
                             key={post.id}
@@ -983,10 +1123,47 @@ export default function FixedBottomNavBar({
                             <p className="text-xs sm:text-sm font-black text-slate-900 line-clamp-2">
                               {post.description}
                             </p>
+                            {postRepliersList.length > 0 && (
+                              <div className="p-2.5 rounded-xl bg-white border border-blue-200 space-y-1.5">
+                                <p className="text-[10px] font-black text-blue-800">
+                                  💬 {language === 'GU' ? `આવેલા જવાબો (${postRepliersList.length}):` : `Replies (${postRepliersList.length}):`}
+                                </p>
+                                {postRepliersList.slice(0, 3).map((rep: any, idx: number) => {
+                                  const repId = String(rep.senderId || rep.sender_id || rep.helperId || '').trim();
+                                  const repName = rep.senderName || rep.sender_name || rep.helperName || 'Community Helper';
+                                  const repMsg = rep.lastMessage || rep.last_message || rep.text || rep.message || '';
+                                  return (
+                                    <div
+                                      key={rep.id || `${repId}_${idx}`}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setActiveBottomModal(null);
+                                        onOpenChat({
+                                          ...post,
+                                          selectedReplierId: repId || undefined,
+                                          selectedReplierName: repName,
+                                          selectedReplierEmail: rep.senderEmail || rep.helperEmail || undefined,
+                                          selectedReplierAvatar: rep.senderAvatar || rep.helperAvatar || undefined
+                                        });
+                                      }}
+                                      className="px-2.5 py-1.5 rounded-lg bg-blue-50/70 hover:bg-blue-100/80 border border-blue-200/80 flex items-center justify-between gap-2 cursor-pointer"
+                                    >
+                                      <div className="min-w-0">
+                                        <span className="text-[11px] font-black text-slate-900">{repName}: </span>
+                                        <span className="text-[11px] font-bold text-slate-700">{repMsg}</span>
+                                      </div>
+                                      <span className="text-[10px] font-black text-blue-700 shrink-0">
+                                        {language === 'GU' ? 'ચેટ →' : 'Chat →'}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
                             <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-200/80">
                               <p className="text-[11px] font-bold text-slate-500 flex items-center gap-1 truncate">
                                 <MapPin className="w-3 h-3 text-blue-600 shrink-0" />
-                                <span className="truncate">{post.location || 'Local Area'}</span>
+                                <span className="truncate">{formatPostLocationDisplay(post)}</span>
                               </p>
                               <div className="flex items-center gap-1.5 shrink-0">
                                 <button
@@ -1003,7 +1180,11 @@ export default function FixedBottomNavBar({
                                   style={{ backgroundColor: '#2563EB', color: '#ffffff' }}
                                   className="px-3 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1 cursor-pointer"
                                 >
-                                  <span>{language === 'GU' ? 'ચેટ જુઓ' : 'View Chat'}</span>
+                                  <span>
+                                    {language === 'GU'
+                                      ? `જવાબ જુઓ${respCount > 0 ? ` (${respCount})` : ''}`
+                                      : `View Chat${respCount > 0 ? ` (${respCount})` : ''}`}
+                                  </span>
                                   <ChevronRight className="w-3.5 h-3.5" />
                                 </button>
                               </div>

@@ -600,9 +600,7 @@ export function getSavedUserLocation(): UserManualLocation {
             ? parsed.taluka
             : typeof parsed.area === 'string'
             ? parsed.area
-            : localStorage.getItem('locohelp_selected_area') ||
-              getTalukasForDistrict(district)[0] ||
-              district;
+            : localStorage.getItem('locohelp_selected_area') || '';
         return {
           state,
           district,
@@ -612,16 +610,19 @@ export function getSavedUserLocation(): UserManualLocation {
       }
     }
 
-    const profLoc = getProfileRegisteredLocation();
-    if (profLoc && profLoc.district) {
-      return profLoc;
-    }
-
     const legacyCity = localStorage.getItem('locohelp_selected_city');
     const legacyState = localStorage.getItem('locohelp_selected_state');
     const legacyArea = localStorage.getItem('locohelp_selected_area');
     if (legacyCity) {
-      const resolvedTaluka = legacyArea || getTalukasForDistrict(legacyCity)[0] || legacyCity;
+      if (legacyCity.trim().toLowerCase() === 'all') {
+        return {
+          state: 'All',
+          district: 'All',
+          taluka: '',
+          area: ''
+        };
+      }
+      const resolvedTaluka = legacyArea || '';
       return {
         state: legacyState || findStateForDistrict(legacyCity) || 'Gujarat',
         district: legacyCity,
@@ -632,11 +633,36 @@ export function getSavedUserLocation(): UserManualLocation {
   } catch (e) {}
 
   return {
-    state: 'Gujarat',
-    district: 'Gandhinagar',
-    taluka: 'Gandhinagar',
-    area: 'Gandhinagar'
+    state: 'All',
+    district: 'All',
+    taluka: '',
+    area: ''
   };
+}
+
+function parseAddressStringToLocation(addrStr?: string | null): UserManualLocation | null {
+  if (!addrStr || typeof addrStr !== 'string') return null;
+  const parts = addrStr
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (parts.length === 0) return null;
+
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const candidate = parts[i];
+    if (candidate.toLowerCase() === 'all' || candidate.toLowerCase() === 'local area') continue;
+    const foundSt = findStateForDistrict(candidate);
+    if (foundSt) {
+      const tal = i > 0 ? parts[0] : getTalukasForDistrict(candidate)[0] || candidate;
+      return {
+        state: foundSt,
+        district: candidate,
+        taluka: tal,
+        area: tal
+      };
+    }
+  }
+  return null;
 }
 
 /**
@@ -648,10 +674,10 @@ export function getProfileRegisteredLocation(): UserManualLocation {
     const regRaw = localStorage.getItem('locohelp_registered_profile_location');
     if (regRaw) {
       const parsed = JSON.parse(regRaw);
-      if (parsed && parsed.district) {
+      if (parsed && parsed.district && String(parsed.district).trim().toLowerCase() !== 'all') {
         const taluka = parsed.taluka || parsed.area || getTalukasForDistrict(parsed.district)[0] || '';
         return {
-          state: parsed.state || 'Gujarat',
+          state: parsed.state || findStateForDistrict(parsed.district) || 'Gujarat',
           district: parsed.district,
           taluka,
           area: taluka
@@ -662,8 +688,8 @@ export function getProfileRegisteredLocation(): UserManualLocation {
     const savedUserRaw = localStorage.getItem('locohelp_user');
     if (savedUserRaw) {
       const u = JSON.parse(savedUserRaw);
-      if (u && (u.manualDistrict || u.city)) {
-        const dist = u.manualDistrict || u.city || 'Gandhinagar';
+      if (u && (u.manualDistrict || u.city) && String(u.manualDistrict || u.city).trim().toLowerCase() !== 'all') {
+        const dist = u.manualDistrict || u.city;
         const st = u.manualState || findStateForDistrict(dist) || 'Gujarat';
         const tal = u.manualTaluka || u.manualArea || u.sector || getTalukasForDistrict(dist)[0] || '';
         return {
@@ -673,6 +699,29 @@ export function getProfileRegisteredLocation(): UserManualLocation {
           area: tal
         };
       }
+      if (u && u.address) {
+        const fromAddr = parseAddressStringToLocation(u.address);
+        if (fromAddr) return fromAddr;
+      }
+      if (u && u.uid) {
+        const scopedLoc = localStorage.getItem(`locohelp_profile_location_${u.uid}`);
+        const fromScoped = parseAddressStringToLocation(scopedLoc);
+        if (fromScoped) return fromScoped;
+      }
+    }
+
+    const helperRaw = localStorage.getItem('locohelp_my_helper_profile');
+    if (helperRaw) {
+      const h = JSON.parse(helperRaw);
+      const fromHelper = parseAddressStringToLocation(h?.area || h?.city);
+      if (fromHelper) return fromHelper;
+    }
+
+    const bizRaw = localStorage.getItem('locohelp_my_business_profile');
+    if (bizRaw) {
+      const b = JSON.parse(bizRaw);
+      const fromBiz = parseAddressStringToLocation(b?.area || b?.address);
+      if (fromBiz) return fromBiz;
     }
   } catch {}
 
@@ -701,13 +750,6 @@ export async function saveProfileRegisteredLocation(loc: UserManualLocation): Pr
 
   try {
     localStorage.setItem('locohelp_registered_profile_location', JSON.stringify(payload));
-    // If no browsing location was set yet, sync browsing filter to the registered location too
-    if (!localStorage.getItem('locohelp_user_location')) {
-      localStorage.setItem('locohelp_user_location', JSON.stringify(payload));
-      localStorage.setItem('locohelp_selected_state', cleanState);
-      localStorage.setItem('locohelp_selected_city', cleanDistrict);
-      localStorage.setItem('locohelp_selected_area', cleanTaluka);
-    }
 
     const savedUserRaw = localStorage.getItem('locohelp_user');
     if (savedUserRaw) {

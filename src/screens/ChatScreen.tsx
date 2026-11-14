@@ -216,10 +216,6 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
     if (typeof (currentIntent as any)?.isViewerPostOwner === 'boolean') {
       return (currentIntent as any).isViewerPostOwner;
     }
-    try {
-      const myPostIds: string[] = JSON.parse(localStorage.getItem('locohelp_my_post_ids') || '[]');
-      if (chatId && myPostIds.includes(chatId)) return true;
-    } catch {}
     // Check if chatId is a direct Service Expert chat (provider_chat_<helperId>) owned by the logged-in user
     if (chatId && chatId.startsWith('provider_chat_') && currentUser) {
       const targetHelperId = chatId.replace(/^provider_chat_/i, '').trim().toLowerCase();
@@ -252,14 +248,20 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
         }
       } catch {}
     }
-    if (!currentIntent?.authorId && !(currentIntent as any)?.authorEmail) return false;
-    return isMessageSentByUser(
-      {
-        sender_id: currentIntent?.authorId || '',
-        sender_email: (currentIntent as any)?.authorEmail
-      },
-      currentUser
-    );
+    if (currentIntent?.authorId || (currentIntent as any)?.authorEmail) {
+      return isMessageSentByUser(
+        {
+          sender_id: currentIntent?.authorId || '',
+          sender_email: (currentIntent as any)?.authorEmail
+        },
+        currentUser
+      );
+    }
+    try {
+      const myPostIds: string[] = JSON.parse(localStorage.getItem('locohelp_my_post_ids') || '[]');
+      if (chatId && myPostIds.includes(chatId)) return true;
+    } catch {}
+    return false;
   }, [chatId, currentIntent, currentUser]);
 
   const [selectedReplierId, setSelectedReplierId] = useState<string | null>(() => {
@@ -418,17 +420,20 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
           : Array.isArray((currentIntent as any).responses)
           ? (currentIntent as any).responses
           : [];
-        const firstOther = preloadedRepliers.find((r: any) => {
-          const rId = String(r?.sender_id || r?.senderId || r?.helperId || r?.id || '').trim();
-          const rEmail = String(r?.sender_email || r?.senderEmail || r?.helperEmail || '').trim();
-          return rId && !isMessageSentByUser({ sender_id: rId, sender_email: rEmail }, getCurrentUser());
-        });
+        const firstOther =
+          preloadedRepliers.find((r: any) => {
+            const rId = String(r?.sender_id || r?.senderId || r?.helperId || r?.id || '').trim();
+            const rEmail = String(r?.sender_email || r?.senderEmail || r?.helperEmail || '').trim();
+            return rId && !isMessageSentByUser({ sender_id: rId, sender_email: rEmail }, getCurrentUser());
+          }) || preloadedRepliers[0];
         if (firstOther) {
           const rId = String(firstOther.sender_id || firstOther.senderId || firstOther.helperId || firstOther.id || '').trim();
-          setSelectedReplierId(rId);
-          setSelectedReplierName(firstOther.sender_name || firstOther.senderName || firstOther.helperName || firstOther.name || 'Community Helper');
-          setSelectedReplierEmail(firstOther.sender_email || firstOther.senderEmail || firstOther.helperEmail || null);
-          setSelectedReplierAvatar(firstOther.sender_avatar || firstOther.senderAvatar || firstOther.helperAvatar || null);
+          if (rId && rId !== 'system') {
+            setSelectedReplierId(rId);
+            setSelectedReplierName(firstOther.sender_name || firstOther.senderName || firstOther.helperName || firstOther.name || 'Community Helper');
+            setSelectedReplierEmail(firstOther.sender_email || firstOther.senderEmail || firstOther.helperEmail || null);
+            setSelectedReplierAvatar(firstOther.sender_avatar || firstOther.senderAvatar || firstOther.helperAvatar || null);
+          }
         }
       }
     } else {
@@ -468,12 +473,19 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
       if (isProfileModalOpen) { e.preventDefault(); setIsProfileModalOpen(false); return; }
       if (isRatingOpen) { e.preventDefault(); setIsRatingOpen(false); return; }
       if (isLoginPromptOpen) { e.preventDefault(); setIsLoginPromptOpen(false); return; }
+      if (openedFromListRef.current && currentIntent && !isModal) {
+        e.preventDefault();
+        setCurrentIntent(null);
+        onIntentChange?.(null);
+        return;
+      }
     };
     window.addEventListener('locohelp_close_active_modal', handleCloseChatModal);
     return () => window.removeEventListener('locohelp_close_active_modal', handleCloseChatModal);
-  }, [zoomedImage, isCameraOpen, isMapModalOpen, isReportChatModalOpen, isProfileModalOpen, isRatingOpen, isLoginPromptOpen]);
+  }, [zoomedImage, isCameraOpen, isMapModalOpen, isReportChatModalOpen, isProfileModalOpen, isRatingOpen, isLoginPromptOpen, currentIntent, isModal, onIntentChange]);
 
-  // Load cached 1-on-1 messages when switching activeConversationId
+  // Load cached 1-on-1 messages or preloaded post responses when switching activeConversationId / chatId
+  const prevChatIdForMessagesRef = useRef<string>('');
   useEffect(() => {
     initialLoadRef.current = true;
     isUserNearBottomRef.current = true;
@@ -481,22 +493,94 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
     lastMessageIdRef.current = null;
     setShowScrollBottomBtn(false);
     setUnreadNewScrollCount(0);
-    if (!activeConversationId) {
-      setMessages([]);
-      return;
+
+    const isSamePost = Boolean(chatId && prevChatIdForMessagesRef.current === chatId);
+    prevChatIdForMessagesRef.current = chatId;
+
+    // Seed from preloaded responses/repliers attached to currentIntent so replies show in 0ms
+    const seededMap = new Map<string, any>();
+    const rawPreResponses = Array.isArray((currentIntent as any)?.responses) ? (currentIntent as any).responses : [];
+    const rawPreRepliers = Array.isArray((currentIntent as any)?.repliers) ? (currentIntent as any).repliers : [];
+    rawPreResponses.forEach((m: any) => {
+      const mText = String(m?.text || m?.message || m?.content || '').trim();
+      const sId = String(m?.senderId || m?.sender_id || m?.authorId || '').trim();
+      if (!mText || !sId || sId === 'system') return;
+      const mId = String(m.id || `resp_${chatId}_${sId}_${m.createdAt || ''}`);
+      seededMap.set(mId, {
+        id: mId,
+        text: mText,
+        type: m.type || 'text',
+        authorId: sId,
+        sender_id: sId,
+        user_id: sId,
+        authorName: m.senderName || m.sender_name || m.authorName || 'Community Helper',
+        sender_name: m.senderName || m.sender_name || m.authorName || 'Community Helper',
+        senderEmail: m.senderEmail || m.sender_email || '',
+        sender_email: m.senderEmail || m.sender_email || '',
+        senderAvatar: m.senderAvatar || m.sender_avatar || '',
+        createdAt: m.createdAt || m.created_at || new Date().toISOString()
+      });
+    });
+    if (seededMap.size === 0 && rawPreRepliers.length > 0) {
+      rawPreRepliers.forEach((rep: any) => {
+        const mText = String(rep?.lastMessage || rep?.last_message || rep?.message || rep?.text || '').trim();
+        const sId = String(rep?.senderId || rep?.sender_id || rep?.helperId || rep?.id || '').trim();
+        if (!mText || !sId || sId === 'system') return;
+        const mId = String(rep.id || `rep_${chatId}_${sId}`);
+        seededMap.set(mId, {
+          id: mId,
+          text: mText,
+          type: 'text',
+          authorId: sId,
+          sender_id: sId,
+          user_id: sId,
+          authorName: rep.senderName || rep.sender_name || rep.helperName || 'Community Helper',
+          sender_name: rep.senderName || rep.sender_name || rep.helperName || 'Community Helper',
+          senderEmail: rep.senderEmail || rep.sender_email || rep.helperEmail || '',
+          sender_email: rep.senderEmail || rep.sender_email || rep.helperEmail || '',
+          senderAvatar: rep.senderAvatar || rep.sender_avatar || rep.helperAvatar || '',
+          createdAt: rep.lastMessageAt || rep.updatedAt || new Date().toISOString()
+        });
+      });
     }
-    try {
-      const stored = localStorage.getItem(`locohelp_chat_${activeConversationId}`);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) {
-          setMessages(parsed);
-          return;
+
+    const candidateKeys = [
+      activeConversationId ? `locohelp_chat_${activeConversationId}` : '',
+      chatId ? `locohelp_chat_${chatId}` : ''
+    ].filter(Boolean);
+
+    for (const k of candidateKeys) {
+      try {
+        const stored = localStorage.getItem(k);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            parsed.forEach((m: any) => {
+              if (m && m.id) seededMap.set(m.id, m);
+            });
+          }
         }
-      }
-    } catch {}
-    setMessages([]);
-  }, [activeConversationId]);
+      } catch {}
+    }
+
+    const seededList = Array.from(seededMap.values()).sort(
+      (a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime()
+    );
+
+    if (seededList.length > 0) {
+      setMessages(prev => {
+        if (!isSamePost) return seededList;
+        const merged = new Map<string, any>();
+        prev.forEach(m => { if (m && m.id) merged.set(m.id, m); });
+        seededList.forEach(m => { if (m && m.id) merged.set(m.id, m); });
+        return Array.from(merged.values()).sort(
+          (a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime()
+        );
+      });
+    } else if (!isSamePost) {
+      setMessages([]);
+    }
+  }, [activeConversationId, chatId]);
 
   // Check if either user has blocked the other in this chat
   useEffect(() => {
@@ -579,9 +663,9 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
     }
   }, [messages]);
 
-  // Persist 1-on-1 conversation locally
+  // Persist 1-on-1 conversation locally (do not overwrite with empty array)
   useEffect(() => {
-    if (!activeConversationId) return;
+    if (!activeConversationId || messages.length === 0) return;
     try {
       localStorage.setItem(`locohelp_chat_${activeConversationId}`, JSON.stringify(messages));
     } catch (e) {}
@@ -667,44 +751,42 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
         let effectiveHelperId = activeHelperId;
         let effectiveConvId = activeConversationId;
 
-        const fetchInboxPromise = isPostOwner
-          ? (async () => {
-              try {
-                const token = localStorage.getItem('locohelp_token');
-                const convRes = await fetch(
-                  `/api/chat/conversations?postId=${encodeURIComponent(chatId)}&userId=${encodeURIComponent(myUid)}&ownerEmail=${encodeURIComponent(myEmail)}&userPhone=${encodeURIComponent(myPhone)}&_t=${Date.now()}`,
-                  {
-                    cache: 'no-store',
-                    headers: token ? { Authorization: `Bearer ${token}` } : undefined
-                  }
-                );
-                if (convRes.ok) {
-                  const convList = await convRes.json();
-                  if (isMounted && Array.isArray(convList)) {
-                    const normalizedInbox = normalizeAndDedupeConversations(convList);
-                    setInboxConversations(normalizedInbox);
-                    if (!selectedReplierId && normalizedInbox.length > 0) {
-                      const firstHelper = normalizedInbox[0];
-                      const firstHelperId = firstHelper.helperId || firstHelper.senderId || firstHelper.helper_id;
-                      if (firstHelperId) {
-                        effectiveHelperId = String(firstHelperId);
-                        effectiveConvId = firstHelper.id || firstHelper.conversationId || `conv_${chatId}__${String(firstHelperId).toLowerCase()}`;
-                        setSelectedReplierId(firstHelperId);
-                        setSelectedReplierName(firstHelper.helperName || firstHelper.senderName || 'Community Helper');
-                        setSelectedReplierEmail(firstHelper.helperEmail || firstHelper.senderEmail || null);
-                        setSelectedReplierAvatar(firstHelper.helperAvatar || firstHelper.senderAvatar || null);
-                      }
-                    }
+        const fetchInboxPromise = (async () => {
+          try {
+            const token = localStorage.getItem('locohelp_token');
+            const convRes = await fetch(
+              `/api/chat/conversations?postId=${encodeURIComponent(chatId)}&userId=${encodeURIComponent(myUid)}&ownerEmail=${encodeURIComponent(myEmail)}&userPhone=${encodeURIComponent(myPhone)}&_t=${Date.now()}`,
+              {
+                cache: 'no-store',
+                headers: token ? { Authorization: `Bearer ${token}` } : undefined
+              }
+            );
+            if (convRes.ok) {
+              const convList = await convRes.json();
+              if (isMounted && Array.isArray(convList)) {
+                const normalizedInbox = normalizeAndDedupeConversations(convList);
+                setInboxConversations(normalizedInbox);
+                if (!selectedReplierId && normalizedInbox.length > 0) {
+                  const firstHelper = normalizedInbox[0];
+                  const firstHelperId = firstHelper.helperId || firstHelper.senderId || firstHelper.helper_id;
+                  if (firstHelperId) {
+                    effectiveHelperId = String(firstHelperId);
+                    effectiveConvId = firstHelper.id || firstHelper.conversationId || `conv_${chatId}__${String(firstHelperId).toLowerCase()}`;
+                    setSelectedReplierId(firstHelperId);
+                    setSelectedReplierName(firstHelper.helperName || firstHelper.senderName || 'Community Helper');
+                    setSelectedReplierEmail(firstHelper.helperEmail || firstHelper.senderEmail || null);
+                    setSelectedReplierAvatar(firstHelper.helperAvatar || firstHelper.senderAvatar || null);
                   }
                 }
-              } catch {}
-            })()
-          : Promise.resolve();
+              }
+            }
+          } catch {}
+        })();
 
-        // If we already know the target conversation or helper, fetch messages in parallel with inbox!
+        // Always fetch messages for this post/conversation in parallel with inbox!
         const initialTargetConv = effectiveConvId || chatId;
         let serverMessages: any[] = [];
-        if (initialTargetConv && (!isPostOwner || selectedReplierId || effectiveHelperId)) {
+        if (initialTargetConv) {
           const [, msgs] = await Promise.all([
             fetchInboxPromise,
             fetchChatMessages(initialTargetConv, {
@@ -714,22 +796,26 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
               userEmail: myEmail
             })
           ]);
-          serverMessages = msgs;
+          serverMessages = Array.isArray(msgs) ? msgs : [];
+          // If filtered by effectiveHelperId returned 0 messages, also fetch all messages on this postId
+          if (serverMessages.length === 0 && chatId && effectiveHelperId) {
+            const allPostMsgs = await fetchChatMessages(chatId, {
+              postId: chatId,
+              userId: myUid,
+              userEmail: myEmail
+            });
+            if (Array.isArray(allPostMsgs) && allPostMsgs.length > 0) {
+              serverMessages = allPostMsgs;
+            }
+          }
         } else {
           await fetchInboxPromise;
-          const targetConvToFetch = effectiveConvId || chatId;
-          if (!targetConvToFetch) return;
-          serverMessages = await fetchChatMessages(targetConvToFetch, {
-            postId: chatId,
-            helperId: effectiveHelperId || undefined,
-            userId: myUid,
-            userEmail: myEmail
-          });
         }
 
-        if (isMounted && Array.isArray(serverMessages)) {
-          if (isPostOwner && !selectedReplierId && !effectiveHelperId && serverMessages.length > 0) {
-            const firstIncoming = serverMessages.find((m: any) => !isMessageSentByUser(m, activeUser));
+        if (isMounted && Array.isArray(serverMessages) && serverMessages.length > 0) {
+          if (!selectedReplierId) {
+            const firstIncoming =
+              serverMessages.find((m: any) => !isMessageSentByUser(m, activeUser)) || serverMessages[0];
             if (firstIncoming) {
               const autoHelperId = String(firstIncoming.sender_id || firstIncoming.senderId || firstIncoming.authorId || '').trim();
               if (autoHelperId && autoHelperId !== 'system') {
@@ -953,17 +1039,23 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
       setIsLoginPromptOpen(true);
       return;
     }
-    if (isPostOwner && !selectedReplierId) {
-      setReportStatusBanner(
-        tr(
-          '⚠️ Please select a person from the list above to reply.',
-          '⚠️ कृपया जवाब देने के लिए पहले ऊपर सूची से किसी व्यक्ति को चुनें।',
-          '⚠️ જવાબ આપવા માટે કૃપા કરીને પહેલા ઉપરની યાદીમાંથી વ્યક્તિ પસંદ કરો.'
-        )
-      );
-      setTimeout(() => setReportStatusBanner(null), 4000);
-      return;
+    let resolvedReplierId = selectedReplierId;
+    let resolvedReplierName = selectedReplierName;
+    let resolvedReplierEmail = selectedReplierEmail;
+    let resolvedReplierAvatar = selectedReplierAvatar;
+
+    if (isPostOwner && !resolvedReplierId && distinctRepliers.length > 0) {
+      const firstRep = distinctRepliers[0];
+      resolvedReplierId = firstRep.id;
+      resolvedReplierName = firstRep.name || 'Community Helper';
+      resolvedReplierEmail = firstRep.email || null;
+      resolvedReplierAvatar = firstRep.avatar || null;
+      setSelectedReplierId(firstRep.id);
+      setSelectedReplierName(firstRep.name || 'Community Helper');
+      setSelectedReplierEmail(firstRep.email || null);
+      setSelectedReplierAvatar(firstRep.avatar || null);
     }
+
     if (isChatBlocked) {
       setReportStatusBanner(
         tr(
@@ -989,10 +1081,10 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
     const activeAvatar = activeUser?.photoURL || localStorage.getItem('locohelp_profile_photo') || '';
 
     const targetReceiverId = isPostOwner
-      ? String(selectedReplierId || '').trim()
+      ? String(resolvedReplierId || currentIntent?.authorId || chatId).trim()
       : String(currentIntent?.authorId || chatId).trim();
     const targetHelperId = isPostOwner
-      ? String(selectedReplierId || activeHelperId || '').trim()
+      ? String(resolvedReplierId || activeHelperId || activeUid).trim()
       : String(activeHelperId || activeUid).trim();
     const convIdToUse = activeConversationId || `conv_${chatId}__${targetHelperId.toLowerCase()}`;
     const resolvedPostOwnerId = isPostOwner
@@ -1015,9 +1107,9 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
       post_owner_email: resolvedPostOwnerEmail,
       helperId: targetHelperId,
       helper_id: targetHelperId,
-      helperName: isPostOwner ? (selectedReplierName || 'Community Helper') : activeName,
-      helperEmail: isPostOwner ? (selectedReplierEmail || '') : activeEmail,
-      helperAvatar: isPostOwner ? (selectedReplierAvatar || '') : activeAvatar,
+      helperName: isPostOwner ? (resolvedReplierName || 'Community Helper') : activeName,
+      helperEmail: isPostOwner ? (resolvedReplierEmail || '') : activeEmail,
+      helperAvatar: isPostOwner ? (resolvedReplierAvatar || '') : activeAvatar,
       authorId: activeUid,
       sender_id: activeUid,
       user_id: activeUid,
@@ -1624,8 +1716,7 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
       const hId = String(r?.sender_id || r?.senderId || r?.helperId || r?.id || '').trim();
       if (!hId || hId === 'system') return;
       const hEmail = String(r?.sender_email || r?.senderEmail || r?.helperEmail || '').trim();
-      if (isMessageSentByUser({ sender_id: hId, sender_email: hEmail }, currentUser)) return;
-      const key = hId.toLowerCase();
+      const key = (hEmail || hId).toLowerCase();
       if (!map.has(key)) {
         map.set(key, {
           id: hId,
@@ -1644,11 +1735,12 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
     inboxConversations.forEach((c: any) => {
       const hId = String(c?.helperId || c?.helper_id || c?.senderId || '').trim();
       if (!hId || hId === 'system') return;
-      if (isMessageSentByUser({ sender_id: hId, sender_email: c?.helperEmail || c?.senderEmail }, currentUser)) return;
-      map.set(hId.toLowerCase(), {
+      const hEmail = String(c?.helperEmail || c?.senderEmail || '').trim();
+      const key = (hEmail || hId).toLowerCase();
+      map.set(key, {
         id: hId,
         name: c.helperName || c.senderName || 'Community Helper',
-        email: c.helperEmail || c.senderEmail || '',
+        email: hEmail,
         avatar: c.helperAvatar || c.senderAvatar || '',
         lastMessage: c.lastMessage || c.last_message || 'Sent a message',
         updatedAt: c.lastMessageAt || c.updatedAt || new Date().toISOString(),
@@ -1661,48 +1753,48 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
     messages.forEach(m => {
       const sId = String(m.sender_id || m.authorId || '').trim();
       if (!sId || sId === 'system' || m.type === 'task_completed') return;
-      const sentByMe = isMessageSentByUser(m, currentUser);
-      if (!sentByMe) {
-        const key = sId.toLowerCase();
-        const existing = map.get(key);
-        if (!existing) {
-          map.set(key, {
-            id: sId,
-            name: m.authorName || m.sender_name || 'Community Helper',
-            email: m.senderEmail || m.sender_email || '',
-            avatar: m.senderAvatar || '',
-            lastMessage: m.text || 'Sent a message',
-            updatedAt: m.createdAt || new Date().toISOString(),
-            count: 1,
-            unreadCount: 0,
-            isCollaborator: Boolean(m.isCollaborator)
-          });
-        } else {
-          existing.count += 1;
-          if (m.isCollaborator) existing.isCollaborator = true;
-        }
+      const sEmail = String(m.senderEmail || m.sender_email || '').trim();
+      const key = (sEmail || sId).toLowerCase();
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, {
+          id: sId,
+          name: m.authorName || m.sender_name || 'Community Helper',
+          email: sEmail,
+          avatar: m.senderAvatar || '',
+          lastMessage: m.text || 'Sent a message',
+          updatedAt: m.createdAt || new Date().toISOString(),
+          count: 1,
+          unreadCount: 0,
+          isCollaborator: Boolean(m.isCollaborator)
+        });
+      } else {
+        existing.count += 1;
+        if (m.text) existing.lastMessage = m.text;
+        if (m.isCollaborator) existing.isCollaborator = true;
       }
     });
-    return Array.from(map.values());
+    const allList = Array.from(map.values());
+    const othersOnly = allList.filter(item => !isMessageSentByUser({ sender_id: item.id, sender_email: item.email }, currentUser));
+    return othersOnly.length > 0 ? othersOnly : allList;
   }, [inboxConversations, messages, currentUser, currentIntent]);
 
-  // Auto-select the responder when Post Owner has exactly 1 responder so 1-on-1 chat opens immediately ready to type
+  // Auto-select the responder when Post Owner has responders and none is selected yet so replies are visible immediately
   useEffect(() => {
-    if (isPostOwner && !selectedReplierId && distinctRepliers.length === 1) {
-      const onlyRep = distinctRepliers[0];
-      if (onlyRep && onlyRep.id) {
-        setSelectedReplierId(onlyRep.id);
-        setSelectedReplierName(onlyRep.name || 'Community Helper');
-        setSelectedReplierEmail(onlyRep.email || null);
-        setSelectedReplierAvatar(onlyRep.avatar || null);
+    if (isPostOwner && !selectedReplierId && distinctRepliers.length > 0) {
+      const firstRep = distinctRepliers[0];
+      if (firstRep && firstRep.id) {
+        setSelectedReplierId(firstRep.id);
+        setSelectedReplierName(firstRep.name || 'Community Helper');
+        setSelectedReplierEmail(firstRep.email || null);
+        setSelectedReplierAvatar(firstRep.avatar || null);
       }
     }
   }, [isPostOwner, selectedReplierId, distinctRepliers]);
 
   const visibleMessages = React.useMemo(() => {
-    if (isPostOwner && !selectedReplierId && messages.length === 0) return [];
     return messages;
-  }, [messages, isPostOwner, selectedReplierId]);
+  }, [messages]);
 
   /* -------------------------------------------------------------
    * IF NO POST/CONVERSATION IS SELECTED:
@@ -2121,22 +2213,19 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
           <button 
             type="button"
             onClick={() => {
-              if (isPostOwner && selectedReplierId && distinctRepliers.length > 1) {
-                setSelectedReplierId(null);
-              } else if (openedFromListRef.current && !isModal) {
+              if (openedFromListRef.current && !isModal) {
                 setCurrentIntent(null);
                 onIntentChange?.(null);
-              } else if (intent) {
-                onBack();
               } else {
                 setCurrentIntent(null);
                 onIntentChange?.(null);
+                onBack();
               }
             }} 
             className="p-1.5 -ml-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer shrink-0"
             title={isModal ? tr('Close Chat', 'चैट बंद करें', 'ચેટ બંધ કરો') : tr('Back', 'वापस जाएं', 'પાછા જાઓ')}
           >
-            {isModal && !(isPostOwner && selectedReplierId && distinctRepliers.length > 1) ? (
+            {isModal ? (
               <X className="w-5 h-5 text-slate-600 dark:text-slate-300" />
             ) : (
               <ArrowLeft className="w-5 h-5" />
@@ -2493,23 +2582,21 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
             </div>
           </div>
         )}
-        {isPostOwner && !selectedReplierId && visibleMessages.length === 0 ? (
-          <div className="py-8 max-w-md mx-auto space-y-3">
-            {distinctRepliers.length === 0 ? (
-              <div className="py-10 px-4 text-center space-y-2 bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 shadow-xs">
-                <div className="w-12 h-12 rounded-2xl bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 mx-auto flex items-center justify-center text-xl">
-                  💬
-                </div>
-                <h4 className="text-sm font-black text-slate-900 dark:text-white">
-                  {tr('No responses yet', 'अभी तक कोई जवाब नहीं आया', 'હજુ કોઈ જવાબ આવ્યો નથી')}
-                </h4>
-              </div>
-            ) : (
-              <div className="space-y-2.5">
-                <p className="text-xs font-black text-slate-700 dark:text-slate-200 px-1">
-                  💬 {tr('Select a person below to open chat:', 'बातचीत के लिए किसी एक व्यक्ति को चुनें:', 'વાતચીત કરવા માટે નીચેમાંથી વ્યક્તિ પસંદ કરો:')}
-                </p>
-                {distinctRepliers.map(rep => (
+        {distinctRepliers.length > 0 && (
+          <div className="max-w-md mx-auto mb-3 p-3 rounded-2xl bg-emerald-50/90 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[11px] font-black text-emerald-900 dark:text-emerald-200">
+                💬 {tr(
+                  `Responses received on this post (${distinctRepliers.length})`,
+                  `इस पोस्ट पर आए जवाब (${distinctRepliers.length})`,
+                  `આ પોસ્ટ પર આવેલા જવાબો (${distinctRepliers.length})`
+                )}
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              {distinctRepliers.map(rep => {
+                const isSelected = Boolean(selectedReplierId && String(selectedReplierId).toLowerCase() === String(rep.id).toLowerCase());
+                return (
                   <div
                     key={rep.id}
                     onClick={() => {
@@ -2518,39 +2605,54 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
                       setSelectedReplierEmail(rep.email || null);
                       setSelectedReplierAvatar(rep.avatar || null);
                     }}
-                    className="p-3.5 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-emerald-500 shadow-xs cursor-pointer flex items-center justify-between gap-3 transition-all"
+                    className={`p-2.5 rounded-xl border cursor-pointer flex items-center justify-between gap-2.5 transition-all ${
+                      isSelected
+                        ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs'
+                        : 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white border-emerald-200 dark:border-slate-700 hover:border-emerald-500'
+                    }`}
                   >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-10 h-10 rounded-full bg-emerald-600 text-white font-black text-sm flex items-center justify-center shrink-0">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div
+                        className={`w-8 h-8 rounded-full font-black text-xs flex items-center justify-center shrink-0 ${
+                          isSelected ? 'bg-white text-emerald-700' : 'bg-emerald-600 text-white'
+                        }`}
+                      >
                         {rep.name[0]?.toUpperCase() || 'U'}
                       </div>
                       <div className="min-w-0">
-                        <h4 className="text-xs font-black text-slate-900 dark:text-white truncate">{rep.name}</h4>
-                        <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                          {rep.lastMessage || tr('Tap to open chat', 'चैट खोलने के लिए टैप करें', 'ચેટ ખોલવા માટે ક્લિક કરો')}
+                        <h4 className={`text-xs font-black truncate ${isSelected ? 'text-white' : 'text-slate-900 dark:text-white'}`}>
+                          {rep.name}
+                        </h4>
+                        <p className={`text-[11px] font-bold truncate ${isSelected ? 'text-emerald-50' : 'text-slate-600 dark:text-slate-300'}`}>
+                          {rep.lastMessage || tr('Tap to view reply', 'जवाब देखने के लिए टैप करें', 'જવાબ જોવા ક્લિક કરો')}
                         </p>
-                        {rep.updatedAt && (
-                          <span className="text-[10px] text-slate-400 font-semibold block mt-0.5">
-                            {(() => {
-                              const d = new Date(rep.updatedAt);
-                              if (Number.isNaN(d.getTime())) return '';
-                              const dd = String(d.getDate()).padStart(2, '0');
-                              const mm = String(d.getMonth() + 1).padStart(2, '0');
-                              const yyyy = d.getFullYear();
-                              const t = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                              return `${dd}/${mm}/${yyyy} • ${t}`;
-                            })()}
-                          </span>
-                        )}
                       </div>
                     </div>
-                    <span className="px-3 py-1.5 rounded-xl bg-emerald-600 text-white text-[11px] font-black shrink-0">
-                      {tr('Open Chat →', 'चैट खोलें →', 'ચેટ ખોલો →')}
+                    <span
+                      className={`px-2.5 py-1 rounded-lg text-[10px] font-black shrink-0 ${
+                        isSelected ? 'bg-white text-emerald-700' : 'bg-emerald-100 text-emerald-800'
+                      }`}
+                    >
+                      {isSelected
+                        ? tr('Active Chat', 'चैट चालू', 'ચેટ ચાલુ')
+                        : tr('View Reply →', 'जवाब देखें →', 'જવાબ જુઓ →')}
                     </span>
                   </div>
-                ))}
+                );
+              })}
+            </div>
+          </div>
+        )}
+        {visibleMessages.length === 0 && distinctRepliers.length === 0 ? (
+          <div className="py-8 max-w-md mx-auto space-y-3">
+            <div className="py-10 px-4 text-center space-y-2 bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 shadow-xs">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 mx-auto flex items-center justify-center text-xl">
+                💬
               </div>
-            )}
+              <h4 className="text-sm font-black text-slate-900 dark:text-white">
+                {tr('No responses yet', 'अभी तक कोई जवाब नहीं आया', 'હજુ કોઈ જવાબ આવ્યો નથી')}
+              </h4>
+            </div>
           </div>
         ) : null}
         {visibleMessages.map((msg, idx) => {

@@ -2,12 +2,17 @@ import React, { useState, useEffect } from 'react';
 import { ArrowLeft, Bell, MessageCircle, Radio, Trash2, CheckCircle2 } from 'lucide-react';
 import { useLanguage } from '../i18n';
 import { Intent } from '../types';
+import { localizePlaceName } from '../data/panIndiaLocations';
+import { CATEGORIES, getCategoryName } from '../data/categories';
 
 interface NotificationItem {
   id: string;
   type: 'new_post' | 'new_response' | 'account_approved';
   title: string;
   body: string;
+  area?: string;
+  category?: string;
+  description?: string;
   postId?: string;
   conversationId?: string;
   senderId?: string;
@@ -15,6 +20,87 @@ interface NotificationItem {
   post?: Intent;
   createdAt: string;
   isRead?: boolean;
+}
+
+function formatLocalizedNotification(
+  item: NotificationItem,
+  language: string
+): { title: string; body: string } {
+  const lang = (language || 'GU').toUpperCase();
+
+  if (item.type === 'account_approved') {
+    const approvedText =
+      lang === 'GU'
+        ? '🎉 અભિનંદન! તમારું LocoHelp એકાઉન્ટ વેરિફાઈ (Approve) થઈ ગયું છે!'
+        : lang === 'HI'
+        ? '🎉 बधाई हो! आपका LocoHelp अकाउंट वेरिफाई (Approve) हो गया है!'
+        : '🎉 Congratulations! Your LocoHelp account has been verified and approved!';
+    return { title: approvedText, body: approvedText };
+  }
+
+  if (item.type === 'new_response') {
+    let sender = item.senderName || '';
+    if (!sender && item.title) {
+      const m = item.title.match(/(?:New Message from|Reply from)\s+(.+)$/i);
+      if (m && m[1]) sender = m[1].trim();
+    }
+    if (sender) {
+      const title =
+        lang === 'GU'
+          ? `💬 ${sender} તરફથી નવો મેસેજ`
+          : lang === 'HI'
+          ? `💬 ${sender} से नया संदेश`
+          : `💬 New Message from ${sender}`;
+      return { title, body: item.body || '' };
+    }
+    if (item.title && item.title.includes('New Response on your Post')) {
+      return {
+        title:
+          lang === 'GU'
+            ? '💬 તમારી પોસ્ટ પર નવો જવાબ!'
+            : lang === 'HI'
+            ? '💬 आपकी पोस्ट पर नया जवाब!'
+            : '💬 New Response on your Post!',
+        body: item.body || ''
+      };
+    }
+    return { title: item.title, body: item.body };
+  }
+
+  if (item.type === 'new_post') {
+    let rawArea = item.area || (item.post as any)?.area || (item.post as any)?.city || '';
+    if (!rawArea && item.title) {
+      const m = item.title.match(/New Request in\s+(.+?)!*$/i);
+      if (m && m[1]) rawArea = m[1].trim();
+    }
+    const locArea = localizePlaceName(rawArea || 'Local Area', lang) || rawArea || 'Local Area';
+    const title =
+      lang === 'GU'
+        ? `🔔 ${locArea} માં નવી જરૂરિયાત પોસ્ટ!`
+        : lang === 'HI'
+        ? `🔔 ${locArea} में नई आवश्यकता पोस्ट!`
+        : `🔔 New Request in ${locArea}!`;
+
+    const rawCat = item.category || item.post?.category || '';
+    const rawDesc =
+      item.description ||
+      item.post?.description ||
+      (item.post as any)?.title ||
+      (item.body ? item.body.replace(/^[^:]+:\s*/, '') : '');
+    const matchedCatObj = rawCat
+      ? CATEGORIES.find(
+          (c) =>
+            c.id.toLowerCase() === String(rawCat).toLowerCase() ||
+            c.nameEn.toLowerCase() === String(rawCat).toLowerCase()
+        )
+      : undefined;
+    const locCat = matchedCatObj ? getCategoryName(matchedCatObj, lang as any) : rawCat;
+    const body = locCat && rawDesc ? `${locCat}: ${rawDesc}` : item.body || rawDesc;
+
+    return { title, body };
+  }
+
+  return { title: item.title, body: item.body };
 }
 
 export default function NotificationsScreen({
@@ -138,58 +224,61 @@ export default function NotificationsScreen({
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto p-4 space-y-2.5">
-          {notifications.map((item) => (
-            <div
-              key={item.id}
-              onClick={() => handleNotificationClick(item)}
-              className="p-3.5 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 shadow-xs flex items-start gap-3 cursor-pointer transition-all"
-            >
+          {notifications.map((item) => {
+            const localized = formatLocalizedNotification(item, language);
+            return (
               <div
-                className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                  item.type === 'new_response' || item.type === 'account_approved'
-                    ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400'
-                    : 'bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400'
-                }`}
+                key={item.id}
+                onClick={() => handleNotificationClick(item)}
+                className="p-3.5 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 shadow-xs flex items-start gap-3 cursor-pointer transition-all"
               >
-                {item.type === 'account_approved' ? (
-                  <CheckCircle2 className="w-5 h-5" />
-                ) : item.type === 'new_response' ? (
-                  <MessageCircle className="w-5 h-5" />
-                ) : (
-                  <Radio className="w-5 h-5" />
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between gap-2">
-                  <h4
-                    className={`text-xs font-black text-slate-900 dark:text-white ${
-                      item.body && item.body !== item.title ? 'truncate' : 'leading-snug'
-                    }`}
-                  >
-                    {item.title}
-                  </h4>
-                  <span className="text-[10px] text-slate-400 font-semibold shrink-0">
-                    {item.createdAt
-                      ? (() => {
-                          const d = new Date(item.createdAt);
-                          if (Number.isNaN(d.getTime())) return '';
-                          const dd = String(d.getDate()).padStart(2, '0');
-                          const mm = String(d.getMonth() + 1).padStart(2, '0');
-                          const yyyy = d.getFullYear();
-                          const t = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                          return `${dd}/${mm}/${yyyy} • ${t}`;
-                        })()
-                      : ''}
-                  </span>
+                <div
+                  className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                    item.type === 'new_response' || item.type === 'account_approved'
+                      ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400'
+                      : 'bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400'
+                  }`}
+                >
+                  {item.type === 'account_approved' ? (
+                    <CheckCircle2 className="w-5 h-5" />
+                  ) : item.type === 'new_response' ? (
+                    <MessageCircle className="w-5 h-5" />
+                  ) : (
+                    <Radio className="w-5 h-5" />
+                  )}
                 </div>
-                {item.body && item.body !== item.title && (
-                  <p className="text-xs text-slate-600 dark:text-slate-300 font-medium mt-0.5 line-clamp-2">
-                    {item.body}
-                  </p>
-                )}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <h4
+                      className={`text-xs font-black text-slate-900 dark:text-white ${
+                        localized.body && localized.body !== localized.title ? 'truncate' : 'leading-snug'
+                      }`}
+                    >
+                      {localized.title}
+                    </h4>
+                    <span className="text-[10px] text-slate-400 font-semibold shrink-0">
+                      {item.createdAt
+                        ? (() => {
+                            const d = new Date(item.createdAt);
+                            if (Number.isNaN(d.getTime())) return '';
+                            const dd = String(d.getDate()).padStart(2, '0');
+                            const mm = String(d.getMonth() + 1).padStart(2, '0');
+                            const yyyy = d.getFullYear();
+                            const tm = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                            return `${dd}/${mm}/${yyyy} • ${tm}`;
+                          })()
+                        : ''}
+                    </span>
+                  </div>
+                  {localized.body && localized.body !== localized.title && (
+                    <p className="text-xs text-slate-600 dark:text-slate-300 font-medium mt-0.5 line-clamp-2">
+                      {localized.body}
+                    </p>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

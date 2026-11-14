@@ -4,6 +4,7 @@ import { LanguageProvider, useLanguage, SUPPORTED_LANGUAGES } from './i18n';
 import { logoutUser, ensureProfileExists, onAuthStateChange, restoreSessionFromServer, getCurrentUser, mergeAndSaveCurrentUser } from './auth';
 import { syncBrowserDataToPostgres, fetchPostConversations, subscribeToRealtimeStream, normalizeAndDedupeConversations } from './api';
 import { isGuestUser } from './lib/authUtils';
+import { requestAndRegisterFcmToken } from './lib/firebase';
 import LocoHelpLogo from './components/LocoHelpLogo';
 import PanIndiaLocationModal from './components/PanIndiaLocationModal';
 import LoginPromptModal from './components/LoginPromptModal';
@@ -217,18 +218,49 @@ function AppContent() {
     };
   }, []);
 
-  // Automatically request Web Notification permission on first user interaction so Android TWA & Chrome can show system notifications
+  // Automatically request Web Notification permission & register background Web Push subscription so notifications work even when the app is closed
   useEffect(() => {
+    const syncPushSubscription = (silentIfDefault: boolean) => {
+      try {
+        const u = getCurrentUser();
+        const loc = getSavedUserLocation();
+        requestAndRegisterFcmToken({
+          area: loc?.area || loc?.taluka || loc?.district || 'All Cities',
+          city: loc?.district || 'All',
+          district: loc?.district || 'All',
+          state: loc?.state || 'All',
+          userId: u?.uid && u.uid !== 'guest_user' ? u.uid : undefined,
+          email: u?.email || localStorage.getItem('locohelp_last_logged_in_email') || undefined,
+          name: u?.displayName || localStorage.getItem('locohelp_profile_name') || undefined,
+          silentIfDefault
+        }).catch(() => {});
+      } catch {}
+    };
+
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      syncPushSubscription(true);
+    }
+
     const requestNotifPermOnce = () => {
       try {
-        if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
-          Notification.requestPermission().catch(() => {});
+        if (typeof window !== 'undefined' && 'Notification' in window) {
+          if (Notification.permission === 'default') {
+            Notification.requestPermission()
+              .then((perm) => {
+                if (perm === 'granted') {
+                  syncPushSubscription(false);
+                }
+              })
+              .catch(() => {});
+          } else if (Notification.permission === 'granted') {
+            syncPushSubscription(true);
+          }
         }
       } catch {}
     };
     window.addEventListener('click', requestNotifPermOnce, { once: true, passive: true });
     return () => window.removeEventListener('click', requestNotifPermOnce);
-  }, []);
+  }, [globalUserLocation?.district]);
 
   // Poll + real-time stream for unread messages count & global new post / chat notifications across all screens
   useEffect(() => {
@@ -292,10 +324,23 @@ function AppContent() {
           localStorage.setItem('locohelp_notified_post_ids', JSON.stringify(nextNotified));
           if (isMyOwn) return;
 
-          const areaLabel = newPost.area || newPost.city || newPost.location || 'Local Area';
+          const rawAreaLabel = String(newPost.area || newPost.city || newPost.location || '').trim();
+          const areaLabel =
+            !rawAreaLabel || rawAreaLabel.toLowerCase() === 'all' || rawAreaLabel.toLowerCase() === 'all cities'
+              ? language === 'GU'
+                ? 'તમારા વિસ્તાર'
+                : language === 'HI'
+                ? 'आपके क्षेत्र'
+                : 'Your Area'
+              : rawAreaLabel;
           const catLabel = newPost.category || newPost.title || 'New Request';
           const descSnippet = String(newPost.description || newPost.title || '').slice(0, 80);
-          const notifTitle = `🔔 New Post in ${areaLabel}`;
+          const notifTitle =
+            language === 'GU'
+              ? `🔔 ${areaLabel} માં નવી જરૂરિયાત પોસ્ટ!`
+              : language === 'HI'
+              ? `🔔 ${areaLabel} में नई आवश्यकता पोस्ट!`
+              : `🔔 New Post in ${areaLabel}`;
           const notifBody = `${catLabel}: ${descSnippet}`;
 
           setGlobalPushToast({ title: notifTitle, body: notifBody, intent: newPost });
@@ -331,7 +376,8 @@ function AppContent() {
                     body: notifBody,
                     icon: '/pwa-192x192.png',
                     badge: '/pwa-192x192.png',
-                    data: { url: `/?postId=${encodeURIComponent(postIdStr)}` }
+                    tag: postIdStr,
+                    data: { url: `/?postId=${encodeURIComponent(postIdStr)}`, postId: postIdStr }
                   });
                 })
                 .catch(() => {});
@@ -979,7 +1025,14 @@ function AppContent() {
               <ChatScreen
                 intent={activeIntent}
                 onIntentChange={setActiveIntent}
-                onBack={() => navigate(prevScreen === 'profile' ? 'profile' : 'home')}
+                onBack={() => {
+                  setActiveIntent(null);
+                  navigate(
+                    prevScreen && prevScreen !== 'chat' && prevScreen !== 'admin'
+                      ? prevScreen
+                      : 'home'
+                  );
+                }}
                 onReport={() => setIsReportModalOpen(true)}
               />
             )}

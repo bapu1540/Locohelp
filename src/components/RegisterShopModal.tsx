@@ -730,7 +730,7 @@ export default function RegisterShopModal({ isOpen, onClose, onSuccess, initialT
                 language={language}
                 isPhonePublic={isPhonePublic}
                 onChange={setIsPhonePublic}
-                phoneDisplay={phone ? `+91 ${phone}` : undefined}
+                phoneDisplay={phone ? `+91 ${String(phone).replace(/\D/g, '').slice(-10)}` : undefined}
               />
 
               {/* Mandatory Owner Live Camera Selfie */}

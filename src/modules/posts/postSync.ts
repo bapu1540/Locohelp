@@ -41,6 +41,17 @@ export function filterAndSortLiveBroadcastPosts(params: {
           if (myUid && myUid !== 'guest' && myUid !== 'guest_user' && itemAuthorId === myUid) return true;
           if (myEmail && itemAuthorEmail === myEmail) return true;
 
+          const itemCityLower = String(item.resolvedCity || item.city || '').trim().toLowerCase();
+          const itemLocLower = String(item.location || '').trim().toLowerCase();
+          if (
+            itemCityLower === 'all' ||
+            itemCityLower === 'all cities' ||
+            itemLocLower === 'all' ||
+            itemLocLower === 'all cities'
+          ) {
+            return true;
+          }
+
           const itemLocText = `${item.resolvedCity || ''} ${item.city || ''} ${item.resolvedArea || ''} ${item.area || ''} ${item.location || ''} ${item.resolvedLocationBadge || ''} ${item.description || ''}`;
           return matchesUserLocationFilter(itemLocText, {
             district: activeHeaderDistrict,

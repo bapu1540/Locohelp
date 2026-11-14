@@ -417,7 +417,11 @@ export default function FreeHelperRegisterModal({
                     {(existingProfile as any).isPhonePublic ? (
                       <>
                         <Phone className="w-4 h-4 text-emerald-600 shrink-0" />
-                        <span>{existingProfile.phone ? `+91 ${existingProfile.phone}` : tr('Public Call Enabled', 'पब्लिक कॉल चालू', 'પબ્લિક કોલ ચાલુ')}</span>
+                        <span>
+                          {existingProfile.phone
+                            ? `+91 ${String(existingProfile.phone).replace(/\D/g, '').slice(-10)}`
+                            : tr('Public Call Enabled', 'पब्लिक कॉल चालू', 'પબ્લિક કોલ ચાલુ')}
+                        </span>
                       </>
                     ) : (
                       <>
@@ -553,7 +557,7 @@ export default function FreeHelperRegisterModal({
                 language={language}
                 isPhonePublic={isPhonePublic}
                 onChange={setIsPhonePublic}
-                phoneDisplay={formPhone ? `+91 ${formPhone}` : undefined}
+                phoneDisplay={formPhone ? `+91 ${String(formPhone).replace(/\D/g, '').slice(-10)}` : undefined}
               />
 
               {/* 5. Mandatory Live Camera Selfie */}

@@ -44,15 +44,21 @@ export default function PanIndiaLocationModal({
 }: PanIndiaLocationModalProps) {
   const { language } = useLanguage();
   const [selectedState, setSelectedState] = useState<string>(
-    currentLocation.state && currentLocation.state !== 'All' ? currentLocation.state : 'Gujarat'
+    currentLocation.district && currentLocation.district.toLowerCase() === 'all'
+      ? 'All'
+      : currentLocation.state && currentLocation.state !== 'All'
+      ? currentLocation.state
+      : 'All'
   );
   const [selectedDistrict, setSelectedDistrict] = useState<string>(
-    currentLocation.district && currentLocation.district !== 'All'
+    currentLocation.district && currentLocation.district.toLowerCase() !== 'all'
       ? currentLocation.district
-      : 'Gandhinagar'
+      : 'All'
   );
   const [selectedTaluka, setSelectedTaluka] = useState<string>(
-    currentLocation.taluka || currentLocation.area || ''
+    currentLocation.district && currentLocation.district.toLowerCase() !== 'all'
+      ? currentLocation.taluka || currentLocation.area || ''
+      : ''
   );
 
   const registeredProfileLoc = useMemo(() => getProfileRegisteredLocation(), [isOpen]);
@@ -71,8 +77,8 @@ export default function PanIndiaLocationModal({
         setSelectedDistrict(dist);
         setSelectedTaluka(tal);
       } else {
-        setSelectedState('Gujarat');
-        setSelectedDistrict('Gandhinagar');
+        setSelectedState('All');
+        setSelectedDistrict('All');
         setSelectedTaluka('');
       }
     }
@@ -80,9 +86,13 @@ export default function PanIndiaLocationModal({
 
   const statesList = useMemo(() => Object.keys(PAN_INDIA_STATES_DISTRICTS), []);
   const districtsForSelectedState = useMemo(() => {
+    if (selectedState === 'All') {
+      return PAN_INDIA_STATES_DISTRICTS['Gujarat'] || [];
+    }
     return PAN_INDIA_STATES_DISTRICTS[selectedState] || PAN_INDIA_STATES_DISTRICTS['Gujarat'];
   }, [selectedState]);
   const talukasForSelectedDistrict = useMemo(() => {
+    if (!selectedDistrict || selectedDistrict === 'All') return [];
     return getTalukasForDistrict(selectedDistrict);
   }, [selectedDistrict]);
 
@@ -95,6 +105,15 @@ export default function PanIndiaLocationModal({
   };
 
   const handleSave = async () => {
+    if (selectedState === 'All' || selectedDistrict === 'All') {
+      await applyAndClose({
+        state: 'All',
+        district: 'All',
+        taluka: '',
+        area: ''
+      });
+      return;
+    }
     const finalState = (selectedState || 'Gujarat').trim();
     const finalDistrict = (selectedDistrict || 'Gandhinagar').trim();
     const finalTaluka = (selectedTaluka || '').trim();
@@ -267,13 +286,21 @@ export default function PanIndiaLocationModal({
                   onChange={(e) => {
                     const newState = e.target.value;
                     setSelectedState(newState);
-                    const dists = PAN_INDIA_STATES_DISTRICTS[newState] || [];
-                    const firstDist = dists[0] || '';
-                    setSelectedDistrict(firstDist);
-                    setSelectedTaluka('');
+                    if (newState === 'All') {
+                      setSelectedDistrict('All');
+                      setSelectedTaluka('');
+                    } else {
+                      const dists = PAN_INDIA_STATES_DISTRICTS[newState] || [];
+                      const firstDist = dists[0] || '';
+                      setSelectedDistrict(firstDist);
+                      setSelectedTaluka('');
+                    }
                   }}
                   className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-extrabold text-slate-900 dark:text-white outline-none focus:border-teal-600 cursor-pointer"
                 >
+                  <option value="All">
+                    {language === 'EN' ? '🌐 All States (All Cities)' : language === 'GU' ? '🌐 બધા રાજ્યો / બધા શહેરો' : '🌐 सभी राज्य / सभी शहर'}
+                  </option>
                   {statesList.map((st) => (
                     <option key={st} value={st}>
                       {st}
@@ -293,9 +320,15 @@ export default function PanIndiaLocationModal({
                     const newDist = e.target.value;
                     setSelectedDistrict(newDist);
                     setSelectedTaluka('');
+                    if (newDist !== 'All' && selectedState === 'All') {
+                      setSelectedState('Gujarat');
+                    }
                   }}
                   className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-extrabold text-slate-900 dark:text-white outline-none focus:border-teal-600 cursor-pointer"
                 >
+                  <option value="All">
+                    {language === 'EN' ? '🌐 All Cities / Districts' : language === 'GU' ? '🌐 બધા શહેરો / બધા જિલ્લા' : '🌐 सभी शहर / सभी जिले'}
+                  </option>
                   {districtsForSelectedState.map((dist) => (
                     <option key={dist} value={dist}>
                       {dist}
@@ -315,11 +348,18 @@ export default function PanIndiaLocationModal({
                 </label>
                 <select
                   value={selectedTaluka}
+                  disabled={selectedDistrict === 'All'}
                   onChange={(e) => setSelectedTaluka(e.target.value)}
-                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-extrabold text-slate-900 dark:text-white outline-none focus:border-teal-600 cursor-pointer"
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-extrabold text-slate-900 dark:text-white outline-none focus:border-teal-600 cursor-pointer disabled:opacity-60"
                 >
                   <option value="">
-                    {language === 'EN'
+                    {selectedDistrict === 'All'
+                      ? language === 'EN'
+                        ? 'All Cities & Areas'
+                        : language === 'GU'
+                        ? 'બધા શહેરો અને વિસ્તારો'
+                        : 'सभी शहर और क्षेत्र'
+                      : language === 'EN'
                       ? `All of ${selectedDistrict} District`
                       : language === 'GU'
                       ? `આખો ${localizePlaceName(selectedDistrict, 'GU')} જિલ્લો (બધા તાલુકા)`
@@ -360,7 +400,13 @@ export default function PanIndiaLocationModal({
             >
               <Check className="w-4 h-4" />
               <span>
-                {language === 'EN'
+                {selectedState === 'All' || selectedDistrict === 'All'
+                  ? language === 'EN'
+                    ? 'Apply (All Cities)'
+                    : language === 'GU'
+                    ? 'લોકેશન લાગુ કરો (બધા શહેરો)'
+                    : 'लोकेशन लागू करें (सभी शहर)'
+                  : language === 'EN'
                   ? `Apply (${selectedTaluka || selectedDistrict})`
                   : language === 'GU'
                   ? `લોકેશન લાગુ કરો (${localizePlaceName(selectedTaluka || selectedDistrict, 'GU')})`

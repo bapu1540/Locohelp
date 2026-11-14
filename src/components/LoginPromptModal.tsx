@@ -91,8 +91,22 @@ export default function LoginPromptModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [isEditingAccount, setIsEditingAccount] = useState(false);
 
   const finishSuccess = () => {
+    try {
+      const raw = phoneOrEmail.trim();
+      const digits = raw.replace(/\D/g, '').slice(-10);
+      if (!raw.includes('@') && digits.length === 10) {
+        localStorage.setItem('locohelp_remembered_phone', digits);
+      } else if (raw.includes('@') && !raw.toLowerCase().endsWith('@phone.locohelp.com')) {
+        localStorage.setItem('locohelp_remembered_email', raw.toLowerCase());
+      }
+      const bestName = (checkedUser.name || name || '').trim();
+      if (bestName) {
+        localStorage.setItem('locohelp_remembered_name', bestName);
+      }
+    } catch {}
     try {
       onSuccess?.();
     } catch {}
@@ -110,17 +124,37 @@ export default function LoginPromptModal({
     setOtpVerifiedForPinSetup(false);
     setPinOrPassword('');
 
-    const savedPhone = localStorage.getItem('locohelp_last_logged_in_phone') || '';
-    const savedEmail = localStorage.getItem('locohelp_last_logged_in_email') || '';
-    const savedName = localStorage.getItem('locohelp_last_logged_in_name') || '';
-    if (!phoneOrEmail) {
-      if (savedPhone) {
-        setPhoneOrEmail(savedPhone);
-      } else if (savedEmail && !savedEmail.endsWith('@phone.locohelp.com')) {
-        setPhoneOrEmail(savedEmail);
-      }
+    const rawPhone =
+      localStorage.getItem('locohelp_remembered_phone') ||
+      localStorage.getItem('locohelp_last_logged_in_phone') ||
+      localStorage.getItem('locohelp_profile_phone') ||
+      '';
+    const savedPhone = rawPhone.replace(/\D/g, '').slice(-10);
+    const savedEmail = (
+      localStorage.getItem('locohelp_remembered_email') ||
+      localStorage.getItem('locohelp_last_logged_in_email') ||
+      ''
+    )
+      .trim()
+      .toLowerCase();
+    const savedName = (
+      localStorage.getItem('locohelp_remembered_name') ||
+      localStorage.getItem('locohelp_last_logged_in_name') ||
+      localStorage.getItem('locohelp_profile_name') ||
+      ''
+    ).trim();
+
+    if (savedPhone.length === 10) {
+      setPhoneOrEmail(savedPhone);
+      setIsEditingAccount(false);
+    } else if (savedEmail && !savedEmail.endsWith('@phone.locohelp.com')) {
+      setPhoneOrEmail(savedEmail);
+      setIsEditingAccount(false);
+    } else if (!phoneOrEmail) {
+      setIsEditingAccount(true);
     }
-    if (savedName && !name) {
+
+    if (savedName) {
       setName(savedName);
     }
   }, [isOpen]);
@@ -628,57 +662,93 @@ export default function LoginPromptModal({
             </div>
           )}
 
-          {/* Step 1: Mandatory Mobile Number OR Email ID Input */}
-          <div>
-            <label className="block text-xs font-black text-slate-700 mb-1">
-              {tr(
-                'Mobile Number or Email ID',
-                'मोबाइल नंबर या ईमेल आईडी',
-                'મોબાઇલ નંબર અથવા ઈમેલ આઈડી'
-              )}
-            </label>
-            <div className="flex items-center rounded-2xl border-2 border-slate-200 focus-within:border-teal-600 bg-white overflow-hidden">
-              <div className="pl-3 pr-2 py-2.5 flex items-center gap-1 text-slate-500 font-bold text-xs shrink-0 select-none">
-                {isEmailInput ? (
-                  <Mail size={15} className="text-teal-600 shrink-0" />
-                ) : cleanDigits.length > 0 ? (
-                  <>
-                    <Phone size={15} className="text-teal-600 shrink-0" />
-                    <span>+91</span>
-                  </>
-                ) : (
-                  <Phone size={15} className="text-teal-600 shrink-0" />
-                )}
+          {/* Step 1: Recognized Account Quick Card OR Mobile/Email Input */}
+          {canLoginDirectlyWithPin && !isEditingAccount ? (
+            <div className="rounded-2xl bg-teal-50/90 border-2 border-teal-200 px-3.5 py-2.5 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-9 h-9 rounded-full bg-teal-600 text-white flex items-center justify-center font-black text-sm shrink-0 shadow-xs">
+                  {String(checkedUser.name || name || 'U')
+                    .trim()
+                    .charAt(0)
+                    .toUpperCase()}
+                </div>
+                <div className="min-w-0">
+                  <div className="text-[10px] font-extrabold text-teal-700 uppercase tracking-wide">
+                    {tr('Welcome Back', 'वापसी पर स्वागत है', 'ફરી સ્વાગત છે')}
+                  </div>
+                  <div className="text-xs font-black text-slate-900 truncate">
+                    {checkedUser.name || name || tr('Registered Member', 'रजिस्टर्ड सदस्य', 'રજિસ્ટર્ડ સભ્ય')}
+                  </div>
+                  <div className="text-[11px] font-bold text-slate-600 truncate">
+                    {isValidPhone ? `+91 ${cleanDigits}` : rawInput}
+                  </div>
+                </div>
               </div>
-              <input
-                type="text"
-                inputMode="text"
-                disabled={otpVerifiedForPinSetup}
-                value={phoneOrEmail}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  if (!val.includes('@') && !/[a-zA-Z]/.test(val) && /^\d+$/.test(val.replace(/\s+/g, ''))) {
-                    setPhoneOrEmail(val.replace(/\D/g, '').slice(0, 10));
-                  } else {
-                    setPhoneOrEmail(val);
-                  }
+              <button
+                type="button"
+                onClick={() => {
+                  setIsEditingAccount(true);
                   setErrorMsg(null);
                 }}
-                placeholder={tr(
-                  '10-digit Mobile or Email ID',
-                  '10 अंकों का मोबाइल या ईमेल',
-                  '10 અંકનો મોબાઇલ અથવા ઈમેલ'
-                )}
-                className="flex-1 min-w-0 py-2.5 pr-3 bg-transparent focus:outline-none text-sm font-black text-slate-900 tracking-wide disabled:bg-slate-100"
-                autoFocus
-              />
-              {isCheckingUser && (
-                <div className="pr-3 shrink-0">
-                  <Loader2 size={15} className="text-teal-600 animate-spin" />
-                </div>
-              )}
+                className="px-2.5 py-1.5 rounded-xl bg-white border border-teal-300 text-teal-800 hover:bg-teal-100 text-[11px] font-extrabold shrink-0 transition-colors cursor-pointer"
+              >
+                {tr('Change', 'बदलें', 'બદલો')}
+              </button>
             </div>
-          </div>
+          ) : (
+            <div>
+              <label className="block text-xs font-black text-slate-700 mb-1">
+                {tr(
+                  'Mobile Number or Email ID',
+                  'मोबाइल नंबर या ईमेल आईडी',
+                  'મોબાઇલ નંબર અથવા ઈમેલ આઈડી'
+                )}
+              </label>
+              <div className="flex items-center rounded-2xl border-2 border-slate-200 focus-within:border-teal-600 bg-white overflow-hidden">
+                <div className="pl-3 pr-2 py-2.5 flex items-center gap-1 text-slate-500 font-bold text-xs shrink-0 select-none">
+                  {isEmailInput ? (
+                    <Mail size={15} className="text-teal-600 shrink-0" />
+                  ) : cleanDigits.length > 0 ? (
+                    <>
+                      <Phone size={15} className="text-teal-600 shrink-0" />
+                      <span>+91</span>
+                    </>
+                  ) : (
+                    <Phone size={15} className="text-teal-600 shrink-0" />
+                  )}
+                </div>
+                <input
+                  type="text"
+                  name="username"
+                  autoComplete="username"
+                  inputMode="text"
+                  disabled={otpVerifiedForPinSetup}
+                  value={phoneOrEmail}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (!val.includes('@') && !/[a-zA-Z]/.test(val) && /^\d+$/.test(val.replace(/\s+/g, ''))) {
+                      setPhoneOrEmail(val.replace(/\D/g, '').slice(0, 10));
+                    } else {
+                      setPhoneOrEmail(val);
+                    }
+                    setErrorMsg(null);
+                  }}
+                  placeholder={tr(
+                    '10-digit Mobile or Email ID',
+                    '10 अंकों का मोबाइल या ईमेल',
+                    '10 અંકનો મોબાઇલ અથવા ઈમેલ'
+                  )}
+                  className="flex-1 min-w-0 py-2.5 pr-3 bg-transparent focus:outline-none text-sm font-black text-slate-900 tracking-wide disabled:bg-slate-100"
+                  autoFocus
+                />
+                {isCheckingUser && (
+                  <div className="pr-3 shrink-0">
+                    <Loader2 size={15} className="text-teal-600 animate-spin" />
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {checkedUser.checked && checkedUser.approvalStatus === 'blocked' ? (
             <div className="rounded-2xl bg-rose-50 border-2 border-rose-300 p-4 text-center space-y-2">
@@ -770,6 +840,15 @@ export default function LoginPromptModal({
           ) : canLoginDirectlyWithPin ? (
             /* CASE 2: Returning Verified User Recognized in PostgreSQL with Saved Password */
             <form onSubmit={handleReturningPinLogin} className="space-y-3">
+              <input
+                type="text"
+                name="username"
+                autoComplete="username"
+                value={isValidPhone ? cleanDigits : rawInput}
+                readOnly
+                className="sr-only"
+                tabIndex={-1}
+              />
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="text-xs font-black text-slate-700">
@@ -800,6 +879,8 @@ export default function LoginPromptModal({
                   </div>
                   <input
                     type={showPassword ? 'text' : 'password'}
+                    name="password"
+                    autoComplete="current-password"
                     value={pinOrPassword}
                     onChange={(e) => setPinOrPassword(e.target.value)}
                     placeholder={tr(
@@ -808,6 +889,7 @@ export default function LoginPromptModal({
                       '4-અંકનો PIN અથવા પાસવર્ડ લખો'
                     )}
                     className="flex-1 min-w-0 py-2.5 bg-transparent focus:outline-none text-sm font-black text-slate-900 tracking-wider"
+                    autoFocus={!isEditingAccount}
                   />
                   <button
                     type="button"
