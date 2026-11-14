@@ -493,7 +493,7 @@ const BLOCKED_ROMAN_TOKENS = new Set([
   'bhenchod', 'behenchod', 'bahenchod', 'benchod', 'bhanchod', 'behanchod',
   'betichod', 'baapchod', 'bhosda', 'bhosdi', 'bhosdike', 'bhosadike', 'bhosdika', 'bhosdiwale', 'bhosadi',
   'chutiya', 'chutia', 'chutiye', 'chutiyapa', 'chuitya', 'chootiya',
-  'choot', 'chut', 'lund', 'land', 'loda', 'lauda', 'lawda', 'lavda', 'lode', 'laude', 'lavde',
+  'choot', 'chut', 'lund', 'loda', 'lauda', 'lawda', 'lavda', 'lode', 'laude', 'lavde',
   'gaand', 'gand', 'gandu', 'gaandu', 'gandmasti', 'gandmara',
   'randi', 'raandi', 'randibaaz', 'randikhana', 'chinaal', 'chinal',
   'harami', 'haramkhor', 'haramzada', 'haramzade', 'haramzadi',
@@ -598,12 +598,14 @@ export function checkSystemSecurityBlock(...inputs: (string | undefined | null |
   // 3. Check individual Roman words (with obfuscation normalization)
   const rawTokens = lower.split(/[\s,.;:!?/\\|()[\]{}"'`~_+=<>-]+/).filter(Boolean);
   for (const rawToken of rawTokens) {
-    const directClean = rawToken.replace(/[^a-z]/g, '');
-    if (directClean && BLOCKED_ROMAN_TOKENS.has(directClean)) {
-      return { blocked: true, messageEn, messageHi, messageGu, getMessage: getLocalized };
+    if (!/\d/.test(rawToken)) {
+      const directClean = rawToken.replace(/[^a-z]/g, '');
+      if (directClean && BLOCKED_ROMAN_TOKENS.has(directClean)) {
+        return { blocked: true, messageEn, messageHi, messageGu, getMessage: getLocalized };
+      }
     }
     const normalized = normalizeRomanWord(rawToken);
-    if (normalized && normalized.length >= 3 && BLOCKED_ROMAN_TOKENS.has(normalized)) {
+    if (normalized && normalized.length >= 4 && BLOCKED_ROMAN_TOKENS.has(normalized)) {
       return { blocked: true, messageEn, messageHi, messageGu, getMessage: getLocalized };
     }
   }

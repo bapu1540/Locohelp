@@ -1193,15 +1193,22 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
         return;
       }
       if (!sendRes || sendRes.sendFailed || (typeof sendRes.httpStatus === 'number' && sendRes.httpStatus >= 400)) {
-        const failReason = sendRes?.error || tr(
-          'Message could not be delivered. Please retry.',
-          'संदेश भेजा नहीं जा सका। कृपया पुनः प्रयास करें।',
-          'મેસેજ મોકલી શકાયો નથી — કૃપા કરીને ફરી પ્રયાસ કરો.'
-        );
+        const failReason =
+          sendRes?.code === 'SYSTEM_SECURITY_BLOCK'
+            ? tr(
+                '⚠️ System Security Block: Your message violates our Community Guidelines.',
+                '⚠️ System Security Block: आपका संदेश हमारे कम्युनिटी नियमों (Community Guidelines) के विरुद्ध है।',
+                '⚠️ System Security Block: તમારો મેસેજ અમારા કોમ્યુનિટી નિયમો (Community Guidelines) ની વિરુદ્ધ છે.'
+              )
+            : sendRes?.error || tr(
+                'Message could not be delivered. Please retry.',
+                'संदेश भेजा नहीं जा सका। कृपया पुनः प्रयास करें।',
+                'મેસેજ મોકલી શકાયો નથી — કૃપા કરીને ફરી પ્રયાસ કરો.'
+              );
         setMessages(prev =>
           prev.map(m => (m.id === messageData.id ? { ...m, isSending: false, sendFailed: true, sendError: failReason } : m))
         );
-        setReportStatusBanner(`⚠️ ${failReason}`);
+        setReportStatusBanner(failReason.startsWith('⚠️') ? failReason : `⚠️ ${failReason}`);
         setTimeout(() => setReportStatusBanner(null), 5000);
         return;
       }
@@ -1246,15 +1253,22 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
     try {
       const sendRes: any = await sendChatMessage(chatId, failedMsg);
       if (!sendRes || sendRes.sendFailed || (typeof sendRes.httpStatus === 'number' && sendRes.httpStatus >= 400)) {
-        const failReason = sendRes?.error || tr(
-          'Message could not be delivered. Please retry.',
-          'संदेश भेजा नहीं जा सका। कृपया पुनः प्रयास करें।',
-          'મેસેજ મોકલી શકાયો નથી — કૃપા કરીને ફરી પ્રયાસ કરો.'
-        );
+        const failReason =
+          sendRes?.code === 'SYSTEM_SECURITY_BLOCK'
+            ? tr(
+                '⚠️ System Security Block: Your message violates our Community Guidelines.',
+                '⚠️ System Security Block: आपका संदेश हमारे कम्युनिटी नियमों (Community Guidelines) के विरुद्ध है।',
+                '⚠️ System Security Block: તમારો મેસેજ અમારા કોમ્યુનિટી નિયમો (Community Guidelines) ની વિરુદ્ધ છે.'
+              )
+            : sendRes?.error || tr(
+                'Message could not be delivered. Please retry.',
+                'संदेश भेजा नहीं जा सका। कृपया पुनः प्रयास करें।',
+                'મેસેજ મોકલી શકાયો નથી — કૃપા કરીને ફરી પ્રયાસ કરો.'
+              );
         setMessages(prev =>
           prev.map(m => (m.id === failedMsg.id ? { ...m, isSending: false, sendFailed: true, sendError: failReason } : m))
         );
-        setReportStatusBanner(`⚠️ ${failReason}`);
+        setReportStatusBanner(failReason.startsWith('⚠️') ? failReason : `⚠️ ${failReason}`);
         setTimeout(() => setReportStatusBanner(null), 5000);
         return;
       }

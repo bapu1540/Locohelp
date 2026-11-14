@@ -1198,7 +1198,7 @@ const SERVER_BLOCKED_ROMAN_TOKENS = new Set([
   'bhenchod', 'behenchod', 'bahenchod', 'benchod', 'bhanchod', 'behanchod',
   'betichod', 'baapchod', 'bhosda', 'bhosdi', 'bhosdike', 'bhosadike', 'bhosdika', 'bhosdiwale', 'bhosadi',
   'chutiya', 'chutia', 'chutiye', 'chutiyapa', 'chuitya', 'chootiya',
-  'choot', 'chut', 'lund', 'land', 'loda', 'lauda', 'lawda', 'lavda', 'lode', 'laude', 'lavde',
+  'choot', 'chut', 'lund', 'loda', 'lauda', 'lawda', 'lavda', 'lode', 'laude', 'lavde',
   'gaand', 'gand', 'gandu', 'gaandu', 'gandmasti', 'gandmara',
   'randi', 'raandi', 'randibaaz', 'randikhana', 'chinaal', 'chinal',
   'harami', 'haramkhor', 'haramzada', 'haramzade', 'haramzadi',
@@ -1247,8 +1247,12 @@ function checkServerTextViolatesSecurityBlock(text: string): boolean {
 
   const rawTokens = lower.split(/[\s,.;:!?/\\|()[\]{}"'`~_+=<>-]+/).filter(Boolean);
   for (const rawToken of rawTokens) {
-    const directClean = rawToken.replace(/[^a-z]/g, "");
-    if (directClean && SERVER_BLOCKED_ROMAN_TOKENS.has(directClean)) return true;
+    // Only check direct alphabetic tokens when the token does not contain digits
+    // so alphanumeric IDs, UUID segments, or codes (e.g. "4bc9") never become 2-letter tokens like "bc"
+    if (!/\d/.test(rawToken)) {
+      const directClean = rawToken.replace(/[^a-z]/g, "");
+      if (directClean && SERVER_BLOCKED_ROMAN_TOKENS.has(directClean)) return true;
+    }
     const norm = rawToken
       .replace(/[@4]/g, "a")
       .replace(/[0]/g, "o")
@@ -1256,9 +1260,26 @@ function checkServerTextViolatesSecurityBlock(text: string): boolean {
       .replace(/[$5]/g, "s")
       .replace(/[^a-z]/g, "")
       .replace(/([a-z])\1{2,}/g, "$1");
-    if (norm && norm.length >= 3 && SERVER_BLOCKED_ROMAN_TOKENS.has(norm)) return true;
+    if (norm && norm.length >= 4 && SERVER_BLOCKED_ROMAN_TOKENS.has(norm)) return true;
   }
   return false;
+}
+
+const SECURITY_SKIP_EXACT_KEYS = new Set([
+  "id", "uid", "email", "phone", "whatsapp", "password", "newPassword", "oldPassword", "token",
+  "type", "status", "action", "role", "category", "categoryId", "state", "city", "district", "taluka",
+  "lat", "lng", "distance", "isRead", "is_read", "isSending", "sendFailed", "isVerifiedUser",
+  "hasLocationPin", "isCollaborator", "isPhonePublic", "createdAt", "updatedAt", "expiresAt",
+  "lastInteractionAt", "sent_at", "language", "lang", "code", "attachmentType", "attachment_type",
+  "mimeType", "fileName", "authorName", "senderName", "sender_name", "helperName", "postOwnerName",
+  "posterName", "receiverName", "senderAvatar", "sender_avatar", "authorAvatar", "author_avatar",
+  "helperAvatar", "helper_avatar", "posterAvatar", "poster_avatar"
+]);
+
+function shouldSkipSecurityScanKey(key: string): boolean {
+  if (!key) return false;
+  if (UPLOAD_DATA_KEYS.has(key) || SECURITY_SKIP_EXACT_KEYS.has(key)) return true;
+  return /(?:^id$|_id$|Id$|_ids$|Ids$|uid$|email$|phone$|avatar$|url$|token$|password$|created_at$|updated_at$|expires_at$|_at$|At$)/i.test(key);
 }
 
 function checkServerPayloadSecurityBlock(payload: any): boolean {
@@ -1267,7 +1288,7 @@ function checkServerPayloadSecurityBlock(payload: any): boolean {
   if (Array.isArray(payload)) return payload.some((item) => checkServerPayloadSecurityBlock(item));
   if (typeof payload === "object") {
     for (const [k, v] of Object.entries(payload)) {
-      if (UPLOAD_DATA_KEYS.has(k) || k === "password" || k === "newPassword" || k === "oldPassword" || k === "token") {
+      if (shouldSkipSecurityScanKey(k)) {
         continue;
       }
       if (checkServerPayloadSecurityBlock(v)) return true;
@@ -3712,9 +3733,15 @@ async function startServer() {
         !req.path.startsWith("/upload")
       ) {
         if (checkServerPayloadSecurityBlock(req.body)) {
+          const isChatRoute =
+            req.path.includes("/chat/") ||
+            req.path.includes("/messages") ||
+            req.path.includes("/respond");
           return res.status(400).json({
             success: false,
-            error: "⚠️ System Security Block: आपकी पोस्ट हमारे कम्युनिटी नियमों (Community Guidelines) के विरुद्ध है। नियम तोड़ने पर सख्त कानूनी कार्यवाही की जाएगी।",
+            error: isChatRoute
+              ? "⚠️ System Security Block: आपका संदेश हमारे कम्युनिटी नियमों (Community Guidelines) के विरुद्ध है। नियम तोड़ने पर सख्त कानूनी कार्यवाही की जाएगी।"
+              : "⚠️ System Security Block: आपकी पोस्ट हमारे कम्युनिटी नियमों (Community Guidelines) के विरुद्ध है। नियम तोड़ने पर सख्त कानूनी कार्यवाही की जाएगी।",
             code: "SYSTEM_SECURITY_BLOCK"
           });
         }
