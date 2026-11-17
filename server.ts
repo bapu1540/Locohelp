@@ -12748,8 +12748,20 @@ async function startServer() {
                 rating: Number((r.review_count ?? localMatch.reviewCount ?? 0) > 0 ? (r.rating || localMatch.rating || 5.0) : 0),
                 reviewCount: Number(r.review_count ?? localMatch.reviewCount ?? 0),
                 reviews: Array.isArray(r.reviews) ? r.reviews : (Array.isArray(localMatch.reviews) ? localMatch.reviews : []),
-                photoUrl: r.photo_url || localMatch.watermarkedSelfieUrl || localMatch.photoUrl || null,
-                watermarkedSelfieUrl: r.photo_url || localMatch.watermarkedSelfieUrl || localMatch.photoUrl || null,
+                photoUrl:
+                  (r.id_doc_url && !String(r.id_doc_url).toLowerCase().includes('.pdf') ? r.id_doc_url : null) ||
+                  r.photo_url ||
+                  localMatch.rawSelfieUrl ||
+                  localMatch.watermarkedSelfieUrl ||
+                  localMatch.photoUrl ||
+                  null,
+                watermarkedSelfieUrl:
+                  (r.id_doc_url && !String(r.id_doc_url).toLowerCase().includes('.pdf') ? r.id_doc_url : null) ||
+                  r.photo_url ||
+                  localMatch.rawSelfieUrl ||
+                  localMatch.watermarkedSelfieUrl ||
+                  localMatch.photoUrl ||
+                  null,
                 visitingCardUrl: r.visiting_card_url || localMatch.visitingCardUrl || localMatch.workPhotoUrl || null,
                 workPhotoUrl: r.visiting_card_url || localMatch.visitingCardUrl || localMatch.workPhotoUrl || null,
                 isPhonePublic: r.is_phone_public !== undefined && r.is_phone_public !== null ? Boolean(r.is_phone_public) : Boolean(localMatch.isPhonePublic),

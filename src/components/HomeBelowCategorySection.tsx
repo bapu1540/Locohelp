@@ -36,6 +36,7 @@ import {
 } from '../data/panIndiaLocations';
 import { getAuthenticRatingInfo, isEntityAdminVerified } from '../modules/verification';
 import { CATEGORIES } from '../data/categories';
+import { ProtectedPhotoZoomModal } from './ProtectedSelfieCanvas';
 
 export interface HomeBelowCategorySectionProps {
   onNavigate: (screen: Screen) => void;
@@ -147,6 +148,13 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
   const [isSubmittingAd, setIsSubmittingAd] = useState<boolean>(false);
 
   const [zoomedVisitingCardUrl, setZoomedVisitingCardUrl] = useState<string | null>(null);
+  const [zoomedProviderPhoto, setZoomedProviderPhoto] = useState<{
+    url: string;
+    name?: string;
+    role?: string;
+    area?: string;
+    isVerified?: boolean;
+  } | null>(null);
 
   const [favoriteIds, setFavoriteIds] = useState<string[]>(() => {
     try {
@@ -894,18 +902,79 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
                         minWidth: 0,
                       }}
                     >
-                      <img
-                        src={item.avatar}
-                        alt={name}
-                        style={{
-                          width: '32px',
-                          height: '32px',
-                          borderRadius: '10px',
-                          objectFit: 'cover',
-                          flexShrink: 0,
-                          border: '1px solid #cbd5e1',
+                      <div
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setZoomedProviderPhoto({
+                            url: item.avatar,
+                            name,
+                            role,
+                            area:
+                              language === 'GU'
+                                ? item.areaGu
+                                : language === 'HI'
+                                ? item.areaHi
+                                : item.areaEn,
+                            isVerified: item.isVerified,
+                          });
                         }}
-                      />
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                        }}
+                        title={
+                          language === 'GU'
+                            ? 'ફોટો મોટો કરવા ક્લિક કરો'
+                            : language === 'HI'
+                            ? 'फोटो बड़ा करने के लिए टैप करें'
+                            : 'Tap to enlarge photo'
+                        }
+                        style={{
+                          position: 'relative',
+                          width: '38px',
+                          height: '38px',
+                          borderRadius: '10px',
+                          overflow: 'hidden',
+                          flexShrink: 0,
+                          border: '1.5px solid #93c5fd',
+                          backgroundColor: '#e2e8f0',
+                          cursor: 'zoom-in',
+                          userSelect: 'none',
+                          WebkitUserSelect: 'none',
+                        }}
+                      >
+                        <img
+                          src={item.avatar}
+                          alt={name}
+                          draggable={false}
+                          referrerPolicy="no-referrer"
+                          style={{
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'cover',
+                            objectPosition: 'center 25%',
+                            transform: 'scale(1.12)',
+                            pointerEvents: 'none',
+                            userSelect: 'none',
+                          }}
+                        />
+                        <span
+                          style={{
+                            position: 'absolute',
+                            right: '1px',
+                            bottom: '1px',
+                            backgroundColor: 'rgba(15, 23, 42, 0.75)',
+                            color: '#ffffff',
+                            fontSize: '7px',
+                            lineHeight: 1,
+                            padding: '1.5px 2.5px',
+                            borderRadius: '4px',
+                            pointerEvents: 'none',
+                          }}
+                        >
+                          🔍
+                        </span>
+                      </div>
                       <div style={{ minWidth: 0, flex: 1 }}>
                         <div
                           style={{
@@ -1484,20 +1553,89 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <img
-                      src={selectedProviderProfile.avatar}
-                      alt={selectedProviderProfile.nameEn}
+                    <div
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setZoomedProviderPhoto({
+                          url: selectedProviderProfile.avatar,
+                          name:
+                            language === 'GU'
+                              ? selectedProviderProfile.nameGu
+                              : language === 'HI'
+                              ? selectedProviderProfile.nameHi
+                              : selectedProviderProfile.nameEn,
+                          role:
+                            language === 'GU'
+                              ? selectedProviderProfile.roleGu
+                              : language === 'HI'
+                              ? selectedProviderProfile.roleHi
+                              : selectedProviderProfile.roleEn,
+                          area:
+                            language === 'GU'
+                              ? selectedProviderProfile.areaGu
+                              : language === 'HI'
+                              ? selectedProviderProfile.areaHi
+                              : selectedProviderProfile.areaEn,
+                          isVerified: selectedProviderProfile.isVerified !== false,
+                        });
+                      }}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }}
+                      title={
+                        language === 'GU'
+                          ? 'ફોટો મોટો કરવા ક્લિક કરો'
+                          : language === 'HI'
+                          ? 'फोटो बड़ा करने के लिए टैप करें'
+                          : 'Tap to enlarge photo'
+                      }
                       style={{
-                        width: '64px',
-                        height: '64px',
+                        position: 'relative',
+                        width: '68px',
+                        height: '68px',
                         borderRadius: '16px',
-                        objectFit: 'cover',
+                        overflow: 'hidden',
                         border: '2px solid #ffffff',
                         boxShadow: '0 4px 10px rgba(0,0,0,0.2)',
                         flexShrink: 0,
+                        cursor: 'zoom-in',
+                        backgroundColor: '#0f172a',
                       }}
-                      referrerPolicy="no-referrer"
-                    />
+                    >
+                      <img
+                        src={selectedProviderProfile.avatar}
+                        alt={selectedProviderProfile.nameEn}
+                        draggable={false}
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          objectFit: 'cover',
+                          objectPosition: 'center 25%',
+                          transform: 'scale(1.12)',
+                          pointerEvents: 'none',
+                          userSelect: 'none',
+                        }}
+                        referrerPolicy="no-referrer"
+                      />
+                      <div
+                        style={{
+                          position: 'absolute',
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          backgroundColor: 'rgba(15, 23, 42, 0.78)',
+                          color: '#6ee7b7',
+                          fontSize: '8.5px',
+                          fontWeight: 800,
+                          textAlign: 'center',
+                          padding: '1.5px 2px',
+                          pointerEvents: 'none',
+                        }}
+                      >
+                        🔍 {language === 'GU' ? 'મોટો ફોટો' : language === 'HI' ? 'बड़ा देखें' : 'Zoom'}
+                      </div>
+                    </div>
                     <div>
                       {selectedProviderProfile.isVerified !== false && (
                         <div
@@ -2725,6 +2863,16 @@ export const HomeBelowCategorySection: React.FC<HomeBelowCategorySectionProps> =
           </div>,
           document.body
         )}
+      {/* Protected Full-Screen Provider Photo Zoom Modal */}
+      <ProtectedPhotoZoomModal
+        photoUrl={zoomedProviderPhoto?.url || null}
+        name={zoomedProviderPhoto?.name}
+        role={zoomedProviderPhoto?.role}
+        area={zoomedProviderPhoto?.area}
+        isVerified={zoomedProviderPhoto?.isVerified}
+        language={language}
+        onClose={() => setZoomedProviderPhoto(null)}
+      />
     </div>
   );
 };

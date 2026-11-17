@@ -102,6 +102,7 @@ import {
   UserManualLocation as UserLocationData,
 } from '../data/panIndiaLocations';
 import { getAuthenticRatingInfo, isEntityAdminVerified } from '../modules/verification';
+import { ProtectedPhotoZoomModal } from '../components/ProtectedSelfieCanvas';
 
 interface CategoriesScreenProps {
   onBack?: () => void;
@@ -679,6 +680,13 @@ export default function CategoriesScreen({
   });
   const [reviewModalHelper, setReviewModalHelper] = useState<FreeHelperProfile | null>(null);
   const [zoomedVisitingCard, setZoomedVisitingCard] = useState<{ url: string; name: string } | null>(null);
+  const [zoomedProviderPhoto, setZoomedProviderPhoto] = useState<{
+    url: string;
+    name?: string;
+    role?: string;
+    area?: string;
+    isVerified?: boolean;
+  } | null>(null);
   const [helperReviewsList, setHelperReviewsList] = useState<HelperReviewItem[]>([]);
   const [reviewStarVal, setReviewStarVal] = useState<number>(5);
   const [reviewTextVal, setReviewTextVal] = useState<string>('');
@@ -1263,25 +1271,45 @@ export default function CategoriesScreen({
                               (Array.isArray((helper as any).workPhotos) ? (helper as any).workPhotos[0] : null);
 
                             if (avatarUrl) {
+                              const roleText =
+                                helper.categoryId === 'other' && helper.customCategoryName
+                                  ? helper.customCategoryName
+                                  : getCategoryName(catObj, language);
                               return (
                                 <div
-                                  className="relative w-12 h-12 rounded-xl overflow-hidden shrink-0 border border-slate-200 dark:border-slate-700 shadow-sm select-none"
+                                  className="relative w-12 h-12 rounded-xl overflow-hidden shrink-0 border border-blue-200 dark:border-slate-700 shadow-sm select-none cursor-zoom-in"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setZoomedProviderPhoto({
+                                      url: avatarUrl,
+                                      name: helper.name,
+                                      role: roleText,
+                                      area: helper.area,
+                                      isVerified: isAdminVerified,
+                                    });
+                                  }}
                                   onContextMenu={(e) => e.preventDefault()}
+                                  title={tr('Tap to enlarge photo', 'फोटो बड़ा करने के लिए टैप करें', 'ફોટો મોટો કરવા ક્લિક કરો')}
                                 >
                                   <img
                                     src={avatarUrl}
                                     alt={helper.name}
                                     draggable={false}
+                                    referrerPolicy="no-referrer"
                                     onError={(e) => {
                                       const wrapper = e.currentTarget.parentElement;
                                       if (wrapper) wrapper.style.display = 'none';
                                       const sibling = wrapper?.parentElement?.querySelector('.cat-avatar-fallback') as HTMLElement;
                                       if (sibling) sibling.style.display = 'flex';
                                     }}
+                                    style={{
+                                      objectPosition: 'center 25%',
+                                      transform: 'scale(1.12)',
+                                    }}
                                     className="w-full h-full object-cover pointer-events-none select-none"
                                   />
-                                  <span className="pointer-events-none absolute inset-x-0 bottom-0 bg-slate-950/75 text-[7px] font-black text-emerald-300 text-center py-0.2 tracking-tight">
-                                    LOCOHELP
+                                  <span className="pointer-events-none absolute right-0.5 bottom-0.5 bg-slate-950/75 text-[8px] text-white px-1 py-0.2 rounded">
+                                    🔍
                                   </span>
                                 </div>
                               );
@@ -1734,6 +1762,17 @@ export default function CategoriesScreen({
           </p>
         </div>
       )}
+
+      {/* Protected Full-Screen Provider Photo Zoom Modal */}
+      <ProtectedPhotoZoomModal
+        photoUrl={zoomedProviderPhoto?.url || null}
+        name={zoomedProviderPhoto?.name}
+        role={zoomedProviderPhoto?.role}
+        area={zoomedProviderPhoto?.area}
+        isVerified={zoomedProviderPhoto?.isVerified}
+        language={language}
+        onClose={() => setZoomedProviderPhoto(null)}
+      />
     </div>
   );
 }
