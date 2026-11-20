@@ -286,7 +286,7 @@ function AppContent() {
         }
         const convs = await fetchPostConversations({ userId: uid || email, userEmail: email, userPhone });
         if (!active) return;
-        const normalized = normalizeAndDedupeConversations(convs);
+        const normalized = normalizeAndDedupeConversations(convs, { groupByPerson: true });
         const total = normalized.reduce(
           (sum: number, c: any) => sum + (Number(c?.unreadCount) || 0),
           0

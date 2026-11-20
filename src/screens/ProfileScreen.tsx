@@ -51,6 +51,11 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
   // Tab State: 'user' (Simple Profile) | 'helper' (Helper Profile) | 'business' (Business Registration)
   const [activeTab, setActiveTab] = useState<'user' | 'helper' | 'business'>(initialTab);
 
+  // Dirty-form guards: prevent slow mount-time network responses from overwriting fields the user has started editing
+  const userFormDirtyRef = useRef(false);
+  const helperFormDirtyRef = useRef(false);
+  const shopFormDirtyRef = useRef(false);
+
   // -------------------------------------------------------------
   // TAB 1: SIMPLE USER PROFILE STATES
   // -------------------------------------------------------------
@@ -110,66 +115,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
         userEmail: user.email,
         userPhone: myPhone
       });
-      const rawList = normalizeAndDedupeConversations(list);
-
-      const myUid = String(user?.uid || '').trim().toLowerCase();
-      const myEmail = String(user?.email || localStorage.getItem('locohelp_last_logged_in_email') || '').trim().toLowerCase();
-      const myEmailUid = myEmail ? 'email_' + myEmail.replace(/[^a-z0-9]/g, '_') : '';
-
-      // De-fragment: Group deterministically by (cleanPostId, partnerIdentifier) so 1-on-1 chats never fragment into multiple parts
-      const mergedMap = new Map<string, any>();
-
-      for (const conv of rawList) {
-        if (!conv) continue;
-        const rawConvId = String(conv.conversationId || conv.id || '').trim();
-        let parsedPostId = '';
-        let parsedHelperId = '';
-        if (rawConvId.toLowerCase().startsWith('conv_') && rawConvId.includes('__')) {
-          const idx = rawConvId.indexOf('__');
-          parsedPostId = rawConvId.slice(5, idx).trim();
-          parsedHelperId = rawConvId.slice(idx + 2).trim();
-        }
-
-        const cleanPostId = String(conv.postId || conv.post_id || parsedPostId || 'general').trim().toLowerCase();
-        const helperIdStr = String(conv.helperId || conv.helper_id || conv.senderId || parsedHelperId || '').trim();
-        const helperEmailStr = String(conv.helperEmail || conv.senderEmail || '').trim().toLowerCase();
-        const posterIdStr = String(conv.posterId || conv.poster_id || '').trim();
-        const posterEmailStr = String(conv.posterEmail || conv.poster_email || '').trim().toLowerCase();
-
-        const helperIdLower = helperIdStr.toLowerCase();
-        const isHelperMe = Boolean(
-          (myUid && helperIdLower === myUid) ||
-          (myEmailUid && helperIdLower === myEmailUid) ||
-          (myEmail && (helperEmailStr === myEmail || helperIdLower === myEmail))
-        );
-        const isOwner = !isHelperMe;
-
-        // Deterministic partner key
-        const partnerKey = isOwner
-          ? (helperEmailStr || helperIdLower || 'helper')
-          : (posterEmailStr || posterIdStr.toLowerCase() || 'owner');
-
-        const dedupKey = `${cleanPostId}:::${partnerKey}`;
-
-        const existing = mergedMap.get(dedupKey);
-        const thisTime = new Date(conv.lastMessageAt || conv.last_message_at || conv.updatedAt || 0).getTime();
-        const existingTime = existing ? new Date(existing.lastMessageAt || existing.last_message_at || existing.updatedAt || 0).getTime() : 0;
-
-        const convUnread = Number(conv.unreadCount ?? conv.unread_count ?? conv.unreadPosterCount ?? conv.unreadHelperCount ?? 0);
-
-        if (!existing || thisTime >= existingTime) {
-          mergedMap.set(dedupKey, {
-            ...existing,
-            ...conv,
-            unreadCount: (existing ? Number(existing.unreadCount || 0) : 0) + convUnread,
-            count: Math.max(existing?.count || 1, Number(conv.count || 1))
-          });
-        } else {
-          existing.unreadCount = Number(existing.unreadCount || 0) + convUnread;
-        }
-      }
-
-      const deduplicatedList = Array.from(mergedMap.values()).sort((a, b) => {
+      const deduplicatedList = normalizeAndDedupeConversations(list, { groupByPerson: true }).sort((a, b) => {
         const timeA = new Date(a.lastMessageAt || a.last_message_at || a.updatedAt || 0).getTime();
         const timeB = new Date(b.lastMessageAt || b.last_message_at || b.updatedAt || 0).getTime();
         return timeB - timeA;
@@ -177,16 +123,21 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
 
       setRecentConversations(deduplicatedList);
 
-      // Save list of chatted posts to localStorage so HomeScreen visitor knows they participated
+      // Save list of chatted posts (including merged sub-threads) to localStorage so HomeScreen visitor knows they participated
       try {
         const chatted: string[] = JSON.parse(localStorage.getItem('locohelp_chatted_post_ids') || '[]');
         let hasNew = false;
         deduplicatedList.forEach(c => {
-          const pId = c.postId || c.post_id;
-          if (pId && !chatted.includes(pId)) {
-            chatted.push(pId);
-            hasNew = true;
-          }
+          const postIds = [
+            c.postId || c.post_id,
+            ...(Array.isArray(c.mergedPostIds) ? c.mergedPostIds : [])
+          ].filter(Boolean);
+          postIds.forEach((pId) => {
+            if (pId && !chatted.includes(pId)) {
+              chatted.push(pId);
+              hasNew = true;
+            }
+          });
         });
         if (hasNew) {
           localStorage.setItem('locohelp_chatted_post_ids', JSON.stringify(chatted));
@@ -219,13 +170,57 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
       const targetConv = recentConversations.find(
         (c) => (c.id || c.conversationId) === convId
       );
+      const targetMergedConvIds: string[] = Array.from(
+        new Set(
+          [
+            ...(Array.isArray(targetConv?.mergedConversationIds) ? targetConv.mergedConversationIds : []),
+            ...(Array.isArray(targetConv?.mergedThreads)
+              ? targetConv.mergedThreads.map((th: any) => String(th?.conversationId || '').trim())
+              : []),
+            convId
+          ]
+            .map((x: any) => String(x || '').trim())
+            .filter(Boolean)
+        )
+      );
+      const targetMergedPostIds: string[] = Array.from(
+        new Set(
+          [
+            targetConv?.postId || targetConv?.post_id,
+            ...(Array.isArray(targetConv?.mergedPostIds) ? targetConv.mergedPostIds : [])
+          ]
+            .map((x: any) => String(x || '').trim())
+            .filter(Boolean)
+        )
+      );
+
       await deleteConversationOnServer(convId, {
         postId: targetConv?.postId || targetConv?.post_id,
-        helperId: targetConv?.helperId || targetConv?.helper_id || targetConv?.senderId
+        helperId: targetConv?.helperId || targetConv?.helper_id || targetConv?.senderId,
+        mergedConvIds: targetMergedConvIds
       });
+
       try {
         localStorage.removeItem(`locohelp_chat_${convId}`);
+        targetMergedConvIds.forEach((mc) => {
+          if (mc) localStorage.removeItem(`locohelp_chat_${mc}`);
+        });
+        targetMergedPostIds.forEach((mp) => {
+          if (mp) localStorage.removeItem(`locohelp_chat_${mp}`);
+        });
+        const peerSlugs = [
+          targetConv?.canonicalPeerEmail,
+          targetConv?.canonicalPeerId,
+          targetConv?.partnerEmail,
+          targetConv?.partnerId
+        ]
+          .map((v: any) => String(v || '').trim().toLowerCase().replace(/[^a-z0-9@._-]/g, '_'))
+          .filter(Boolean);
+        peerSlugs.forEach((slug) => {
+          localStorage.removeItem(`locohelp_person_chat_${slug}`);
+        });
       } catch {}
+
       setRecentConversations(prev => prev.filter(c => (c.id || c.conversationId) !== convId));
       setConvIdToDelete(null);
     } catch (err) {
@@ -258,35 +253,91 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
     const helperEmailStr = String(conv.helperEmail || conv.senderEmail || '').trim().toLowerCase();
 
     const helperIdLower = helperIdStr.toLowerCase();
-    const isHelperMe = Boolean(
-      (myUid && helperIdLower === myUid) ||
-      (myEmailUid && helperIdLower === myEmailUid) ||
-      (myEmail && (helperEmailStr === myEmail || helperIdLower === myEmail))
-    );
-    // In a user's 1-on-1 chat inbox, if the logged-in user is not the helper, they are the post owner
-    const isOwner = !isHelperMe;
+    const isHelperMe =
+      typeof conv.isViewerHelper === 'boolean'
+        ? conv.isViewerHelper
+        : Boolean(
+            (myUid && helperIdLower === myUid) ||
+            (myEmailUid && helperIdLower === myEmailUid) ||
+            (myEmail && (helperEmailStr === myEmail || helperIdLower === myEmail))
+          );
+    const isOwner = typeof conv.isViewerPoster === 'boolean' ? conv.isViewerPoster : !isHelperMe;
 
-    const partnerName = isOwner
-      ? (conv.helperName || conv.senderName || (helperEmailStr ? helperEmailStr.split('@')[0] : 'Community Helper'))
-      : (conv.posterName || (posterEmailStr ? posterEmailStr.split('@')[0] : 'Post Owner'));
+    const rawAvatarCandidate = String(
+      conv.partnerAvatar || (isOwner ? (conv.helperAvatar || conv.senderAvatar) : conv.posterAvatar) || ''
+    ).trim();
+    const isRealAvatar =
+      Boolean(rawAvatarCandidate) &&
+      !rawAvatarCandidate.includes('lh3.googleusercontent.com/a/default-user') &&
+      !rawAvatarCandidate.includes('api.dicebear.com');
+    const partnerAvatar = isRealAvatar ? rawAvatarCandidate : '';
+
+    const partnerName =
+      (conv.partnerName && conv.partnerName !== 'Community Peer' && conv.partnerName !== 'Post Owner' ? conv.partnerName : '') ||
+      (isOwner
+        ? (conv.helperName || conv.senderName || (helperEmailStr ? helperEmailStr.split('@')[0] : 'Community Helper'))
+        : (conv.posterName || (posterEmailStr ? posterEmailStr.split('@')[0] : 'Post Owner')));
 
     const resolvedConvId =
       rawConvId && rawConvId.toLowerCase().startsWith('conv_')
         ? rawConvId
         : `conv_${cleanPostId}__${helperIdLower}`;
 
+    const resolvedPeerId = String(
+      conv.canonicalPeerId || conv.partnerId || (isOwner ? helperIdStr : posterIdStr) || ''
+    ).trim();
+    const resolvedPeerEmail = String(
+      conv.canonicalPeerEmail || conv.partnerEmail || (isOwner ? helperEmailStr : posterEmailStr) || ''
+    ).trim().toLowerCase();
+    const mergedConvList: string[] = Array.from(
+      new Set(
+        [
+          ...(Array.isArray(conv.mergedConversationIds) ? conv.mergedConversationIds : []),
+          rawConvId,
+          resolvedConvId
+        ]
+          .map((x: any) => String(x || '').trim())
+          .filter(Boolean)
+      )
+    );
+    const mergedPostList: string[] = Array.from(
+      new Set(
+        [
+          ...(Array.isArray(conv.mergedPostIds) ? conv.mergedPostIds : []),
+          cleanPostId
+        ]
+          .map((x: any) => String(x || '').trim())
+          .filter(Boolean)
+      )
+    );
+    const partnerLocation = (isOwner
+      ? (conv.helperLocation || conv.location)
+      : (conv.posterLocation || conv.location)) || '';
+
     const intentPayload: any = {
       id: cleanPostId,
-      title: conv.category || 'Local Request',
-      description: conv.lastMessage || conv.last_message || 'Direct Chat',
+      title: conv.postTitle || conv.category || 'Local Request',
+      description: conv.postTitle || conv.lastMessage || conv.last_message || 'Direct Chat',
       category: conv.category || 'General',
+      location: partnerLocation,
+      peerLocation: partnerLocation,
       authorId: isOwner ? (user?.uid || posterIdStr) : (posterIdStr || 'post_owner'),
       authorEmail: isOwner ? (myEmail || posterEmailStr) : posterEmailStr,
       authorName: isOwner ? (user?.displayName || conv.posterName || 'You') : partnerName,
       helperId: helperIdStr,
       selectedReplierId: helperIdStr,
       selectedReplierName: partnerName,
-      conversationId: resolvedConvId
+      selectedReplierEmail: isOwner ? helperEmailStr : posterEmailStr,
+      selectedReplierAvatar: partnerAvatar,
+      partnerAvatar,
+      conversationId: resolvedConvId,
+      isViewerPostOwner: isOwner,
+      isPersonMergedChat: true,
+      peerId: resolvedPeerId,
+      peerEmail: resolvedPeerEmail,
+      mergedConversationIds: mergedConvList,
+      mergedPostIds: mergedPostList,
+      mergedThreads: Array.isArray(conv.mergedThreads) ? conv.mergedThreads : []
     };
 
     const targetConvId = conv.id || conv.conversationId || resolvedConvId;
@@ -296,11 +347,19 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
         resolvedConvId,
         cleanPostId,
         `${cleanPostId}__${helperIdLower}`,
-        `conv_${cleanPostId}__${helperIdLower}`
+        `conv_${cleanPostId}__${helperIdLower}`,
+        ...mergedConvList,
+        ...mergedPostList
       ]);
-      localStorage.setItem(`locohelp_last_viewed_conv_${targetConvId}`, new Date().toISOString());
-      localStorage.setItem(`locohelp_last_viewed_conv_${resolvedConvId}`, new Date().toISOString());
-      localStorage.setItem(`locohelp_seen_responses_${cleanPostId}`, '999');
+      const nowIso = new Date().toISOString();
+      localStorage.setItem(`locohelp_last_viewed_conv_${targetConvId}`, nowIso);
+      localStorage.setItem(`locohelp_last_viewed_conv_${resolvedConvId}`, nowIso);
+      mergedConvList.forEach((mc) => {
+        if (mc) localStorage.setItem(`locohelp_last_viewed_conv_${mc}`, nowIso);
+      });
+      mergedPostList.forEach((mp) => {
+        if (mp) localStorage.setItem(`locohelp_seen_responses_${mp}`, '999');
+      });
       window.dispatchEvent(new CustomEvent('locohelp_responses_seen', { detail: { intentId: cleanPostId } }));
       window.dispatchEvent(new CustomEvent('locohelp_chat_read_updated'));
       setRecentConversations(prev =>
@@ -567,58 +626,66 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
         const data = await getUserProfile(userKey);
         if (data) {
           if (data.full_name || data.name) {
-            setUserName(data.full_name || data.name);
             setHasExistingUserProfile(true);
           }
-          if (data.phone) setUserPhone(data.phone);
-          if (data.email && !String(data.email).toLowerCase().endsWith('@phone.locohelp.com')) {
-            setUserEmail(data.email);
-          }
-          if (data.skills) setUserSkills(data.skills);
-          if (data.address) setUserAddress(data.address);
-          if (data.experience || data.exp) setUserExp(data.experience || data.exp);
-          if (typeof data.isPhonePublic === 'boolean' || typeof data.is_phone_public === 'boolean') {
-            setIsUserPhonePublic(Boolean(data.isPhonePublic ?? data.is_phone_public));
-          }
-          const remoteWatermarkedPhoto =
-            data.watermarkedSelfieUrl ||
-            data.watermarked_selfie_url ||
-            data.avatar_url ||
-            data.profilePhoto ||
-            data.liveSelfieUrl ||
-            '';
-          if (remoteWatermarkedPhoto && remoteWatermarkedPhoto !== 'https://lh3.googleusercontent.com/a/default-user') {
-            setProfilePhoto(remoteWatermarkedPhoto);
-            try {
-              localStorage.setItem('locohelp_profile_photo', remoteWatermarkedPhoto);
-            } catch {}
-          }
-          const remoteRawSelfie =
-            data.rawSelfieUrl ||
-            data.raw_selfie_url ||
-            data.liveSelfieUrl ||
-            data.idDocumentWatermarked ||
-            '';
-          if (remoteRawSelfie) {
-            setRawProfilePhoto(remoteRawSelfie);
-          }
-          if (data.visitingCardUrl !== undefined || data.visiting_card_url !== undefined) {
-            setUserVisitingCard(String(data.visitingCardUrl || data.visiting_card_url || ''));
+          if (!userFormDirtyRef.current) {
+            if (data.full_name || data.name) {
+              setUserName(data.full_name || data.name);
+            }
+            if (data.phone) setUserPhone(data.phone);
+            if (data.email && !String(data.email).toLowerCase().endsWith('@phone.locohelp.com')) {
+              setUserEmail(data.email);
+            }
+            if (data.skills) setUserSkills(data.skills);
+            if (data.address) setUserAddress(data.address);
+            if (data.experience || data.exp) setUserExp(data.experience || data.exp);
+            if (typeof data.isPhonePublic === 'boolean' || typeof data.is_phone_public === 'boolean') {
+              setIsUserPhonePublic(Boolean(data.isPhonePublic ?? data.is_phone_public));
+            }
+            const remoteWatermarkedPhoto =
+              data.watermarkedSelfieUrl ||
+              data.watermarked_selfie_url ||
+              data.avatar_url ||
+              data.profilePhoto ||
+              data.liveSelfieUrl ||
+              '';
+            if (remoteWatermarkedPhoto && remoteWatermarkedPhoto !== 'https://lh3.googleusercontent.com/a/default-user') {
+              setProfilePhoto(remoteWatermarkedPhoto);
+              try {
+                localStorage.setItem('locohelp_profile_photo', remoteWatermarkedPhoto);
+              } catch {}
+            }
+            const remoteRawSelfie =
+              data.rawSelfieUrl ||
+              data.raw_selfie_url ||
+              data.liveSelfieUrl ||
+              data.idDocumentWatermarked ||
+              '';
+            if (remoteRawSelfie) {
+              setRawProfilePhoto(remoteRawSelfie);
+            }
+            if (data.visitingCardUrl !== undefined || data.visiting_card_url !== undefined) {
+              setUserVisitingCard(String(data.visitingCardUrl || data.visiting_card_url || ''));
+            }
           }
           if (data.myHelperProfile && !serverHelperSynced && !foundHelper) {
             foundHelper = data.myHelperProfile;
             setMyHelperProfile(data.myHelperProfile);
-            populateHelperForm(data.myHelperProfile);
+            if (!helperFormDirtyRef.current) {
+              populateHelperForm(data.myHelperProfile);
+            }
             setHasExistingUserProfile(true);
           }
 
-          localStorage.setItem(
-            `locohelp_user_profile_${userKey}`,
-            JSON.stringify({
-              ...data,
-              myHelperProfile: foundHelper || data.myHelperProfile || null
-            })
-          );
+          if (!userFormDirtyRef.current) {
+            localStorage.setItem(
+              `locohelp_user_profile_${userKey}`,
+              JSON.stringify({
+                ...data,
+                myHelperProfile: foundHelper || data.myHelperProfile || null
+              })
+            );
+          }
         }
       } catch (err) {
         console.warn("Profile sync notice:", err);
@@ -648,7 +715,9 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
           };
           foundHelper = mergedHelper;
           setMyHelperProfile(mergedHelper);
-          populateHelperForm(mergedHelper);
+          if (!helperFormDirtyRef.current) {
+            populateHelperForm(mergedHelper);
+          }
           setHasExistingUserProfile(true);
           if (mergedHelper.isVerified || mergedHelper.status === 'approved') {
             setVerificationStatus('approved');
@@ -734,7 +803,9 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
               phone: matchedMyShop.phone || localBiz?.phone || ''
             };
             setMyBusinessProfile(mergedShop);
-            if (mergedShop.area) setShopArea(mergedShop.area);
+            if (mergedShop.area && !shopFormDirtyRef.current) {
+              setShopArea(mergedShop.area);
+            }
             try {
               localStorage.setItem('locohelp_my_business_profile', JSON.stringify(mergedShop));
             } catch (e) {}
@@ -947,6 +1018,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
       setVerificationStatus(newStatus);
     } catch (err) {}
 
+    userFormDirtyRef.current = false;
     setHasExistingUserProfile(true);
     setIsEditingUserProfile(false);
     setIsSavedNotice(true);
@@ -1080,6 +1152,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
       setVerificationStatus(nextHelperStatus);
     } catch (e) {}
 
+    helperFormDirtyRef.current = false;
     setIsSubmittingHelper(false);
     if (!wasHelperApproved) {
       setShowApprovalNoticeModal(true);
@@ -1205,6 +1278,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
       } as any);
     } catch (err) {}
 
+    shopFormDirtyRef.current = false;
     setIsSubmittingShop(false);
     setShopSubmitSuccess(true);
     setTimeout(() => setShopSubmitSuccess(false), 5000);
@@ -1483,7 +1557,10 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   {hasExistingUserProfile && (
                     <button
                       type="button"
-                      onClick={() => setIsEditingUserProfile(false)}
+                      onClick={() => {
+                        userFormDirtyRef.current = false;
+                        setIsEditingUserProfile(false);
+                      }}
                       className="text-xs font-bold text-slate-500 hover:text-slate-700 cursor-pointer"
                     >
                       {tr('Cancel', 'रद्द करें', 'રદ કરો')}
@@ -1501,7 +1578,10 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                       type="text" 
                       required
                       value={userName} 
-                      onChange={(e) => setUserName(e.target.value)} 
+                      onChange={(e) => {
+                        userFormDirtyRef.current = true;
+                        setUserName(e.target.value);
+                      }} 
                       placeholder={tr('e.g. Ramesh Kumar', 'उदा. रमेश कुमार', 'દા.ત. રમેશ કુમાર')}
                       className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl pl-9 pr-3 py-2 text-xs font-semibold text-slate-900 dark:text-white outline-none focus:border-indigo-500" 
                     />
@@ -1511,7 +1591,12 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                 {/* Smart Location Selector */}
                 <SmartLocationPicker
                   value={userAddress}
-                  onChange={setUserAddress}
+                  onChange={(val) => {
+                    if (userAddress && val !== userAddress) {
+                      userFormDirtyRef.current = true;
+                    }
+                    setUserAddress(val);
+                  }}
                   accentColor="indigo"
                 />
 
@@ -1523,7 +1608,10 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   <input
                     type="text"
                     value={userSkills}
-                    onChange={(e) => setUserSkills(e.target.value)}
+                    onChange={(e) => {
+                      userFormDirtyRef.current = true;
+                      setUserSkills(e.target.value);
+                    }}
                     placeholder={tr('e.g. Teacher, Shopkeeper, Electrician, Student', 'उदा. टीचर, दुकानदार, इलेक्ट्रीशियन, स्टूडेंट', 'દા.ત. શિક્ષક, દુકાનદાર, ઇલેક્ટ્રિશિયન')}
                     className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 dark:text-white outline-none focus:border-indigo-500"
                   />
@@ -1533,6 +1621,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                 <LiveSelfieCaptureField
                   value={profilePhoto && profilePhoto !== 'https://lh3.googleusercontent.com/a/default-user' ? profilePhoto : ''}
                   onChange={(watermarkedUrl, rawCleanUrl) => {
+                    userFormDirtyRef.current = true;
                     setProfilePhoto(watermarkedUrl);
                     if (rawCleanUrl) setRawProfilePhoto(rawCleanUrl);
                     setUploadErrorMsg(null);
@@ -1546,14 +1635,20 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                 {/* Optional Visiting Card Upload */}
                 <VisitingCardUploadField
                   value={userVisitingCard}
-                  onChange={(url) => setUserVisitingCard(url)}
+                  onChange={(url) => {
+                    userFormDirtyRef.current = true;
+                    setUserVisitingCard(url);
+                  }}
                   onError={(msg) => setUploadErrorMsg(msg)}
                 />
 
                 {/* Phone Privacy Toggle (Private by Default + DB Re-Auth to Make Public) */}
                 <PhonePrivacyToggle
                   isPhonePublic={isUserPhonePublic}
-                  onChange={setIsUserPhonePublic}
+                  onChange={(val) => {
+                    userFormDirtyRef.current = true;
+                    setIsUserPhonePublic(val);
+                  }}
                   phoneDisplay={(() => {
                     const rawPh = String(userPhone || getCurrentUser()?.phone || '').trim();
                     const ten = rawPh.replace(/\D/g, '').slice(-10);
@@ -1695,7 +1790,10 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   {myHelperProfile && (
                     <button
                       type="button"
-                      onClick={() => setIsEditingHelperProfile(false)}
+                      onClick={() => {
+                        helperFormDirtyRef.current = false;
+                        setIsEditingHelperProfile(false);
+                      }}
                       className="text-xs font-bold text-slate-500 hover:text-slate-700 cursor-pointer"
                     >
                       {tr('Cancel', 'रद्द करें', 'રદ કરો')}
@@ -1713,7 +1811,10 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                     required
                     placeholder={tr('e.g. Ramesh Kumar', 'उदा. रमेश कुमार', 'દા.ત. રમેશ કુમાર')}
                     value={helperName}
-                    onChange={(e) => setHelperName(e.target.value)}
+                    onChange={(e) => {
+                      helperFormDirtyRef.current = true;
+                      setHelperName(e.target.value);
+                    }}
                     className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                   />
                 </div>
@@ -1725,7 +1826,10 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   </label>
                   <select 
                     value={helperCategory}
-                    onChange={(e) => setHelperCategory(e.target.value)}
+                    onChange={(e) => {
+                      helperFormDirtyRef.current = true;
+                      setHelperCategory(e.target.value);
+                    }}
                     className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none font-bold"
                   >
                     {CATEGORIES.map(c => (
@@ -1742,7 +1846,10 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                         required
                         placeholder={tr('Enter Custom Work Category / Profession *', 'अपना कस्टम काम / पेशा दर्ज करें *', 'તમારી કસ્ટમ કામની કેટેગરી / વ્યવસાય લખો *')}
                         value={customCategoryName}
-                        onChange={(e) => setCustomCategoryName(e.target.value)}
+                        onChange={(e) => {
+                          helperFormDirtyRef.current = true;
+                          setCustomCategoryName(e.target.value);
+                        }}
                         className="w-full bg-emerald-50/60 dark:bg-slate-900 border-2 border-emerald-400 dark:border-emerald-600 rounded-xl px-3.5 py-2 text-xs font-bold text-slate-900 dark:text-white focus:outline-none"
                       />
                     </div>
@@ -1758,7 +1865,12 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                 {/* 3. Smart Location Picker */}
                 <SmartLocationPicker
                   value={helperArea}
-                  onChange={setHelperArea}
+                  onChange={(val) => {
+                    if (helperArea && val !== helperArea) {
+                      helperFormDirtyRef.current = true;
+                    }
+                    setHelperArea(val);
+                  }}
                   required
                   accentColor="emerald"
                 />
@@ -1766,7 +1878,10 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                 {/* 4. Phone Privacy Toggle */}
                 <PhonePrivacyToggle
                   isPhonePublic={isHelperPhonePublic}
-                  onChange={setIsHelperPhonePublic}
+                  onChange={(val) => {
+                    helperFormDirtyRef.current = true;
+                    setIsHelperPhonePublic(val);
+                  }}
                   phoneDisplay={helperPhone || userPhone || getCurrentUser()?.phone || ''}
                 />
 
@@ -1777,7 +1892,10 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   </label>
                   <select 
                     value={helperExp}
-                    onChange={(e) => setHelperExp(e.target.value)}
+                    onChange={(e) => {
+                      helperFormDirtyRef.current = true;
+                      setHelperExp(e.target.value);
+                    }}
                     className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none font-medium"
                   >
                     <option value="6 Months">{tr('6 Months', '6 महीने', '6 મહિના')}</option>
@@ -1798,7 +1916,10 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                     type="text" 
                     placeholder={tr('e.g. Pipe fitting, Tap repair, Water tank cleaning', 'उदा. पाइप फिटिंग, नल रिपेयर, टंकी सफाई', 'દા.ત. પાઈપ ફિટિંગ, નળ રિપેર, ટાંકી સફાઈ')}
                     value={helperSkills}
-                    onChange={(e) => setHelperSkills(e.target.value)}
+                    onChange={(e) => {
+                      helperFormDirtyRef.current = true;
+                      setHelperSkills(e.target.value);
+                    }}
                     className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-medium text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                   />
                 </div>
@@ -1807,6 +1928,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                 <LiveSelfieCaptureField
                   value={helperIdFrontDoc || (myHelperProfile as any)?.watermarkedSelfieUrl || myHelperProfile?.idDocUrl || ''}
                   onChange={(watermarkedUrl, rawCleanUrl) => {
+                    helperFormDirtyRef.current = true;
                     setHelperIdFrontDoc(watermarkedUrl);
                     if (rawCleanUrl) setHelperRawSelfie(rawCleanUrl);
                     setUploadErrorMsg(null);
@@ -1822,6 +1944,7 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                 <VisitingCardUploadField
                   value={helperWorkPhoto || ''}
                   onChange={(url) => {
+                    helperFormDirtyRef.current = true;
                     setHelperWorkPhoto(url || null);
                     setUploadErrorMsg(null);
                   }}
@@ -1973,7 +2096,10 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   {myBusinessProfile && (
                     <button
                       type="button"
-                      onClick={() => setIsEditingBusiness(false)}
+                      onClick={() => {
+                        shopFormDirtyRef.current = false;
+                        setIsEditingBusiness(false);
+                      }}
                       className="text-xs font-bold text-slate-500 hover:text-slate-700 cursor-pointer"
                     >
                       {tr('Cancel', 'रद्द करें', 'રદ કરો')}
@@ -1991,7 +2117,10 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                     required
                     placeholder={tr('e.g. Apex Mobile Showroom / City Hospital', 'उदा. एपेक्स मोबाइल शोरूम / सिटी अस्पताल', 'દા.ત. એપેક્સ મોબાઈલ શોરૂમ / સિટી હોસ્પિટલ')}
                     value={shopName}
-                    onChange={(e) => setShopName(e.target.value)}
+                    onChange={(e) => {
+                      shopFormDirtyRef.current = true;
+                      setShopName(e.target.value);
+                    }}
                     className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-amber-500 focus:outline-none"
                   />
                 </div>
@@ -2003,7 +2132,10 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                   </label>
                   <select 
                     value={shopType}
-                    onChange={(e) => setShopType(e.target.value)}
+                    onChange={(e) => {
+                      shopFormDirtyRef.current = true;
+                      setShopType(e.target.value);
+                    }}
                     className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-amber-500 focus:outline-none"
                   >
                     {SHOP_TYPES.map(t => (
@@ -2020,7 +2152,10 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                         required
                         placeholder={tr('Enter Custom Business Type / Venue Name *', 'अपना कस्टम बिज़नेस प्रकार दर्ज करें *', 'તમારો કસ્ટમ બિઝનેસ પ્રકાર લખો *')}
                         value={customShopType}
-                        onChange={(e) => setCustomShopType(e.target.value)}
+                        onChange={(e) => {
+                          shopFormDirtyRef.current = true;
+                          setCustomShopType(e.target.value);
+                        }}
                         className="w-full bg-amber-50/60 dark:bg-slate-900 border-2 border-amber-400 dark:border-amber-600 rounded-xl px-3.5 py-2 text-xs font-bold text-slate-900 dark:text-white focus:outline-none"
                       />
                     </div>
@@ -2043,7 +2178,10 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                       type="text" 
                       placeholder={tr('Owner Name', 'मालिक का नाम', 'માલિકનું નામ')}
                       value={ownerName}
-                      onChange={(e) => setOwnerName(e.target.value)}
+                      onChange={(e) => {
+                        shopFormDirtyRef.current = true;
+                        setOwnerName(e.target.value);
+                      }}
                       className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-900 dark:text-white focus:ring-2 focus:ring-amber-500 focus:outline-none"
                     />
                   </div>
@@ -2055,7 +2193,10 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                       type="text" 
                       placeholder="e.g. 9:00 AM - 9:00 PM"
                       value={shopTimings}
-                      onChange={(e) => setShopTimings(e.target.value)}
+                      onChange={(e) => {
+                        shopFormDirtyRef.current = true;
+                        setShopTimings(e.target.value);
+                      }}
                       className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-900 dark:text-white focus:ring-2 focus:ring-amber-500 focus:outline-none"
                     />
                   </div>
@@ -2064,7 +2205,12 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                 {/* 4. Smart Location Picker */}
                 <SmartLocationPicker
                   value={shopArea}
-                  onChange={setShopArea}
+                  onChange={(val) => {
+                    if (shopArea && val !== shopArea) {
+                      shopFormDirtyRef.current = true;
+                    }
+                    setShopArea(val);
+                  }}
                   required
                   accentColor="amber"
                 />
@@ -2072,7 +2218,10 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                 {/* 5. Phone Privacy Toggle */}
                 <PhonePrivacyToggle
                   isPhonePublic={isShopPhonePublic}
-                  onChange={setIsShopPhonePublic}
+                  onChange={(val) => {
+                    shopFormDirtyRef.current = true;
+                    setIsShopPhonePublic(val);
+                  }}
                   phoneDisplay={shopPhone || userPhone || getCurrentUser()?.phone || ''}
                 />
 
@@ -2085,7 +2234,10 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                     type="text" 
                     placeholder={tr('Shop #12, Ground Floor', 'दुकान नंबर 12, ग्राउंड फ्लोर', 'દુકાન નં. 12, ગ્રાઉન્ડ ફ્લોર')}
                     value={shopAddress}
-                    onChange={(e) => setShopAddress(e.target.value)}
+                    onChange={(e) => {
+                      shopFormDirtyRef.current = true;
+                      setShopAddress(e.target.value);
+                    }}
                     className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-medium text-slate-900 dark:text-white focus:ring-2 focus:ring-amber-500 focus:outline-none"
                   />
                 </div>
@@ -2099,7 +2251,10 @@ export default function ProfileScreen({ onBack, onNavigate, onOpenChat, initialT
                     rows={2}
                     placeholder={tr('All mobile accessories available. Flat 10% discount on all purchases!', 'सभी सेवाएं और विशेष ऑफर यहाँ लिखें...', 'તમારી બધી સેવાઓ અને ખાસ ઓફર અહીં લખો...')}
                     value={shopDescription}
-                    onChange={(e) => setShopDescription(e.target.value)}
+                    onChange={(e) => {
+                      shopFormDirtyRef.current = true;
+                      setShopDescription(e.target.value);
+                    }}
                     className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2 text-xs font-medium text-slate-900 dark:text-white focus:ring-2 focus:ring-amber-500 focus:outline-none resize-none"
                   />
                 </div>

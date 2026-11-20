@@ -9796,6 +9796,20 @@ async function startServer() {
       const queryHelperId = String(
         req.query?.helperId || req.query?.helper_id || req.query?.otherUserId || req.query?.other_user_id || ""
       ).trim();
+      const chatMode = String(req.query?.mode || "").trim().toLowerCase();
+      const queryPeerId = String(req.query?.peerId || req.query?.peer_id || "").trim();
+      const queryPeerEmail = String(req.query?.peerEmail || req.query?.peer_email || "").trim().toLowerCase();
+      const rawMergedConvIds = String(req.query?.mergedConvIds || req.query?.merged_conv_ids || "").trim();
+      const rawMergedPostIds = String(req.query?.mergedPostIds || req.query?.merged_post_ids || "").trim();
+      const mergedConvIdsList = rawMergedConvIds
+        ? Array.from(new Set(rawMergedConvIds.split(",").map((s) => s.trim()).filter(Boolean)))
+        : [];
+      const mergedPostIdsList = rawMergedPostIds
+        ? Array.from(new Set(rawMergedPostIds.split(",").map((s) => s.trim()).filter(Boolean)))
+        : [];
+      const isPersonMode = Boolean(
+        chatMode === "person" && (queryPeerId || queryPeerEmail || mergedConvIdsList.length > 0)
+      );
 
       const parsedFromQuery = parseConversationId(queryConvId);
       const parsedFromParam = parseConversationId(rawParamId);
@@ -9811,9 +9825,12 @@ async function startServer() {
       let posterId = ownerInfo.posterId;
       let posterEmail = ownerInfo.posterEmail;
 
-      const [posterIdentities, callerIdentities] = await Promise.all([
+      const [posterIdentities, callerIdentities, peerIdentities] = await Promise.all([
         expandIdentitySetFromDb(buildServerIdentitySet(posterId, posterEmail)),
-        expandIdentitySetFromDb(buildServerIdentitySet(userId, userEmail))
+        expandIdentitySetFromDb(buildServerIdentitySet(userId, userEmail)),
+        isPersonMode
+          ? expandIdentitySetFromDb(buildServerIdentitySet(queryPeerId, queryPeerEmail))
+          : Promise.resolve(new Set<string>())
       ]);
       const isCallerPostOwner = Array.from(callerIdentities).some((id) => posterIdentities.has(id));
 
@@ -9900,7 +9917,66 @@ async function startServer() {
       if (dbPool && isDbConnected) {
         try {
           let result;
-          if (activeConvId && postId && helperId) {
+          if (isPersonMode && callerIdentities.size > 0) {
+            const callerArr = Array.from(callerIdentities);
+            const peerArr = Array.from(peerIdentities);
+            const personConvVariants = Array.from(
+              new Set(
+                [
+                  activeConvId,
+                  queryConvId,
+                  ...mergedConvIdsList,
+                  ...mergedPostIdsList.flatMap((mp) => [
+                    ...peerArr.map((p) => buildConversationId(mp, p)),
+                    ...callerArr.map((c) => buildConversationId(mp, c))
+                  ])
+                ]
+                  .map((x) => String(x || "").trim().toLowerCase())
+                  .filter(Boolean)
+              )
+            );
+            result = await dbPool.query(
+              `SELECT * FROM messages
+               WHERE (
+                 ($1::int > 0 AND LOWER(conversation_id) = ANY($2::text[]))
+                 OR (
+                   $3::int > 0 AND $4::int > 0 AND (
+                     (
+                       (LOWER(sender_id) = ANY($5::text[]) OR LOWER(sender_email) = ANY($5::text[]))
+                       AND (LOWER(receiver_id) = ANY($6::text[]) OR LOWER(post_owner_id) = ANY($6::text[]))
+                     )
+                     OR (
+                       (LOWER(sender_id) = ANY($6::text[]) OR LOWER(sender_email) = ANY($6::text[]))
+                       AND (LOWER(receiver_id) = ANY($5::text[]) OR LOWER(post_owner_id) = ANY($5::text[]))
+                     )
+                   )
+                 )
+               )
+               ORDER BY created_at ASC`,
+              [
+                personConvVariants.length,
+                personConvVariants,
+                callerArr.length,
+                peerArr.length,
+                callerArr,
+                peerArr
+              ]
+            );
+            // Strict 1-on-1 isolation guard: keep only messages sent by viewer, peer, or system
+            if (result && Array.isArray(result.rows) && peerIdentities.size > 0) {
+              result.rows = result.rows.filter((r: any) => {
+                const sId = String(r.sender_id || "").trim().toLowerCase();
+                const sEm = String(r.sender_email || "").trim().toLowerCase();
+                if (sId === "system") return true;
+                if (callerIdentities.has(sId) || (sEm && callerIdentities.has(sEm))) return true;
+                if (peerIdentities.has(sId) || (sEm && peerIdentities.has(sEm))) return true;
+                // Allow if exact conv_id matched one of the verified mergedConvIdsList
+                const rConv = String(r.conversation_id || "").trim().toLowerCase();
+                if (rConv && mergedConvIdsList.some((mc) => mc.toLowerCase() === rConv)) return true;
+                return false;
+              });
+            }
+          } else if (activeConvId && postId && helperId) {
             const helperIdentityExpanded = await expandIdentitySetFromDb(buildServerIdentitySet(helperId, helperEmail));
             if (!isCallerPostOwner) {
               callerIdentities.forEach((id) => helperIdentityExpanded.add(id));
@@ -9931,7 +10007,7 @@ async function startServer() {
 
           // Fallback: ONLY for Post Owner (or un-scoped legacy read), load all messages for postId if 1-on-1 filter had 0 rows;
           // Non-owners stay strictly isolated to their own 1-on-1 messages.
-          if ((!result || result.rows.length === 0) && (postId || activeConvId) && (isCallerPostOwner || callerIdentities.size === 0)) {
+          if (!isPersonMode && (!result || result.rows.length === 0) && (postId || activeConvId) && (isCallerPostOwner || callerIdentities.size === 0)) {
             const targetId = postId || activeConvId;
             const convPrefix = `conv_${targetId.toLowerCase()}__%`;
             result = await dbPool.query(
@@ -9943,7 +10019,7 @@ async function startServer() {
                ORDER BY created_at ASC`,
               [activeConvId || targetId, convPrefix, targetId]
             );
-          } else if (!result && userId && queryHelperId) {
+          } else if (!isPersonMode && !result && userId && queryHelperId) {
             result = await dbPool.query(
               `SELECT * FROM messages
                WHERE (LOWER(sender_id) = LOWER($1) AND LOWER(receiver_id) = LOWER($2))
@@ -10072,56 +10148,94 @@ async function startServer() {
             return !callerIdentities.has(sId) && (!sEm || !callerIdentities.has(sEm));
           });
 
-          if (hasUnreadIncoming && (userId || userEmail) && (activeConvId || (postId && helperId))) {
-            const targetConv = activeConvId || buildConversationId(postId, helperId);
+          if (hasUnreadIncoming && (userId || userEmail) && (isPersonMode || activeConvId || (postId && helperId))) {
             const callerIdArr = Array.from(callerIdentities);
-            const helperIdVariants = Array.from(buildServerIdentitySet(helperId, helperEmail));
-            if (helperId && !helperIdVariants.includes(helperId.toLowerCase())) {
-              helperIdVariants.push(helperId.toLowerCase());
-            }
-            const convIdVariants = Array.from(
-              new Set([
-                targetConv.toLowerCase(),
-                ...helperIdVariants.map((h) => buildConversationId(postId, h).toLowerCase())
-              ])
-            );
-
-            void Promise.all([
-              dbPool
-                .query(
-                  `UPDATE messages
-                   SET is_read = TRUE
-                   WHERE (
-                     LOWER(conversation_id) = ANY($1::text[])
-                     OR ((post_id = $2 OR intent_id = $2) AND LOWER(sender_id) = ANY($3::text[]))
-                   )
-                     AND NOT (LOWER(sender_id) = ANY($4::text[]))
-                     AND is_read = FALSE`,
-                  [convIdVariants, postId, helperIdVariants, callerIdArr]
+            if (isPersonMode) {
+              const allPersonConvIds = Array.from(
+                new Set(
+                  [
+                    activeConvId,
+                    ...mergedConvIdsList,
+                    ...Array.from(mergedMap.values()).map((m: any) => String(m.conversationId || m.conversation_id || ""))
+                  ]
+                    .map((s) => String(s || "").trim().toLowerCase())
+                    .filter(Boolean)
                 )
-                .catch(() => {}),
-              isCallerPostOwner
-                ? dbPool
+              );
+              if (allPersonConvIds.length > 0 && callerIdArr.length > 0) {
+                void Promise.all([
+                  dbPool
+                    .query(
+                      `UPDATE messages
+                       SET is_read = TRUE
+                       WHERE LOWER(conversation_id) = ANY($1::text[])
+                         AND NOT (LOWER(sender_id) = ANY($2::text[]))
+                         AND is_read = FALSE`,
+                      [allPersonConvIds, callerIdArr]
+                    )
+                    .catch(() => {}),
+                  dbPool
                     .query(
                       `UPDATE conversations
-                       SET unread_poster_count = 0
-                       WHERE (LOWER(id) = ANY($1::text[])
-                          OR (post_id = $2 AND LOWER(helper_id) = ANY($3::text[])))
-                         AND unread_poster_count > 0`,
-                      [convIdVariants, postId, helperIdVariants]
+                       SET unread_poster_count = CASE WHEN LOWER(poster_id) = ANY($2::text[]) OR LOWER(poster_email) = ANY($2::text[]) OR LOWER(post_id) = ANY($2::text[]) THEN 0 ELSE unread_poster_count END,
+                           unread_helper_count = CASE WHEN LOWER(helper_id) = ANY($2::text[]) OR LOWER(helper_email) = ANY($2::text[]) THEN 0 ELSE unread_helper_count END
+                       WHERE LOWER(id) = ANY($1::text[])
+                         AND (unread_poster_count > 0 OR unread_helper_count > 0)`,
+                      [allPersonConvIds, callerIdArr]
                     )
                     .catch(() => {})
-                : dbPool
-                    .query(
-                      `UPDATE conversations
-                       SET unread_helper_count = 0
-                       WHERE (LOWER(id) = ANY($1::text[])
-                          OR (post_id = $2 AND LOWER(helper_id) = ANY($3::text[])))
-                         AND unread_helper_count > 0`,
-                      [convIdVariants, postId, helperIdVariants]
-                    )
-                    .catch(() => {})
-            ]);
+                ]);
+              }
+            } else {
+              const targetConv = activeConvId || buildConversationId(postId, helperId);
+              const helperIdVariants = Array.from(buildServerIdentitySet(helperId, helperEmail));
+              if (helperId && !helperIdVariants.includes(helperId.toLowerCase())) {
+                helperIdVariants.push(helperId.toLowerCase());
+              }
+              const convIdVariants = Array.from(
+                new Set([
+                  targetConv.toLowerCase(),
+                  ...helperIdVariants.map((h) => buildConversationId(postId, h).toLowerCase())
+                ])
+              );
+
+              void Promise.all([
+                dbPool
+                  .query(
+                    `UPDATE messages
+                     SET is_read = TRUE
+                     WHERE (
+                       LOWER(conversation_id) = ANY($1::text[])
+                       OR ((post_id = $2 OR intent_id = $2) AND LOWER(sender_id) = ANY($3::text[]))
+                     )
+                       AND NOT (LOWER(sender_id) = ANY($4::text[]))
+                       AND is_read = FALSE`,
+                    [convIdVariants, postId, helperIdVariants, callerIdArr]
+                  )
+                  .catch(() => {}),
+                isCallerPostOwner
+                  ? dbPool
+                      .query(
+                        `UPDATE conversations
+                         SET unread_poster_count = 0
+                         WHERE (LOWER(id) = ANY($1::text[])
+                            OR (post_id = $2 AND LOWER(helper_id) = ANY($3::text[])))
+                           AND unread_poster_count > 0`,
+                        [convIdVariants, postId, helperIdVariants]
+                      )
+                      .catch(() => {})
+                  : dbPool
+                      .query(
+                        `UPDATE conversations
+                         SET unread_helper_count = 0
+                         WHERE (LOWER(id) = ANY($1::text[])
+                            OR (post_id = $2 AND LOWER(helper_id) = ANY($3::text[])))
+                           AND unread_helper_count > 0`,
+                        [convIdVariants, postId, helperIdVariants]
+                      )
+                      .catch(() => {})
+              ]);
+            }
           }
         } catch (dbErr) {
           console.warn("DB 1-on-1 messages query error:", dbErr);
@@ -10185,13 +10299,21 @@ async function startServer() {
       }
 
       // Fallback file check for messages (and persist isRead to disk so unread badges stay cleared)
-      if (activeConvId || postId) {
+      if (isPersonMode || activeConvId || postId) {
         const allMessages = readJsonFile<Record<string, any[]>>(MESSAGES_FILE, {});
         let modifiedFile = false;
         const postLower = String(postId || "").toLowerCase();
         const convPrefix = postLower ? `conv_${postLower}__` : "";
+        const mergedConvLowerSet = new Set(mergedConvIdsList.map((c) => c.toLowerCase()));
+        const mergedPostLowerSet = new Set(mergedPostIdsList.map((p) => p.toLowerCase()));
         const matchingKeys = Object.keys(allMessages).filter((k) => {
           const kLower = k.toLowerCase();
+          if (isPersonMode) {
+            if (mergedConvLowerSet.has(kLower)) return true;
+            for (const mp of mergedPostLowerSet) {
+              if (kLower === mp || kLower.startsWith(`conv_${mp}__`)) return true;
+            }
+          }
           return (
             (activeConvId && kLower === activeConvId.toLowerCase()) ||
             (postLower && (kLower === postLower || (convPrefix && kLower.startsWith(convPrefix))))
@@ -10208,10 +10330,22 @@ async function startServer() {
             const rId = String(m.receiver_id || m.receiverId || "").trim();
             const mConv = String(m.conversationId || m.conversation_id || cKey || "").trim();
             const mPost = String(m.postId || m.post_id || m.intentId || m.intent_id || "").trim();
-            const matchesConv =
-              (activeConvId && mConv.toLowerCase() === activeConvId.toLowerCase()) ||
-              (helperLower && (sId.toLowerCase() === helperLower || rId.toLowerCase() === helperLower)) ||
-              ((isCallerPostOwner || callerIdentities.size === 0) && postLower && (mPost.toLowerCase() === postLower || cKey.toLowerCase().includes(postLower)));
+            let matchesConv = false;
+            if (isPersonMode) {
+              const sIsCaller = callerIdentities.has(sId.toLowerCase()) || (sEmail && callerIdentities.has(sEmail));
+              const sIsPeer = peerIdentities.has(sId.toLowerCase()) || (sEmail && peerIdentities.has(sEmail));
+              const rIsCaller = callerIdentities.has(rId.toLowerCase());
+              const rIsPeer = peerIdentities.has(rId.toLowerCase());
+              matchesConv =
+                (sIsCaller && (rIsPeer || mergedConvLowerSet.has(mConv.toLowerCase()))) ||
+                (sIsPeer && (rIsCaller || mergedConvLowerSet.has(mConv.toLowerCase()))) ||
+                (sId.toLowerCase() === "system" && mergedConvLowerSet.has(mConv.toLowerCase()));
+            } else {
+              matchesConv =
+                (activeConvId && mConv.toLowerCase() === activeConvId.toLowerCase()) ||
+                (helperLower && (sId.toLowerCase() === helperLower || rId.toLowerCase() === helperLower)) ||
+                ((isCallerPostOwner || callerIdentities.size === 0) && postLower && (mPost.toLowerCase() === postLower || cKey.toLowerCase().includes(postLower)));
+            }
             if (!matchesConv) return;
 
             const isSentByViewer =
@@ -10226,6 +10360,8 @@ async function startServer() {
               mergedMap.set(m.id, {
                 ...m,
                 conversationId: mConv || activeConvId,
+                postId: mPost || postId,
+                post_id: mPost || postId,
                 sender_id: sId,
                 senderId: sId,
                 authorId: sId
@@ -10238,13 +10374,93 @@ async function startServer() {
         }
       }
 
+      // Enrich postTitle on messages when in person-merged mode (or when multiple posts exist) for inline context dividers
+      try {
+        const distinctMsgPostIds = Array.from(
+          new Set(
+            Array.from(mergedMap.values())
+              .map((m: any) => String(m.postId || m.post_id || m.intentId || "").trim())
+              .filter((id) => id && id !== "general")
+          )
+        );
+        if (distinctMsgPostIds.length > 0 && (isPersonMode || distinctMsgPostIds.length > 1)) {
+          const titleMap = new Map<string, string>();
+          if (dbPool && isDbConnected) {
+            const providerHelperIds = distinctMsgPostIds
+              .filter((id) => id.startsWith("provider_chat_"))
+              .map((id) => id.replace(/^provider_chat_/i, "").toLowerCase());
+            const usedItemIds = distinctMsgPostIds
+              .filter((id) => id.startsWith("used_item_chat_"))
+              .map((id) => id.replace(/^used_item_chat_/i, ""));
+            const [bpRes, pRes, hRes, uiRes] = await Promise.all([
+              dbPool
+                .query("SELECT id, description, category FROM broadcast_posts WHERE id = ANY($1::text[])", [distinctMsgPostIds])
+                .catch(() => ({ rows: [] as any[] })),
+              dbPool
+                .query("SELECT id, content, category FROM posts WHERE id = ANY($1::text[])", [distinctMsgPostIds])
+                .catch(() => ({ rows: [] as any[] })),
+              providerHelperIds.length > 0
+                ? dbPool
+                    .query("SELECT id, name, category_id FROM helpers WHERE LOWER(id) = ANY($1::text[])", [providerHelperIds])
+                    .catch(() => ({ rows: [] as any[] }))
+                : Promise.resolve({ rows: [] as any[] }),
+              usedItemIds.length > 0
+                ? dbPool
+                    .query("SELECT id, title, price, area FROM used_items WHERE id = ANY($1::text[])", [usedItemIds])
+                    .catch(() => ({ rows: [] as any[] }))
+                : Promise.resolve({ rows: [] as any[] })
+            ]);
+            bpRes.rows.forEach((bp: any) => {
+              if (bp.id && bp.description) titleMap.set(String(bp.id), String(bp.description).trim());
+            });
+            pRes.rows.forEach((p: any) => {
+              if (p.id && p.content && !titleMap.has(String(p.id))) titleMap.set(String(p.id), String(p.content).trim());
+            });
+            hRes.rows.forEach((h: any) => {
+              if (h.id) {
+                const label = h.category_id ? `${h.name} (${h.category_id})` : `${h.name}`;
+                titleMap.set(`provider_chat_${String(h.id)}`, label);
+              }
+            });
+            uiRes.rows.forEach((ui: any) => {
+              if (ui.id && ui.title) {
+                const pricePart = ui.price ? ` — ₹${ui.price}` : "";
+                titleMap.set(`used_item_chat_${String(ui.id)}`, `${String(ui.title).trim()}${pricePart}`);
+              }
+            });
+          }
+          // Local JSON fallbacks for intents & used items
+          if (titleMap.size < distinctMsgPostIds.length) {
+            const localIntents = readJsonFile<any[]>(INTENTS_FILE, []);
+            localIntents.forEach((it) => {
+              if (it?.id && it?.description && !titleMap.has(String(it.id))) {
+                titleMap.set(String(it.id), String(it.description).trim());
+              }
+            });
+            const localUsed = readJsonFile<any[]>(USED_ITEMS_FILE, []);
+            localUsed.forEach((ui) => {
+              if (ui?.id && ui?.title && !titleMap.has(`used_item_chat_${String(ui.id)}`)) {
+                const pricePart = ui.price ? ` — ₹${ui.price}` : "";
+                titleMap.set(`used_item_chat_${String(ui.id)}`, `${String(ui.title).trim()}${pricePart}`);
+              }
+            });
+          }
+          mergedMap.forEach((m) => {
+            const mpId = String(m.postId || m.post_id || m.intentId || "").trim();
+            if (mpId && titleMap.has(mpId)) {
+              m.postTitle = titleMap.get(mpId);
+            }
+          });
+        }
+      } catch {}
+
       const viewerDeleteState =
         callerIdentities.size > 0
           ? await getUserDeletedChatState(callerIdentities)
           : { deletedConvs: new Map<string, number>(), deletedMsgs: new Set<string>() };
 
       let convDeletedAtMs = 0;
-      if (viewerDeleteState.deletedConvs.size > 0) {
+      if (!isPersonMode && viewerDeleteState.deletedConvs.size > 0) {
         const candidateDeleteKeys = [
           String(activeConvId || "").trim().toLowerCase(),
           postId && helperId ? buildConversationId(postId, helperId).toLowerCase() : "",
@@ -10262,8 +10478,26 @@ async function startServer() {
         .filter((m) => {
           if (!m) return false;
           if (m.id && viewerDeleteState.deletedMsgs.has(String(m.id))) return false;
-          if (convDeletedAtMs > 0) {
-            const msgTs = new Date(m.createdAt || m.sent_at || 0).getTime();
+          const msgTs = new Date(m.createdAt || m.sent_at || 0).getTime();
+          if (isPersonMode && viewerDeleteState.deletedConvs.size > 0) {
+            const mConvLow = String(m.conversationId || m.conversation_id || "").trim().toLowerCase();
+            const mPostLow = String(m.postId || m.post_id || "").trim().toLowerCase();
+            const parsedMC = parseConversationId(mConvLow);
+            const mKeys = [
+              mConvLow,
+              parsedMC ? `${parsedMC.postId.toLowerCase()}__${parsedMC.helperId.toLowerCase()}` : "",
+              parsedMC ? `${parsedMC.postId.toLowerCase()}__${ensureServerValidUUID(parsedMC.helperId.toLowerCase())}` : "",
+              mPostLow
+            ].filter(Boolean);
+            let maxDel = 0;
+            for (const mk of mKeys) {
+              const ts = viewerDeleteState.deletedConvs.get(mk) || 0;
+              if (ts > maxDel) maxDel = ts;
+            }
+            if (maxDel > 0 && !Number.isNaN(msgTs) && msgTs <= maxDel + 1500) {
+              return false;
+            }
+          } else if (convDeletedAtMs > 0) {
             if (!Number.isNaN(msgTs) && msgTs <= convDeletedAtMs + 1500) {
               return false;
             }
@@ -10561,7 +10795,15 @@ async function startServer() {
           } catch {}
         }
 
-        // 3. Enrich poster and helper names/emails/avatars + post titles/descriptions from users, profiles, helpers, and posts tables
+        // 3. Enrich poster and helper names/emails/avatars + post titles/descriptions from users, profiles, helpers, posts, and used_items tables
+        const identityCanonicalMap = new Map<string, string>();
+        const cleanAvatarUrl = (url?: string): string => {
+          const s = String(url || "").trim();
+          if (!s || s === "__deleted__" || s === "https://lh3.googleusercontent.com/a/default-user" || s.includes("api.dicebear.com")) {
+            return "";
+          }
+          return s;
+        };
         try {
           const allUserLookupKeys = Array.from(
             new Set(
@@ -10583,8 +10825,11 @@ async function startServer() {
                 .filter((id) => id && id !== "general")
             )
           );
+          const usedItemPostIds = allPostIds
+            .filter((id) => id.startsWith("used_item_chat_"))
+            .map((id) => id.replace(/^used_item_chat_/i, ""));
           if (allUserLookupKeys.length > 0 || allPostIds.length > 0) {
-            const [uRes, pLookupRes, hLookupRes, postsLookupRes, bPostsLookupRes] = await Promise.all([
+            const [uRes, pLookupRes, hLookupRes, postsLookupRes, bPostsLookupRes, usedItemsLookupRes] = await Promise.all([
               allUserLookupKeys.length > 0
                 ? dbPool
                     .query(
@@ -10624,6 +10869,14 @@ async function startServer() {
                       [allPostIds]
                     )
                     .catch(() => ({ rows: [] as any[] }))
+                : Promise.resolve({ rows: [] as any[] }),
+              usedItemPostIds.length > 0
+                ? dbPool
+                    .query(
+                      "SELECT id, title, price, area, city, seller_id, seller_name, seller_email, seller_avatar FROM used_items WHERE id = ANY($1::text[])",
+                      [usedItemPostIds]
+                    )
+                    .catch(() => ({ rows: [] as any[] }))
                 : Promise.resolve({ rows: [] as any[] })
             ]);
             const formatDbUserLoc = (areaVal?: string, cityVal?: string, locVal?: string): string => {
@@ -10636,13 +10889,46 @@ async function startServer() {
               if (l && l.toLowerCase() !== "local area") return l;
               return "";
             };
+            const registerCanonicalAliases = (canonical: string, aliases: Array<string | undefined | null>) => {
+              const canon = String(canonical || "").trim().toLowerCase();
+              if (!canon) return;
+              // Prefer existing canonical if any alias is already mapped
+              let resolvedCanon = canon;
+              for (const al of aliases) {
+                const clean = String(al || "").trim().toLowerCase();
+                if (clean && identityCanonicalMap.has(clean)) {
+                  resolvedCanon = identityCanonicalMap.get(clean)!;
+                  break;
+                }
+              }
+              identityCanonicalMap.set(canon, resolvedCanon);
+              for (const al of aliases) {
+                const clean = String(al || "").trim().toLowerCase();
+                if (clean) {
+                  identityCanonicalMap.set(clean, resolvedCanon);
+                  identityCanonicalMap.set(ensureServerValidUUID(clean), resolvedCanon);
+                }
+              }
+            };
             const uMap = new Map<string, { name?: string; email?: string; avatar?: string; location?: string }>();
             uRes.rows.forEach((u: any) => {
               const loc = formatDbUserLoc(u.area, u.city, u.location);
-              const info = { name: u.name, email: u.email, avatar: u.avatar_url, location: loc };
-              if (u.id) uMap.set(String(u.id).toLowerCase(), info);
-              if (u.email) uMap.set(String(u.email).toLowerCase(), info);
+              const av = cleanAvatarUrl(u.avatar_url);
+              const info = { name: u.name, email: u.email, avatar: av, location: loc };
               const ph = normalizePhoneDigitsServer(u.phone || "");
+              const em = String(u.email || "").trim().toLowerCase();
+              const uidStr = String(u.id || "").trim().toLowerCase();
+              const canon = em ? `email:${em}` : ph ? `phone:${ph}` : uidStr ? `uid:${uidStr}` : "";
+              registerCanonicalAliases(canon, [
+                uidStr,
+                em,
+                em ? `email_${em.replace(/[^a-z0-9]/g, "_")}` : "",
+                ph,
+                ph ? `phone_${ph}` : "",
+                ph ? `${ph}@phone.locohelp.com` : ""
+              ]);
+              if (u.id) uMap.set(uidStr, info);
+              if (u.email) uMap.set(em, info);
               if (ph) {
                 uMap.set(`phone_${ph}`, info);
                 uMap.set(`${ph}@phone.locohelp.com`, info);
@@ -10650,45 +10936,66 @@ async function startServer() {
             });
             pLookupRes.rows.forEach((p: any) => {
               const loc = formatDbUserLoc(p.sector, p.city, p.address);
-              const info = { name: p.full_name || p.name, email: p.email, avatar: p.avatar_url || p.image_url, location: loc };
+              const av = cleanAvatarUrl(p.avatar_url) || cleanAvatarUrl(p.image_url);
+              const info = { name: p.full_name || p.name, email: p.email, avatar: av, location: loc };
+              const ph = normalizePhoneDigitsServer(p.phone || "");
+              const em = String(p.email || "").trim().toLowerCase();
+              const pUid = String(p.uid || "").trim().toLowerCase();
+              const pId = String(p.id || "").trim().toLowerCase();
+              const canon = em ? `email:${em}` : ph ? `phone:${ph}` : pUid ? `uid:${pUid}` : pId ? `uid:${pId}` : "";
+              registerCanonicalAliases(canon, [
+                pUid,
+                pId,
+                em,
+                em ? `email_${em.replace(/[^a-z0-9]/g, "_")}` : "",
+                ph,
+                ph ? `phone_${ph}` : "",
+                ph ? `${ph}@phone.locohelp.com` : ""
+              ]);
               if (p.uid) {
-                const prev = uMap.get(String(p.uid).toLowerCase());
-                uMap.set(String(p.uid).toLowerCase(), { ...prev, ...info, location: info.location || prev?.location });
+                const prev = uMap.get(pUid);
+                uMap.set(pUid, { ...prev, ...info, avatar: info.avatar || prev?.avatar, location: info.location || prev?.location });
               }
               if (p.id) {
-                const prev = uMap.get(String(p.id).toLowerCase());
-                uMap.set(String(p.id).toLowerCase(), { ...prev, ...info, location: info.location || prev?.location });
+                const prev = uMap.get(pId);
+                uMap.set(pId, { ...prev, ...info, avatar: info.avatar || prev?.avatar, location: info.location || prev?.location });
               }
               if (p.email) {
-                const prev = uMap.get(String(p.email).toLowerCase());
-                uMap.set(String(p.email).toLowerCase(), { ...prev, ...info, location: info.location || prev?.location });
+                const prev = uMap.get(em);
+                uMap.set(em, { ...prev, ...info, avatar: info.avatar || prev?.avatar, location: info.location || prev?.location });
               }
-              const ph = normalizePhoneDigitsServer(p.phone || "");
               if (ph) {
                 const prev = uMap.get(`phone_${ph}`);
-                const merged = { ...prev, ...info, location: info.location || prev?.location };
+                const merged = { ...prev, ...info, avatar: info.avatar || prev?.avatar, location: info.location || prev?.location };
                 uMap.set(`phone_${ph}`, merged);
                 uMap.set(`${ph}@phone.locohelp.com`, merged);
               }
             });
-            const postInfoMap = new Map<string, { title?: string; authorId?: string; authorName?: string; authorAvatar?: string; location?: string; category?: string }>();
+            const postInfoMap = new Map<string, { title?: string; authorId?: string; authorName?: string; authorEmail?: string; authorAvatar?: string; location?: string; category?: string }>();
             hLookupRes.rows.forEach((h: any) => {
-              const info = { name: h.name, email: h.email, avatar: h.photo_url, location: String(h.address || "").trim() };
+              const av = cleanAvatarUrl(h.photo_url);
+              const info = { name: h.name, email: h.email, avatar: av, location: String(h.address || "").trim() };
+              const hIdLow = String(h.id || "").trim().toLowerCase();
+              const hUidLow = String(h.user_id || "").trim().toLowerCase();
+              const hEmLow = String(h.email || "").trim().toLowerCase();
+              const canon = hEmLow ? `email:${hEmLow}` : hUidLow ? `uid:${hUidLow}` : hIdLow ? `uid:${hIdLow}` : "";
+              registerCanonicalAliases(canon, [hIdLow, hUidLow, hEmLow, hIdLow ? `provider_chat_${hIdLow}` : ""]);
               if (h.id) {
-                uMap.set(String(h.id).toLowerCase(), info);
-                uMap.set(`provider_chat_${String(h.id).toLowerCase()}`, info);
+                uMap.set(hIdLow, info);
+                uMap.set(`provider_chat_${hIdLow}`, info);
                 postInfoMap.set(`provider_chat_${String(h.id)}`, {
                   title: h.category_id ? `${h.name} (${h.category_id})` : `${h.name} - Service Inquiry`,
                   authorId: h.user_id || h.id,
                   authorName: h.name,
-                  authorAvatar: h.photo_url,
+                  authorEmail: hEmLow,
+                  authorAvatar: av,
                   location: h.address || "",
                   category: h.category_id || "Service"
                 });
               }
               if (h.user_id) {
-                const prev = uMap.get(String(h.user_id).toLowerCase());
-                uMap.set(String(h.user_id).toLowerCase(), { ...prev, ...info, location: info.location || prev?.location });
+                const prev = uMap.get(hUidLow);
+                uMap.set(hUidLow, { ...prev, ...info, avatar: info.avatar || prev?.avatar, location: info.location || prev?.location });
               }
             });
             bPostsLookupRes.rows.forEach((bp: any) => {
@@ -10698,7 +11005,7 @@ async function startServer() {
                   title: bp.description,
                   authorId: bp.author_id,
                   authorName: bp.author_name,
-                  authorAvatar: bp.author_avatar,
+                  authorAvatar: cleanAvatarUrl(bp.author_avatar),
                   location: bpLoc,
                   category: bp.category
                 });
@@ -10717,8 +11024,25 @@ async function startServer() {
                 });
               }
             });
+            usedItemsLookupRes.rows.forEach((ui: any) => {
+              if (ui.id) {
+                const pricePart = ui.price ? ` — ₹${ui.price}` : "";
+                postInfoMap.set(`used_item_chat_${String(ui.id)}`, {
+                  title: `${String(ui.title || "Used Item").trim()}${pricePart}`,
+                  authorId: ui.seller_id || "",
+                  authorName: ui.seller_name || "",
+                  authorEmail: String(ui.seller_email || "").trim().toLowerCase(),
+                  authorAvatar: cleanAvatarUrl(ui.seller_avatar),
+                  location: formatDbUserLoc(ui.area, ui.city, ""),
+                  category: "Used Item"
+                });
+              }
+            });
 
             conversationsMap.forEach((c) => {
+              c.helperAvatar = cleanAvatarUrl(c.helperAvatar);
+              c.senderAvatar = cleanAvatarUrl(c.senderAvatar);
+              c.posterAvatar = cleanAvatarUrl(c.posterAvatar);
               const pMeta = postInfoMap.get(String(c.postId || ""));
               if (pMeta) {
                 if (!c.postTitle && pMeta.title) c.postTitle = pMeta.title;
@@ -10731,6 +11055,9 @@ async function startServer() {
                 }
                 if ((!c.posterName || c.posterName === "Post Owner" || c.posterName === "Community Member") && pMeta.authorName) {
                   c.posterName = pMeta.authorName;
+                }
+                if (!c.posterEmail && pMeta.authorEmail) {
+                  c.posterEmail = pMeta.authorEmail;
                 }
                 if (!c.posterAvatar && pMeta.authorAvatar) {
                   c.posterAvatar = pMeta.authorAvatar;
@@ -10777,6 +11104,8 @@ async function startServer() {
             });
           }
         } catch {}
+        (req as any)._identityCanonicalMap = identityCanonicalMap;
+        (req as any)._cleanAvatarUrl = cleanAvatarUrl;
       }
 
       // Reconcile any in-memory / fallback messages so 1-on-1 conversations work even if DB is temporarily unreachable
@@ -10934,7 +11263,7 @@ async function startServer() {
           ? await getUserDeletedChatState(viewerIdentitySet)
           : { deletedConvs: new Map<string, number>(), deletedMsgs: new Set<string>() };
 
-      const list = Array.from(conversationsMap.values())
+      const rawList = Array.from(conversationsMap.values())
         .filter((c) => {
           if (!c) return false;
           // For a specific postId, non-owners only see their own 1-on-1 conversation (never other helpers' replies)
@@ -10969,7 +11298,205 @@ async function startServer() {
         .sort(
           (a, b) => new Date(b.lastMessageAt || b.updatedAt || 0).getTime() - new Date(a.lastMessageAt || a.updatedAt || 0).getTime()
         );
-      res.json(list);
+
+      // WhatsApp-style 1 Person = 1 Chat merging when listing all conversations (!postId)
+      if (!postId && rawList.length > 0) {
+        const canonicalMap: Map<string, string> = (req as any)._identityCanonicalMap || new Map<string, string>();
+        const cleanAv: (u?: string) => string =
+          (req as any)._cleanAvatarUrl ||
+          ((u?: string) => {
+            const s = String(u || "").trim();
+            if (!s || s === "__deleted__" || s === "https://lh3.googleusercontent.com/a/default-user" || s.includes("api.dicebear.com")) {
+              return "";
+            }
+            return s;
+          });
+        const isGenericName = (n?: string) => {
+          const low = String(n || "").trim().toLowerCase();
+          return !low || low === "post owner" || low === "community helper" || low === "community peer" || low === "community member" || low === "user";
+        };
+        const isPostLikeId = (id?: string) => {
+          const low = String(id || "").trim().toLowerCase();
+          return !low || low === "general" || low.startsWith("intent_") || low.startsWith("post_") || low.startsWith("used_item_chat_") || low.startsWith("conv_");
+        };
+
+        const resolveStrongPeerKey = (c: any): string => {
+          const pEmail = String(c.partnerEmail || "").trim().toLowerCase();
+          const pId = String(c.partnerId || "").trim().toLowerCase();
+          const pName = String(c.partnerName || "").trim().toLowerCase();
+          if (pEmail) {
+            if (canonicalMap.has(pEmail)) return canonicalMap.get(pEmail)!;
+            const ph = normalizePhoneDigitsServer(pEmail);
+            if (ph) return `phone:${ph}`;
+            return `email:${pEmail}`;
+          }
+          if (pId && !isPostLikeId(pId)) {
+            const stripped = pId.replace(/^provider_chat_/i, "");
+            if (canonicalMap.has(pId)) return canonicalMap.get(pId)!;
+            if (canonicalMap.has(stripped)) return canonicalMap.get(stripped)!;
+            const ph = normalizePhoneDigitsServer(stripped);
+            if (ph) return `phone:${ph}`;
+            return `uid:${stripped}`;
+          }
+          if (!isGenericName(pName)) {
+            return `name:${pName}`;
+          }
+          return `thread:${String(c.id || c.conversationId || c.postId || Math.random())}`;
+        };
+
+        // Pass 1: Group by strong identity key
+        const groupedBuckets: Array<{ key: string; items: any[]; realEmails: Set<string>; normName: string }> = [];
+        const bucketByKey = new Map<string, number>();
+
+        for (const c of rawList) {
+          c.partnerAvatar = cleanAv(c.partnerAvatar);
+          c.helperAvatar = cleanAv(c.helperAvatar);
+          c.posterAvatar = cleanAv(c.posterAvatar);
+          const strongKey = resolveStrongPeerKey(c);
+          const pEmail = String(c.partnerEmail || "").trim().toLowerCase();
+          const pName = !isGenericName(c.partnerName) ? String(c.partnerName || "").trim().toLowerCase() : "";
+
+          if (bucketByKey.has(strongKey)) {
+            const b = groupedBuckets[bucketByKey.get(strongKey)!];
+            b.items.push(c);
+            if (pEmail) b.realEmails.add(pEmail);
+            if (!b.normName && pName) b.normName = pName;
+          } else {
+            bucketByKey.set(strongKey, groupedBuckets.length);
+            const emails = new Set<string>();
+            if (pEmail) emails.add(pEmail);
+            groupedBuckets.push({ key: strongKey, items: [c], realEmails: emails, normName: pName });
+          }
+        }
+
+        // Pass 2: Merge buckets that represent the exact same person by exact non-generic full name
+        // when there is NO conflicting real email between them (catches legacy UID/UUID/phone-login/collaboration duplicates)
+        const finalBuckets: Array<{ key: string; items: any[]; realEmails: Set<string>; normName: string }> = [];
+        for (const bucket of groupedBuckets) {
+          let mergedInto: (typeof finalBuckets)[number] | null = null;
+          if (bucket.normName && bucket.normName.length >= 3) {
+            for (const existing of finalBuckets) {
+              if (existing.normName && existing.normName === bucket.normName) {
+                const hasConflictingEmail =
+                  existing.realEmails.size > 0 &&
+                  bucket.realEmails.size > 0 &&
+                  !Array.from(bucket.realEmails).some((em) => existing.realEmails.has(em));
+                if (!hasConflictingEmail) {
+                  mergedInto = existing;
+                  break;
+                }
+              }
+            }
+          }
+          if (mergedInto) {
+            mergedInto.items.push(...bucket.items);
+            bucket.realEmails.forEach((em) => mergedInto!.realEmails.add(em));
+          } else {
+            finalBuckets.push(bucket);
+          }
+        }
+
+        const mergedPersonList = finalBuckets.map((bucket) => {
+          bucket.items.sort(
+            (a, b) => new Date(b.lastMessageAt || b.updatedAt || 0).getTime() - new Date(a.lastMessageAt || a.updatedAt || 0).getTime()
+          );
+          const primary = { ...bucket.items[0] };
+          const bestAvatar =
+            bucket.items.map((x) => cleanAv(x.partnerAvatar)).find(Boolean) ||
+            bucket.items.map((x) => cleanAv(x.isViewerHelper ? x.posterAvatar : x.helperAvatar)).find(Boolean) ||
+            "";
+          const bestName =
+            bucket.items.map((x) => String(x.partnerName || "").trim()).find((n) => !isGenericName(n)) ||
+            primary.partnerName ||
+            "Community Peer";
+          const bestEmail =
+            bucket.items.map((x) => String(x.partnerEmail || "").trim().toLowerCase()).find(Boolean) || "";
+          const bestPeerId =
+            bucket.items.map((x) => String(x.partnerId || "").trim()).find((id) => id && !isPostLikeId(id)) ||
+            primary.partnerId ||
+            "";
+          const bestLocation =
+            bucket.items
+              .map((x) => String((x.isViewerHelper ? x.posterLocation : x.helperLocation) || x.location || "").trim())
+              .find((l) => l && l.toLowerCase() !== "local area") ||
+            primary.location ||
+            "";
+          const totalUnread = bucket.items.reduce((sum, x) => sum + (Number(x.unreadCount) || 0), 0);
+          const mergedConversationIds = Array.from(
+            new Set(bucket.items.map((x) => String(x.id || x.conversationId || "").trim()).filter(Boolean))
+          );
+          const mergedPostIds = Array.from(
+            new Set(bucket.items.map((x) => String(x.postId || x.post_id || "").trim()).filter(Boolean))
+          );
+          const mergedHelperIds = Array.from(
+            new Set(bucket.items.map((x) => String(x.helperId || x.helper_id || x.senderId || "").trim()).filter(Boolean))
+          );
+          const peerIdentityKeys = Array.from(
+            new Set(
+              bucket.items
+                .flatMap((x) => [
+                  String(x.partnerId || "").trim(),
+                  String(x.partnerEmail || "").trim().toLowerCase()
+                ])
+                .filter((v) => v && !isPostLikeId(v))
+            )
+          );
+
+          primary.partnerName = bestName;
+          primary.partnerAvatar = bestAvatar;
+          primary.partnerEmail = bestEmail;
+          primary.partnerId = bestPeerId;
+          if (primary.isViewerHelper) {
+            primary.posterName = bestName;
+            primary.posterAvatar = bestAvatar;
+            if (bestEmail) primary.posterEmail = bestEmail;
+            if (bestLocation) primary.posterLocation = bestLocation;
+          } else {
+            primary.helperName = bestName;
+            primary.senderName = bestName;
+            primary.helperAvatar = bestAvatar;
+            primary.senderAvatar = bestAvatar;
+            if (bestEmail) {
+              primary.helperEmail = bestEmail;
+              primary.senderEmail = bestEmail;
+            }
+            if (bestLocation) primary.helperLocation = bestLocation;
+          }
+          if (bestLocation) primary.location = bestLocation;
+          primary.unreadCount = totalUnread;
+          primary.isMergedPersonChat = true;
+          primary.canonicalPeerKey = bucket.key;
+          primary.canonicalPeerId = bestPeerId;
+          primary.canonicalPeerEmail = bestEmail;
+          primary.peerIdentityKeys = peerIdentityKeys;
+          primary.mergedThreadCount = bucket.items.length;
+          primary.mergedConversationIds = mergedConversationIds;
+          primary.mergedPostIds = mergedPostIds;
+          primary.mergedHelperIds = mergedHelperIds;
+          primary.mergedThreads = bucket.items.map((x) => ({
+            conversationId: String(x.id || x.conversationId || ""),
+            postId: String(x.postId || x.post_id || ""),
+            helperId: String(x.helperId || x.helper_id || x.senderId || ""),
+            posterId: String(x.posterId || x.poster_id || ""),
+            posterEmail: String(x.posterEmail || x.poster_email || ""),
+            posterName: String(x.posterName || ""),
+            isViewerPoster: Boolean(x.isViewerPoster),
+            isViewerHelper: Boolean(x.isViewerHelper),
+            category: String(x.category || ""),
+            location: String(x.location || ""),
+            postTitle: String(x.postTitle || x.postDescription || ""),
+            lastMessage: String(x.lastMessage || x.last_message || ""),
+            lastMessageAt: x.lastMessageAt || x.updatedAt || ""
+          }));
+          return primary;
+        }).sort(
+          (a, b) => new Date(b.lastMessageAt || b.updatedAt || 0).getTime() - new Date(a.lastMessageAt || a.updatedAt || 0).getTime()
+        );
+
+        return res.json(mergedPersonList);
+      }
+
+      res.json(rawList);
     } catch (e) {
       res.status(500).json({ error: "Failed to load post conversations" });
     }
@@ -10986,7 +11513,10 @@ async function startServer() {
     try {
       const intentId = String(req.params.id || "").trim();
       const caller = extractRequestUser(req);
-      const { senderId, helperId, conversationId, userId, userEmail, userPhone, markAllForUser } = req.body || {};
+      const { senderId, helperId, conversationId, userId, userEmail, userPhone, markAllForUser, mergedConvIds } = req.body || {};
+      const extraMergedConvIds: string[] = Array.isArray(mergedConvIds)
+        ? mergedConvIds.map((c: any) => String(c || "").trim().toLowerCase()).filter(Boolean)
+        : [];
       const viewerId = String(userId || caller?.uid || "").trim();
       const viewerEmail = String(userEmail || caller?.email || "").trim().toLowerCase();
       const viewerPhone = normalizePhoneDigitsServer(String(userPhone || caller?.phone || ""));
@@ -11030,12 +11560,13 @@ async function startServer() {
               [viewerArr]
             )
             .catch(() => {});
-        } else if (conversationId || (effectivePostId && peerArr.length > 0)) {
+        } else if (extraMergedConvIds.length > 0 || conversationId || (effectivePostId && peerArr.length > 0)) {
           const convLower = String(conversationId || "").trim().toLowerCase();
           const convVariants = Array.from(
             new Set(
               [
                 convLower,
+                ...extraMergedConvIds,
                 ...(effectivePostId && allParticipantIds.length > 0
                   ? allParticipantIds.map((p) => buildConversationId(effectivePostId, p).toLowerCase())
                   : [])
@@ -11148,6 +11679,25 @@ async function startServer() {
         convKeysToHide.add(`${extraPostId.toLowerCase()}__${extraHelperId.toLowerCase()}`);
       } else if (extraPostId) {
         convKeysToHide.add(extraPostId.toLowerCase());
+      }
+
+      // Support deleting all merged conversation threads for a WhatsApp-style person chat
+      const rawMergedConvIds = String(req.query?.mergedConvIds || "").trim();
+      const bodyMergedConvIds = Array.isArray(req.body?.mergedConvIds) ? req.body.mergedConvIds : [];
+      const allExtraConvIds = [
+        ...(rawMergedConvIds ? rawMergedConvIds.split(",") : []),
+        ...bodyMergedConvIds
+      ]
+        .map((x: any) => String(x || "").trim())
+        .filter(Boolean);
+      for (const ec of allExtraConvIds) {
+        convKeysToHide.add(ec.toLowerCase());
+        const pEc = parseConversationId(ec);
+        if (pEc?.postId && pEc?.helperId) {
+          convKeysToHide.add(buildConversationId(pEc.postId, pEc.helperId).toLowerCase());
+          convKeysToHide.add(`${pEc.postId.toLowerCase()}__${ensureServerValidUUID(pEc.helperId.toLowerCase())}`);
+          convKeysToHide.add(`${pEc.postId.toLowerCase()}__${pEc.helperId.toLowerCase()}`);
+        }
       }
 
       const deletedAtIso = new Date().toISOString();

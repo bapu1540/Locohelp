@@ -544,7 +544,20 @@ export function saveLocalUserDeletedChat(keys: Array<string | undefined | null>,
   } catch {}
 }
 
-export function normalizeAndDedupeConversations(list: any[]): any[] {
+const isRealChatAvatarUrl = (url?: string): boolean => {
+  const s = String(url || '').trim();
+  return Boolean(
+    s &&
+    s !== '__deleted__' &&
+    s !== 'https://lh3.googleusercontent.com/a/default-user' &&
+    !s.includes('api.dicebear.com')
+  );
+};
+
+export function normalizeAndDedupeConversations(
+  list: any[],
+  options?: { groupByPerson?: boolean }
+): any[] {
   const dedupedMap = new Map<string, any>();
   const readTimestamps = getLocalChatReadTimestamps();
   const deletedTimestamps = getLocalUserDeletedChatsMap();
@@ -557,6 +570,9 @@ export function normalizeAndDedupeConversations(list: any[]): any[] {
     const hId = String(c.helperId || c.helper_id || c.senderId || '').trim().toLowerCase();
     const key = hId ? `${pId}__${hId}` : cId || String(Math.random());
     const convKey = pId && hId ? `conv_${pId}__${hId}` : cId;
+    const mergedIdsLower: string[] = Array.isArray(c.mergedConversationIds)
+      ? c.mergedConversationIds.map((x: any) => String(x || '').trim().toLowerCase()).filter(Boolean)
+      : [];
 
     const lastMsgTime = new Date(c.lastMessageAt || c.last_message_at || c.updatedAt || 0).getTime();
 
@@ -565,7 +581,8 @@ export function normalizeAndDedupeConversations(list: any[]): any[] {
       deletedTimestamps[cId] || 0,
       deletedTimestamps[key] || 0,
       deletedTimestamps[convKey] || 0,
-      deletedTimestamps[pId] || 0
+      deletedTimestamps[pId] || 0,
+      ...mergedIdsLower.map((id) => deletedTimestamps[id] || 0)
     );
     if (maxDeletedAt > 0 && (Number.isNaN(lastMsgTime) || lastMsgTime <= maxDeletedAt + 1500)) {
       return;
@@ -576,13 +593,18 @@ export function normalizeAndDedupeConversations(list: any[]): any[] {
       readTimestamps[cId] || 0,
       readTimestamps[key] || 0,
       readTimestamps[convKey] || 0,
-      readTimestamps[pId] || 0
+      readTimestamps[pId] || 0,
+      ...mergedIdsLower.map((id) => readTimestamps[id] || 0)
     );
     const isAlreadyReadLocally = maxReadAt > 0 && !Number.isNaN(lastMsgTime) && lastMsgTime <= maxReadAt + 1500;
     const effectiveUnread = isAlreadyReadLocally ? 0 : Number(c.unreadCount || 0);
 
     const normalizedConv = {
       ...c,
+      partnerAvatar: isRealChatAvatarUrl(c.partnerAvatar) ? c.partnerAvatar : '',
+      helperAvatar: isRealChatAvatarUrl(c.helperAvatar) ? c.helperAvatar : '',
+      senderAvatar: isRealChatAvatarUrl(c.senderAvatar) ? c.senderAvatar : '',
+      posterAvatar: isRealChatAvatarUrl(c.posterAvatar) ? c.posterAvatar : '',
       lastMessage: msgText,
       last_message: msgText,
       unreadCount: effectiveUnread,
@@ -605,9 +627,169 @@ export function normalizeAndDedupeConversations(list: any[]): any[] {
       }
     }
   });
-  return Array.from(dedupedMap.values()).sort(
+
+  const sortedThreads = Array.from(dedupedMap.values()).sort(
     (a, b) => new Date(b.lastMessageAt || b.updatedAt || 0).getTime() - new Date(a.lastMessageAt || a.updatedAt || 0).getTime()
   );
+
+  if (!options?.groupByPerson || sortedThreads.length <= 1) {
+    return sortedThreads;
+  }
+
+  // Client-side WhatsApp-style person grouping (also handles pre-existing cached localStorage lists smoothly)
+  const isGenericName = (n?: string) => {
+    const low = String(n || '').trim().toLowerCase();
+    return !low || low === 'post owner' || low === 'community helper' || low === 'community peer' || low === 'community member' || low === 'user';
+  };
+  const isPostLikeId = (id?: string) => {
+    const low = String(id || '').trim().toLowerCase();
+    return !low || low === 'general' || low.startsWith('intent_') || low.startsWith('post_') || low.startsWith('used_item_chat_') || low.startsWith('conv_');
+  };
+
+  const buckets: Array<{ key: string; items: any[]; realEmails: Set<string>; normName: string }> = [];
+  const bucketIndexByKey = new Map<string, number>();
+
+  for (const c of sortedThreads) {
+    const pEmail = String(c.canonicalPeerEmail || c.partnerEmail || (c.isViewerHelper ? c.posterEmail : c.helperEmail) || '')
+      .trim()
+      .toLowerCase();
+    const pId = String(c.canonicalPeerId || c.partnerId || (c.isViewerHelper ? c.posterId : c.helperId) || '')
+      .trim()
+      .toLowerCase();
+    const rawName = String(c.partnerName || (c.isViewerHelper ? c.posterName : c.helperName) || '').trim();
+    const pName = !isGenericName(rawName) ? rawName.toLowerCase() : '';
+    const strongKey =
+      c.canonicalPeerKey ||
+      (pEmail ? `email:${pEmail}` : pId && !isPostLikeId(pId) ? `uid:${pId.replace(/^provider_chat_/i, '')}` : pName ? `name:${pName}` : `thread:${c.id || c.conversationId}`);
+
+    let targetBucketIdx = bucketIndexByKey.get(strongKey);
+    if (targetBucketIdx === undefined && pName && pName.length >= 3) {
+      const matchedIdx = buckets.findIndex((b) => {
+        if (!b.normName || b.normName !== pName) return false;
+        const conflicting = pEmail && b.realEmails.size > 0 && !b.realEmails.has(pEmail);
+        return !conflicting;
+      });
+      if (matchedIdx >= 0) targetBucketIdx = matchedIdx;
+    }
+
+    if (targetBucketIdx !== undefined) {
+      const b = buckets[targetBucketIdx];
+      b.items.push(c);
+      if (pEmail) b.realEmails.add(pEmail);
+      if (!b.normName && pName) b.normName = pName;
+      bucketIndexByKey.set(strongKey, targetBucketIdx);
+    } else {
+      const idx = buckets.length;
+      const emails = new Set<string>();
+      if (pEmail) emails.add(pEmail);
+      buckets.push({ key: strongKey, items: [c], realEmails: emails, normName: pName });
+      bucketIndexByKey.set(strongKey, idx);
+    }
+  }
+
+  return buckets
+    .map((b) => {
+      b.items.sort(
+        (a, b2) => new Date(b2.lastMessageAt || b2.updatedAt || 0).getTime() - new Date(a.lastMessageAt || a.updatedAt || 0).getTime()
+      );
+      if (b.items.length === 1 && b.items[0].isMergedPersonChat) {
+        return b.items[0];
+      }
+      const primary = { ...b.items[0] };
+      const bestAvatar =
+        b.items.map((x) => x.partnerAvatar).find((av) => isRealChatAvatarUrl(av)) ||
+        b.items.map((x) => (x.isViewerHelper ? x.posterAvatar : x.helperAvatar)).find((av) => isRealChatAvatarUrl(av)) ||
+        '';
+      const bestName =
+        b.items.map((x) => String(x.partnerName || '').trim()).find((n) => !isGenericName(n)) ||
+        primary.partnerName ||
+        'Community Peer';
+      const bestEmail =
+        b.items.map((x) => String(x.canonicalPeerEmail || x.partnerEmail || '').trim().toLowerCase()).find(Boolean) || '';
+      const bestPeerId =
+        b.items.map((x) => String(x.canonicalPeerId || x.partnerId || '').trim()).find((id) => id && !isPostLikeId(id)) ||
+        primary.partnerId ||
+        '';
+
+      const mergedConversationIds = Array.from(
+        new Set(
+          b.items.flatMap((x) => [
+            ...(Array.isArray(x.mergedConversationIds) ? x.mergedConversationIds : []),
+            String(x.id || x.conversationId || '').trim()
+          ]).filter(Boolean)
+        )
+      );
+      const mergedPostIds = Array.from(
+        new Set(
+          b.items.flatMap((x) => [
+            ...(Array.isArray(x.mergedPostIds) ? x.mergedPostIds : []),
+            String(x.postId || x.post_id || '').trim()
+          ]).filter(Boolean)
+        )
+      );
+      const mergedHelperIds = Array.from(
+        new Set(
+          b.items.flatMap((x) => [
+            ...(Array.isArray(x.mergedHelperIds) ? x.mergedHelperIds : []),
+            String(x.helperId || x.helper_id || x.senderId || '').trim()
+          ]).filter(Boolean)
+        )
+      );
+
+      const mergedThreadsMap = new Map<string, any>();
+      b.items.forEach((x) => {
+        const subList = Array.isArray(x.mergedThreads) && x.mergedThreads.length > 0
+          ? x.mergedThreads
+          : [{
+              conversationId: String(x.id || x.conversationId || ''),
+              postId: String(x.postId || x.post_id || ''),
+              helperId: String(x.helperId || x.helper_id || x.senderId || ''),
+              posterId: String(x.posterId || x.poster_id || ''),
+              posterEmail: String(x.posterEmail || x.poster_email || ''),
+              posterName: String(x.posterName || ''),
+              isViewerPoster: Boolean(x.isViewerPoster),
+              isViewerHelper: Boolean(x.isViewerHelper),
+              category: String(x.category || ''),
+              location: String(x.location || ''),
+              postTitle: String(x.postTitle || x.postDescription || ''),
+              lastMessage: String(x.lastMessage || x.last_message || ''),
+              lastMessageAt: x.lastMessageAt || x.updatedAt || ''
+            }];
+        subList.forEach((th: any) => {
+          const tPostId = String(th?.postId || '').trim();
+          const tConvId = String(th?.conversationId || '').trim();
+          const tKey = tConvId || tPostId;
+          if (!tKey) return;
+          const existing = mergedThreadsMap.get(tKey);
+          const tTime = new Date(th?.lastMessageAt || 0).getTime() || 0;
+          const eTime = existing ? new Date(existing?.lastMessageAt || 0).getTime() || 0 : -1;
+          if (!existing || tTime >= eTime) {
+            mergedThreadsMap.set(tKey, th);
+          }
+        });
+      });
+
+      primary.partnerName = bestName;
+      primary.partnerAvatar = bestAvatar;
+      primary.partnerEmail = bestEmail;
+      primary.partnerId = bestPeerId;
+      primary.canonicalPeerKey = b.key;
+      primary.canonicalPeerId = bestPeerId;
+      primary.canonicalPeerEmail = bestEmail;
+      primary.unreadCount = b.items.reduce((sum, x) => sum + (Number(x.unreadCount) || 0), 0);
+      primary.isMergedPersonChat = true;
+      primary.mergedThreadCount = Math.max(mergedConversationIds.length, b.items.length);
+      primary.mergedConversationIds = mergedConversationIds;
+      primary.mergedPostIds = mergedPostIds;
+      primary.mergedHelperIds = mergedHelperIds;
+      primary.mergedThreads = Array.from(mergedThreadsMap.values()).sort(
+        (a, b2) => new Date(b2.lastMessageAt || 0).getTime() - new Date(a.lastMessageAt || 0).getTime()
+      );
+      return primary;
+    })
+    .sort(
+      (a, b) => new Date(b.lastMessageAt || b.updatedAt || 0).getTime() - new Date(a.lastMessageAt || a.updatedAt || 0).getTime()
+    );
 }
 
 function getConversationCacheKey(params: {
@@ -715,6 +897,7 @@ export async function deleteConversationOnServer(
     userPhone?: string;
     postId?: string;
     helperId?: string;
+    mergedConvIds?: string[];
   }
 ): Promise<boolean> {
   try {
@@ -738,13 +921,21 @@ export async function deleteConversationOnServer(
 
     const pId = String(options?.postId || '').trim();
     const hId = String(options?.helperId || '').trim();
+    const mergedList = Array.from(
+      new Set(
+        (Array.isArray(options?.mergedConvIds) ? options.mergedConvIds : [])
+          .map((x) => String(x || '').trim())
+          .filter(Boolean)
+      )
+    );
 
     saveLocalUserDeletedChat(
       [
         conversationId,
         pId,
         pId && hId ? `${pId}__${hId}` : '',
-        pId && hId ? `conv_${pId}__${hId}` : ''
+        pId && hId ? `conv_${pId}__${hId}` : '',
+        ...mergedList
       ],
       Date.now()
     );
@@ -759,6 +950,7 @@ export async function deleteConversationOnServer(
     if (myPhone) qs.set('userPhone', myPhone);
     if (pId) qs.set('postId', pId);
     if (hId) qs.set('helperId', hId);
+    if (mergedList.length > 0) qs.set('mergedConvIds', mergedList.join(','));
     qs.set('_t', String(Date.now()));
 
     const res = await fetch(`/api/chat/conversations/${encodeURIComponent(conversationId)}?${qs.toString()}`, {
@@ -779,7 +971,17 @@ export async function deleteConversationOnServer(
  */
 export async function fetchChatMessages(
   conversationId: string,
-  options?: { postId?: string; helperId?: string; userId?: string; userEmail?: string }
+  options?: {
+    postId?: string;
+    helperId?: string;
+    userId?: string;
+    userEmail?: string;
+    mode?: 'person';
+    peerId?: string;
+    peerEmail?: string;
+    mergedConvIds?: string[];
+    mergedPostIds?: string[];
+  }
 ): Promise<ChatMessage[]> {
   try {
     const qs = new URLSearchParams();
@@ -788,6 +990,15 @@ export async function fetchChatMessages(
     if (options?.helperId) qs.set('helperId', options.helperId);
     if (options?.userId) qs.set('userId', options.userId);
     if (options?.userEmail) qs.set('userEmail', options.userEmail);
+    if (options?.mode === 'person') qs.set('mode', 'person');
+    if (options?.peerId) qs.set('peerId', options.peerId);
+    if (options?.peerEmail) qs.set('peerEmail', options.peerEmail);
+    if (Array.isArray(options?.mergedConvIds) && options.mergedConvIds.length > 0) {
+      qs.set('mergedConvIds', options.mergedConvIds.join(','));
+    }
+    if (Array.isArray(options?.mergedPostIds) && options.mergedPostIds.length > 0) {
+      qs.set('mergedPostIds', options.mergedPostIds.join(','));
+    }
     qs.set('_t', String(Date.now()));
 
     const res = await fetch(`/api/chat/messages?${qs.toString()}`, {

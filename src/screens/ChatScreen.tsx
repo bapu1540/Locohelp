@@ -70,7 +70,7 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
       userEmail: currentUser.email,
       userPhone
     });
-    return normalizeAndDedupeConversations(cached);
+    return normalizeAndDedupeConversations(cached, { groupByPerson: true });
   });
   const [isLoadingAllChats, setIsLoadingAllChats] = useState(false);
 
@@ -78,7 +78,8 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
     targetPostId?: string,
     targetConvId?: string,
     targetHelperId?: string,
-    markAll = false
+    markAll = false,
+    extraMergedConvIds?: string[]
   ) => {
     try {
       const activeUser = getCurrentUser();
@@ -91,6 +92,9 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
         '';
       const nowMs = Date.now();
       const postIdToUse = targetPostId || chatId || 'all';
+      const mergedIdsClean = Array.isArray(extraMergedConvIds)
+        ? extraMergedConvIds.map((id) => String(id || '').trim()).filter(Boolean)
+        : [];
 
       if (markAll) {
         const allKeys: string[] = [];
@@ -105,6 +109,12 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
             allKeys.push(`${pId}__${hId}`);
             allKeys.push(`conv_${pId}__${hId}`);
           }
+          if (Array.isArray(c.mergedConversationIds)) {
+            c.mergedConversationIds.forEach((mc: any) => {
+              const s = String(mc || '').trim();
+              if (s) allKeys.push(s);
+            });
+          }
         });
         saveLocalChatReadTimestamp(allKeys, nowMs);
         setAllUserConversations(prev => prev.map(c => ({ ...c, unreadCount: 0, unreadPosterCount: 0, unreadHelperCount: 0 })));
@@ -114,15 +124,21 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
           targetConvId,
           targetPostId,
           targetPostId && targetHelperId ? `${targetPostId}__${targetHelperId}` : '',
-          targetPostId && targetHelperId ? `conv_${targetPostId}__${targetHelperId}` : ''
+          targetPostId && targetHelperId ? `conv_${targetPostId}__${targetHelperId}` : '',
+          ...mergedIdsClean
         ];
         saveLocalChatReadTimestamp(keysToMark, nowMs);
+        const mergedIdsLower = new Set(mergedIdsClean.map((x) => x.toLowerCase()));
         const matchConv = (c: any) => {
           if (!c) return false;
           const cId = String(c.id || c.conversationId || '').trim().toLowerCase();
           const pId = String(c.postId || c.post_id || '').trim().toLowerCase();
           const hId = String(c.helperId || c.helper_id || c.senderId || '').trim().toLowerCase();
           if (targetConvId && cId === String(targetConvId).trim().toLowerCase()) return true;
+          if (mergedIdsLower.has(cId)) return true;
+          if (Array.isArray(c.mergedConversationIds) && c.mergedConversationIds.some((mc: any) => mergedIdsLower.has(String(mc || '').trim().toLowerCase()))) {
+            return true;
+          }
           if (targetPostId && pId === String(targetPostId).trim().toLowerCase()) {
             if (!targetHelperId || hId === String(targetHelperId).trim().toLowerCase()) return true;
           }
@@ -147,7 +163,8 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
           userId: myUid,
           userEmail: myEmail,
           userPhone: myPhone,
-          markAllForUser: markAll
+          markAllForUser: markAll,
+          mergedConvIds: mergedIdsClean
         })
       });
     } catch {}
@@ -169,7 +186,8 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
         userId: activeUser.uid,
         userEmail: activeUser.email,
         userPhone
-      })
+      }),
+      { groupByPerson: true }
     );
     if (cachedNow.length > 0 && allUserConversations.length === 0) {
       setAllUserConversations(cachedNow);
@@ -183,7 +201,7 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
         userEmail: activeUser.email,
         userPhone
       });
-      const finalConvs = normalizeAndDedupeConversations(list);
+      const finalConvs = normalizeAndDedupeConversations(list, { groupByPerson: true });
       setAllUserConversations(finalConvs);
       const totalUnread = finalConvs.reduce((sum: number, c: any) => sum + (Number(c?.unreadCount) || 0), 0);
       window.dispatchEvent(new CustomEvent('locohelp_chat_read_updated', { detail: { unreadCount: totalUnread } }));
@@ -326,6 +344,30 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
     return chatId;
   }, [isPostOwner, selectedReplierId, chatId, activeHelperId, (currentIntent as any)?.conversationId]);
 
+  const isPersonMergedChat = Boolean((currentIntent as any)?.isPersonMergedChat);
+  const mergedConvIdsForChat: string[] = React.useMemo(() => {
+    const arr = (currentIntent as any)?.mergedConversationIds;
+    return Array.isArray(arr) ? arr.map((x: any) => String(x || '').trim()).filter(Boolean) : [];
+  }, [currentIntent]);
+  const mergedPostIdsForChat: string[] = React.useMemo(() => {
+    const arr = (currentIntent as any)?.mergedPostIds;
+    return Array.isArray(arr) ? arr.map((x: any) => String(x || '').trim()).filter(Boolean) : [];
+  }, [currentIntent]);
+  const mergedPeerIdForChat = String((currentIntent as any)?.peerId || '').trim();
+  const mergedPeerEmailForChat = String((currentIntent as any)?.peerEmail || '').trim().toLowerCase();
+  const activeChatCacheKey = React.useMemo(() => {
+    if (isPersonMergedChat) {
+      const peerSlug = String(mergedPeerEmailForChat || mergedPeerIdForChat || activeConversationId || chatId || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_@.-]/g, '_');
+      return peerSlug ? `locohelp_person_chat_${peerSlug}` : '';
+    }
+    if (activeConversationId) return `locohelp_chat_${activeConversationId}`;
+    if (chatId) return `locohelp_chat_${chatId}`;
+    return '';
+  }, [isPersonMergedChat, mergedPeerEmailForChat, mergedPeerIdForChat, activeConversationId, chatId]);
+
   const [inboxConversations, setInboxConversations] = useState<any[]>([]);
   const [messages, setMessages] = useState<{
     id: string;
@@ -339,6 +381,9 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
     sender_email?: string;
     senderAvatar?: string;
     receiverId?: string;
+    postId?: string;
+    post_id?: string;
+    postTitle?: string;
     isCollaborator?: boolean;
     type?: 'text' | 'pin' | 'attachment' | 'task_completed' | 'phone_request' | 'phone_shared';
     attachmentUrl?: string;
@@ -501,8 +546,9 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
     setShowScrollBottomBtn(false);
     setUnreadNewScrollCount(0);
 
-    const isSamePost = Boolean(chatId && prevChatIdForMessagesRef.current === chatId);
-    prevChatIdForMessagesRef.current = chatId;
+    const currentCacheScope = activeChatCacheKey || chatId;
+    const isSameScope = Boolean(currentCacheScope && prevChatIdForMessagesRef.current === currentCacheScope);
+    prevChatIdForMessagesRef.current = currentCacheScope;
 
     // Seed from preloaded responses/repliers attached to currentIntent so replies show in 0ms
     const seededMap = new Map<string, any>();
@@ -551,10 +597,15 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
       });
     }
 
-    const candidateKeys = [
-      activeConversationId ? `locohelp_chat_${activeConversationId}` : '',
-      chatId ? `locohelp_chat_${chatId}` : ''
-    ].filter(Boolean);
+    const candidateKeys: string[] = [];
+    if (activeChatCacheKey) {
+      candidateKeys.push(activeChatCacheKey);
+    }
+    if (isPersonMergedChat && activeChatCacheKey && !localStorage.getItem(activeChatCacheKey)) {
+      mergedConvIdsForChat.forEach((mc) => {
+        if (mc) candidateKeys.push(`locohelp_chat_${mc}`);
+      });
+    }
 
     for (const k of candidateKeys) {
       try {
@@ -563,7 +614,13 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
           const parsed = JSON.parse(stored);
           if (Array.isArray(parsed) && parsed.length > 0) {
             parsed.forEach((m: any) => {
-              if (m && m.id) seededMap.set(m.id, m);
+              if (!m || !m.id) return;
+              // In single-post mode, ignore any legacy cached messages belonging to a different postId
+              if (!isPersonMergedChat && chatId) {
+                const mPost = String(m.postId || m.post_id || '').trim();
+                if (mPost && mPost !== chatId) return;
+              }
+              seededMap.set(m.id, m);
             });
           }
         }
@@ -576,7 +633,7 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
 
     if (seededList.length > 0) {
       setMessages(prev => {
-        if (!isSamePost) return seededList;
+        if (!isSameScope) return seededList;
         const merged = new Map<string, any>();
         prev.forEach(m => { if (m && m.id) merged.set(m.id, m); });
         seededList.forEach(m => { if (m && m.id) merged.set(m.id, m); });
@@ -584,10 +641,10 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
           (a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime()
         );
       });
-    } else if (!isSamePost) {
+    } else if (!isSameScope) {
       setMessages([]);
     }
-  }, [activeConversationId, chatId]);
+  }, [activeChatCacheKey, activeConversationId, chatId, isPersonMergedChat]);
 
   // Check if either user has blocked the other in this chat
   useEffect(() => {
@@ -670,14 +727,14 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
     }
   }, [messages]);
 
-  // Persist confirmed 1-on-1 conversation locally (never persist failed/unsent optimistic bubbles)
+  // Persist confirmed 1-on-1 conversation locally under its isolated cache key (never mix person-merged and single-post caches)
   useEffect(() => {
     const confirmedMsgs = messages.filter(m => m && !m.sendFailed && !m.isSending);
-    if (!activeConversationId || confirmedMsgs.length === 0) return;
+    if (!activeChatCacheKey || confirmedMsgs.length === 0) return;
     try {
-      localStorage.setItem(`locohelp_chat_${activeConversationId}`, JSON.stringify(confirmedMsgs));
+      localStorage.setItem(activeChatCacheKey, JSON.stringify(confirmedMsgs));
     } catch (e) {}
-  }, [messages, activeConversationId]);
+  }, [messages, activeChatCacheKey]);
 
   // Real-time cross-device server sync for 1-on-1 conversation & Post Owner Inbox list
   useEffect(() => {
@@ -709,7 +766,9 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
             ).trim();
             const nextText = m.text || m.content || m.message || (existing?.text || '');
             const nextRead = Boolean(m.isRead || m.is_read || existing?.isRead || existing?.is_read);
-            if (!existing || existing.text !== nextText || Boolean(existing.isRead) !== nextRead) {
+            const resolvedPostId = String(m.postId || m.post_id || m.intentId || m.intent_id || existing?.postId || '').trim();
+            const resolvedPostTitle = String(m.postTitle || existing?.postTitle || '').trim();
+            if (!existing || existing.text !== nextText || Boolean(existing.isRead) !== nextRead || existing.postTitle !== resolvedPostTitle) {
               changed = true;
             }
             map.set(m.id, {
@@ -725,6 +784,9 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
               sender_email: resolvedEmail,
               senderAvatar: resolvedAvatar,
               receiverId: m.receiverId || m.receiver_id || existing?.receiverId || undefined,
+              postId: resolvedPostId || undefined,
+              post_id: resolvedPostId || undefined,
+              postTitle: resolvedPostTitle || undefined,
               isCollaborator: Boolean(m.isCollaborator || m.is_collaborator || existing?.isCollaborator),
               isRead: nextRead,
               is_read: nextRead,
@@ -763,10 +825,11 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
         let effectiveConvId = activeConversationId;
 
         const shouldFetchInbox =
-          forceInbox ||
-          currentTick === 0 ||
-          currentTick % 3 === 0 ||
-          (isPostOwner && !selectedReplierId);
+          !isPersonMergedChat &&
+          (forceInbox ||
+            currentTick === 0 ||
+            currentTick % 3 === 0 ||
+            (isPostOwner && !selectedReplierId));
 
         const fetchInboxPromise = shouldFetchInbox
           ? (async () => {
@@ -805,7 +868,7 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
             })()
           : Promise.resolve();
 
-        // Fetch messages for this post/conversation in parallel with inbox when needed
+        // Fetch messages for this post/conversation (or full WhatsApp-style person timeline) in parallel with inbox when needed
         const initialTargetConv = effectiveConvId || chatId;
         let serverMessages: any[] = [];
         if (initialTargetConv) {
@@ -815,13 +878,22 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
               postId: chatId,
               helperId: effectiveHelperId || undefined,
               userId: myUid,
-              userEmail: myEmail
+              userEmail: myEmail,
+              ...(isPersonMergedChat
+                ? {
+                    mode: 'person' as const,
+                    peerId: mergedPeerIdForChat || (isPostOwner ? effectiveHelperId : currentIntent?.authorId || ''),
+                    peerEmail: mergedPeerEmailForChat || (isPostOwner ? selectedReplierEmail || '' : (currentIntent as any)?.authorEmail || ''),
+                    mergedConvIds: mergedConvIdsForChat,
+                    mergedPostIds: mergedPostIdsForChat
+                  }
+                : {})
             })
           ]);
           serverMessages = Array.isArray(msgs) ? msgs : [];
-          // Only Post Owner falls back to loading all replies on postId when no helperId filter matches yet;
-          // Repliers (!isPostOwner) stay strictly isolated to their own 1-on-1 conversation.
-          if (isPostOwner && serverMessages.length === 0 && chatId && effectiveHelperId) {
+          // Only Post Owner (non-merged post view) falls back to loading all replies on postId when no helperId filter matches yet;
+          // Repliers (!isPostOwner) and person-merged chats stay strictly isolated to their 1-on-1 conversation.
+          if (!isPersonMergedChat && isPostOwner && serverMessages.length === 0 && chatId && effectiveHelperId) {
             const allPostMsgs = await fetchChatMessages(chatId, {
               postId: chatId,
               userId: myUid,
@@ -836,7 +908,7 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
         }
 
         if (isMounted && Array.isArray(serverMessages) && serverMessages.length > 0) {
-          if (isPostOwner && !selectedReplierId) {
+          if (!isPersonMergedChat && isPostOwner && !selectedReplierId) {
             const firstIncoming = serverMessages.find((m: any) => !isMessageSentByUser(m, activeUser));
             if (firstIncoming) {
               const autoHelperId = String(firstIncoming.sender_id || firstIncoming.senderId || firstIncoming.authorId || '').trim();
@@ -870,7 +942,18 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
         }
         const incomingPostId = String(payload?.postId || (payload as any)?.post_id || '').trim();
         const incomingConvId = String(payload?.conversationId || (payload as any)?.conversation_id || '').trim();
+        const incomingSenderId = String(payload?.response?.senderId || payload?.response?.sender_id || payload?.response?.authorId || '').trim().toLowerCase();
+        const incomingSenderEmail = String(payload?.response?.senderEmail || payload?.response?.sender_email || '').trim().toLowerCase();
+        const matchesMergedPerson =
+          isPersonMergedChat &&
+          (
+            (incomingPostId && mergedPostIdsForChat.includes(incomingPostId)) ||
+            (incomingConvId && mergedConvIdsForChat.some((c) => c.toLowerCase() === incomingConvId.toLowerCase())) ||
+            (mergedPeerIdForChat && incomingSenderId === mergedPeerIdForChat.toLowerCase()) ||
+            (mergedPeerEmailForChat && incomingSenderEmail === mergedPeerEmailForChat)
+          );
         const matchesChat =
+          matchesMergedPerson ||
           (incomingPostId && incomingPostId === chatId) ||
           (incomingConvId && activeConversationId && incomingConvId.toLowerCase() === activeConversationId.toLowerCase());
 
@@ -880,12 +963,12 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
           if (payload?.response && payload.response.id) {
             const msgObj = payload.response;
             const msgHelperId = String(msgObj.helperId || msgObj.helper_id || payload.helperId || '').trim();
-            if (!isPostOwner || !activeHelperId || !msgHelperId || msgHelperId.toLowerCase() === activeHelperId.toLowerCase()) {
+            if (isPersonMergedChat || !isPostOwner || !activeHelperId || !msgHelperId || msgHelperId.toLowerCase() === activeHelperId.toLowerCase()) {
               mergeIncomingMessages([msgObj]);
               insertedDirectly = true;
             }
           }
-          if (isPostOwner && Array.isArray(payload?.repliers) && payload.repliers.length > 0) {
+          if (!isPersonMergedChat && isPostOwner && Array.isArray(payload?.repliers) && payload.repliers.length > 0) {
             setInboxConversations(normalizeAndDedupeConversations(payload.repliers));
           }
           if (!insertedDirectly) {
@@ -900,7 +983,7 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
       clearInterval(pollInterval);
       unsubStream();
     };
-  }, [chatId, isPostOwner, selectedReplierId, activeConversationId, activeHelperId, currentIntent]);
+  }, [chatId, isPostOwner, selectedReplierId, activeConversationId, activeHelperId, currentIntent, isPersonMergedChat, mergedPeerIdForChat, mergedPeerEmailForChat, mergedConvIdsForChat, mergedPostIdsForChat]);
 
   const handleToggleBlockPeer = async () => {
     if (isGuestUser()) {
@@ -1311,7 +1394,9 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
     setMessages(prev => {
       const updated = prev.filter(m => m.id !== msgId);
       try {
-        localStorage.setItem(`locohelp_chat_${chatId}`, JSON.stringify(updated));
+        if (activeChatCacheKey) {
+          localStorage.setItem(activeChatCacheKey, JSON.stringify(updated));
+        }
       } catch (e) {}
       return updated;
     });
@@ -1633,11 +1718,36 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
         ? String(targetItem.helperId || targetItem.helper_id || targetItem.senderId || '')
         : String(activeHelperId || selectedReplierId || '');
 
+      const targetMergedConvIds: string[] = Array.from(
+        new Set(
+          [
+            ...(Array.isArray(targetItem?.mergedConversationIds) ? targetItem.mergedConversationIds : []),
+            ...(!targetItem && Array.isArray((currentIntent as any)?.mergedConversationIds) ? (currentIntent as any).mergedConversationIds : []),
+            targetConvId
+          ]
+            .map((x: any) => String(x || '').trim())
+            .filter(Boolean)
+        )
+      );
+      const targetMergedThreads: any[] = Array.isArray(targetItem?.mergedThreads)
+        ? targetItem.mergedThreads
+        : (!targetItem && Array.isArray((currentIntent as any)?.mergedThreads) ? (currentIntent as any).mergedThreads : []);
+
       const deleteKeys = [
         targetConvId,
         targetPostId && targetHelperId ? `${targetPostId}__${targetHelperId}` : '',
         targetPostId && targetHelperId ? `conv_${targetPostId}__${targetHelperId}` : '',
-        !targetHelperId ? targetPostId : ''
+        !targetHelperId ? targetPostId : '',
+        ...targetMergedConvIds,
+        ...targetMergedThreads.flatMap((th: any) => {
+          const tp = String(th?.postId || '').trim();
+          const thId = String(th?.helperId || '').trim();
+          return [
+            String(th?.conversationId || '').trim(),
+            tp && thId ? `${tp}__${thId}` : '',
+            tp && thId ? `conv_${tp}__${thId}` : ''
+          ];
+        })
       ].filter(Boolean);
 
       saveLocalUserDeletedChat(deleteKeys, Date.now());
@@ -1648,6 +1758,27 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
       if (targetConvId) {
         localStorage.removeItem(`locohelp_chat_${targetConvId}`);
       }
+      if (activeChatCacheKey) {
+        try { localStorage.removeItem(activeChatCacheKey); } catch {}
+      }
+      const targetPeerSlugs = [
+        targetItem?.canonicalPeerEmail,
+        targetItem?.canonicalPeerId,
+        targetItem?.partnerEmail,
+        targetItem?.partnerId,
+        !targetItem ? mergedPeerEmailForChat : '',
+        !targetItem ? mergedPeerIdForChat : ''
+      ]
+        .map((v: any) => String(v || '').trim().toLowerCase().replace(/[^a-z0-9_@.-]/g, '_'))
+        .filter(Boolean);
+      targetPeerSlugs.forEach((slug) => {
+        try { localStorage.removeItem(`locohelp_person_chat_${slug}`); } catch {}
+      });
+      targetMergedConvIds.forEach((mc) => {
+        try { localStorage.removeItem(`locohelp_chat_${mc}`); } catch {}
+      });
+
+      const mergedSetLower = new Set(targetMergedConvIds.map((x) => x.toLowerCase()));
 
       // Immediately filter out of local conversation state for this user
       setAllUserConversations(prev =>
@@ -1657,6 +1788,10 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
           const pId = String(c.postId || c.post_id || '').trim().toLowerCase();
           const hId = String(c.helperId || c.helper_id || c.senderId || '').trim().toLowerCase();
           if (targetConvId && cId === targetConvId.toLowerCase()) return false;
+          if (mergedSetLower.has(cId)) return false;
+          if (Array.isArray(c.mergedConversationIds) && c.mergedConversationIds.some((mc: any) => mergedSetLower.has(String(mc || '').trim().toLowerCase()))) {
+            return false;
+          }
           if (targetPostId && pId === targetPostId.toLowerCase()) {
             if (!targetHelperId || hId === targetHelperId.toLowerCase()) return false;
           }
@@ -1670,6 +1805,7 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
           const pId = String(c.postId || c.post_id || '').trim().toLowerCase();
           const hId = String(c.helperId || c.helper_id || c.senderId || '').trim().toLowerCase();
           if (targetConvId && cId === targetConvId.toLowerCase()) return false;
+          if (mergedSetLower.has(cId)) return false;
           if (targetPostId && pId === targetPostId.toLowerCase()) {
             if (!targetHelperId || hId === targetHelperId.toLowerCase()) return false;
           }
@@ -1691,6 +1827,7 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
         if (myPhone) qs.set('userPhone', myPhone);
         if (targetPostId) qs.set('postId', targetPostId);
         if (targetHelperId) qs.set('helperId', targetHelperId);
+        if (targetMergedConvIds.length > 0) qs.set('mergedConvIds', targetMergedConvIds.join(','));
 
         await fetch(`/api/chat/conversations/${encodeURIComponent(targetConvId)}?${qs.toString()}`, {
           method: 'DELETE',
@@ -2188,7 +2325,22 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
                       const resolvedHelperId = convHelperId || (!isOwner ? (activeUser?.uid || '') : '');
                       const resolvedHelperEmail = convHelperEmail || (!isOwner ? myEmail : '');
 
-                      markConversationAsReadOnServer(targetPostId, convId, resolvedHelperId, false);
+                      const mergedConvList: string[] = Array.isArray(conv.mergedConversationIds) && conv.mergedConversationIds.length > 0
+                        ? conv.mergedConversationIds
+                        : [convId].filter(Boolean);
+                      const mergedPostList: string[] = Array.isArray(conv.mergedPostIds) && conv.mergedPostIds.length > 0
+                        ? conv.mergedPostIds
+                        : [targetPostId].filter(Boolean);
+                      const resolvedPeerId =
+                        conv.canonicalPeerId ||
+                        conv.partnerId ||
+                        (isOwner ? resolvedHelperId : resolvedAuthorId);
+                      const resolvedPeerEmail =
+                        conv.canonicalPeerEmail ||
+                        conv.partnerEmail ||
+                        (isOwner ? resolvedHelperEmail : resolvedAuthorEmail);
+
+                      markConversationAsReadOnServer(targetPostId, convId, resolvedHelperId, false, mergedConvList);
 
                       setSelectedReplierId(resolvedHelperId || null);
                       setSelectedReplierName(partnerName);
@@ -2212,8 +2364,15 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
                         selectedReplierName: partnerName,
                         selectedReplierEmail: isOwner ? resolvedHelperEmail : resolvedAuthorEmail,
                         selectedReplierAvatar: partnerAvatar,
+                        partnerAvatar,
                         conversationId: convId,
                         isViewerPostOwner: isOwner,
+                        isPersonMergedChat: true,
+                        peerId: resolvedPeerId,
+                        peerEmail: resolvedPeerEmail,
+                        mergedConversationIds: mergedConvList,
+                        mergedPostIds: mergedPostList,
+                        mergedThreads: Array.isArray(conv.mergedThreads) ? conv.mergedThreads : [],
                         distance: 0,
                         tags: ['#General'],
                         status: 'open',
@@ -2379,8 +2538,16 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
             className="flex items-center gap-2.5 cursor-pointer group min-w-0 flex-1"
           >
             <div className="relative shrink-0">
-              <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-indigo-600 to-purple-600 text-white font-black text-xs flex items-center justify-center shadow-xs">
-                {peerName[0]?.toUpperCase() || 'U'}
+              <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-emerald-600 to-teal-500 text-white font-black text-xs flex items-center justify-center shadow-xs overflow-hidden">
+                {((currentIntent as any)?.partnerAvatar || selectedReplierAvatar) ? (
+                  <img
+                    src={(currentIntent as any)?.partnerAvatar || selectedReplierAvatar || ''}
+                    alt={peerName}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  peerName[0]?.toUpperCase() || 'U'
+                )}
               </div>
               {unreadNewScrollCount > 0 && (
                 <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 border-2 border-white dark:border-slate-800 rounded-full"></span>
@@ -2447,7 +2614,7 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
             </button>
           )}
 
-          {isPostOwner && distinctRepliers.length > 1 && selectedReplierId && (
+          {!isPersonMergedChat && isPostOwner && distinctRepliers.length > 1 && selectedReplierId && (
             <button
               type="button"
               onClick={() => setSelectedReplierId(null)}
@@ -2642,7 +2809,7 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
       </AnimatePresence>
 
       {/* If Post Owner has multiple responders, show a 1-tap responder switcher strip */}
-      {isPostOwner && distinctRepliers.length > 0 && (
+      {!isPersonMergedChat && isPostOwner && distinctRepliers.length > 0 && (
         <div className="px-3 py-1.5 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center gap-1.5 overflow-x-auto scrollbar-hide">
           <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 shrink-0">
             {tr('Replies:', 'जवाब:', 'જવાબ:')}
@@ -2737,7 +2904,7 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
             </div>
           </div>
         )}
-        {isPostOwner && distinctRepliers.length > 0 && (
+        {!isPersonMergedChat && isPostOwner && distinctRepliers.length > 0 && (
           <div className="max-w-md mx-auto mb-3 p-3 rounded-2xl bg-emerald-50/90 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 space-y-2">
             <div className="flex items-center justify-between gap-2">
               <p className="text-[11px] font-black text-emerald-900 dark:text-emerald-200">
@@ -2881,10 +3048,35 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
             </div>
           ) : null;
 
+          // Inline Post / Item / Service Context Tag whenever the topic changes inside a WhatsApp-style person chat
+          const currMsgPostId = String(msg.postId || msg.post_id || '').trim();
+          const prevMsgPostId = idx > 0 ? String(visibleMessages[idx - 1]?.postId || visibleMessages[idx - 1]?.post_id || '').trim() : '';
+          const currMsgPostTitle = String(msg.postTitle || '').trim();
+          const shouldShowPostContextTag = Boolean(
+            isPersonMergedChat &&
+            currMsgPostId &&
+            currMsgPostId !== 'general' &&
+            currMsgPostId !== prevMsgPostId &&
+            currMsgPostTitle
+          );
+          const contextPrefix = currMsgPostId.startsWith('used_item_chat_')
+            ? tr('🛍️ Item:', '🛍️ वस्तु:', '🛍️ વસ્તુ:')
+            : currMsgPostId.startsWith('provider_chat_')
+            ? tr('🔧 Service:', '🔧 सर्विस:', '🔧 સર્વિસ:')
+            : tr('📌 Post:', '📌 पोस्ट:', '📌 પોસ્ટ:');
+          const postContextDividerNode = shouldShowPostContextTag ? (
+            <div className="w-full flex justify-center my-2 select-none px-2">
+              <span className="max-w-[90%] px-3 py-1 rounded-xl bg-indigo-50/95 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 text-[10px] font-extrabold shadow-2xs border border-indigo-200/80 dark:border-indigo-800/80 text-center line-clamp-2">
+                {contextPrefix} {currMsgPostTitle}
+              </span>
+            </div>
+          ) : null;
+
           if (isSystem) {
             return (
               <React.Fragment key={msg.id}>
                 {dateHeaderNode}
+                {postContextDividerNode}
                 <div className="my-2 p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-center text-xs font-bold text-emerald-800 dark:text-emerald-300 shadow-xs flex items-center justify-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                   <span>{msg.text}</span>
@@ -2900,6 +3092,7 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
             return (
               <React.Fragment key={msg.id}>
                 {dateHeaderNode}
+                {postContextDividerNode}
                 <div className={`w-full flex ${isMe ? 'justify-end' : 'justify-start'}`}>
                   <div 
                     className={`max-w-[82%] p-3.5 rounded-2xl flex flex-col gap-2 text-xs font-bold shadow-xs ${
@@ -2947,6 +3140,7 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
             return (
               <React.Fragment key={msg.id}>
                 {dateHeaderNode}
+                {postContextDividerNode}
                 <div className={`w-full flex ${isMe ? 'justify-end' : 'justify-start'} my-1`}>
                   {isMe ? (
                     <div className="max-w-[85%] p-3.5 rounded-2xl bg-sky-600 text-white ml-auto rounded-tr-xs shadow-md space-y-1.5">
@@ -3033,6 +3227,7 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
             return (
               <React.Fragment key={msg.id}>
                 {dateHeaderNode}
+                {postContextDividerNode}
                 <div className="w-full flex justify-center my-2">
                   <div className="w-full max-w-[88%] p-3.5 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-700 text-white shadow-md flex flex-col gap-2 border border-emerald-400/40">
                     <div className="flex items-center justify-between gap-2 border-b border-white/20 pb-1.5">
@@ -3089,6 +3284,7 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
           return (
             <React.Fragment key={msg.id}>
               {dateHeaderNode}
+              {postContextDividerNode}
               <div className={`w-full flex ${isMe ? 'justify-end' : 'justify-start'}`}>
                 <motion.div 
                   initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}

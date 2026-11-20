@@ -21,7 +21,8 @@ import {
   Tag,
   Clock,
   CheckCircle2,
-  XCircle
+  XCircle,
+  ArrowLeft
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useLanguage } from '../i18n';
@@ -80,6 +81,7 @@ export default function FixedBottomNavBar({
   const [postsSearchQuery, setPostsSearchQuery] = useState('');
   const [postsScope, setPostsScope] = useState<'all' | 'local'>('all');
   const [isLoadingLivePosts, setIsLoadingLivePosts] = useState(false);
+  const hasLoadedLivePostsOnceRef = React.useRef(false);
   const [bookingsSubTab, setBookingsSubTab] = useState<'live_posts' | 'requests' | 'contacted' | 'replies' | 'my_used_items'>('live_posts');
   const [myBookingsList, setMyBookingsList] = useState<Intent[]>([]);
   const [contactedProvidersList, setContactedProvidersList] = useState<any[]>([]);
@@ -235,33 +237,41 @@ export default function FixedBottomNavBar({
       }
     } catch {}
 
-    // 2. Classify conversations into Contacted Service Providers vs Community Replies
-    (Array.isArray(convs) ? convs : []).forEach((c: any) => {
-      if (!c) return;
-      const postIdStr = String(c.postId || c.post_id || '');
+    // 2. Classify conversations (including sub-threads inside WhatsApp-style merged person chats) into Contacted Service Providers vs Community Replies
+    const classifySingleThread = (t: any, parentConv: any) => {
+      if (!t) return;
+      const postIdStr = String(t.postId || t.post_id || '').trim();
       if (!postIdStr) return;
 
-      const convIdStr = String(c.id || '');
-      const partnerIdStr = String(c.partnerId || '').trim().toLowerCase();
+      const convIdStr = String(t.conversationId || t.id || '').trim();
+      const parentConvIdStr = String(parentConv?.id || '').trim();
+      const partnerIdStr = String(parentConv?.partnerId || t.partnerId || '').trim().toLowerCase();
       const compoundKey = postIdStr && partnerIdStr ? `${postIdStr}::${partnerIdStr}` : '';
       const deletedAt = Math.max(
-        Number(deletedMap[convIdStr] || 0),
+        convIdStr ? Number(deletedMap[convIdStr] || 0) : 0,
+        parentConvIdStr && (!Array.isArray(parentConv?.mergedThreads) || parentConv.mergedThreads.length <= 1)
+          ? Number(deletedMap[parentConvIdStr] || 0)
+          : 0,
         Number(deletedMap[postIdStr] || 0),
         compoundKey ? Number(deletedMap[compoundKey] || 0) : 0
       );
-      const lastMsgTime = new Date(c.lastMessageAt || c.updatedAt || c.createdAt || 0).getTime() || 0;
+      const lastMsgTime = new Date(t.lastMessageAt || t.updatedAt || t.createdAt || parentConv?.lastMessageAt || 0).getTime() || 0;
+      const effectiveIsViewerPoster =
+        typeof t.isViewerPoster === 'boolean'
+          ? t.isViewerPoster
+          : Boolean(parentConv?.isViewerPoster && postIdStr === String(parentConv?.postId || parentConv?.post_id || ''));
 
       if (postIdStr.startsWith('provider_chat_')) {
         const provId = postIdStr.replace(/^provider_chat_/i, '').trim();
         const provIdLower = provId.toLowerCase();
-        const posterIdLower = String(c.posterId || c.poster_id || '').trim().toLowerCase();
-        const posterEmailLower = String(c.posterEmail || c.poster_email || '').trim().toLowerCase();
-        const helperIdLower = String(c.helperId || c.helper_id || c.senderId || '').trim().toLowerCase();
-        const posterNameLower = String(c.posterName || '').trim().toLowerCase();
+        const posterIdLower = String(t.posterId || t.poster_id || (postIdStr === parentConv?.postId ? parentConv?.posterId : '') || '').trim().toLowerCase();
+        const posterEmailLower = String(t.posterEmail || t.poster_email || (postIdStr === parentConv?.postId ? parentConv?.posterEmail : '') || '').trim().toLowerCase();
+        const helperIdLower = String(t.helperId || t.helper_id || t.senderId || '').trim().toLowerCase();
+        const posterNameLower = String(t.posterName || (postIdStr === parentConv?.postId ? parentConv?.posterName : '') || '').trim().toLowerCase();
         const provPhoneTen = provId.replace(/\D/g, '').slice(-10);
 
         const isMeProvider = Boolean(
-          c.isViewerPoster === true ||
+          effectiveIsViewerPoster === true ||
           myIdentitySet.has(provIdLower) ||
           myIdentitySet.has(postIdStr.toLowerCase()) ||
           (posterIdLower && myIdentitySet.has(posterIdLower)) ||
@@ -282,35 +292,104 @@ export default function FixedBottomNavBar({
           contactedMap.delete(postIdStr);
           return;
         }
-        contactedMap.set(provId || postIdStr, {
-          id: postIdStr,
-          providerId: provId,
-          name: c.posterName && c.posterName !== 'Post Owner' ? c.posterName : (c.partnerName || c.postTitle || 'Service Provider'),
-          category: c.category || 'Service Expert',
-          location: c.location || 'Local Area',
-          lastMessage: c.lastMessage || c.last_message || 'વાતચીત ચાલુ છે',
-          updatedAt: c.lastMessageAt || c.updatedAt || new Date().toISOString(),
-          rawConv: c
-        });
-      } else if (!myPostIdsSet.has(postIdStr) && !c.isViewerPoster) {
+        const mapKey = provId || postIdStr;
+        const prevEntry = contactedMap.get(mapKey);
+        const prevTime = prevEntry ? new Date(prevEntry.updatedAt || 0).getTime() || 0 : -1;
+        if (!prevEntry || lastMsgTime >= prevTime) {
+          const resolvedName =
+            (t.posterName && t.posterName !== 'Post Owner' ? t.posterName : '') ||
+            (parentConv?.partnerName && parentConv.partnerName !== 'Post Owner' ? parentConv.partnerName : '') ||
+            (t.postTitle || parentConv?.postTitle || 'Service Provider');
+          contactedMap.set(mapKey, {
+            id: postIdStr,
+            providerId: provId,
+            name: resolvedName,
+            category: t.category || parentConv?.category || 'Service Expert',
+            location: t.location || parentConv?.location || 'Local Area',
+            lastMessage: t.lastMessage || t.last_message || parentConv?.lastMessage || 'વાતચીત ચાલુ છે',
+            updatedAt: t.lastMessageAt || t.updatedAt || parentConv?.lastMessageAt || new Date().toISOString(),
+            rawConv: {
+              ...parentConv,
+              id: convIdStr || parentConv?.id,
+              postId: postIdStr,
+              posterId: t.posterId || provId || parentConv?.posterId,
+              posterName: resolvedName,
+              category: t.category || parentConv?.category || 'Service Expert',
+              location: t.location || parentConv?.location || 'Local Area'
+            }
+          });
+        }
+      } else if (!myPostIdsSet.has(postIdStr) && !effectiveIsViewerPoster) {
+        // Also guard against own post if t.posterId/posterEmail matches current user
+        const tPosterIdLower = String(t.posterId || t.poster_id || '').trim().toLowerCase();
+        const tPosterEmailLower = String(t.posterEmail || t.poster_email || '').trim().toLowerCase();
+        if (
+          (tPosterIdLower && myIdentitySet.has(tPosterIdLower)) ||
+          (tPosterEmailLower && myIdentitySet.has(tPosterEmailLower))
+        ) {
+          return;
+        }
         if (deletedAt > 0 && (lastMsgTime <= 0 || lastMsgTime <= deletedAt)) {
           return;
         }
-        // I replied to someone else's post
-        repliesMap.set(postIdStr, {
-          id: postIdStr,
-          title: c.postTitle || c.postDescription || c.lastMessage || 'Community Request',
-          posterName: c.posterName || c.partnerName || 'Community Member',
-          location: c.location || 'Local Area',
-          lastMessage: c.lastMessage || c.last_message || '',
-          updatedAt: c.lastMessageAt || c.updatedAt || new Date().toISOString(),
-          rawConv: c
+        const prevEntry = repliesMap.get(postIdStr);
+        const prevTime = prevEntry ? new Date(prevEntry.updatedAt || 0).getTime() || 0 : -1;
+        if (!prevEntry || lastMsgTime >= prevTime) {
+          const resolvedPosterName =
+            (t.posterName && t.posterName !== 'Post Owner' ? t.posterName : '') ||
+            parentConv?.partnerName ||
+            parentConv?.posterName ||
+            'Community Member';
+          repliesMap.set(postIdStr, {
+            id: postIdStr,
+            title: t.postTitle || t.postDescription || t.lastMessage || parentConv?.postTitle || 'Community Request',
+            posterName: resolvedPosterName,
+            location: t.location || parentConv?.location || 'Local Area',
+            lastMessage: t.lastMessage || t.last_message || parentConv?.lastMessage || '',
+            updatedAt: t.lastMessageAt || t.updatedAt || parentConv?.lastMessageAt || new Date().toISOString(),
+            rawConv: {
+              ...parentConv,
+              id: convIdStr || parentConv?.id,
+              postId: postIdStr,
+              posterId: t.posterId || parentConv?.posterId || parentConv?.partnerId || '',
+              posterName: resolvedPosterName,
+              category: t.category || parentConv?.category || 'Community',
+              location: t.location || parentConv?.location || 'Local Area'
+            }
+          });
+        }
+      }
+    };
+
+    (Array.isArray(convs) ? convs : []).forEach((c: any) => {
+      if (!c) return;
+      const subThreads: any[] = Array.isArray(c.mergedThreads) && c.mergedThreads.length > 0 ? c.mergedThreads : [];
+      if (subThreads.length > 0) {
+        const coveredPostIds = new Set<string>();
+        subThreads.forEach((th: any) => {
+          const pId = String(th?.postId || th?.post_id || '').trim();
+          if (pId) coveredPostIds.add(pId);
+          classifySingleThread(th, c);
         });
+        const topPostId = String(c.postId || c.post_id || '').trim();
+        if (topPostId && !coveredPostIds.has(topPostId)) {
+          classifySingleThread(c, c);
+        }
+      } else {
+        classifySingleThread(c, c);
       }
     });
 
-    setContactedProvidersList(Array.from(contactedMap.values()));
-    setMyRepliedChatsList(Array.from(repliesMap.values()));
+    setContactedProvidersList(
+      Array.from(contactedMap.values()).sort(
+        (a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime()
+      )
+    );
+    setMyRepliedChatsList(
+      Array.from(repliesMap.values()).sort(
+        (a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime()
+      )
+    );
   };
 
   useEffect(() => {
@@ -443,9 +522,10 @@ export default function FixedBottomNavBar({
 
   useEffect(() => {
     let active = true;
-    const syncLivePosts = async () => {
+    const syncLivePosts = async (showInitialSpinner = false) => {
       const cached = getCachedLiveIntents();
       if (active && cached.length > 0) {
+        hasLoadedLivePostsOnceRef.current = true;
         setAllLivePostsList(prev => {
           const map = new Map<string, Intent>();
           cached.forEach(item => { if (item?.id) map.set(item.id, item); });
@@ -460,15 +540,17 @@ export default function FixedBottomNavBar({
           return Array.from(map.values()).sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
         });
       }
-      if (activeBottomModal === 'posts' && cached.length === 0) {
+      if (showInitialSpinner && !hasLoadedLivePostsOnceRef.current && cached.length === 0) {
         setIsLoadingLivePosts(true);
       }
       try {
         const fresh = await fetchLiveIntents();
         if (active && Array.isArray(fresh)) {
+          hasLoadedLivePostsOnceRef.current = true;
           setAllLivePostsList(fresh);
         }
       } catch {} finally {
+        hasLoadedLivePostsOnceRef.current = true;
         if (active) setIsLoadingLivePosts(false);
       }
     };
@@ -479,22 +561,25 @@ export default function FixedBottomNavBar({
       } else if (detail && detail.id) {
         setAllLivePostsList(prev => [detail, ...prev.filter(item => item.id !== detail.id)]);
       }
-      syncLivePosts();
+      syncLivePosts(false);
     };
-    syncLivePosts();
-    // Refresh live posts & replies frequently when modal is open
+    const handleSilentSync = () => {
+      syncLivePosts(false);
+    };
+    syncLivePosts(activeBottomModal === 'posts' || activeBottomModal === 'bookings');
+    // Silent background fallback refresh (real-time SSE handles 0ms instant post updates)
     const timer = setInterval(() => {
-      syncLivePosts();
-    }, activeBottomModal === 'posts' || activeBottomModal === 'bookings' ? 4000 : 12000);
+      syncLivePosts(false);
+    }, activeBottomModal === 'posts' || activeBottomModal === 'bookings' ? 10000 : 15000);
     window.addEventListener('locohelp_intents_updated', handleIntentsUpdatedEvent);
-    window.addEventListener('locohelp_realtime_new_response', syncLivePosts);
+    window.addEventListener('locohelp_realtime_new_response', handleSilentSync);
     const unsubStream = subscribeToRealtimeStream({
       onNewPost: (payload) => {
         const newPost = payload?.post || payload?.intent;
         if (newPost && newPost.id && active) {
           setAllLivePostsList(prev => [newPost, ...prev.filter(item => item.id !== newPost.id)]);
         }
-        syncLivePosts();
+        syncLivePosts(false);
       },
       onPostDeleted: (payload) => {
         const deletedId = String(payload?.postId || payload?.id || '').trim();
@@ -504,7 +589,7 @@ export default function FixedBottomNavBar({
         }
       },
       onNewResponse: () => {
-        syncLivePosts();
+        syncLivePosts(false);
       }
     });
     return () => {
@@ -512,7 +597,7 @@ export default function FixedBottomNavBar({
       clearInterval(timer);
       unsubStream();
       window.removeEventListener('locohelp_intents_updated', handleIntentsUpdatedEvent);
-      window.removeEventListener('locohelp_realtime_new_response', syncLivePosts);
+      window.removeEventListener('locohelp_realtime_new_response', handleSilentSync);
     };
   }, [activeBottomModal]);
 
@@ -700,65 +785,66 @@ export default function FixedBottomNavBar({
       {/* ===================================================================== */}
       <AnimatePresence>
         {(activeBottomModal === 'posts' || activeBottomModal === 'bookings') && (
-          <div
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.14 }}
             style={{
               position: 'fixed',
-              inset: 0,
-              zIndex: 9500,
-              backgroundColor: 'rgba(15, 23, 42, 0.68)',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              zIndex: 41,
+              backgroundColor: '#F8FAFC',
               display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: '14px'
+              flexDirection: 'column',
+              overflow: 'hidden'
             }}
           >
+            {/* Full-Page Top Header */}
             <div
-              style={{ position: 'fixed', inset: 0 }}
-              onClick={() => setActiveBottomModal(null)}
-            />
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 20 }}
-              transition={{ duration: 0.18 }}
               style={{
-                position: 'relative',
-                zIndex: 10,
-                width: '100%',
-                maxWidth: '520px',
-                maxHeight: '86vh',
-                backgroundColor: '#ffffff',
-                borderRadius: '24px',
-                border: '1px solid #e2e8f0',
-                display: 'flex',
-                flexDirection: 'column',
-                overflow: 'hidden',
-                boxShadow: '0 25px 50px -12px rgba(0,0,0,0.3)'
+                background: 'linear-gradient(135deg, #EA580C 0%, #2563EB 100%)',
+                color: '#ffffff',
+                paddingTop: 'calc(10px + env(safe-area-inset-top, 0px))',
+                paddingBottom: '12px',
+                paddingLeft: '14px',
+                paddingRight: '14px',
+                boxShadow: '0 4px 12px rgba(15, 23, 42, 0.12)',
+                flexShrink: 0
               }}
             >
-              {/* Header */}
               <div
                 style={{
-                  background: 'linear-gradient(135deg, #EA580C 0%, #2563EB 100%)',
-                  color: '#ffffff',
-                  padding: '13px 15px',
+                  maxWidth: '896px',
+                  margin: '0 auto',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between',
                   gap: '8px'
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-                  <span style={{ fontSize: '18px' }}>📢</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                  <button
+                    type="button"
+                    aria-label="Back"
+                    onClick={() => setActiveBottomModal(null)}
+                    className="p-2 rounded-xl bg-white/15 hover:bg-white/25 text-white cursor-pointer shrink-0 transition-colors"
+                  >
+                    <ArrowLeft className="w-4 h-4" />
+                  </button>
                   <div style={{ minWidth: 0 }}>
                     <h3 className="text-sm sm:text-base font-black leading-tight m-0 truncate">
+                      📢{' '}
                       {language === 'GU'
                         ? 'પોસ્ટ અને મારી બુકિંગ'
                         : language === 'HI'
                         ? 'पोस्ट और मेरी बुकिंग'
                         : 'Posts & My Bookings'}
                     </h3>
-                    <p className="text-[10px] text-orange-100 font-medium m-0 truncate">
+                    <p className="text-[11px] text-orange-100 font-medium m-0 truncate">
                       {language === 'GU'
                         ? 'લાઈવ પોસ્ટ્સ, જવાબો, કારીગરો અને વેચાણ વસ્તુઓ'
                         : language === 'HI'
@@ -775,30 +861,38 @@ export default function FixedBottomNavBar({
                     style={{
                       backgroundColor: '#ffffff',
                       color: '#C2410C',
-                      padding: '6px 10px',
+                      padding: '7px 11px',
                       borderRadius: '10px',
-                      fontSize: '11px',
+                      fontSize: '11.5px',
                       fontWeight: 900,
                       border: 'none',
                       cursor: 'pointer',
                       display: 'inline-flex',
                       alignItems: 'center',
-                      gap: '4px'
+                      gap: '4px',
+                      boxShadow: '0 2px 6px rgba(0,0,0,0.12)'
                     }}
                   >
                     <Plus className="w-3.5 h-3.5" />
                     <span>{language === 'GU' ? 'પોસ્ટ કરો' : language === 'HI' ? 'पोस्ट करें' : 'Post'}</span>
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveBottomModal(null)}
-                    className="p-1.5 rounded-full bg-white/15 hover:bg-white/25 text-white cursor-pointer"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
                 </div>
               </div>
+            </div>
 
+            {/* Full-Page Body Container */}
+            <div
+              style={{
+                width: '100%',
+                maxWidth: '896px',
+                margin: '0 auto',
+                display: 'flex',
+                flexDirection: 'column',
+                flex: 1,
+                minHeight: 0,
+                backgroundColor: '#ffffff'
+              }}
+            >
               {/* 2x2 Spacious Non-Truncating 4-Section Selector */}
               <div className="grid grid-cols-2 gap-1.5 px-3 pt-2.5 pb-2.5 bg-slate-100 border-b border-slate-200">
                 <button
@@ -988,7 +1082,10 @@ export default function FixedBottomNavBar({
               )}
 
               {/* Scrollable Content Area */}
-              <div className="p-3.5 overflow-y-auto flex-1 space-y-2.5">
+              <div
+                className="p-3.5 overflow-y-auto flex-1 space-y-2.5"
+                style={{ paddingBottom: 'calc(84px + env(safe-area-inset-bottom, 0px))' }}
+              >
                 {bookingsSubTab === 'live_posts' ? (
                   isLoadingLivePosts ? (
                     <div className="py-10 text-center text-xs font-bold text-slate-500">
@@ -1739,72 +1836,78 @@ export default function FixedBottomNavBar({
                   </div>
                 )}
               </div>
-            </motion.div>
-          </div>
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
 
       {/* ===================================================================== */}
-      {/* FAVORITES MODAL (પસંદીદા)                                              */}
+      {/* FAVORITES FULL-SCREEN PAGE (પસંદીદા)                                   */}
       {/* ===================================================================== */}
       <AnimatePresence>
         {activeBottomModal === 'favorites' && (
-          <div
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.14 }}
             style={{
               position: 'fixed',
-              inset: 0,
-              zIndex: 9500,
-              backgroundColor: 'rgba(15, 23, 42, 0.65)',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              zIndex: 41,
+              backgroundColor: '#F8FAFC',
               display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: '16px'
+              flexDirection: 'column',
+              overflow: 'hidden'
             }}
           >
+            {/* Full-Page Top Header */}
             <div
-              style={{ position: 'fixed', inset: 0 }}
-              onClick={() => setActiveBottomModal(null)}
-            />
-            <motion.div
-              initial={{ opacity: 0, y: 30 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 30 }}
               style={{
-                position: 'relative',
-                zIndex: 10,
-                width: '100%',
-                maxWidth: '480px',
-                maxHeight: '80vh',
-                backgroundColor: '#ffffff',
-                borderRadius: '24px',
-                border: '1px solid #e2e8f0',
-                display: 'flex',
-                flexDirection: 'column',
-                overflow: 'hidden',
-                boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)'
+                background: 'linear-gradient(135deg, #F43F5E 0%, #DB2777 100%)',
+                color: '#ffffff',
+                paddingTop: 'calc(10px + env(safe-area-inset-top, 0px))',
+                paddingBottom: '12px',
+                paddingLeft: '14px',
+                paddingRight: '14px',
+                boxShadow: '0 4px 12px rgba(15, 23, 42, 0.12)',
+                flexShrink: 0
               }}
             >
               <div
                 style={{
-                  background: 'linear-gradient(135deg, #F43F5E 0%, #DB2777 100%)',
-                  color: '#ffffff',
-                  padding: '14px 16px',
+                  maxWidth: '896px',
+                  margin: '0 auto',
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'space-between'
+                  justifyContent: 'space-between',
+                  gap: '10px'
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <Heart className="w-5 h-5 fill-white" />
-                  <div>
-                    <h3 className="text-sm sm:text-base font-black leading-tight m-0">
-                      {language === 'GU'
-                        ? 'પસંદીદા સેવા પ્રદાતાઓ (Favorites)'
-                        : language === 'HI'
-                        ? 'पसंदीदा सेवा प्रदाता (Favorites)'
-                        : 'Favorite Service Providers'}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                  <button
+                    type="button"
+                    aria-label="Back"
+                    onClick={() => setActiveBottomModal(null)}
+                    className="p-2 rounded-xl bg-white/15 hover:bg-white/25 text-white cursor-pointer shrink-0 transition-colors"
+                  >
+                    <ArrowLeft className="w-4 h-4" />
+                  </button>
+                  <div style={{ minWidth: 0 }}>
+                    <h3 className="text-sm sm:text-base font-black leading-tight m-0 flex items-center gap-1.5 truncate">
+                      <Heart className="w-4 h-4 fill-white shrink-0" />
+                      <span className="truncate">
+                        {language === 'GU'
+                          ? 'પસંદીદા સેવા પ્રદાતાઓ'
+                          : language === 'HI'
+                          ? 'पसंदीदा सेवा प्रदाता'
+                          : 'Favorite Service Providers'}
+                      </span>
                     </h3>
-                    <p className="text-[10px] text-rose-100 font-medium m-0">
+                    <p className="text-[11px] text-rose-100 font-medium m-0 truncate">
                       {language === 'GU'
                         ? 'તમે પસંદ કરેલા કારીગરો અને સર્વિસ એક્સપર્ટ્સ'
                         : language === 'HI'
@@ -1813,16 +1916,26 @@ export default function FixedBottomNavBar({
                     </p>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setActiveBottomModal(null)}
-                  className="p-1.5 rounded-full bg-white/15 hover:bg-white/25 text-white cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
               </div>
+            </div>
 
-              <div className="p-4 overflow-y-auto flex-1 space-y-3">
+            {/* Full-Page Body Container */}
+            <div
+              style={{
+                width: '100%',
+                maxWidth: '896px',
+                margin: '0 auto',
+                display: 'flex',
+                flexDirection: 'column',
+                flex: 1,
+                minHeight: 0,
+                backgroundColor: '#ffffff'
+              }}
+            >
+              <div
+                className="p-4 overflow-y-auto flex-1 space-y-3"
+                style={{ paddingBottom: 'calc(84px + env(safe-area-inset-bottom, 0px))' }}
+              >
                 {favoriteProviders.length === 0 ? (
                   <div className="py-8 px-4 text-center space-y-3 bg-slate-50 rounded-2xl border border-dashed border-slate-300">
                     <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-500 mx-auto flex items-center justify-center text-2xl">
@@ -1936,8 +2049,8 @@ export default function FixedBottomNavBar({
                   </div>
                 )}
               </div>
-            </motion.div>
-          </div>
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
 
@@ -2223,7 +2336,7 @@ export default function FixedBottomNavBar({
           left: 0,
           right: 0,
           width: '100%',
-          zIndex: 40,
+          zIndex: 42,
           background: 'linear-gradient(90deg, #EFF6FF 0%, #FFF7ED 25%, #FFF1F2 50%, #ECFDF5 75%, #F5F3FF 100%)',
           borderTop: '2px solid #93C5FD',
           boxShadow: '0 -6px 22px rgba(15, 23, 42, 0.14)',
@@ -2307,7 +2420,7 @@ export default function FixedBottomNavBar({
             type="button"
             onClick={() => {
               setIsMoreMenuOpen(false);
-              setActiveBottomModal(prev => (prev === 'posts' || prev === 'bookings' ? null : 'posts'));
+              setActiveBottomModal('posts');
             }}
             style={{
               position: 'relative',
@@ -2394,7 +2507,7 @@ export default function FixedBottomNavBar({
             type="button"
             onClick={() => {
               setIsMoreMenuOpen(false);
-              setActiveBottomModal(prev => (prev === 'favorites' ? null : 'favorites'));
+              setActiveBottomModal('favorites');
             }}
             style={{
               display: 'flex',
