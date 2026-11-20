@@ -2625,5 +2625,164 @@ export async function updateAdStatusOnServer(
   }
 }
 
+// ==========================================
+// USED ITEMS BUY & SELL MARKETPLACE API
+// ==========================================
+
+export type UsedItemSubCategory =
+  | 'used_vehicles'
+  | 'used_mobiles_electronics'
+  | 'used_furniture_home'
+  | 'used_other_items';
+
+export type UsedItemCondition = 'like_new' | 'good' | 'used';
+export type UsedItemStatus = 'pending' | 'approved' | 'rejected' | 'sold';
+
+export interface UsedItemListing {
+  id: string;
+  userId?: string;
+  sellerName: string;
+  phone?: string;
+  email?: string;
+  isPhonePublic?: boolean;
+  subCategory: UsedItemSubCategory;
+  title: string;
+  price: number;
+  negotiable?: boolean;
+  condition: UsedItemCondition;
+  description?: string;
+  area: string;
+  city?: string;
+  photos: string[];
+  status: UsedItemStatus;
+  wasApproved?: boolean;
+  createdAt: string;
+  updatedAt?: string;
+  expiresAt?: string;
+  reviewedAt?: string | null;
+  adminNotes?: string;
+}
+
+export interface CreateUsedItemPayload {
+  subCategory: UsedItemSubCategory;
+  title: string;
+  price: number;
+  negotiable?: boolean;
+  condition: UsedItemCondition;
+  description?: string;
+  area: string;
+  city?: string;
+  photos: string[];
+  sellerName?: string;
+  phone?: string;
+  email?: string;
+  isPhonePublic?: boolean;
+  autoApprove?: boolean;
+}
+
+export async function fetchUsedItems(params?: {
+  status?: UsedItemStatus | 'all';
+  subCategory?: UsedItemSubCategory | 'all';
+  search?: string;
+  mine?: boolean;
+  all?: boolean;
+}): Promise<UsedItemListing[]> {
+  try {
+    const query = new URLSearchParams();
+    if (params?.status) query.set('status', params.status);
+    if (params?.subCategory && params.subCategory !== 'all') query.set('subCategory', params.subCategory);
+    if (params?.search && params.search.trim()) query.set('search', params.search.trim());
+    if (params?.mine) query.set('mine', 'true');
+    if (params?.all) query.set('all', 'true');
+    query.set('_t', String(Date.now()));
+
+    const res = await fetch(`/api/used-items?${query.toString()}`, {
+      cache: 'no-store',
+      headers: getAuthHeaders()
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data)) return data as UsedItemListing[];
+    }
+  } catch {}
+  return [];
+}
+
+export async function createUsedItemListing(
+  payload: CreateUsedItemPayload
+): Promise<{ success: boolean; item?: UsedItemListing; message?: string; error?: string }> {
+  try {
+    const res = await fetch('/api/used-items', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders()
+      },
+      body: JSON.stringify({
+        ...payload,
+        title: sanitizeText(payload.title || ''),
+        description: sanitizeText(payload.description || ''),
+        area: sanitizeText(payload.area || ''),
+        city: payload.city ? sanitizeText(payload.city) : undefined,
+        sellerName: payload.sellerName ? sanitizeText(payload.sellerName) : undefined
+      })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.success) {
+      return { success: true, item: data.item, message: data.message };
+    }
+    return { success: false, error: data.error || 'વસ્તુ સબમિટ કરવામાં મુશ્કેલી આવી.' };
+  } catch (e: any) {
+    return { success: false, error: e?.message || 'Network error while creating listing' };
+  }
+}
+
+export async function updateUsedItemStatus(
+  id: string,
+  status: UsedItemStatus,
+  adminNotes?: string,
+  asAdmin = false
+): Promise<{ success: boolean; item?: UsedItemListing; error?: string }> {
+  try {
+    const endpoint = asAdmin
+      ? `/api/admin/used-items/${encodeURIComponent(id)}`
+      : `/api/used-items/${encodeURIComponent(id)}/status`;
+    const res = await fetch(endpoint, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders()
+      },
+      body: JSON.stringify({
+        status,
+        adminNotes: typeof adminNotes === 'string' ? sanitizeText(adminNotes) : undefined
+      })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.success) {
+      return { success: true, item: data.item };
+    }
+    return { success: false, error: data.error || 'Failed to update status' };
+  } catch (e: any) {
+    return { success: false, error: e?.message || 'Network error updating status' };
+  }
+}
+
+export async function deleteUsedItemListing(id: string, asAdmin = false): Promise<boolean> {
+  try {
+    const endpoint = asAdmin
+      ? `/api/admin/used-items/${encodeURIComponent(id)}`
+      : `/api/used-items/${encodeURIComponent(id)}`;
+    const res = await fetch(endpoint, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+
 
 

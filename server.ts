@@ -61,6 +61,7 @@ const AUDIT_FILE = path.join(DATA_DIR, "audit_logs.json");
 const REPORTS_FILE = path.join(DATA_DIR, "reports.json");
 const ADS_FILE = path.join(DATA_DIR, "ads.json");
 const JOB_PORTAL_FILE = path.join(DATA_DIR, "job_portal.json");
+const USED_ITEMS_FILE = path.join(DATA_DIR, "used_items.json");
 const PROFILES_FILE = path.join(DATA_DIR, "profiles.json");
 const SHOPS_FILE = path.join(DATA_DIR, "shops.json");
 const HELPERS_FILE = path.join(DATA_DIR, "helpers.json");
@@ -886,7 +887,8 @@ export type SecurityVaultEntityType =
   | "job_seeker"
   | "employer"
   | "help_post"
-  | "verification";
+  | "verification"
+  | "used_item";
 
 export type SecurityVaultActionStatus =
   | "ACTIVE_REGISTERED"
@@ -2079,6 +2081,12 @@ const DEFAULT_CATEGORIES_SEED = [
   { id: "cleaning", name: "Cleaning, Maid & Cook (घर की सफाई, मेड और रसोइया)", icon: "🧹" },
   { id: "pest_control", name: "Pest Control & Tank Cleaning (पेस्ट कंट्रोल और टंकी सफाई)", icon: "🪲" },
 
+  // Buy & Sell Used Items
+  { id: "used_vehicles", name: "Used Vehicles (पुराने वाहन / જૂના વાહનો)", icon: "🏍️" },
+  { id: "used_mobiles_electronics", name: "Used Mobiles & Electronics (पुराने मोबाइल व इलेक्ट्रॉनिक्स / જૂના મોબાઈલ અને ઈલેક્ટ્રોનિક્સ)", icon: "📱" },
+  { id: "used_furniture_home", name: "Used Furniture & Home Items (पुराना फर्नीचर / જૂનું ફર્નિચર અને ઘરવખરી)", icon: "🛋️" },
+  { id: "used_other_items", name: "Other Used Items (अन्य पुरानी चीज़ें / અન્ય જૂની વસ્તુઓ)", icon: "📦" },
+
   // 2. Personal Care, Fashion & Events
   { id: "tailor", name: "Tailor / Darzi & Boutique (दर्जी / बुटीक)", icon: "✂️" },
   { id: "beautician", name: "Beautician & Salon at Home (ब्यूटीशियन और होम सैलून)", icon: "💇‍♀️" },
@@ -2857,6 +2865,26 @@ async function initPostgresTables(pool: pg.Pool): Promise<string[]> {
       created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
     )`,
     "create job_portal_items"
+  );
+
+  await execSafeDDL(
+    pool,
+    `CREATE TABLE IF NOT EXISTS used_items (
+      id TEXT PRIMARY KEY,
+      sub_category TEXT NOT NULL,
+      status TEXT DEFAULT 'pending',
+      is_deleted BOOLEAN DEFAULT FALSE,
+      expires_at TIMESTAMP WITH TIME ZONE,
+      data JSONB NOT NULL,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )`,
+    "create used_items"
+  );
+  await execSafeDDL(
+    pool,
+    `CREATE INDEX IF NOT EXISTS idx_used_items_status ON used_items(status, is_deleted, created_at DESC)`,
+    "idx_used_items_status"
   );
 
   await execSafeDDL(
@@ -5839,7 +5867,19 @@ async function startServer() {
   }
 
   let hasLoadedGlobalBlocksFromDb = false;
+  let adminGlobalBlocksMemCache: AdminGlobalBlockRecord[] | null = null;
+  const userApprovalStateCache = new Map<
+    string,
+    {
+      expiresAt: number;
+      result: { isApproved: boolean; status: string; isBlocked?: boolean; blockReason?: string; blockedAt?: string };
+    }
+  >();
+
   const loadAdminGlobalBlocks = async (): Promise<AdminGlobalBlockRecord[]> => {
+    if (adminGlobalBlocksMemCache && hasLoadedGlobalBlocksFromDb) {
+      return adminGlobalBlocksMemCache;
+    }
     const localList = readJsonFile<AdminGlobalBlockRecord[]>(ADMIN_GLOBAL_BLOCKS_FILE, []);
     if (!hasLoadedGlobalBlocksFromDb && dbPool && isDbConnected) {
       hasLoadedGlobalBlocksFromDb = true;
@@ -5854,15 +5894,19 @@ async function startServer() {
             if (item && item.id) mergedMap.set(item.id, item);
           });
           const merged = Array.from(mergedMap.values());
+          adminGlobalBlocksMemCache = merged;
           writeJsonFile(ADMIN_GLOBAL_BLOCKS_FILE, merged);
           return merged;
         }
       } catch {}
     }
-    return Array.isArray(localList) ? localList : [];
+    adminGlobalBlocksMemCache = Array.isArray(localList) ? localList : [];
+    return adminGlobalBlocksMemCache;
   };
 
   const saveAdminGlobalBlocks = async (list: AdminGlobalBlockRecord[]) => {
+    adminGlobalBlocksMemCache = Array.isArray(list) ? list : [];
+    userApprovalStateCache.clear();
     writeJsonFile(ADMIN_GLOBAL_BLOCKS_FILE, list);
     if (dbPool && isDbConnected) {
       try {
@@ -5921,6 +5965,37 @@ async function startServer() {
     const uidPhone = uid.toLowerCase().startsWith("phone_") ? normalizePhoneDigitsServer(uid) : "";
     const emailPhone = email.endsWith("@phone.locohelp.com") ? normalizePhoneDigitsServer(email.split("@")[0]) : "";
     let phoneDigits = normalizePhoneDigitsServer(rawPhone || "") || uidPhone || emailPhone;
+
+    // Fast path: Check global block from memory first (0ms), then check short-TTL approval cache
+    const fastBlock = await findAdminGlobalBlock(uid, email, phoneDigits);
+    if (fastBlock) {
+      return {
+        isApproved: false,
+        status: "blocked",
+        isBlocked: true,
+        blockReason: fastBlock.reason || "એડમિન દ્વારા નિયમોના ઉલ્લંઘન બદલ એકાઉન્ટ બ્લોક કરવામાં આવ્યું છે.",
+        blockedAt: fastBlock.blockedAt
+      };
+    }
+
+    const approvalCacheKey = `${uid.toLowerCase()}|${email}|${phoneDigits}`;
+    const cachedApproval = userApprovalStateCache.get(approvalCacheKey);
+    if (cachedApproval && cachedApproval.expiresAt > Date.now()) {
+      return { ...cachedApproval.result };
+    }
+    const cacheAndReturnApproval = (resObj: {
+      isApproved: boolean;
+      status: string;
+      isBlocked?: boolean;
+      blockReason?: string;
+      blockedAt?: string;
+    }) => {
+      userApprovalStateCache.set(approvalCacheKey, {
+        expiresAt: Date.now() + (resObj.isApproved ? 25000 : 8000),
+        result: resObj
+      });
+      return resObj;
+    };
 
     // If only uid/email/phone was passed, enrich missing email, phoneDigits, and linked uids from users/profiles/verification_requests
     const extraLinkedIds: string[] = [];
@@ -6082,13 +6157,13 @@ async function startServer() {
           const st = String(vRes.rows[0].status || "pending").toLowerCase();
           if (st === "approved") {
             void unmarkEntitiesDeletedPermanently([uid, email, ...idCandidates]).catch(() => {});
-            return { isApproved: true, status: "approved" };
+            return cacheAndReturnApproval({ isApproved: true, status: "approved" });
           }
           if (st === "deleted") {
             explicitlyDeletedInDb = true;
           } else {
             accountFound = true;
-            if (st === "rejected") return { isApproved: false, status: "rejected" };
+            if (st === "rejected") return cacheAndReturnApproval({ isApproved: false, status: "rejected" });
           }
         }
 
@@ -6102,10 +6177,10 @@ async function startServer() {
             accountFound = true;
             if (row.is_verified === true || row.verified === true || st === "approved") {
               void unmarkEntitiesDeletedPermanently([uid, email, ...idCandidates]).catch(() => {});
-              return { isApproved: true, status: "approved" };
+              return cacheAndReturnApproval({ isApproved: true, status: "approved" });
             }
             if (st === "rejected") {
-              return { isApproved: false, status: "rejected" };
+              return cacheAndReturnApproval({ isApproved: false, status: "rejected" });
             }
           }
         }
@@ -6120,7 +6195,7 @@ async function startServer() {
             accountFound = true;
             if (hRow.is_verified === true || hSt === "approved") {
               void unmarkEntitiesDeletedPermanently([uid, email, ...idCandidates]).catch(() => {});
-              return { isApproved: true, status: "approved" };
+              return cacheAndReturnApproval({ isApproved: true, status: "approved" });
             }
           }
         }
@@ -7962,6 +8037,7 @@ async function startServer() {
   };
 
   const markEntitiesDeletedPermanently = async (keys: Array<string | undefined | null>) => {
+    userApprovalStateCache.clear();
     await loadDeletedEntitiesFromDbOnce();
     for (const k of keys) {
       const clean = String(k || '').trim();
@@ -7995,6 +8071,9 @@ async function startServer() {
         const synth = `email_${lower.replace(/[^a-z0-9]/g, '_')}`;
         if (deletedEntitiesMemorySet.delete(synth)) changed = true;
       }
+    }
+    if (changed) {
+      userApprovalStateCache.clear();
     }
     if (changed && dbPool && isDbConnected) {
       try {
@@ -9307,7 +9386,7 @@ async function startServer() {
     } catch {}
 
     identitySetCache.set(cacheKey, {
-      expiresAt: Date.now() + 15000,
+      expiresAt: Date.now() + 45000,
       values: Array.from(expanded)
     });
     return expanded;
@@ -9531,7 +9610,7 @@ async function startServer() {
     const resultInfo = { posterId, posterName, posterEmail, posterAvatar, postDescription };
     if (posterId) {
       postOwnerInfoCache.set(cleanPostId, {
-        expiresAt: Date.now() + 25000,
+        expiresAt: Date.now() + 45000,
         data: resultInfo
       });
     }
@@ -9878,8 +9957,8 @@ async function startServer() {
             });
           }
 
-          // Also merge any rows from `responses` table for this postId so replies saved there are always included
-          if (postId) {
+          // Also merge any rows from `responses` table for this postId only if messages table had no rows
+          if (postId && mergedMap.size === 0) {
             const respRes = await dbPool
               .query(`SELECT * FROM responses WHERE post_id = $1 ORDER BY created_at ASC`, [postId])
               .catch(() => ({ rows: [] as any[] }));
@@ -9943,8 +10022,15 @@ async function startServer() {
             });
           }
 
-          // Mark unread messages as read for the viewing user and reset unread counter in conversations (in background)
-          if ((userId || userEmail) && (activeConvId || (postId && helperId))) {
+          // Mark unread messages as read for the viewing user ONLY when there are unread incoming messages
+          const hasUnreadIncoming = Array.from(mergedMap.values()).some((m: any) => {
+            if (!m || m.isRead) return false;
+            const sId = String(m.senderId || m.sender_id || "").trim().toLowerCase();
+            const sEm = String(m.senderEmail || m.sender_email || "").trim().toLowerCase();
+            return !callerIdentities.has(sId) && (!sEm || !callerIdentities.has(sEm));
+          });
+
+          if (hasUnreadIncoming && (userId || userEmail) && (activeConvId || (postId && helperId))) {
             const targetConv = activeConvId || buildConversationId(postId, helperId);
             const callerIdArr = Array.from(callerIdentities);
             const helperIdVariants = Array.from(buildServerIdentitySet(helperId, helperEmail));
@@ -9977,8 +10063,9 @@ async function startServer() {
                     .query(
                       `UPDATE conversations
                        SET unread_poster_count = 0
-                       WHERE LOWER(id) = ANY($1::text[])
-                          OR (post_id = $2 AND LOWER(helper_id) = ANY($3::text[]))`,
+                       WHERE (LOWER(id) = ANY($1::text[])
+                          OR (post_id = $2 AND LOWER(helper_id) = ANY($3::text[])))
+                         AND unread_poster_count > 0`,
                       [convIdVariants, postId, helperIdVariants]
                     )
                     .catch(() => {})
@@ -9986,8 +10073,9 @@ async function startServer() {
                     .query(
                       `UPDATE conversations
                        SET unread_helper_count = 0
-                       WHERE LOWER(id) = ANY($1::text[])
-                          OR (post_id = $2 AND LOWER(helper_id) = ANY($3::text[]))`,
+                       WHERE (LOWER(id) = ANY($1::text[])
+                          OR (post_id = $2 AND LOWER(helper_id) = ANY($3::text[])))
+                         AND unread_helper_count > 0`,
                       [convIdVariants, postId, helperIdVariants]
                     )
                     .catch(() => {})
@@ -11061,6 +11149,11 @@ async function startServer() {
     createdAt: string;
   }> = [];
 
+  const chatBlockStateCache = new Map<
+    string,
+    { expiresAt: number; result: { isBlocked: boolean; blockerId?: string; blockedId?: string; reason?: string } }
+  >();
+
   const checkChatBlockState = async (
     chatId: string,
     userAId?: string,
@@ -11069,6 +11162,13 @@ async function startServer() {
     const cleanChatId = String(chatId || "").trim();
     const cleanA = String(userAId || "").trim().toLowerCase();
     const cleanB = String(userBId || "").trim().toLowerCase();
+    const pairKey = [cleanA, cleanB].sort().join("|");
+    const cacheKey = `${cleanChatId}::${pairKey}`;
+
+    const cached = chatBlockStateCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return { ...cached.result };
+    }
 
     if (dbPool && isDbConnected) {
       try {
@@ -11084,12 +11184,14 @@ async function startServer() {
         );
         if (q.rows.length > 0) {
           const row = q.rows[0];
-          return {
+          const resObj = {
             isBlocked: true,
             blockerId: row.blocker_id,
             blockedId: row.blocked_id,
             reason: row.reason || ""
           };
+          chatBlockStateCache.set(cacheKey, { expiresAt: Date.now() + 25000, result: resObj });
+          return resObj;
         }
       } catch {}
     }
@@ -11105,15 +11207,19 @@ async function startServer() {
     });
 
     if (memMatch) {
-      return {
+      const resObj = {
         isBlocked: true,
         blockerId: memMatch.blockerId,
         blockedId: memMatch.blockedId,
         reason: memMatch.reason
       };
+      chatBlockStateCache.set(cacheKey, { expiresAt: Date.now() + 25000, result: resObj });
+      return resObj;
     }
 
-    return { isBlocked: false };
+    const clearRes = { isBlocked: false };
+    chatBlockStateCache.set(cacheKey, { expiresAt: Date.now() + 25000, result: clearRes });
+    return clearRes;
   };
 
   app.get("/api/chat-blocks", async (req, res) => {
@@ -11181,6 +11287,7 @@ async function startServer() {
       const existingIdx = memoryChatBlocks.findIndex((b) => b.id === entry.id);
       if (existingIdx >= 0) memoryChatBlocks[existingIdx] = entry;
       else memoryChatBlocks.unshift(entry);
+      chatBlockStateCache.clear();
 
       return res.json({ success: true, block: entry });
     } catch (e: any) {
@@ -11217,6 +11324,7 @@ async function startServer() {
           memoryChatBlocks.splice(i, 1);
         }
       }
+      chatBlockStateCache.clear();
 
       return res.json({ success: true });
     } catch {
@@ -11298,7 +11406,7 @@ async function startServer() {
         30
       );
 
-      if (dbPool && isDbConnected && (!resolvedName || resolvedName === "Community Peer" || !resolvedEmail || !resolvedPhone)) {
+      if (dbPool && isDbConnected && (!resolvedName || resolvedName === "Community Peer" || (!resolvedEmail && !resolvedPhone))) {
         try {
           const uLookup = await dbPool
             .query(
@@ -11683,34 +11791,24 @@ async function startServer() {
         ).catch(() => {});
       });
 
-      // Refresh post interaction timestamp & compute updated response_count / repliers for this post from conversations & messages
+      // Refresh post interaction timestamp & compute updated response_count / repliers for this post from lightweight conversations table
       let updatedResponseCount = 1;
       const replierGroupsMap = new Map<string, any>();
       if (postId && postId !== "general") {
         try {
           if (dbPool && isDbConnected) {
-            // Do not extend 1-hour post auto-expiry on chat replies (fixed 1h from post creation time)
-
-            const [convRowsRes, msgRowsRes] = await Promise.all([
-              dbPool
-                .query(
-                  `SELECT * FROM conversations
-                   WHERE post_id = $1
-                     AND last_message IS NOT NULL
-                     AND TRIM(last_message) <> ''
-                   ORDER BY last_message_at DESC`,
-                  [postId]
-                )
-                .catch(() => ({ rows: [] as any[] })),
-              dbPool
-                .query(
-                  `SELECT * FROM messages
-                   WHERE (post_id = $1 OR intent_id = $1)
-                   ORDER BY created_at DESC`,
-                  [postId]
-                )
-                .catch(() => ({ rows: [] as any[] }))
-            ]);
+            const convRowsRes = await dbPool
+              .query(
+                `SELECT id, helper_id, helper_name, helper_email, helper_avatar, last_message, last_message_at, unread_poster_count, unread_helper_count, is_collaborator
+                 FROM conversations
+                 WHERE post_id = $1
+                   AND last_message IS NOT NULL
+                   AND TRIM(last_message) <> ''
+                 ORDER BY last_message_at DESC
+                 LIMIT 50`,
+                [postId]
+              )
+              .catch(() => ({ rows: [] as any[] }));
 
             convRowsRes.rows.forEach((c: any) => {
               const hId = String(c.helper_id || "").trim();
@@ -11744,43 +11842,6 @@ async function startServer() {
                   unreadPosterCount: Number(c.unread_poster_count || 0),
                   unreadHelperCount: Number(c.unread_helper_count || 0),
                   isCollaborator: Boolean(c.is_collaborator)
-                });
-              }
-            });
-
-            msgRowsRes.rows.forEach((m: any) => {
-              const sId = String(m.sender_id || "").trim();
-              const sEmail = String(m.sender_email || "").trim().toLowerCase();
-              const mText = String(m.text || m.content || "").trim();
-              if (!sId || sId.toLowerCase() === "system" || !mText) return;
-              if (posterIdentities.has(sId.toLowerCase()) || (sEmail && posterIdentities.has(sEmail))) return;
-              const normS = sEmail
-                ? "email_" + sEmail.replace(/[^a-z0-9]/g, "_")
-                : sId.includes("@")
-                ? "email_" + sId.toLowerCase().replace(/[^a-z0-9]/g, "_")
-                : sId.toLowerCase();
-              const key = normS || sEmail || sId.toLowerCase();
-              const lastIso = m.created_at ? new Date(m.created_at).toISOString() : new Date().toISOString();
-              if (!replierGroupsMap.has(key)) {
-                replierGroupsMap.set(key, {
-                  id: m.conversation_id || buildConversationId(postId, sId),
-                  conversationId: m.conversation_id || buildConversationId(postId, sId),
-                  helperId: sId,
-                  senderId: sId,
-                  helperName: m.sender_name || "Community Helper",
-                  senderName: m.sender_name || "Community Helper",
-                  helperEmail: sEmail,
-                  senderEmail: sEmail,
-                  helperAvatar: m.sender_avatar || "",
-                  senderAvatar: m.sender_avatar || "",
-                  lastMessage: mText,
-                  lastMessageAt: lastIso,
-                  updatedAt: lastIso,
-                  count: 1,
-                  unreadCount: m.is_read ? 0 : 1,
-                  unreadPosterCount: m.is_read ? 0 : 1,
-                  unreadHelperCount: 0,
-                  isCollaborator: Boolean(m.is_collaborator)
                 });
               }
             });
@@ -15174,6 +15235,475 @@ async function startServer() {
       res.json({ success: true, id });
     } catch (e) {
       res.status(500).json({ error: "Failed to delete entry" });
+    }
+  });
+
+  // ==========================================
+  // USED ITEMS BUY & SELL MARKETPLACE ENDPOINTS
+  // (Admin Approval Mandatory for All User Listings)
+  // ==========================================
+  const VALID_USED_ITEM_SUBCATEGORIES = new Set([
+    "used_vehicles",
+    "used_mobiles_electronics",
+    "used_furniture_home",
+    "used_other_items"
+  ]);
+  const VALID_USED_ITEM_CONDITIONS = new Set(["like_new", "good", "used"]);
+
+  const loadUsedItemsMerged = async (): Promise<any[]> => {
+    const itemsMap = new Map<string, any>();
+    const deletedIds = new Set<string>();
+
+    if (dbPool && isDbConnected) {
+      try {
+        const dbRes = await dbPool.query(
+          "SELECT id, status, is_deleted, expires_at, data, created_at FROM used_items ORDER BY created_at DESC"
+        );
+        dbRes.rows.forEach((r: any) => {
+          if (!r || !r.id) return;
+          if (r.is_deleted === true || r.status === "deleted") {
+            deletedIds.add(String(r.id));
+            return;
+          }
+          if (r.data && typeof r.data === "object") {
+            itemsMap.set(String(r.id), {
+              ...r.data,
+              id: String(r.id),
+              status: r.status || r.data.status || "pending",
+              expiresAt: r.data.expiresAt || (r.expires_at ? new Date(r.expires_at).toISOString() : undefined)
+            });
+          }
+        });
+      } catch (dbErr) {
+        console.warn("[UsedItems] DB read fallback to JSON:", (dbErr as any)?.message);
+      }
+    }
+
+    const fileItems = readJsonFile<any[]>(USED_ITEMS_FILE, []);
+    fileItems.forEach((item: any) => {
+      if (!item || !item.id) return;
+      const itemId = String(item.id);
+      if (deletedIds.has(itemId) || item.isDeleted === true || item.status === "deleted") return;
+      if (!itemsMap.has(itemId)) {
+        itemsMap.set(itemId, item);
+      }
+    });
+
+    return Array.from(itemsMap.values());
+  };
+
+  const findUsedItemById = async (id: string): Promise<any | null> => {
+    if (dbPool && isDbConnected) {
+      try {
+        const dbRes = await dbPool.query(
+          "SELECT id, status, is_deleted, expires_at, data FROM used_items WHERE id = $1 LIMIT 1",
+          [id]
+        );
+        if (dbRes.rows.length > 0) {
+          const row = dbRes.rows[0];
+          if (row.is_deleted === true || row.status === "deleted") return null;
+          if (row.data && typeof row.data === "object") {
+            return {
+              ...row.data,
+              id: String(row.id),
+              status: row.status || row.data.status || "pending"
+            };
+          }
+        }
+      } catch {}
+    }
+    const fileItems = readJsonFile<any[]>(USED_ITEMS_FILE, []);
+    const found = fileItems.find((i: any) => i && String(i.id) === String(id) && i.isDeleted !== true && i.status !== "deleted");
+    return found || null;
+  };
+
+  app.get("/api/used-items", async (req, res) => {
+    try {
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
+
+      const { status = "approved", subCategory, search, mine, all } = req.query;
+      const caller = extractRequestUser(req);
+      const isAdmin = isRequestAdmin(req);
+      const isAuthenticated = Boolean(caller && caller.uid && !String(caller.uid).startsWith("guest"));
+      const wantMine = String(mine || "").toLowerCase() === "true";
+      const wantAll = String(all || "").toLowerCase() === "true";
+
+      let items = await loadUsedItemsMerged();
+
+      if (wantMine) {
+        if (!isAuthenticated && !isAdmin) {
+          return res.json([]);
+        }
+        items = items.filter((item) => {
+          if (isAdmin && wantAll) return true;
+          return isSameUserOrAdmin(req, item.userId, item.email, item.phone);
+        });
+        if (status && status !== "all" && typeof status === "string") {
+          items = items.filter((i) => (i.status || "pending") === status);
+        }
+      } else if (isAdmin && (wantAll || status === "all")) {
+        // Admin viewing full moderation list (all statuses, including expired)
+        if (status && status !== "all" && typeof status === "string") {
+          items = items.filter((i) => (i.status || "pending") === status);
+        }
+      } else if (isAdmin && typeof status === "string" && ["pending", "approved", "rejected", "sold"].includes(status)) {
+        items = items.filter((i) => (i.status || "pending") === status);
+      } else {
+        // Public marketplace view: strictly approved & non-expired listings only
+        const nowMs = Date.now();
+        items = items.filter((i) => {
+          if ((i.status || "pending") !== "approved") return false;
+          if (i.expiresAt) {
+            const expMs = new Date(i.expiresAt).getTime();
+            if (!Number.isNaN(expMs) && expMs < nowMs) return false;
+          }
+          return true;
+        });
+      }
+
+      if (subCategory && subCategory !== "all" && typeof subCategory === "string") {
+        items = items.filter((i) => i.subCategory === subCategory);
+      }
+
+      if (search && typeof search === "string" && search.trim()) {
+        const q = search.toLowerCase().trim();
+        items = items.filter((i) => {
+          const haystack = [
+            i.title || "",
+            i.description || "",
+            i.area || "",
+            i.city || "",
+            i.sellerName || "",
+            i.subCategory || ""
+          ]
+            .join(" ")
+            .toLowerCase();
+          return haystack.includes(q);
+        });
+      }
+
+      items.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+
+      const sanitized = items.map((item) => redactBulkItemForPrivacy(item, isAuthenticated, isAdmin, caller));
+      return res.json(sanitized);
+    } catch (e) {
+      console.error("Failed to fetch used items:", e);
+      return res.status(500).json({ error: "Failed to fetch used items" });
+    }
+  });
+
+  app.post("/api/used-items", registrationAndMessageLimiter, requireAuth, async (req, res) => {
+    try {
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+
+      if (isBotSubmission(req)) {
+        console.log("[Honeypot Triggered] Silently rejecting bot used-item submission");
+        return res.status(200).json({ success: true, message: "Submission received" });
+      }
+
+      const payload = req.body || {};
+      const title = sanitizeStringServer(String(payload.title || "").trim(), 120);
+      if (!title || title.length < 2) {
+        return res.status(400).json({ error: "વસ્તુનું નામ લખવું જરૂરી છે. (Item title is required)" });
+      }
+
+      const subCategory = String(payload.subCategory || "").trim();
+      if (!VALID_USED_ITEM_SUBCATEGORIES.has(subCategory)) {
+        return res.status(400).json({ error: "માન્ય કેટેગરી પસંદ કરો. (Valid used-item subCategory is required)" });
+      }
+
+      const parsedPrice = Number(payload.price);
+      if (!Number.isFinite(parsedPrice) || parsedPrice < 0 || parsedPrice > 50000000) {
+        return res.status(400).json({ error: "યોગ્ય કિંમત (₹) દાખલ કરો. (Valid price is required)" });
+      }
+
+      const rawCondition = String(payload.condition || "good").trim();
+      const condition = VALID_USED_ITEM_CONDITIONS.has(rawCondition) ? rawCondition : "good";
+
+      const rawPhotos: string[] = Array.isArray(payload.photos)
+        ? payload.photos.filter((p: any) => typeof p === "string" && p.trim().length > 0).slice(0, 3)
+        : [];
+
+      const uploadedPhotos: string[] = [];
+      for (const rawPhoto of rawPhotos) {
+        if (rawPhoto.startsWith("data:")) {
+          const photoCheck = validateServerUploadedDataUrl(rawPhoto, { allowPdf: false });
+          if (!photoCheck.valid) {
+            return res.status(400).json({ error: photoCheck.error || "Invalid image file" });
+          }
+          const uploadedUrl = await uploadDataToFirebaseServer(rawPhoto, "used_items");
+          if (uploadedUrl) uploadedPhotos.push(uploadedUrl);
+        } else if (rawPhoto.startsWith("http://") || rawPhoto.startsWith("https://") || rawPhoto.startsWith("/")) {
+          uploadedPhotos.push(rawPhoto);
+        }
+      }
+
+      const isAdminCaller = isRequestAdmin(req);
+      const caller = (req as any).user || extractRequestUser(req);
+      const resolvedPhone = sanitizeStringServer(String(payload.phone || caller?.phone || "").trim(), 30);
+      const phoneDigits = normalizePhoneDigitsServer(resolvedPhone);
+      const resolvedEmail = sanitizeStringServer(
+        String(
+          payload.email ||
+            caller?.email ||
+            (phoneDigits ? `${phoneDigits}@phone.locohelp.com` : "")
+        ).trim(),
+        150
+      ).toLowerCase();
+      const userId = sanitizeStringServer(String(caller?.uid || payload.userId || "").trim(), 150);
+      const sellerName = sanitizeStringServer(
+        String(payload.sellerName || caller?.name || "LocoHelp User").trim(),
+        120
+      );
+
+      const nowIso = new Date().toISOString();
+      const expiresAtIso = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+      const autoApprove = isAdminCaller && payload.autoApprove === true;
+      const itemId = `used_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+      const newRecord = {
+        id: itemId,
+        userId,
+        sellerName,
+        phone: resolvedPhone,
+        email: resolvedEmail,
+        isPhonePublic: Boolean(payload.isPhonePublic === true),
+        subCategory,
+        title,
+        price: Math.round(parsedPrice),
+        negotiable: payload.negotiable !== false,
+        condition,
+        description: sanitizeStringServer(String(payload.description || "").trim(), 2000),
+        area: sanitizeStringServer(String(payload.area || "Local Area").trim(), 150),
+        city: sanitizeStringServer(String(payload.city || "").trim(), 100),
+        photos: uploadedPhotos,
+        status: autoApprove ? "approved" : "pending",
+        wasApproved: autoApprove,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        expiresAt: expiresAtIso,
+        reviewedAt: autoApprove ? nowIso : null,
+        adminNotes: autoApprove ? "Added & Approved by Admin" : ""
+      };
+
+      const existingItems = readJsonFile<any[]>(USED_ITEMS_FILE, []);
+      writeJsonFile(USED_ITEMS_FILE, [newRecord, ...existingItems.filter((i: any) => i && i.id !== newRecord.id)]);
+
+      if (dbPool && isDbConnected) {
+        try {
+          await dbPool.query(
+            `INSERT INTO used_items (id, sub_category, status, is_deleted, expires_at, data, created_at, updated_at)
+             VALUES ($1, $2, $3, FALSE, $4, $5, NOW(), NOW())
+             ON CONFLICT (id) DO UPDATE SET sub_category = EXCLUDED.sub_category, status = EXCLUDED.status, is_deleted = FALSE, expires_at = EXCLUDED.expires_at, data = EXCLUDED.data, updated_at = NOW()`,
+            [newRecord.id, newRecord.subCategory, newRecord.status, newRecord.expiresAt, JSON.stringify(newRecord)]
+          );
+        } catch (dbErr) {
+          console.error("[UsedItems] Failed to persist to PostgreSQL:", dbErr);
+        }
+      }
+
+      await archiveToSecurityVault("used_item", newRecord.id, newRecord, "ACTIVE_REGISTERED", req);
+
+      return res.status(201).json({
+        success: true,
+        item: newRecord,
+        message: autoApprove
+          ? "વસ્તુ લાઈવ પ્રકાશિત થઈ ગઈ છે."
+          : "તમારી જાહેરાત સબમિટ થઈ ગઈ છે! એડમિન એપ્રુવલ પછી તરત જ લાઈવ દેખાશે."
+      });
+    } catch (e) {
+      console.error("Failed to create used item listing:", e);
+      return res.status(500).json({ error: "Failed to create used item listing" });
+    }
+  });
+
+  app.patch("/api/used-items/:id/status", requireAuth, async (req, res) => {
+    try {
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+      const { id } = req.params;
+      const { status, adminNotes } = req.body || {};
+
+      if (!status || !["approved", "rejected", "pending", "sold"].includes(status)) {
+        return res.status(400).json({ error: "Valid status ('approved', 'rejected', 'pending', 'sold') is required" });
+      }
+
+      const target = await findUsedItemById(id);
+      if (!target) {
+        return res.status(404).json({ error: "Used item not found" });
+      }
+
+      const isAdmin = isRequestAdmin(req);
+      if (!isSameUserOrAdmin(req, target.userId, target.email, target.phone)) {
+        return res.status(403).json({ error: "Forbidden: You can only update your own listing." });
+      }
+
+      // Enforce mandatory Admin Approval: non-admin owners can ONLY toggle sold <-> approved on ALREADY-approved items
+      if (!isAdmin) {
+        const canMarkSold = target.status === "approved" && status === "sold";
+        const canReopenSold = target.status === "sold" && target.wasApproved === true && status === "approved";
+        if (!canMarkSold && !canReopenSold) {
+          return res.status(403).json({
+            error: "એડમિન એપ્રુવલ વગર સ્ટેટસ બદલી શકાય નહીં. (Admin approval is required before publishing)"
+          });
+        }
+      }
+
+      const nowIso = new Date().toISOString();
+      const updatedItem = {
+        ...target,
+        status,
+        wasApproved: status === "approved" ? true : Boolean(target.wasApproved),
+        updatedAt: nowIso,
+        reviewedAt: isAdmin ? nowIso : target.reviewedAt || null,
+        adminNotes: isAdmin && typeof adminNotes === "string" ? sanitizeStringServer(adminNotes, 500) : target.adminNotes || ""
+      };
+
+      const fileItems = readJsonFile<any[]>(USED_ITEMS_FILE, []);
+      writeJsonFile(USED_ITEMS_FILE, [updatedItem, ...fileItems.filter((i: any) => i && i.id !== id)]);
+
+      if (dbPool && isDbConnected) {
+        try {
+          await dbPool.query(
+            `UPDATE used_items SET status = $1, data = $2, updated_at = NOW() WHERE id = $3`,
+            [updatedItem.status, JSON.stringify(updatedItem), id]
+          );
+        } catch {}
+      }
+
+      return res.json({
+        success: true,
+        item: updatedItem,
+        message: `Status updated to ${status}`
+      });
+    } catch (e) {
+      console.error("Failed to update used item status:", e);
+      return res.status(500).json({ error: "Failed to update used item status" });
+    }
+  });
+
+  app.delete("/api/used-items/:id", requireAuth, async (req, res) => {
+    try {
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+      const { id } = req.params;
+      const target = await findUsedItemById(id);
+      if (!target) {
+        return res.status(404).json({ error: "Used item not found" });
+      }
+
+      const isAdmin = isRequestAdmin(req);
+      if (!isSameUserOrAdmin(req, target.userId, target.email, target.phone)) {
+        return res.status(403).json({ error: "Forbidden: You can only delete your own listing." });
+      }
+
+      await archiveToSecurityVault(
+        "used_item",
+        target.id,
+        target,
+        isAdmin ? "ADMIN_REMOVED_PUBLIC" : "DELETED_BY_USER",
+        req
+      );
+
+      const fileItems = readJsonFile<any[]>(USED_ITEMS_FILE, []);
+      writeJsonFile(USED_ITEMS_FILE, fileItems.filter((i: any) => i && i.id !== id));
+
+      if (dbPool && isDbConnected) {
+        try {
+          await dbPool.query(
+            `UPDATE used_items SET is_deleted = TRUE, status = 'deleted', updated_at = NOW() WHERE id = $1`,
+            [id]
+          );
+        } catch {}
+      }
+
+      return res.json({ success: true, id });
+    } catch (e) {
+      console.error("Failed to delete used item:", e);
+      return res.status(500).json({ error: "Failed to delete used item" });
+    }
+  });
+
+  app.patch("/api/admin/used-items/:id", requireAdmin, async (req, res) => {
+    try {
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+      const { id } = req.params;
+      const { status, adminNotes, renew } = req.body || {};
+
+      if (status && !["approved", "rejected", "pending", "sold"].includes(status)) {
+        return res.status(400).json({ error: "Valid status ('approved', 'rejected', 'pending', 'sold') is required" });
+      }
+
+      const target = await findUsedItemById(id);
+      if (!target) {
+        return res.status(404).json({ error: "Used item not found" });
+      }
+
+      const nowIso = new Date().toISOString();
+      const nextStatus = status || target.status || "pending";
+      const nextExpiresAt =
+        renew === true || (nextStatus === "approved" && !target.wasApproved)
+          ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+          : target.expiresAt;
+
+      const updatedItem = {
+        ...target,
+        status: nextStatus,
+        wasApproved: nextStatus === "approved" ? true : Boolean(target.wasApproved),
+        expiresAt: nextExpiresAt,
+        updatedAt: nowIso,
+        reviewedAt: nowIso,
+        adminNotes: typeof adminNotes === "string" ? sanitizeStringServer(adminNotes, 500) : target.adminNotes || ""
+      };
+
+      const fileItems = readJsonFile<any[]>(USED_ITEMS_FILE, []);
+      writeJsonFile(USED_ITEMS_FILE, [updatedItem, ...fileItems.filter((i: any) => i && i.id !== id)]);
+
+      if (dbPool && isDbConnected) {
+        try {
+          await dbPool.query(
+            `UPDATE used_items SET status = $1, expires_at = $2, data = $3, updated_at = NOW() WHERE id = $4`,
+            [updatedItem.status, updatedItem.expiresAt || null, JSON.stringify(updatedItem), id]
+          );
+        } catch {}
+      }
+
+      return res.json({
+        success: true,
+        item: updatedItem,
+        message: `Used item updated to ${nextStatus}`
+      });
+    } catch (e) {
+      console.error("Failed admin update on used item:", e);
+      return res.status(500).json({ error: "Failed to update used item" });
+    }
+  });
+
+  app.delete("/api/admin/used-items/:id", requireAdmin, async (req, res) => {
+    try {
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+      const { id } = req.params;
+      const target = await findUsedItemById(id);
+      if (target) {
+        await archiveToSecurityVault("used_item", target.id, target, "ADMIN_REMOVED_PUBLIC", req);
+      }
+
+      const fileItems = readJsonFile<any[]>(USED_ITEMS_FILE, []);
+      writeJsonFile(USED_ITEMS_FILE, fileItems.filter((i: any) => i && i.id !== id));
+
+      if (dbPool && isDbConnected) {
+        try {
+          await dbPool.query(
+            `UPDATE used_items SET is_deleted = TRUE, status = 'deleted', updated_at = NOW() WHERE id = $1`,
+            [id]
+          );
+        } catch {}
+      }
+
+      return res.json({ success: true, id });
+    } catch (e) {
+      console.error("Failed admin delete on used item:", e);
+      return res.status(500).json({ error: "Failed to delete used item" });
     }
   });
 

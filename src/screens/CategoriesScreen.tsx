@@ -103,6 +103,7 @@ import {
 } from '../data/panIndiaLocations';
 import { getAuthenticRatingInfo, isEntityAdminVerified } from '../modules/verification';
 import { ProtectedPhotoZoomModal } from '../components/ProtectedSelfieCanvas';
+import UsedItemsMarketplaceSection, { isUsedItemCategoryId } from '../components/UsedItemsMarketplaceSection';
 
 interface CategoriesScreenProps {
   onBack?: () => void;
@@ -282,6 +283,7 @@ function getMainCategoryPalette(id: string): CategoryColorPalette {
         subIconColor: '#4F46E5',
       };
     case 'plumber_main':
+    case 'buy_sell_main':
     case 'cctv_mobile':
     case 'business_staff':
       return {
@@ -495,6 +497,7 @@ export default function CategoriesScreen({
   );
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
   const [isLoginPromptOpen, setIsLoginPromptOpen] = useState(false);
+  const [sellUsedItemTrigger, setSellUsedItemTrigger] = useState(0);
   const [reportTarget, setReportTarget] = useState<{
     reportedUserId?: string;
     reportedUserName?: string;
@@ -578,6 +581,10 @@ export default function CategoriesScreen({
 
   useEffect(() => {
     if (selectedCategory) {
+      if (selectedCategory === 'buy_sell_main') {
+        setActiveCategory('buy_sell_main');
+        return;
+      }
       const isMain = MASTER_CATEGORIES.some((m) => m.id === selectedCategory);
       if (isMain) {
         const subs = getSubCategoriesByMainId(selectedCategory as any);
@@ -624,6 +631,10 @@ export default function CategoriesScreen({
   };
 
   const toggleMainGroup = (mainCat: MasterCategory) => {
+    if (mainCat.id === 'buy_sell_main') {
+      handleSelectCategory('buy_sell_main');
+      return;
+    }
     const subs = getSubCategoriesByMainId(mainCat.id);
     // Single-service main categories (1 to 9) open directly
     if (subs.length === 1) {
@@ -652,6 +663,7 @@ export default function CategoriesScreen({
   };
 
   const selectedCategoryObj = CATEGORIES.find((c) => c.id === activeCategory);
+  const isBuySellActive = isUsedItemCategoryId(activeCategory);
 
   // Dynamically update document.title for Google SEO & browser tab clarity when viewing a specific category
   useEffect(() => {
@@ -870,41 +882,62 @@ export default function CategoriesScreen({
               <ArrowLeft className="w-5 h-5" />
             </button>
           )}
-          {activeCategory !== 'all' && selectedCategoryObj && (
-            <div className="w-8 h-8 rounded-xl bg-orange-600 text-white flex items-center justify-center shrink-0">
-              {getCategoryIcon(selectedCategoryObj.iconName, 'w-4 h-4')}
+          {activeCategory !== 'all' && (selectedCategoryObj || activeCategory === 'buy_sell_main') && (
+            <div
+              className={`w-8 h-8 rounded-xl text-white flex items-center justify-center shrink-0 ${
+                isBuySellActive ? 'bg-blue-600' : 'bg-orange-600'
+              }`}
+            >
+              {activeCategory === 'buy_sell_main' ? (
+                <ShoppingBag className="w-4 h-4" />
+              ) : (
+                getCategoryIcon(selectedCategoryObj!.iconName, 'w-4 h-4')
+              )}
             </div>
           )}
           <h1 className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white truncate">
-            {activeCategory !== 'all' && selectedCategoryObj
+            {activeCategory === 'buy_sell_main'
+              ? tr('Buy & Sell Used Items', 'पुरानी चीज़ें खरीदें-बेचें', 'જૂની વસ્તુની લે-વેચ')
+              : activeCategory !== 'all' && selectedCategoryObj
               ? getCategoryName(selectedCategoryObj, language)
               : tr('Browse All Categories', 'सभी श्रेणियां', 'તમામ કેટેગરી')}
           </h1>
         </div>
 
-        <button
-          type="button"
-          onClick={() => {
-            if (isGuestUser()) {
-              setIsLoginPromptOpen(true);
-              return;
-            }
-            verifyCategoryUserApproval(() => setIsRegisterModalOpen(true));
-          }}
-          style={{
-            background: 'linear-gradient(135deg, #FF6600 0%, #E03E00 100%)',
-          }}
-          className="shrink-0 text-white font-extrabold text-xs px-3.5 py-2 rounded-xl shadow-sm flex items-center gap-1.5 cursor-pointer hover:brightness-105"
-        >
-          <Plus className="w-4 h-4" />
-          <span>
-            {tr(
-              'Register Profile',
-              'फ्री प्रोफाइल बनाएं',
-              'ફ્રી પ્રોફાઇલ બનાવો'
-            )}
-          </span>
-        </button>
+        {isBuySellActive ? (
+          <button
+            type="button"
+            onClick={() => setSellUsedItemTrigger((prev) => prev + 1)}
+            className="shrink-0 bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs px-3.5 py-2 rounded-xl shadow-sm flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+          >
+            <Plus className="w-4 h-4" />
+            <span>{tr('Sell Item', 'वस्तु बेचें', 'વસ્તુ વેચવા મૂકો')}</span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              if (isGuestUser()) {
+                setIsLoginPromptOpen(true);
+                return;
+              }
+              verifyCategoryUserApproval(() => setIsRegisterModalOpen(true));
+            }}
+            style={{
+              background: 'linear-gradient(135deg, #FF6600 0%, #E03E00 100%)',
+            }}
+            className="shrink-0 text-white font-extrabold text-xs px-3.5 py-2 rounded-xl shadow-sm flex items-center gap-1.5 cursor-pointer hover:brightness-105"
+          >
+            <Plus className="w-4 h-4" />
+            <span>
+              {tr(
+                'Register Profile',
+                'फ्री प्रोफाइल बनाएं',
+                'ફ્રી પ્રોફાઇલ બનાવો'
+              )}
+            </span>
+          </button>
+        )}
       </div>
 
       {pendingApprovalNotice && (
@@ -921,30 +954,32 @@ export default function CategoriesScreen({
       )}
 
       <div className="p-4 max-w-5xl w-full mx-auto space-y-4">
-        {/* Search Bar */}
-        <div className="relative">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder={tr(
-              'Search any category or skill (e.g. Plumber, Web Developer, Tailor, Broker)...',
-              'श्रेणी या सर्विस खोजें (जैसे: प्लंबर, वेब डेवलपर, दर्जी, ब्रोकर)...',
-              'કેટેગરી અથવા સર્વિસ શોધો (દા.ત. પ્લમ્બર, વેબ ડેવલપર, દરજી, બ્રોકર)...'
+        {/* Search Bar (hidden inside Buy & Sell which has its own dedicated item search) */}
+        {!isBuySellActive && (
+          <div className="relative">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={tr(
+                'Search any category or skill (e.g. Plumber, Web Developer, Tailor, Broker)...',
+                'श्रेणी या सर्विस खोजें (जैसे: प्लंबर, वेब डेवलपर, दर्जी, ब्रोकर)...',
+                'કેટેગરી અથવા સર્વિસ શોધો (દા.ત. પ્લમ્બર, વેબ ડેવલપર, દરજી, બ્રોકર)...'
+              )}
+              className="w-full pl-10 pr-9 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-orange-500 shadow-xs"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+              >
+                ✕
+              </button>
             )}
-            className="w-full pl-10 pr-9 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-orange-500 shadow-xs"
-          />
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={() => setSearchQuery('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-            >
-              ✕
-            </button>
-          )}
-        </div>
+          </div>
+        )}
 
 
         {/* ===================================================================== */}
@@ -1041,7 +1076,7 @@ export default function CategoriesScreen({
               <div className="space-y-2.5">
                 {MASTER_CATEGORIES.map((mainCat) => {
                   const subCategories = getSubCategoriesByMainId(mainCat.id);
-                  const isDirectSingle = subCategories.length === 1;
+                  const isDirectSingle = subCategories.length === 1 || mainCat.id === 'buy_sell_main';
                   const isExpanded = Boolean(expandedGroups[mainCat.id]);
                   const palette = getMainCategoryPalette(mainCat.id);
 
@@ -1175,10 +1210,25 @@ export default function CategoriesScreen({
         )}
 
         {/* ===================================================================== */}
+        {/* USED ITEMS BUY & SELL MARKETPLACE VIEW                                */}
+        {/* Shown when Buy & Sell Used Items or any of its 4 sub-categories opens */}
+        {/* ===================================================================== */}
+        {isBuySellActive && (
+          <UsedItemsMarketplaceSection
+            initialSubCategory={activeCategory}
+            externalSearchQuery={searchQuery}
+            externalOpenSellModalTrigger={sellUsedItemTrigger}
+            onRequireLogin={() => setIsLoginPromptOpen(true)}
+            onOpenChat={onOpenChat}
+            onSubCategoryChange={(nextSub) => handleSelectCategory(nextSub)}
+          />
+        )}
+
+        {/* ===================================================================== */}
         {/* REGISTERED SERVICE PROVIDERS / HELPERS DIRECTORY LIST                 */}
         {/* Shown ONLY inside a specific selected category (never as a loose list) */}
         {/* ===================================================================== */}
-        {activeCategory !== 'all' && (
+        {activeCategory !== 'all' && !isBuySellActive && (
         <div>
           <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
             <div className="flex items-center gap-2">

@@ -45,7 +45,8 @@ import {
   MoreVertical,
   Calendar,
   Wrench,
-  Flag
+  Flag,
+  ShoppingBag
 } from 'lucide-react';
 import { getFreeHelperProfiles, saveFreeHelperProfile, normalizeCategorySlug, CATEGORIES, MASTER_CATEGORIES, getSubCategoriesByMainId } from '../data/categories';
 import { getHelpers, getShops } from '../auth';
@@ -97,11 +98,14 @@ import {
   fetchAdminHelperReviews,
   deleteAdminHelperReview,
   updateAdStatusOnServer,
-  HelperReviewItem
+  HelperReviewItem,
+  fetchUsedItems,
+  UsedItemListing
 } from '../api';
 import { validateUploadedFile } from '../lib/security';
 import { compressImageToWebP } from '../lib/imageCompression';
 import { uploadFileToFirebaseStorage } from '../lib/firebase';
+import AdminUsedItemsPanel from '../components/AdminUsedItemsPanel';
 
 interface AdminDashboardProps {
   onBack: () => void;
@@ -121,6 +125,7 @@ type AdminModuleId =
   | 'employers'
   | 'feedback_categories'
   | 'ads'
+  | 'used_items'
   | 'security_vault';
 
 const DEFAULT_ADS: any[] = [];
@@ -229,6 +234,7 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState<boolean>(false);
   const [isSiteLockModalOpen, setIsSiteLockModalOpen] = useState<boolean>(false);
   const [adminReviews, setAdminReviews] = useState<HelperReviewItem[]>([]);
+  const [usedItemsList, setUsedItemsList] = useState<UsedItemListing[]>([]);
 
   // Encrypted Read-Only Security Vault State (Strictly Non-Deletable)
   const [securityVaultRecords, setSecurityVaultRecords] = useState<SecurityVaultRecord[]>([]);
@@ -1246,14 +1252,15 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
         }
       } catch {}
 
-      // Bonus: Sponsored Ads, Security Vault, Public Suggestions, Site Lock & Customer Reviews
-      const [liveAds, liveVault, liveSugs, liveLock, liveCatImgs, liveRevs] = await Promise.all([
+      // Bonus: Sponsored Ads, Security Vault, Public Suggestions, Site Lock, Customer Reviews & Used Items
+      const [liveAds, liveVault, liveSugs, liveLock, liveCatImgs, liveRevs, liveUsedItems] = await Promise.all([
         fetchLiveAds(),
         fetchAdminSecurityVault(),
         fetchPublicSuggestions(),
         fetchAdminSiteLock(),
         fetchCategoryImages(),
-        fetchAdminHelperReviews()
+        fetchAdminHelperReviews(),
+        fetchUsedItems({ status: 'all', all: true })
       ]);
       if (Array.isArray(liveAds)) {
         setAds(liveAds);
@@ -1272,6 +1279,9 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
       }
       if (Array.isArray(liveRevs)) {
         setAdminReviews(liveRevs);
+      }
+      if (Array.isArray(liveUsedItems)) {
+        setUsedItemsList(liveUsedItems);
       }
     } catch (err) {
       console.warn('Admin load data warning:', err);
@@ -3323,6 +3333,19 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
               onClick: () => openModule('helpers'),
             },
             {
+              step: '3B',
+              title: '🛍️ જૂની વસ્તુની લે-વેચ — Approval (Buy & Sell Used Items)',
+              subtitle: 'યુઝર્સે મૂકેલી જૂની બાઈક, મોબાઈલ, ફર્નિચર કે અન્ય વસ્તુઓ તપાસો — Approve, Reject કે Delete કરો',
+              icon: <ShoppingBag className="w-5 h-5 text-white" />,
+              gradient: 'from-sky-500 to-blue-600',
+              border: 'border-sky-500/40 hover:border-sky-400',
+              badge1: `Total: ${usedItemsList.length}`,
+              badge2: usedItemsList.filter(u => u.status === 'pending').length > 0
+                ? `Pending: ${usedItemsList.filter(u => u.status === 'pending').length}`
+                : `Live: ${usedItemsList.filter(u => u.status === 'approved').length}`,
+              onClick: () => openModule('used_items'),
+            },
+            {
               step: '4',
               title: '⭐ Customer Ratings & Reviews (ग्राहकों की रेटिंग और रिव्यू)',
               subtitle: 'किस सर्विस एक्सपर्ट का काम कैसा है — ग्राहकों द्वारा दिए गए स्टार और रिव्यू देखें व स्पैम हटाएं',
@@ -3986,6 +4009,19 @@ export default function AdminDashboard({ onBack, showToast: externalShowToast }:
               </div>
             )}
           </div>
+        )}
+
+        {/* ============================================================ */}
+        {/* VIEW 1D: DEDICATED USED ITEMS BUY & SELL APPROVAL MODULE     */}
+        {/* ============================================================ */}
+        {activeModule === 'used_items' && (
+          <AdminUsedItemsPanel
+            items={usedItemsList}
+            onItemsChange={setUsedItemsList}
+            onRefresh={loadAllData}
+            onBack={() => openModule('home')}
+            showToast={showToast}
+          />
         )}
 
         {/* ============================================================ */}

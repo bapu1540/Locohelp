@@ -695,6 +695,7 @@ export default function HomeScreen({
     mason_main: ['mason', 'kadiyo', 'mistri', 'tile', 'plaster', 'cement', 'brick', 'construction', 'कड़िया', 'मिस्त्री', 'કડિયો', 'મિસ્ત્રી', 'બાંધકામ'],
     carpenter_main: ['carpent', 'suthar', 'wood', 'door', 'lock', 'furniture', 'bed', 'sofa', 'कारपेंटर', 'सुथार', 'સુથાર', 'ફર્નિચર'],
     painter_main: ['paint', 'wall', 'putty', 'color', 'polish', 'pop', 'waterproof', 'पेंटर', 'પેઇન્ટર', 'કલરકામ'],
+    buy_sell_main: ['second hand', 'used', 'old bike', 'old car', 'old mobile', 'old furniture', 'buy sell', 'purani', 'bechna', 'kharidna', 'જૂની વસ્તુ', 'લે-વેચ', 'જૂના વાહનો', 'જૂનો મોબાઈલ', 'જૂનું ફર્નિચર'],
     pest_control_main: ['pest', 'termite', 'cockroach', 'tank clean', 'sanitiz', 'पेस्ट', 'टंकी', 'પેસ્ટ', 'જંતુનાશક'],
     brokers_agents: ['real estate', 'property', 'broker', 'flat', 'rent', 'pg', 'vehicle broker', 'rto', 'license', 'loan', 'insurance', 'lic', 'legal', 'notary', 'affidavit', 'document', 'બ્રોકર', 'એજન્ટ'],
     transport_shifting: ['packers', 'movers', 'tempo', 'chhota hathi', 'truck', 'loading', 'shifting', 'transport', 'ટ્રાન્સપોર્ટ', 'શિફ્ટિંગ', 'ટેમ્પો'],
@@ -702,7 +703,7 @@ export default function HomeScreen({
     hotel_tiffin: ['tiffin', 'mess', 'hotel', 'restaurant', 'dhaba', 'kathiyawadi', 'cater', 'halwai', 'fast food', 'હોટલ', 'ટિફિન', 'જમવાનું', 'કેટરિંગ'],
     sports_fitness: ['cricket', 'turf', 'match', 'badminton', 'tennis', 'gym', 'fitness', 'workout', 'trainer', 'running', 'jog', 'cycling', 'yoga', 'sport', 'સ્પોર્ટ્સ', 'ફિટનેસ', 'ક્રિકેટ'],
     social_care: ['chai', 'tea', 'coffee', 'meetup', 'walk', 'companion', 'chess', 'board game', 'ludo', 'carrom', 'senior', 'elder', 'medicine', 'pet', 'dog', 'સોશિયલ', 'ફ્રેન્ડ્સ', 'ચા-કોફી'],
-    other_custom: ['other', 'custom', 'general', 'help', 'cctv', 'mobile', 'medical', 'tuition', 'અન્ય સેવાઓ'],
+    other_custom: ['other', 'custom', 'general', 'help', 'pest', 'termite', 'cockroach', 'જંતુનાશક', 'cctv', 'mobile', 'medical', 'tuition', 'અન્ય સેવાઓ'],
 
     // Legacy 10-group aliases kept for backward compatibility
     home_repair: ['plumb', 'pipe', 'tap', 'water', 'leak', 'electr', 'wire', 'light', 'fan', 'ac', 'fridge', 'ro', 'carpent', 'suthar', 'wood', 'furniture', 'paint', 'mason', 'kadiyo', 'mistri', 'clean', 'maid', 'cook', 'pest', 'tank'],
@@ -727,6 +728,10 @@ export default function HomeScreen({
     maid_cook: ['maid', 'cook', 'kaamwali', 'kamwali', 'rasoiya', 'कामवाल', 'रसोइया', 'કામવાળા', 'રસોઈયા'],
     cleaning: ['clean', 'sweep', 'housekeep', 'सफाई', 'સફાઈ'],
     pest_control: ['pest', 'termite', 'cockroach', 'tank clean', 'पेस्ट', 'टंकी', 'પેસ્ટ', 'જંતુનાશક'],
+    used_vehicles: ['old bike', 'used bike', 'old car', 'used car', 'activa', 'scooter', 'cycle', 'tractor', 'જૂના વાહનો', 'જૂની બાઈક', 'જૂની કાર'],
+    used_mobiles_electronics: ['old mobile', 'used mobile', 'second hand phone', 'old tv', 'old fridge', 'old ac', 'જૂનો મોબાઈલ', 'ઈલેક્ટ્રોનિક્સ'],
+    used_furniture_home: ['old furniture', 'used furniture', 'old sofa', 'used bed', 'cupboard', 'જૂનું ફર્નિચર', 'ઘરવખરી'],
+    used_other_items: ['second hand', 'used items', 'old items', 'buy sell', 'જૂની વસ્તુ', 'લે-વેચ'],
     tailor: ['tailor', 'darzi', 'boutique', 'stitch', 'blouse', 'दर्जी', 'बुटीक', 'દરજી'],
     beautician: ['beauti', 'salon', 'parlour', 'makeup', 'facial', 'bridal', 'ब्यूटीशियन', 'पार्लर', 'બ્યુટિશિયન'],
     mehendi: ['mehendi', 'mehndi', 'henna', 'मेहंदी', 'મહેંદી'],

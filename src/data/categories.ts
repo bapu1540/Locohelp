@@ -10,7 +10,7 @@ export type MasterCategoryId =
   | 'mason_main'
   | 'carpenter_main'
   | 'painter_main'
-  | 'pest_control_main'
+  | 'buy_sell_main'
   | 'brokers_agents'
   | 'social_care'
   | 'transport_shifting'
@@ -18,6 +18,7 @@ export type MasterCategoryId =
   | 'hotel_tiffin'
   | 'other_custom'
   // Legacy master category IDs preserved for backward compatibility
+  | 'pest_control_main'
   | 'home_repair'
   | 'personal_events'
   | 'it_tech'
@@ -154,16 +155,16 @@ export const MASTER_CATEGORIES: MasterCategory[] = [
     subtitleGu: 'ઘરનું કલરકામ, લાપી, POP, વોટરપ્રૂફિંગ અને પોલિશ',
   },
   {
-    id: 'pest_control_main',
-    emoji: '🐜',
-    nameEn: 'Pest Control',
-    nameHi: 'पेस्ट कंट्रोल',
-    nameGu: 'જંતુનાશક સેવા',
-    iconName: 'Bug',
-    color: 'red',
-    subtitleEn: 'Termite, cockroach control, sanitization & water tank cleaning',
-    subtitleHi: 'दीमक, कॉकरोच पेस्ट कंट्रोल, सैनिटाइजेशन और पानी की टंकी सफाई',
-    subtitleGu: 'ઊધઈ, વંદા જંતુનાશક સેવા (પેસ્ટ કંટ્રોલ) અને પાણીની ટાંકી સફાઈ',
+    id: 'buy_sell_main',
+    emoji: '🛒',
+    nameEn: 'Buy & Sell Used Items',
+    nameHi: 'पुरानी चीज़ें खरीदें-बेचें',
+    nameGu: 'જૂની વસ્તુની લે-વેચ',
+    iconName: 'ShoppingBag',
+    color: 'blue',
+    subtitleEn: 'Used Vehicles, Mobiles & Electronics, Furniture, Home & Other Used Items',
+    subtitleHi: 'पुराने वाहन, मोबाइल व इलेक्ट्रॉनिक्स, फर्नीचर, घरेलू और अन्य पुरानी चीज़ें',
+    subtitleGu: 'જૂના વાહનો, મોબાઈલ અને ઈલેક્ટ્રોનિક્સ, ફર્નિચર, ઘરવખરી અને અન્ય જૂની વસ્તુઓ',
   },
   {
     id: 'brokers_agents',
@@ -245,9 +246,9 @@ export const MASTER_CATEGORIES: MasterCategory[] = [
     nameGu: 'અન્ય સેવાઓ',
     iconName: 'Sparkles',
     color: 'violet',
-    subtitleEn: 'CCTV & Mobile, Medical Help, Tuition, and Custom Services',
-    subtitleHi: 'CCTV व मोबाइल, मेडिकल, ट्यूशन और अन्य सभी सेवाएं',
-    subtitleGu: 'CCTV અને મોબાઇલ, મેડિકલ, ટ્યુશન તથા અન્ય તમામ સેવાઓ',
+    subtitleEn: 'Pest Control, CCTV & Mobile, Medical Help, Tuition, and Custom Services',
+    subtitleHi: 'पेस्ट कंट्रोल, CCTV व मोबाइल, मेडिकल, ट्यूशन और अन्य सभी सेवाएं',
+    subtitleGu: 'જંતુનાશક સેવા, CCTV અને મોબાઇલ, મેડિકલ, ટ્યુશન તથા અન્ય તમામ સેવાઓ',
   },
 ];
 
@@ -367,13 +368,61 @@ export const CATEGORIES: CategoryItem[] = [
   },
   {
     id: 'pest_control',
-    masterCategory: 'pest_control_main',
+    masterCategory: 'other_custom',
     nameEn: 'Pest Control',
     nameHi: 'पेस्ट कंट्रोल',
     nameGu: 'જંતુનાશક સેવા',
     iconName: 'Bug',
     tag: '#PestControl',
     description: 'Termite, cockroach control, sanitization & water tank cleaning',
+    helperCount: 0,
+  },
+
+  // ==========================================
+  // 9. 🛒 Buy & Sell Used Items (buy_sell_main)
+  // ==========================================
+  {
+    id: 'used_vehicles',
+    masterCategory: 'buy_sell_main',
+    nameEn: 'Used Vehicles (Bike, Scooter, Car)',
+    nameHi: 'पुराने वाहन (बाइक, एक्टिवा, कार, साइकिल)',
+    nameGu: 'જૂના વાહનો (બાઈક, એક્ટિવા, કાર, સાયકલ)',
+    iconName: 'Car',
+    tag: '#UsedVehicles',
+    description: 'Buy & sell second-hand bike, Activa, scooter, car, cycle & tractor',
+    helperCount: 0,
+  },
+  {
+    id: 'used_mobiles_electronics',
+    masterCategory: 'buy_sell_main',
+    nameEn: 'Used Mobiles & Electronics',
+    nameHi: 'पुराने मोबाइल, टीवी, फ्रिज, AC व इलेक्ट्रॉनिक्स',
+    nameGu: 'જૂના મોબાઈલ, ટીવી, ફ્રિજ, AC અને ઈલેક્ટ્રોનિક્સ',
+    iconName: 'Smartphone',
+    tag: '#UsedElectronics',
+    description: 'Buy & sell second-hand mobile phone, laptop, TV, fridge, AC & washing machine',
+    helperCount: 0,
+  },
+  {
+    id: 'used_furniture_home',
+    masterCategory: 'buy_sell_main',
+    nameEn: 'Used Furniture & Home Items',
+    nameHi: 'पुराना फर्नीचर और घर का सामान',
+    nameGu: 'જૂનું ફર્નિચર અને ઘરવખરી',
+    iconName: 'Store',
+    tag: '#UsedFurniture',
+    description: 'Buy & sell second-hand sofa, bed, cupboard, table, chair & kitchen items',
+    helperCount: 0,
+  },
+  {
+    id: 'used_other_items',
+    masterCategory: 'buy_sell_main',
+    nameEn: 'Other Used Items',
+    nameHi: 'अन्य पुरानी चीज़ें (किताबें, सामान आदि)',
+    nameGu: 'અન્ય જૂની વસ્તુઓ (પુસ્તકો, સાધનો વગેરે)',
+    iconName: 'Package',
+    tag: '#UsedItems',
+    description: 'Buy & sell second-hand books, tools, shop items, kids items & other goods',
     helperCount: 0,
   },
 
@@ -1410,7 +1459,11 @@ export const CATEGORY_SEARCH_SYNONYMS: Record<string, string[]> = {
   mason: ['mistri', 'rajmistri', 'kadiya', 'kadiyo', 'tiles', 'marble', 'granite', 'plaster', 'cement', 'brick', 'construction', 'civil', 'chuna', 'deewar', 'flooring'],
   maid_cook: ['maid', 'kaamwali', 'kamwali', 'bai', 'cook', 'rasoiya', 'khana banane wali', 'bartan', 'jhadu', 'pocha', 'house maid', 'cooking'],
   cleaning: ['safai', 'jhadu', 'pocha', 'housekeeping', 'bathroom cleaning', 'sofa cleaning', 'deep cleaning', 'home cleaning'],
-  pest_control: ['pest', 'termite', 'deemak', 'cockroach', 'khatmal', 'machhar', 'rat', 'chuha', 'tank cleaning', 'pani ki tanki', 'sanitization', 'spray', 'jantunashak'],
+  pest_control: ['pest', 'termite', 'deemak', 'cockroach', 'khatmal', 'machhar', 'rat', 'chuha', 'tank cleaning', 'pani ki tanki', 'sanitization', 'spray', 'jantunashak', 'જંતુનાશક'],
+  used_vehicles: ['old bike', 'used bike', 'old car', 'used car', 'second hand bike', 'second hand car', 'activa', 'scooter', 'cycle', 'tractor', 'purani gadi', 'purani bike', 'જૂની બાઈક', 'જૂની કાર', 'જૂના વાહનો', 'લે-વેચ', 'ખરીદ વેચાણ', 'buy sell'],
+  used_mobiles_electronics: ['old mobile', 'used mobile', 'second hand mobile', 'second hand phone', 'purana mobile', 'old laptop', 'used tv', 'old fridge', 'old ac', 'used washing machine', 'જૂનો મોબાઈલ', 'જૂનું ફ્રિજ', 'જૂનું ટીવી', 'ઈલેક્ટ્રોનિક્સ', 'લે-વેચ'],
+  used_furniture_home: ['old furniture', 'used furniture', 'second hand furniture', 'old sofa', 'used bed', 'old cupboard', 'kabat', 'table', 'chair', 'purana furniture', 'જૂનું ફર્નિચર', 'સોફા', 'બેડ', 'કબાટ', 'ઘરવખરી', 'લે-વેચ'],
+  used_other_items: ['second hand', 'used items', 'old items', 'buy sell', 'olx', 'bazaar', 'purana saman', 'bechna', 'kharidna', 'જૂની વસ્તુ', 'લે-વેચ', 'વેચવાનું છે', 'ખરીદવાનું છે'],
   tailor: ['darzi', 'silai', 'kapde', 'blouse', 'suit', 'kurti', 'lehenga', 'pant', 'shirt', 'alteration', 'fitting', 'boutique', 'pico', 'fall', 'embroidery'],
   beautician: ['parlour', 'parlor', 'salon', 'makeup', 'bridal', 'facial', 'waxing', 'threading', 'mehendi', 'haircut', 'spa', 'beauty', 'grooming', 'manicure', 'pedicure'],
   mehendi: ['mehndi', 'mehandi', 'henna', 'bridal mehendi', 'cone', 'shadi mehendi', 'karwa chauth'],

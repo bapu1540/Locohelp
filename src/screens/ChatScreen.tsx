@@ -741,9 +741,12 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
       });
     };
 
-    const syncChat = async () => {
+    let syncTickCount = 0;
+
+    const syncChat = async (forceInbox = false) => {
       if (isSyncing) return;
       isSyncing = true;
+      const currentTick = syncTickCount++;
       try {
         const activeUser = getCurrentUser();
         const myUid = activeUser?.uid || '';
@@ -759,42 +762,50 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
         let effectiveHelperId = activeHelperId;
         let effectiveConvId = activeConversationId;
 
-        const fetchInboxPromise = (async () => {
-          try {
-            const convRes = await fetch(
-              `/api/chat/conversations?postId=${encodeURIComponent(chatId)}&userId=${encodeURIComponent(myUid)}&ownerEmail=${encodeURIComponent(myEmail)}&userPhone=${encodeURIComponent(myPhone)}&_t=${Date.now()}`,
-              {
-                cache: 'no-store',
-                headers: getAuthHeaders()
-              }
-            );
-            if (convRes.ok) {
-              const convList = await convRes.json();
-              if (isMounted && Array.isArray(convList)) {
-                const normalizedInbox = normalizeAndDedupeConversations(convList);
-                setInboxConversations(normalizedInbox);
-                if (isPostOwner && !selectedReplierId && normalizedInbox.length > 0) {
-                  const firstHelper = normalizedInbox.find(c => {
-                    const hId = c?.helperId || c?.senderId || c?.helper_id;
-                    const hEmail = c?.helperEmail || c?.senderEmail || '';
-                    return hId && hId !== 'system' && !isMessageSentByUser({ sender_id: hId, sender_email: hEmail }, activeUser);
-                  });
-                  const firstHelperId = firstHelper?.helperId || firstHelper?.senderId || firstHelper?.helper_id;
-                  if (firstHelper && firstHelperId) {
-                    effectiveHelperId = String(firstHelperId);
-                    effectiveConvId = firstHelper.id || firstHelper.conversationId || `conv_${chatId}__${String(firstHelperId).toLowerCase()}`;
-                    setSelectedReplierId(firstHelperId);
-                    setSelectedReplierName(firstHelper.helperName || firstHelper.senderName || 'Community Helper');
-                    setSelectedReplierEmail(firstHelper.helperEmail || firstHelper.senderEmail || null);
-                    setSelectedReplierAvatar(firstHelper.helperAvatar || firstHelper.senderAvatar || null);
+        const shouldFetchInbox =
+          forceInbox ||
+          currentTick === 0 ||
+          currentTick % 3 === 0 ||
+          (isPostOwner && !selectedReplierId);
+
+        const fetchInboxPromise = shouldFetchInbox
+          ? (async () => {
+              try {
+                const convRes = await fetch(
+                  `/api/chat/conversations?postId=${encodeURIComponent(chatId)}&userId=${encodeURIComponent(myUid)}&ownerEmail=${encodeURIComponent(myEmail)}&userPhone=${encodeURIComponent(myPhone)}&_t=${Date.now()}`,
+                  {
+                    cache: 'no-store',
+                    headers: getAuthHeaders()
+                  }
+                );
+                if (convRes.ok) {
+                  const convList = await convRes.json();
+                  if (isMounted && Array.isArray(convList)) {
+                    const normalizedInbox = normalizeAndDedupeConversations(convList);
+                    setInboxConversations(normalizedInbox);
+                    if (isPostOwner && !selectedReplierId && normalizedInbox.length > 0) {
+                      const firstHelper = normalizedInbox.find(c => {
+                        const hId = c?.helperId || c?.senderId || c?.helper_id;
+                        const hEmail = c?.helperEmail || c?.senderEmail || '';
+                        return hId && hId !== 'system' && !isMessageSentByUser({ sender_id: hId, sender_email: hEmail }, activeUser);
+                      });
+                      const firstHelperId = firstHelper?.helperId || firstHelper?.senderId || firstHelper?.helper_id;
+                      if (firstHelper && firstHelperId) {
+                        effectiveHelperId = String(firstHelperId);
+                        effectiveConvId = firstHelper.id || firstHelper.conversationId || `conv_${chatId}__${String(firstHelperId).toLowerCase()}`;
+                        setSelectedReplierId(firstHelperId);
+                        setSelectedReplierName(firstHelper.helperName || firstHelper.senderName || 'Community Helper');
+                        setSelectedReplierEmail(firstHelper.helperEmail || firstHelper.senderEmail || null);
+                        setSelectedReplierAvatar(firstHelper.helperAvatar || firstHelper.senderAvatar || null);
+                      }
+                    }
                   }
                 }
-              }
-            }
-          } catch {}
-        })();
+              } catch {}
+            })()
+          : Promise.resolve();
 
-        // Always fetch messages for this post/conversation in parallel with inbox!
+        // Fetch messages for this post/conversation in parallel with inbox when needed
         const initialTargetConv = effectiveConvId || chatId;
         let serverMessages: any[] = [];
         if (initialTargetConv) {
@@ -849,8 +860,8 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
       }
     };
 
-    syncChat();
-    const pollInterval = setInterval(syncChat, 900);
+    syncChat(true);
+    const pollInterval = setInterval(() => syncChat(false), 2500);
     const unsubStream = subscribeToRealtimeStream({
       onNewResponse: (payload) => {
         if (!currentIntent) {
@@ -864,18 +875,22 @@ export default function ChatScreen({ intent, onIntentChange, onBack, onReport, i
           (incomingConvId && activeConversationId && incomingConvId.toLowerCase() === activeConversationId.toLowerCase());
 
         if (matchesChat) {
-          // 0ms Instant UI Insertion from SSE payload before background verification sync
+          // 0ms Instant UI Insertion from SSE payload without extra HTTP roundtrip
+          let insertedDirectly = false;
           if (payload?.response && payload.response.id) {
             const msgObj = payload.response;
             const msgHelperId = String(msgObj.helperId || msgObj.helper_id || payload.helperId || '').trim();
             if (!isPostOwner || !activeHelperId || !msgHelperId || msgHelperId.toLowerCase() === activeHelperId.toLowerCase()) {
               mergeIncomingMessages([msgObj]);
+              insertedDirectly = true;
             }
           }
           if (isPostOwner && Array.isArray(payload?.repliers) && payload.repliers.length > 0) {
             setInboxConversations(normalizeAndDedupeConversations(payload.repliers));
           }
-          syncChat();
+          if (!insertedDirectly) {
+            syncChat(true);
+          }
         }
       }
     });

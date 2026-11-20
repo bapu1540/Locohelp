@@ -16,7 +16,12 @@ import {
   Trash2,
   ChevronRight,
   Plus,
-  Search
+  Search,
+  ShoppingBag,
+  Tag,
+  Clock,
+  CheckCircle2,
+  XCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useLanguage } from '../i18n';
@@ -31,7 +36,11 @@ import {
   deleteIntentOnServer,
   isClientDummyOrExpiredPost,
   getLocalUserDeletedChatsMap,
-  subscribeToRealtimeStream
+  subscribeToRealtimeStream,
+  fetchUsedItems,
+  updateUsedItemStatus,
+  deleteUsedItemListing,
+  UsedItemListing
 } from '../api';
 import { DEFAULT_SHOWCASE_PROVIDERS, ShowcaseProviderItem } from './HomeBelowCategorySection';
 import {
@@ -71,10 +80,13 @@ export default function FixedBottomNavBar({
   const [postsSearchQuery, setPostsSearchQuery] = useState('');
   const [postsScope, setPostsScope] = useState<'all' | 'local'>('all');
   const [isLoadingLivePosts, setIsLoadingLivePosts] = useState(false);
-  const [bookingsSubTab, setBookingsSubTab] = useState<'requests' | 'contacted' | 'replies'>('requests');
+  const [bookingsSubTab, setBookingsSubTab] = useState<'live_posts' | 'requests' | 'contacted' | 'replies' | 'my_used_items'>('live_posts');
   const [myBookingsList, setMyBookingsList] = useState<Intent[]>([]);
   const [contactedProvidersList, setContactedProvidersList] = useState<any[]>([]);
   const [myRepliedChatsList, setMyRepliedChatsList] = useState<any[]>([]);
+  const [myUsedItemsList, setMyUsedItemsList] = useState<UsedItemListing[]>([]);
+  const [busyUsedItemId, setBusyUsedItemId] = useState<string | null>(null);
+  const [confirmDeleteUsedItemId, setConfirmDeleteUsedItemId] = useState<string | null>(null);
   const [isLoadingBookings, setIsLoadingBookings] = useState(false);
   const [favoriteProviders, setFavoriteProviders] = useState<ShowcaseProviderItem[]>([]);
   const [activeLocation, setActiveLocation] = useState<UserManualLocation>(() => getSavedUserLocation());
@@ -302,7 +314,7 @@ export default function FixedBottomNavBar({
   };
 
   useEffect(() => {
-    if (activeBottomModal !== 'bookings') return;
+    if (activeBottomModal !== 'bookings' && activeBottomModal !== 'posts') return;
 
     const user = getCurrentUser();
     const userPhone =
@@ -338,7 +350,7 @@ export default function FixedBottomNavBar({
     let active = true;
     const loadMyBookings = async () => {
       try {
-        const [live, liveConvs] = await Promise.all([
+        const [live, liveConvs, liveMyUsedItems] = await Promise.all([
           fetchLiveIntents(),
           user
             ? fetchPostConversations({
@@ -346,6 +358,9 @@ export default function FixedBottomNavBar({
                 userEmail: user.email,
                 userPhone
               })
+            : Promise.resolve([]),
+          !isGuestUser() && user?.uid
+            ? fetchUsedItems({ status: 'all', mine: true })
             : Promise.resolve([])
         ]);
         if (!active) return;
@@ -355,6 +370,9 @@ export default function FixedBottomNavBar({
           liveConvs,
           new Set(freshMyPosts.map((p) => String(p.id)))
         );
+        if (Array.isArray(liveMyUsedItems)) {
+          setMyUsedItemsList(liveMyUsedItems);
+        }
       } catch {
         // Keep cached lists if network fails
       } finally {
@@ -677,8 +695,11 @@ export default function FixedBottomNavBar({
       {/* ===================================================================== */}
       {/* LIVE BROADCAST POSTS MODAL (📢 પોસ્ટ / Live Posts)                      */}
       {/* ===================================================================== */}
+      {/* ===================================================================== */}
+      {/* UNIFIED POSTS & MY BOOKINGS MODAL (📢 પોસ્ટ અને બુકિંગ)                */}
+      {/* ===================================================================== */}
       <AnimatePresence>
-        {activeBottomModal === 'posts' && (
+        {(activeBottomModal === 'posts' || activeBottomModal === 'bookings') && (
           <div
             style={{
               position: 'fixed',
@@ -705,10 +726,10 @@ export default function FixedBottomNavBar({
                 zIndex: 10,
                 width: '100%',
                 maxWidth: '520px',
-                maxHeight: '85vh',
+                maxHeight: '86vh',
                 backgroundColor: '#ffffff',
                 borderRadius: '24px',
-                border: '1px solid #fed7aa',
+                border: '1px solid #e2e8f0',
                 display: 'flex',
                 flexDirection: 'column',
                 overflow: 'hidden',
@@ -718,7 +739,7 @@ export default function FixedBottomNavBar({
               {/* Header */}
               <div
                 style={{
-                  background: 'linear-gradient(135deg, #EA580C 0%, #D97706 100%)',
+                  background: 'linear-gradient(135deg, #EA580C 0%, #2563EB 100%)',
                   color: '#ffffff',
                   padding: '13px 15px',
                   display: 'flex',
@@ -732,17 +753,17 @@ export default function FixedBottomNavBar({
                   <div style={{ minWidth: 0 }}>
                     <h3 className="text-sm sm:text-base font-black leading-tight m-0 truncate">
                       {language === 'GU'
-                        ? `લાઈવ પોસ્ટ્સ - ${getLocalizedLocationButtonText(activeLocation, language)} (${filteredLivePosts.length})`
+                        ? 'પોસ્ટ અને મારી બુકિંગ'
                         : language === 'HI'
-                        ? `लाइव पोस्ट - ${getLocalizedLocationButtonText(activeLocation, language)} (${filteredLivePosts.length})`
-                        : `Live Posts - ${getLocalizedLocationButtonText(activeLocation, language)} (${filteredLivePosts.length})`}
+                        ? 'पोस्ट और मेरी बुकिंग'
+                        : 'Posts & My Bookings'}
                     </h3>
                     <p className="text-[10px] text-orange-100 font-medium m-0 truncate">
                       {language === 'GU'
-                        ? 'તમામ લાઈવ પોસ્ટ્સ જુઓ અથવા નવી પોસ્ટ મૂકો'
+                        ? 'લાઈવ પોસ્ટ્સ, જવાબો, કારીગરો અને વેચાણ વસ્તુઓ'
                         : language === 'HI'
-                        ? 'सभी लाइव पोस्ट देखें या नई पोस्ट बनाएं'
-                        : 'Browse all live community requests or post your need'}
+                        ? 'लाइव पोस्ट, जवाब, कारीगर और बिक्री की वस्तुएं'
+                        : 'Live posts, replies, providers & your items for sale'}
                     </p>
                   </div>
                 </div>
@@ -778,418 +799,418 @@ export default function FixedBottomNavBar({
                 </div>
               </div>
 
-              {/* Search Bar & City Scope Filter */}
-              <div className="px-3.5 py-2.5 bg-slate-50 border-b border-slate-200 space-y-2">
-                <div className="relative flex items-center">
-                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3" />
-                  <input
-                    type="text"
-                    value={postsSearchQuery}
-                    onChange={(e) => setPostsSearchQuery(e.target.value)}
-                    placeholder={
-                      language === 'GU'
-                        ? 'પોસ્ટ, સેવા કે વિસ્તાર શોધો...'
-                        : language === 'HI'
-                        ? 'पोस्ट, सेवा या क्षेत्र खोजें...'
-                        : 'Search posts, services or area...'
-                    }
-                    className="w-full pl-8 pr-8 py-1.5 rounded-xl bg-white border border-slate-200 text-xs font-bold text-slate-800 focus:outline-none focus:border-orange-500"
-                  />
-                  {postsSearchQuery && (
-                    <button
-                      type="button"
-                      onClick={() => setPostsSearchQuery('')}
-                      className="absolute right-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-                {!isAllCitiesMode && (
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setPostsScope('all')}
-                      className={`px-2.5 py-1 rounded-lg text-[11px] font-black transition-colors cursor-pointer ${
-                        postsScope === 'all'
-                          ? 'bg-orange-600 text-white shadow-2xs'
-                          : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
-                      }`}
-                    >
-                      🌐 {language === 'GU' ? `બધા શહેરો (${activeVisiblePosts.length})` : language === 'HI' ? `सभी शहर (${activeVisiblePosts.length})` : `All Cities (${activeVisiblePosts.length})`}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPostsScope('local')}
-                      className={`px-2.5 py-1 rounded-lg text-[11px] font-black transition-colors cursor-pointer ${
-                        postsScope === 'local'
-                          ? 'bg-orange-600 text-white shadow-2xs'
-                          : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
-                      }`}
-                    >
-                      📍 {getLocalizedLocationButtonText(activeLocation, language)} ({localCityPostsCount})
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* Posts Feed */}
-              <div className="p-3.5 overflow-y-auto flex-1 space-y-2.5">
-                {isLoadingLivePosts ? (
-                  <div className="py-10 text-center text-xs font-bold text-slate-500">
-                    ⏳ {language === 'GU' ? 'પોસ્ટ્સ લોડ થઈ રહી છે...' : 'Loading live posts...'}
-                  </div>
-                ) : filteredLivePosts.length === 0 ? (
-                  <div className="py-8 px-4 text-center space-y-3 bg-orange-50/50 rounded-2xl border border-dashed border-orange-300">
-                    <div className="w-12 h-12 rounded-2xl bg-orange-100 text-orange-600 mx-auto flex items-center justify-center text-2xl">
-                      📢
-                    </div>
-                    <h4 className="text-sm font-black text-slate-900">
-                      {language === 'GU'
-                        ? `હાલ ${getLocalizedLocationButtonText(activeLocation, language)} માં કોઈ લાઈવ પોસ્ટ નથી`
-                        : language === 'HI'
-                        ? `अभी ${getLocalizedLocationButtonText(activeLocation, language)} में कोई लाइव पोस्ट नहीं है`
-                        : `No Live Posts in ${getLocalizedLocationButtonText(activeLocation, language)}`}
-                    </h4>
-                    <p className="text-xs text-slate-500 max-w-xs mx-auto">
-                      {language === 'GU'
-                        ? 'તમારે કોઈ કારીગર કે સેવાની જરૂર હોય તો હમણાં જ ફ્રી પોસ્ટ મૂકો અથવા બધા શહેરોની પોસ્ટ જુઓ!'
-                        : language === 'HI'
-                        ? 'किसी कारीगर या सेवा की जरूरत हो तो अभी फ्री पोस्ट डालें या सभी शहरों की पोस्ट देखें!'
-                        : 'Need a service expert? Create a free post right now or view posts from all cities!'}
-                    </p>
-                    <div className="flex flex-wrap items-center justify-center gap-2">
-                      {!isAllCitiesMode && allLivePostsList.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            saveUserLocationPermanently({ state: 'All', district: 'All', taluka: '', area: '' });
-                          }}
-                          className="px-3.5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-black shadow-sm cursor-pointer inline-flex items-center gap-1.5"
-                        >
-                          <span>🌐</span>
-                          <span>
-                            {language === 'GU'
-                              ? `બધા શહેરોની પોસ્ટ જુઓ (${allLivePostsList.length})`
-                              : language === 'HI'
-                              ? `सभी शहरों की पोस्ट देखें (${allLivePostsList.length})`
-                              : `View All Cities (${allLivePostsList.length})`}
-                          </span>
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={handleTriggerCreatePost}
-                        style={{ backgroundColor: '#EA580C', color: '#ffffff' }}
-                        className="px-4 py-2.5 rounded-xl text-xs font-black shadow-sm cursor-pointer inline-flex items-center gap-1.5"
-                      >
-                        <Plus className="w-4 h-4" />
-                        <span>
-                          {language === 'GU'
-                            ? 'નવી પોસ્ટ બનાવો'
-                            : language === 'HI'
-                            ? 'नई पोस्ट बनाएं'
-                            : 'Create New Post'}
-                        </span>
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  filteredLivePosts.map((post: any) => {
-                    const isMine = myOwnPostIdsSet.has(String(post.id));
-                    const postRepliersList = Array.isArray(post.repliers) && post.repliers.length > 0
-                      ? post.repliers
-                      : Array.isArray(post.responses) && post.responses.length > 0
-                      ? post.responses
-                      : [];
-                    const respCount = Math.max(
-                      Number(post.responseCount || post.response_count || 0),
-                      postRepliersList.length
-                    );
-                    return (
-                      <div
-                        key={post.id}
-                        onClick={() => {
-                          setActiveBottomModal(null);
-                          onOpenChat(post);
-                        }}
-                        className={`p-3.5 rounded-2xl border transition-all cursor-pointer space-y-2 ${
-                          isMine
-                            ? 'bg-emerald-50/70 border-emerald-300 hover:border-emerald-500'
-                            : 'bg-slate-50 border-slate-200 hover:border-orange-400'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-2 flex-wrap">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            {isMine ? (
-                              <span
-                                style={{ backgroundColor: '#059669', color: '#ffffff' }}
-                                className="inline-block px-2 py-0.5 rounded-md text-[10px] font-black"
-                              >
-                                ⚡ {language === 'GU' ? 'તમારી પોસ્ટ (લાઈવ)' : 'Your Post (Live)'}
-                              </span>
-                            ) : (
-                              <span className="inline-block px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-800 text-[10px] font-black">
-                                👤 {post.authorName || 'Community Member'}
-                              </span>
-                            )}
-                            {post.category && (
-                              <span className="px-2 py-0.5 rounded-md bg-orange-100 text-orange-800 text-[10px] font-black">
-                                {post.category}
-                              </span>
-                            )}
-                            {respCount > 0 && (
-                              <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-800 text-[10px] font-black">
-                                💬 {respCount} {language === 'GU' ? 'જવાબ' : 'Replies'}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        <p className="text-xs sm:text-sm font-black text-slate-900 leading-snug">
-                          {post.description}
-                        </p>
-
-                        {/* Attached Photo Display */}
-                        {Boolean(post.imageUrl || post.attachmentUrl || post.image_url) && (
-                          <div className="relative w-full max-h-48 rounded-xl overflow-hidden border border-slate-200 bg-slate-100 flex items-center justify-center">
-                            <img
-                              src={post.imageUrl || post.attachmentUrl || post.image_url}
-                              alt="Post attachment"
-                              className="w-full max-h-48 object-cover rounded-xl"
-                              loading="lazy"
-                            />
-                          </div>
-                        )}
-
-                        {/* Inline Replies Preview directly inside Post Card */}
-                        {postRepliersList.length > 0 && (
-                          <div className="p-2.5 rounded-xl bg-white/95 border border-emerald-200 space-y-1.5">
-                            <p className="text-[10px] font-black text-emerald-800 flex items-center gap-1">
-                              <span>💬</span>
-                              <span>
-                                {language === 'GU'
-                                  ? `આવેલા જવાબો (${postRepliersList.length}):`
-                                  : `Replies (${postRepliersList.length}):`}
-                              </span>
-                            </p>
-                            {postRepliersList.slice(0, 3).map((rep: any, idx: number) => {
-                              const repId = String(rep.senderId || rep.sender_id || rep.helperId || '').trim();
-                              const repName = rep.senderName || rep.sender_name || rep.helperName || 'Community Helper';
-                              const repMsg = rep.lastMessage || rep.last_message || rep.text || rep.message || '';
-                              return (
-                                <div
-                                  key={rep.id || `${repId}_${idx}`}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setActiveBottomModal(null);
-                                    onOpenChat({
-                                      ...post,
-                                      selectedReplierId: repId || undefined,
-                                      selectedReplierName: repName,
-                                      selectedReplierEmail: rep.senderEmail || rep.helperEmail || undefined,
-                                      selectedReplierAvatar: rep.senderAvatar || rep.helperAvatar || undefined
-                                    });
-                                  }}
-                                  className="px-2.5 py-1.5 rounded-lg bg-emerald-50/80 hover:bg-emerald-100/80 border border-emerald-200/80 flex items-center justify-between gap-2 cursor-pointer"
-                                >
-                                  <div className="min-w-0">
-                                    <span className="text-[11px] font-black text-slate-900">{repName}: </span>
-                                    <span className="text-[11px] font-bold text-slate-700">{repMsg}</span>
-                                  </div>
-                                  <span className="text-[10px] font-black text-emerald-700 shrink-0">
-                                    {language === 'GU' ? 'ચેટ →' : 'Chat →'}
-                                  </span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-
-                        <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-slate-200/80">
-                          <p className="text-[11px] font-bold text-slate-500 flex items-center gap-1 truncate">
-                            <MapPin className="w-3 h-3 text-orange-600 shrink-0" />
-                            <span className="truncate">
-                              {formatPostLocationDisplay(post)}
-                            </span>
-                          </p>
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            {isMine && (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={(e) => handleOpenDeletePostConfirm(e, post)}
-                                  className="px-2.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[11px] font-black flex items-center gap-1 cursor-pointer"
-                                  title={language === 'GU' ? 'પોસ્ટ ડિલીટ કરો' : language === 'HI' ? 'पोस्ट डिलीट करें' : 'Delete Post'}
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                  <span>{language === 'GU' ? 'ડિલીટ' : language === 'HI' ? 'डिलीट' : 'Delete'}</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={(e) => handleCompleteOrDeleteMyBooking(e, post)}
-                                  className="px-2.5 py-1.5 rounded-xl bg-emerald-100 hover:bg-emerald-200 text-emerald-800 text-[11px] font-black flex items-center gap-1 cursor-pointer"
-                                >
-                                  <span>✅</span>
-                                  <span>{language === 'GU' ? 'પૂર્ણ થયું' : 'Done'}</span>
-                                </button>
-                              </>
-                            )}
-                            <button
-                              type="button"
-                              style={{ backgroundColor: isMine ? '#2563EB' : '#EA580C', color: '#ffffff' }}
-                              className="px-3 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1 cursor-pointer"
-                            >
-                              <span>
-                                {isMine
-                                  ? language === 'GU'
-                                    ? `જવાબ જુઓ${respCount > 0 ? ` (${respCount})` : ''}`
-                                    : `View Replies${respCount > 0 ? ` (${respCount})` : ''}`
-                                  : language === 'GU'
-                                  ? 'ચેટ / મદદ કરો'
-                                  : 'Chat / Help'}
-                              </span>
-                              <ChevronRight className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* ===================================================================== */}
-      {/* MY BOOKINGS / MY REQUESTS MODAL (મારી બુકિંગ)                           */}
-      {/* ===================================================================== */}
-      <AnimatePresence>
-        {activeBottomModal === 'bookings' && (
-          <div
-            style={{
-              position: 'fixed',
-              inset: 0,
-              zIndex: 9500,
-              backgroundColor: 'rgba(15, 23, 42, 0.65)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: '16px'
-            }}
-          >
-            <div
-              style={{ position: 'fixed', inset: 0 }}
-              onClick={() => setActiveBottomModal(null)}
-            />
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 20 }}
-              transition={{ duration: 0.18 }}
-              style={{
-                position: 'relative',
-                zIndex: 10,
-                width: '100%',
-                maxWidth: '500px',
-                maxHeight: '84vh',
-                backgroundColor: '#ffffff',
-                borderRadius: '24px',
-                border: '1px solid #e2e8f0',
-                display: 'flex',
-                flexDirection: 'column',
-                overflow: 'hidden',
-                boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)'
-              }}
-            >
-              <div
-                style={{
-                  background: 'linear-gradient(135deg, #2563EB 0%, #4338CA 100%)',
-                  color: '#ffffff',
-                  padding: '14px 16px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <Calendar className="w-5 h-5" />
-                  <div>
-                    <h3 className="text-sm sm:text-base font-black leading-tight m-0">
-                      {language === 'GU'
-                        ? 'મારી બુકિંગ અને સેવા રિકવેસ્ટ'
-                        : language === 'HI'
-                        ? 'मेरी बुकिंग और सेवा रिक्वेस्ट'
-                        : 'My Bookings & Service Requests'}
-                    </h3>
-                    <p className="text-[10px] text-blue-100 font-medium m-0">
-                      {language === 'GU'
-                        ? 'તમારી પોસ્ટ, સંપર્ક કરેલા કારીગરો અને જવાબો'
-                        : language === 'HI'
-                        ? 'आपकी पोस्ट, संपर्क किए गए कारीगर और जवाब'
-                        : 'Your posts, contacted providers & replies'}
-                    </p>
-                  </div>
-                </div>
+              {/* 2x2 Spacious Non-Truncating 4-Section Selector */}
+              <div className="grid grid-cols-2 gap-1.5 px-3 pt-2.5 pb-2.5 bg-slate-100 border-b border-slate-200">
                 <button
                   type="button"
-                  onClick={() => setActiveBottomModal(null)}
-                  className="p-1.5 rounded-full bg-white/15 hover:bg-white/25 text-white cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              {/* 3 Sub-Tabs inside My Bookings Modal */}
-              <div className="grid grid-cols-3 gap-1.5 px-3 pt-3 pb-2 bg-slate-50 border-b border-slate-200">
-                <button
-                  type="button"
-                  onClick={() => setBookingsSubTab('requests')}
-                  className={`py-2 px-2 rounded-xl text-[11px] font-black transition-all cursor-pointer flex items-center justify-center gap-1 ${
-                    bookingsSubTab === 'requests'
-                      ? 'bg-blue-600 text-white shadow-sm'
-                      : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
+                  onClick={() => setBookingsSubTab('live_posts')}
+                  className={`py-2 px-2.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center justify-between gap-1.5 ${
+                    bookingsSubTab === 'live_posts'
+                      ? 'bg-orange-600 text-white shadow-sm'
+                      : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
                   }`}
                 >
-                  <span>📋</span>
-                  <span className="truncate">
-                    {language === 'GU' ? 'મારી પોસ્ટ' : language === 'HI' ? 'मेरी पोस्ट' : 'My Posts'} ({activeMyBookingsList.length})
+                  <span className="flex items-center gap-1.5 text-left">
+                    <span>📢</span>
+                    <span>{language === 'GU' ? 'લાઈવ પોસ્ટ્સ' : language === 'HI' ? 'लाइव पोस्ट' : 'Live Posts'}</span>
+                  </span>
+                  <span
+                    className={`px-1.5 py-0.5 rounded-md text-[10px] font-black tabular-nums ${
+                      bookingsSubTab === 'live_posts' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'
+                    }`}
+                  >
+                    {filteredLivePosts.length}
                   </span>
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (bookingsSubTab !== 'requests' && bookingsSubTab !== 'replies') {
+                      setBookingsSubTab('requests');
+                    }
+                  }}
+                  className={`py-2 px-2.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center justify-between gap-1.5 ${
+                    bookingsSubTab === 'requests' || bookingsSubTab === 'replies'
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  <span className="flex items-center gap-1.5 text-left">
+                    <span>📋</span>
+                    <span>{language === 'GU' ? 'મારી પોસ્ટ / જવાબ' : language === 'HI' ? 'मेरी पोस्ट / जवाब' : 'My Posts & Replies'}</span>
+                  </span>
+                  <span
+                    className={`px-1.5 py-0.5 rounded-md text-[10px] font-black tabular-nums ${
+                      bookingsSubTab === 'requests' || bookingsSubTab === 'replies'
+                        ? 'bg-white/20 text-white'
+                        : 'bg-slate-100 text-slate-700'
+                    }`}
+                  >
+                    {activeMyBookingsList.length + myRepliedChatsList.length}
+                  </span>
+                </button>
+
                 <button
                   type="button"
                   onClick={() => setBookingsSubTab('contacted')}
-                  className={`py-2 px-2 rounded-xl text-[11px] font-black transition-all cursor-pointer flex items-center justify-center gap-1 ${
+                  className={`py-2 px-2.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center justify-between gap-1.5 ${
                     bookingsSubTab === 'contacted'
-                      ? 'bg-blue-600 text-white shadow-sm'
-                      : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
                   }`}
                 >
-                  <span>📞</span>
-                  <span className="truncate">
-                    {language === 'GU' ? 'કારીગરો' : language === 'HI' ? 'कारीगर' : 'Providers'} ({contactedProvidersList.length})
+                  <span className="flex items-center gap-1.5 text-left">
+                    <span>📞</span>
+                    <span>{language === 'GU' ? 'કારીગરો બુકિંગ' : language === 'HI' ? 'कारीगर बुकिंग' : 'Contacted Experts'}</span>
+                  </span>
+                  <span
+                    className={`px-1.5 py-0.5 rounded-md text-[10px] font-black tabular-nums ${
+                      bookingsSubTab === 'contacted' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'
+                    }`}
+                  >
+                    {contactedProvidersList.length}
                   </span>
                 </button>
+
                 <button
                   type="button"
-                  onClick={() => setBookingsSubTab('replies')}
-                  className={`py-2 px-2 rounded-xl text-[11px] font-black transition-all cursor-pointer flex items-center justify-center gap-1 ${
-                    bookingsSubTab === 'replies'
-                      ? 'bg-blue-600 text-white shadow-sm'
-                      : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
+                  onClick={() => setBookingsSubTab('my_used_items')}
+                  className={`py-2 px-2.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center justify-between gap-1.5 ${
+                    bookingsSubTab === 'my_used_items'
+                      ? 'bg-sky-600 text-white shadow-sm'
+                      : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
                   }`}
                 >
-                  <span>🤝</span>
-                  <span className="truncate">
-                    {language === 'GU' ? 'મારા જવાબો' : language === 'HI' ? 'मेरे जवाब' : 'My Replies'} ({myRepliedChatsList.length})
+                  <span className="flex items-center gap-1.5 text-left">
+                    <span>🛍️</span>
+                    <span>{language === 'GU' ? 'મારી વેચાણ વસ્તુ' : language === 'HI' ? 'मेरी बिक्री वस्तु' : 'My Used Items'}</span>
+                  </span>
+                  <span
+                    className={`px-1.5 py-0.5 rounded-md text-[10px] font-black tabular-nums ${
+                      bookingsSubTab === 'my_used_items' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'
+                    }`}
+                  >
+                    {myUsedItemsList.length}
                   </span>
                 </button>
               </div>
 
-              <div className="p-4 overflow-y-auto flex-1 space-y-3">
-                {isLoadingBookings ? (
+              {/* Search Bar & City Scope Filter (Shown when viewing Live Posts tab) */}
+              {bookingsSubTab === 'live_posts' && (
+                <div className="px-3.5 py-2.5 bg-slate-50 border-b border-slate-200 space-y-2">
+                  <div className="relative flex items-center">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3" />
+                    <input
+                      type="text"
+                      value={postsSearchQuery}
+                      onChange={(e) => setPostsSearchQuery(e.target.value)}
+                      placeholder={
+                        language === 'GU'
+                          ? 'પોસ્ટ, સેવા કે વિસ્તાર શોધો...'
+                          : language === 'HI'
+                          ? 'पोस्ट, सेवा या क्षेत्र खोजें...'
+                          : 'Search posts, services or area...'
+                      }
+                      className="w-full pl-8 pr-8 py-1.5 rounded-xl bg-white border border-slate-200 text-xs font-bold text-slate-800 focus:outline-none focus:border-orange-500"
+                    />
+                    {postsSearchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setPostsSearchQuery('')}
+                        className="absolute right-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                  {!isAllCitiesMode && (
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setPostsScope('all')}
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-black transition-colors cursor-pointer ${
+                          postsScope === 'all'
+                            ? 'bg-orange-600 text-white shadow-2xs'
+                            : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        🌐 {language === 'GU' ? `બધા શહેરો (${activeVisiblePosts.length})` : language === 'HI' ? `सभी शहर (${activeVisiblePosts.length})` : `All Cities (${activeVisiblePosts.length})`}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPostsScope('local')}
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-black transition-colors cursor-pointer ${
+                          postsScope === 'local'
+                            ? 'bg-orange-600 text-white shadow-2xs'
+                            : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        📍 {getLocalizedLocationButtonText(activeLocation, language)} ({localCityPostsCount})
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Spacious 2-Column Sub-Toggle when inside "મારી પોસ્ટ / જવાબ" */}
+              {(bookingsSubTab === 'requests' || bookingsSubTab === 'replies') && (
+                <div className="grid grid-cols-2 gap-2 px-3.5 py-2.5 bg-slate-50 border-b border-slate-200">
+                  <button
+                    type="button"
+                    onClick={() => setBookingsSubTab('requests')}
+                    className={`py-2 px-3 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                      bookingsSubTab === 'requests'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <span>📋</span>
+                    <span>
+                      {language === 'GU' ? 'મારી મૂકેલી પોસ્ટ' : language === 'HI' ? 'मेरी डाली पोस्ट' : 'My Posts'} ({activeMyBookingsList.length})
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBookingsSubTab('replies')}
+                    className={`py-2 px-3 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                      bookingsSubTab === 'replies'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <span>🤝</span>
+                    <span>
+                      {language === 'GU' ? 'મેં આપેલા જવાબો' : language === 'HI' ? 'मेरे दिए जवाब' : 'My Replies'} ({myRepliedChatsList.length})
+                    </span>
+                  </button>
+                </div>
+              )}
+
+              {/* Scrollable Content Area */}
+              <div className="p-3.5 overflow-y-auto flex-1 space-y-2.5">
+                {bookingsSubTab === 'live_posts' ? (
+                  isLoadingLivePosts ? (
+                    <div className="py-10 text-center text-xs font-bold text-slate-500">
+                      ⏳ {language === 'GU' ? 'પોસ્ટ્સ લોડ થઈ રહી છે...' : 'Loading live posts...'}
+                    </div>
+                  ) : filteredLivePosts.length === 0 ? (
+                    <div className="py-8 px-4 text-center space-y-3 bg-orange-50/50 rounded-2xl border border-dashed border-orange-300">
+                      <div className="w-12 h-12 rounded-2xl bg-orange-100 text-orange-600 mx-auto flex items-center justify-center text-2xl">
+                        📢
+                      </div>
+                      <h4 className="text-sm font-black text-slate-900">
+                        {language === 'GU'
+                          ? `હાલ ${getLocalizedLocationButtonText(activeLocation, language)} માં કોઈ લાઈવ પોસ્ટ નથી`
+                          : language === 'HI'
+                          ? `अभी ${getLocalizedLocationButtonText(activeLocation, language)} में कोई लाइव पोस्ट नहीं है`
+                          : `No Live Posts in ${getLocalizedLocationButtonText(activeLocation, language)}`}
+                      </h4>
+                      <p className="text-xs text-slate-500 max-w-xs mx-auto">
+                        {language === 'GU'
+                          ? 'તમારે કોઈ કારીગર કે સેવાની જરૂર હોય તો હમણાં જ ફ્રી પોસ્ટ મૂકો અથવા બધા શહેરોની પોસ્ટ જુઓ!'
+                          : language === 'HI'
+                          ? 'किसी कारीगर या सेवा की जरूरत हो तो अभी फ्री पोस्ट डालें या सभी शहरों की पोस्ट देखें!'
+                          : 'Need a service expert? Create a free post right now or view posts from all cities!'}
+                      </p>
+                      <div className="flex flex-wrap items-center justify-center gap-2">
+                        {!isAllCitiesMode && allLivePostsList.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              saveUserLocationPermanently({ state: 'All', district: 'All', taluka: '', area: '' });
+                            }}
+                            className="px-3.5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-black shadow-sm cursor-pointer inline-flex items-center gap-1.5"
+                          >
+                            <span>🌐</span>
+                            <span>
+                              {language === 'GU'
+                                ? `બધા શહેરોની પોસ્ટ જુઓ (${allLivePostsList.length})`
+                                : language === 'HI'
+                                ? `सभी शहरों की पोस्ट देखें (${allLivePostsList.length})`
+                                : `View All Cities (${allLivePostsList.length})`}
+                            </span>
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={handleTriggerCreatePost}
+                          style={{ backgroundColor: '#EA580C', color: '#ffffff' }}
+                          className="px-4 py-2.5 rounded-xl text-xs font-black shadow-sm cursor-pointer inline-flex items-center gap-1.5"
+                        >
+                          <Plus className="w-4 h-4" />
+                          <span>
+                            {language === 'GU'
+                              ? 'નવી પોસ્ટ બનાવો'
+                              : language === 'HI'
+                              ? 'नई पोस्ट बनाएं'
+                              : 'Create New Post'}
+                          </span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    filteredLivePosts.map((post: any) => {
+                      const isMine = myOwnPostIdsSet.has(String(post.id));
+                      const postRepliersList = Array.isArray(post.repliers) && post.repliers.length > 0
+                        ? post.repliers
+                        : Array.isArray(post.responses) && post.responses.length > 0
+                        ? post.responses
+                        : [];
+                      const respCount = Math.max(
+                        Number(post.responseCount || post.response_count || 0),
+                        postRepliersList.length
+                      );
+                      return (
+                        <div
+                          key={post.id}
+                          onClick={() => {
+                            setActiveBottomModal(null);
+                            onOpenChat(post);
+                          }}
+                          className={`p-3.5 rounded-2xl border transition-all cursor-pointer space-y-2 ${
+                            isMine
+                              ? 'bg-emerald-50/70 border-emerald-300 hover:border-emerald-500'
+                              : 'bg-slate-50 border-slate-200 hover:border-orange-400'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {isMine ? (
+                                <span
+                                  style={{ backgroundColor: '#059669', color: '#ffffff' }}
+                                  className="inline-block px-2 py-0.5 rounded-md text-[10px] font-black"
+                                >
+                                  ⚡ {language === 'GU' ? 'તમારી પોસ્ટ (લાઈવ)' : 'Your Post (Live)'}
+                                </span>
+                              ) : (
+                                <span className="inline-block px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-800 text-[10px] font-black">
+                                  👤 {post.authorName || 'Community Member'}
+                                </span>
+                              )}
+                              {post.category && (
+                                <span className="px-2 py-0.5 rounded-md bg-orange-100 text-orange-800 text-[10px] font-black">
+                                  {post.category}
+                                </span>
+                              )}
+                              {respCount > 0 && (
+                                <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-800 text-[10px] font-black">
+                                  💬 {respCount} {language === 'GU' ? 'જવાબ' : 'Replies'}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <p className="text-xs sm:text-sm font-black text-slate-900 leading-snug">
+                            {post.description}
+                          </p>
+
+                          {Boolean(post.imageUrl || post.attachmentUrl || post.image_url) && (
+                            <div className="relative w-full max-h-48 rounded-xl overflow-hidden border border-slate-200 bg-slate-100 flex items-center justify-center">
+                              <img
+                                src={post.imageUrl || post.attachmentUrl || post.image_url}
+                                alt="Post attachment"
+                                className="w-full max-h-48 object-cover rounded-xl"
+                                loading="lazy"
+                              />
+                            </div>
+                          )}
+
+                          {postRepliersList.length > 0 && (
+                            <div className="p-2.5 rounded-xl bg-white/95 border border-emerald-200 space-y-1.5">
+                              <p className="text-[10px] font-black text-emerald-800 flex items-center gap-1">
+                                <span>💬</span>
+                                <span>
+                                  {language === 'GU'
+                                    ? `આવેલા જવાબો (${postRepliersList.length}):`
+                                    : `Replies (${postRepliersList.length}):`}
+                                </span>
+                              </p>
+                              {postRepliersList.slice(0, 3).map((rep: any, idx: number) => {
+                                const repId = String(rep.senderId || rep.sender_id || rep.helperId || '').trim();
+                                const repName = rep.senderName || rep.sender_name || rep.helperName || 'Community Helper';
+                                const repMsg = rep.lastMessage || rep.last_message || rep.text || rep.message || '';
+                                return (
+                                  <div
+                                    key={rep.id || `${repId}_${idx}`}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setActiveBottomModal(null);
+                                      onOpenChat({
+                                        ...post,
+                                        selectedReplierId: repId || undefined,
+                                        selectedReplierName: repName,
+                                        selectedReplierEmail: rep.senderEmail || rep.helperEmail || undefined,
+                                        selectedReplierAvatar: rep.senderAvatar || rep.helperAvatar || undefined
+                                      });
+                                    }}
+                                    className="px-2.5 py-1.5 rounded-lg bg-emerald-50/80 hover:bg-emerald-100/80 border border-emerald-200/80 flex items-center justify-between gap-2 cursor-pointer"
+                                  >
+                                    <div className="min-w-0">
+                                      <span className="text-[11px] font-black text-slate-900">{repName}: </span>
+                                      <span className="text-[11px] font-bold text-slate-700">{repMsg}</span>
+                                    </div>
+                                    <span className="text-[10px] font-black text-emerald-700 shrink-0">
+                                      {language === 'GU' ? 'ચેટ →' : 'Chat →'}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+
+                          <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-slate-200/80">
+                            <p className="text-[11px] font-bold text-slate-500 flex items-center gap-1 truncate">
+                              <MapPin className="w-3 h-3 text-orange-600 shrink-0" />
+                              <span className="truncate">
+                                {formatPostLocationDisplay(post)}
+                              </span>
+                            </p>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {isMine && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => handleOpenDeletePostConfirm(e, post)}
+                                    className="px-2.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[11px] font-black flex items-center gap-1 cursor-pointer"
+                                    title={language === 'GU' ? 'પોસ્ટ ડિલીટ કરો' : language === 'HI' ? 'पोस्ट डिलीट करें' : 'Delete Post'}
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                    <span>{language === 'GU' ? 'ડિલીટ' : language === 'HI' ? 'डिलीट' : 'Delete'}</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => handleCompleteOrDeleteMyBooking(e, post)}
+                                    className="px-2.5 py-1.5 rounded-xl bg-emerald-100 hover:bg-emerald-200 text-emerald-800 text-[11px] font-black flex items-center gap-1 cursor-pointer"
+                                  >
+                                    <span>✅</span>
+                                    <span>{language === 'GU' ? 'પૂર્ણ થયું' : 'Done'}</span>
+                                  </button>
+                                </>
+                              )}
+                              <button
+                                type="button"
+                                style={{ backgroundColor: isMine ? '#2563EB' : '#EA580C', color: '#ffffff' }}
+                                className="px-3 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1 cursor-pointer"
+                              >
+                                <span>
+                                  {isMine
+                                    ? language === 'GU'
+                                      ? `જવાબ જુઓ${respCount > 0 ? ` (${respCount})` : ''}`
+                                      : `View Replies${respCount > 0 ? ` (${respCount})` : ''}`
+                                    : language === 'GU'
+                                    ? 'ચેટ / મદદ કરો'
+                                    : 'Chat / Help'}
+                                </span>
+                                <ChevronRight className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )
+                ) : isLoadingBookings ? (
                   <div className="py-10 text-center text-xs font-bold text-slate-500">
                     ⏳ {language === 'GU' ? 'લોડ થઈ રહ્યું છે...' : 'Loading...'}
                   </div>
@@ -1201,10 +1222,10 @@ export default function FixedBottomNavBar({
                       </div>
                       <h4 className="text-sm font-black text-slate-900">
                         {language === 'GU'
-                          ? 'હજુ સુધી કોઈ બુકિંગ કે પોસ્ટ નથી'
+                          ? 'તમે હજુ સુધી કોઈ પોસ્ટ મૂકી નથી'
                           : language === 'HI'
-                          ? 'अभी तक कोई बुकिंग या पोस्ट नहीं है'
-                          : 'No Bookings or Posts Yet'}
+                          ? 'आपने अभी तक कोई पोस्ट नहीं डाली है'
+                          : 'No Posts Created by You Yet'}
                       </h4>
                       <p className="text-xs text-slate-500 max-w-xs mx-auto">
                         {language === 'GU'
@@ -1227,24 +1248,6 @@ export default function FixedBottomNavBar({
                               : language === 'HI'
                               ? 'नई सेवा रिक्वेस्ट डालें'
                               : 'Create Service Request'}
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setActiveBottomModal(null);
-                            onNavigate('categories');
-                          }}
-                          style={{ backgroundColor: '#2563EB', color: '#ffffff' }}
-                          className="px-4 py-2.5 rounded-xl text-xs font-black shadow-sm cursor-pointer flex items-center gap-1.5"
-                        >
-                          <span>🔍</span>
-                          <span>
-                            {language === 'GU'
-                              ? 'સેવા પ્રદાતા શોધો'
-                              : language === 'HI'
-                              ? 'सेवा प्रदाता खोजें'
-                              : 'Find Service Providers'}
                           </span>
                         </button>
                       </div>
@@ -1458,6 +1461,216 @@ export default function FixedBottomNavBar({
                           </button>
                         </div>
                       ))}
+                    </div>
+                  )
+                ) : bookingsSubTab === 'my_used_items' ? (
+                  myUsedItemsList.length === 0 ? (
+                    <div className="py-8 px-4 text-center space-y-3 bg-slate-50 rounded-2xl border border-dashed border-slate-300">
+                      <div className="w-12 h-12 rounded-2xl bg-sky-100 text-sky-600 mx-auto flex items-center justify-center text-2xl">
+                        🛍️
+                      </div>
+                      <h4 className="text-sm font-black text-slate-900">
+                        {language === 'GU'
+                          ? 'તમે હજુ કોઈ જૂની વસ્તુ વેચવા મૂકી નથી'
+                          : language === 'HI'
+                          ? 'आपने अभी कोई पुरानी वस्तु बेचने के लिए नहीं डाली है'
+                          : 'No Used Items Listed by You Yet'}
+                      </h4>
+                      <p className="text-xs text-slate-500 max-w-xs mx-auto">
+                        {language === 'GU'
+                          ? 'તમારી જૂની બાઈક, મોબાઈલ, ફર્નિચર કે અન્ય ઘરવખરી વેચવા માટે અહીંથી મૂકો.'
+                          : language === 'HI'
+                          ? 'अपनी पुरानी बाइक, मोबाइल, फर्नीचर या अन्य सामान बेचने के लिए यहाँ से डालें।'
+                          : 'List your old bike, mobile, furniture or household items for sale.'}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveBottomModal(null);
+                          onSelectCategory('buy_sell_main');
+                          onNavigate('categories');
+                        }}
+                        style={{ backgroundColor: '#0284C7', color: '#ffffff' }}
+                        className="px-4 py-2.5 rounded-xl text-xs font-black shadow-sm cursor-pointer inline-flex items-center gap-1.5"
+                      >
+                        <ShoppingBag className="w-4 h-4" />
+                        <span>
+                          {language === 'GU'
+                            ? 'જૂની વસ્તુની લે-વેચ ખોલો'
+                            : language === 'HI'
+                            ? 'पुरानी वस्तु खरीदें-बेचें खोलें'
+                            : 'Open Buy & Sell Used Items'}
+                        </span>
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {myUsedItemsList.map((item) => {
+                        const thumb = Array.isArray(item.photos) && item.photos.length > 0 ? item.photos[0] : '';
+                        const isBusy = busyUsedItemId === item.id;
+                        return (
+                          <div
+                            key={item.id}
+                            className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2.5"
+                          >
+                            <div className="flex items-start gap-3">
+                              {thumb ? (
+                                <img
+                                  src={thumb}
+                                  alt={item.title}
+                                  referrerPolicy="no-referrer"
+                                  className="w-16 h-16 rounded-xl object-cover border border-slate-200 shrink-0 bg-slate-100"
+                                />
+                              ) : (
+                                <div className="w-16 h-16 rounded-xl bg-sky-100 text-sky-600 flex items-center justify-center shrink-0">
+                                  <ShoppingBag className="w-6 h-6" />
+                                </div>
+                              )}
+                              <div className="min-w-0 flex-1 space-y-1">
+                                <div className="flex items-start justify-between gap-2">
+                                  <h4 className="text-xs sm:text-sm font-black text-slate-900 line-clamp-1">
+                                    {item.title}
+                                  </h4>
+                                  <span className="text-xs sm:text-sm font-black text-emerald-700 tabular-nums shrink-0">
+                                    ₹{new Intl.NumberFormat('en-IN').format(Math.max(0, Math.round(item.price || 0)))}
+                                  </span>
+                                </div>
+                                <p className="text-[11px] font-bold text-slate-500 flex items-center gap-1 truncate">
+                                  <MapPin className="w-3 h-3 text-sky-600 shrink-0" />
+                                  <span className="truncate">
+                                    {item.area}
+                                    {item.city ? `, ${item.city}` : ''}
+                                  </span>
+                                </p>
+                                <div>
+                                  {item.status === 'pending' && (
+                                    <span className="inline-flex items-center gap-1 text-[11px] font-black text-amber-700">
+                                      <Clock className="w-3.5 h-3.5" />
+                                      {language === 'GU' ? 'એડમિન એપ્રુવલ બાકી છે' : 'Pending Admin Approval'}
+                                    </span>
+                                  )}
+                                  {item.status === 'approved' && (
+                                    <span className="inline-flex items-center gap-1 text-[11px] font-black text-emerald-700">
+                                      <CheckCircle2 className="w-3.5 h-3.5" />
+                                      {language === 'GU' ? 'એપ્રુવ અને લાઈવ' : 'Approved & Live'}
+                                    </span>
+                                  )}
+                                  {item.status === 'rejected' && (
+                                    <span className="inline-flex items-center gap-1 text-[11px] font-black text-rose-700">
+                                      <XCircle className="w-3.5 h-3.5" />
+                                      {language === 'GU' ? 'એડમિન દ્વારા નામંજૂર' : 'Rejected by Admin'}
+                                    </span>
+                                  )}
+                                  {item.status === 'sold' && (
+                                    <span className="inline-flex items-center gap-1 text-[11px] font-black text-slate-700">
+                                      <Tag className="w-3.5 h-3.5" />
+                                      {language === 'GU' ? 'વેચાઈ ગયેલ (Sold)' : 'Marked as Sold'}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-200/80">
+                              {confirmDeleteUsedItemId === item.id ? (
+                                <div className="flex items-center gap-2 w-full">
+                                  <button
+                                    type="button"
+                                    disabled={isBusy}
+                                    onClick={async () => {
+                                      setBusyUsedItemId(item.id);
+                                      const ok = await deleteUsedItemListing(item.id);
+                                      setBusyUsedItemId(null);
+                                      setConfirmDeleteUsedItemId(null);
+                                      if (ok) {
+                                        setMyUsedItemsList((prev) => prev.filter((x) => x.id !== item.id));
+                                        showPostToast(
+                                          language === 'GU' ? '🗑️ વસ્તુ ડિલીટ થઈ ગઈ!' : '🗑️ Item deleted!'
+                                        );
+                                      }
+                                    }}
+                                    className="flex-1 py-1.5 px-3 rounded-xl bg-rose-600 text-white text-xs font-black cursor-pointer"
+                                  >
+                                    {isBusy ? '...' : language === 'GU' ? 'હા, ડિલીટ કરો' : 'Confirm Delete'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setConfirmDeleteUsedItemId(null)}
+                                    className="py-1.5 px-3 rounded-xl bg-slate-200 text-slate-700 text-xs font-bold cursor-pointer"
+                                  >
+                                    {language === 'GU' ? 'રદ' : 'Cancel'}
+                                  </button>
+                                </div>
+                              ) : (
+                                <>
+                                  <div className="flex items-center gap-1.5">
+                                    {(item.status === 'approved' || (item.status === 'sold' && item.wasApproved)) && (
+                                      <button
+                                        type="button"
+                                        disabled={isBusy}
+                                        onClick={async () => {
+                                          setBusyUsedItemId(item.id);
+                                          const nextSt = item.status === 'sold' ? 'approved' : 'sold';
+                                          const res = await updateUsedItemStatus(item.id, nextSt);
+                                          setBusyUsedItemId(null);
+                                          if (res.success && res.item) {
+                                            setMyUsedItemsList((prev) =>
+                                              prev.map((x) => (x.id === item.id ? res.item! : x))
+                                            );
+                                          }
+                                        }}
+                                        className="px-2.5 py-1.5 rounded-xl bg-slate-900 text-white text-[11px] font-black cursor-pointer"
+                                      >
+                                        {item.status === 'sold'
+                                          ? language === 'GU'
+                                            ? 'ફરી ઉપલબ્ધ કરો'
+                                            : 'Mark Available'
+                                          : language === 'GU'
+                                          ? 'વેચાઈ ગયું'
+                                          : 'Mark Sold'}
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      disabled={isBusy}
+                                      onClick={() => setConfirmDeleteUsedItemId(item.id)}
+                                      className="px-2.5 py-1.5 rounded-xl bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-black flex items-center gap-1 cursor-pointer"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                      <span>{language === 'GU' ? 'ડિલીટ' : 'Delete'}</span>
+                                    </button>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setActiveBottomModal(null);
+                                      onSelectCategory('buy_sell_main');
+                                      onNavigate('categories');
+                                    }}
+                                    className="px-3 py-1.5 rounded-xl bg-sky-600 text-white text-[11px] font-black flex items-center gap-1 cursor-pointer"
+                                  >
+                                    <span>{language === 'GU' ? 'લે-વેચમાં જુઓ' : 'Open Market'}</span>
+                                    <ChevronRight className="w-3.5 h-3.5" />
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                      <div className="pt-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveBottomModal(null);
+                            onSelectCategory('buy_sell_main');
+                            onNavigate('categories');
+                          }}
+                          className="w-full py-2.5 rounded-xl bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 text-xs font-black cursor-pointer"
+                        >
+                          ➕ {language === 'GU' ? 'નવી જૂની વસ્તુ વેચવા મૂકો' : 'Sell Another Used Item'}
+                        </button>
+                      </div>
                     </div>
                   )
                 ) : myRepliedChatsList.length === 0 ? (
@@ -1999,7 +2212,7 @@ export default function FixedBottomNavBar({
       </AnimatePresence>
 
       {/* ===================================================================== */}
-      {/* FIXED BOTTOM NAVIGATION BAR (હોમ | મારી બુકિંગ | પસંદીદા | સંદેશ | વધુ) */}
+      {/* FIXED BOTTOM NAVIGATION BAR (હોમ | પોસ્ટ / બુકિંગ | પસંદીદા | સંદેશ | પ્રોફાઈલ) */}
       {/* Uses explicit inline styles so it NEVER stacks vertically on any phone */}
       {/* ===================================================================== */}
       <nav
@@ -2011,27 +2224,28 @@ export default function FixedBottomNavBar({
           right: 0,
           width: '100%',
           zIndex: 40,
-          backgroundColor: '#ffffff',
-          borderTop: '2px solid #cbd5e1',
-          boxShadow: '0 -4px 20px rgba(15, 23, 42, 0.12)',
-          paddingTop: '6px',
-          paddingLeft: '4px',
-          paddingRight: '4px',
-          paddingBottom: 'calc(6px + env(safe-area-inset-bottom, 0px))',
+          background: 'linear-gradient(90deg, #EFF6FF 0%, #FFF7ED 25%, #FFF1F2 50%, #ECFDF5 75%, #F5F3FF 100%)',
+          borderTop: '2px solid #93C5FD',
+          boxShadow: '0 -6px 22px rgba(15, 23, 42, 0.14)',
+          paddingTop: '5px',
+          paddingLeft: '6px',
+          paddingRight: '6px',
+          paddingBottom: 'calc(5px + env(safe-area-inset-bottom, 0px))',
           userSelect: 'none'
         }}
       >
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(6, minmax(0, 1fr))',
+            gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
+            gap: '4px',
             alignItems: 'center',
             width: '100%',
             maxWidth: '896px',
             margin: '0 auto'
           }}
         >
-          {/* 1. હોમ (Home) */}
+          {/* 1. હોમ (Home — Royal Blue Theme) */}
           <button
             type="button"
             onClick={() => {
@@ -2045,28 +2259,42 @@ export default function FixedBottomNavBar({
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              padding: '2px 2px',
-              border: 'none',
-              borderRight: '1px solid #e2e8f0',
-              background: 'transparent',
-              cursor: 'pointer'
+              padding: '4px 2px',
+              borderRadius: '12px',
+              border: isHomeActive ? '1px solid #93C5FD' : '1px solid transparent',
+              background: isHomeActive ? '#DBEAFE' : 'rgba(255, 255, 255, 0.65)',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease'
             }}
           >
-            <Home
+            <div
               style={{
-                width: '20px',
-                height: '20px',
-                color: isHomeActive ? '#2563EB' : '#334155',
-                strokeWidth: isHomeActive ? 2.5 : 2
+                width: '32px',
+                height: '26px',
+                borderRadius: '9px',
+                backgroundColor: isHomeActive ? '#2563EB' : '#DBEAFE',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: isHomeActive ? '0 2px 6px rgba(37, 99, 235, 0.35)' : 'none'
               }}
-            />
+            >
+              <Home
+                style={{
+                  width: '17px',
+                  height: '17px',
+                  color: isHomeActive ? '#FFFFFF' : '#1D4ED8',
+                  strokeWidth: 2.4
+                }}
+              />
+            </div>
             <span
               style={{
                 fontSize: '10.5px',
-                marginTop: '2px',
-                lineHeight: 1.15,
-                fontWeight: isHomeActive ? 900 : 700,
-                color: isHomeActive ? '#2563EB' : '#1E293B',
+                marginTop: '3px',
+                lineHeight: 1.1,
+                fontWeight: 900,
+                color: isHomeActive ? '#1E40AF' : '#1E3A8A',
                 whiteSpace: 'nowrap'
               }}
             >
@@ -2074,12 +2302,12 @@ export default function FixedBottomNavBar({
             </span>
           </button>
 
-          {/* 2. પોસ્ટ (Live Broadcast Posts) */}
+          {/* 2. પોસ્ટ / બુકિંગ (Posts & Bookings — Vibrant Orange Theme) */}
           <button
             type="button"
             onClick={() => {
               setIsMoreMenuOpen(false);
-              setActiveBottomModal(prev => (prev === 'posts' ? null : 'posts'));
+              setActiveBottomModal(prev => (prev === 'posts' || prev === 'bookings' ? null : 'posts'));
             }}
             style={{
               position: 'relative',
@@ -2087,33 +2315,46 @@ export default function FixedBottomNavBar({
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              padding: '2px 2px',
-              border: 'none',
-              borderRight: '1px solid #e2e8f0',
-              background: 'transparent',
-              cursor: 'pointer'
+              padding: '4px 2px',
+              borderRadius: '12px',
+              border: isPostsActive || isBookingsActive ? '1px solid #FDBA74' : '1px solid transparent',
+              background: isPostsActive || isBookingsActive ? '#FFEDD5' : 'rgba(255, 255, 255, 0.65)',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease'
             }}
           >
-            <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div
+              style={{
+                position: 'relative',
+                width: '32px',
+                height: '26px',
+                borderRadius: '9px',
+                backgroundColor: isPostsActive || isBookingsActive ? '#EA580C' : '#FFEDD5',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: isPostsActive || isBookingsActive ? '0 2px 6px rgba(234, 88, 12, 0.35)' : 'none'
+              }}
+            >
               <Megaphone
                 style={{
-                  width: '20px',
-                  height: '20px',
-                  color: isPostsActive ? '#EA580C' : '#334155',
-                  strokeWidth: isPostsActive ? 2.5 : 2
+                  width: '17px',
+                  height: '17px',
+                  color: isPostsActive || isBookingsActive ? '#FFFFFF' : '#EA580C',
+                  strokeWidth: 2.4
                 }}
               />
               {filteredLivePosts.length > 0 && (
                 <span
                   style={{
                     position: 'absolute',
-                    top: '-6px',
-                    right: '-10px',
+                    top: '-5px',
+                    right: '-8px',
                     minWidth: '16px',
                     height: '16px',
                     padding: '0 3.5px',
                     borderRadius: '9999px',
-                    backgroundColor: '#EA580C',
+                    backgroundColor: '#DC2626',
                     color: '#ffffff',
                     fontSize: '9.5px',
                     fontWeight: 900,
@@ -2131,59 +2372,18 @@ export default function FixedBottomNavBar({
             <span
               style={{
                 fontSize: '10.5px',
-                marginTop: '2px',
-                lineHeight: 1.15,
-                fontWeight: isPostsActive ? 900 : 700,
-                color: isPostsActive ? '#EA580C' : '#1E293B',
+                marginTop: '3px',
+                lineHeight: 1.1,
+                fontWeight: 900,
+                color: isPostsActive || isBookingsActive ? '#9A3412' : '#C2410C',
                 whiteSpace: 'nowrap'
               }}
             >
-              {language === 'GU' ? 'પોસ્ટ' : language === 'HI' ? 'पोस्ट' : 'Posts'}
+              {language === 'GU' ? 'પોસ્ટ / બુકિંગ' : language === 'HI' ? 'पोस्ट / बुकिंग' : 'Posts & Bookings'}
             </span>
           </button>
 
-          {/* 3. મારી બુકિંગ (My Bookings) */}
-          <button
-            type="button"
-            onClick={() => {
-              setIsMoreMenuOpen(false);
-              setActiveBottomModal(prev => (prev === 'bookings' ? null : 'bookings'));
-            }}
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: '2px 2px',
-              border: 'none',
-              borderRight: '1px solid #e2e8f0',
-              background: 'transparent',
-              cursor: 'pointer'
-            }}
-          >
-            <Calendar
-              style={{
-                width: '20px',
-                height: '20px',
-                color: isBookingsActive ? '#2563EB' : '#334155',
-                strokeWidth: isBookingsActive ? 2.5 : 2
-              }}
-            />
-            <span
-              style={{
-                fontSize: '11px',
-                marginTop: '2px',
-                lineHeight: 1.15,
-                fontWeight: isBookingsActive ? 900 : 700,
-                color: isBookingsActive ? '#2563EB' : '#1E293B',
-                whiteSpace: 'nowrap'
-              }}
-            >
-              {language === 'GU' ? 'મારી બુકિંગ' : language === 'HI' ? 'मेरी बुकिंग' : 'Bookings'}
-            </span>
-          </button>
-
-          {/* 3. પસંદીદા (Favorites) */}
+          {/* 3. પસંદીદા (Favorites — Rose Pink Theme) */}
           <button
             type="button"
             onClick={() => {
@@ -2195,28 +2395,42 @@ export default function FixedBottomNavBar({
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              padding: '2px 2px',
-              border: 'none',
-              borderRight: '1px solid #e2e8f0',
-              background: 'transparent',
-              cursor: 'pointer'
+              padding: '4px 2px',
+              borderRadius: '12px',
+              border: isFavoritesActive ? '1px solid #FDA4AF' : '1px solid transparent',
+              background: isFavoritesActive ? '#FFE4E6' : 'rgba(255, 255, 255, 0.65)',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease'
             }}
           >
-            <Heart
+            <div
               style={{
-                width: '20px',
-                height: '20px',
-                color: isFavoritesActive ? '#E11D48' : '#334155',
-                strokeWidth: isFavoritesActive ? 2.5 : 2
+                width: '32px',
+                height: '26px',
+                borderRadius: '9px',
+                backgroundColor: isFavoritesActive ? '#E11D48' : '#FFE4E6',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: isFavoritesActive ? '0 2px 6px rgba(225, 29, 72, 0.35)' : 'none'
               }}
-            />
+            >
+              <Heart
+                style={{
+                  width: '17px',
+                  height: '17px',
+                  color: isFavoritesActive ? '#FFFFFF' : '#E11D48',
+                  strokeWidth: 2.4
+                }}
+              />
+            </div>
             <span
               style={{
-                fontSize: '11px',
-                marginTop: '2px',
-                lineHeight: 1.15,
-                fontWeight: isFavoritesActive ? 900 : 700,
-                color: isFavoritesActive ? '#E11D48' : '#1E293B',
+                fontSize: '10.5px',
+                marginTop: '3px',
+                lineHeight: 1.1,
+                fontWeight: 900,
+                color: isFavoritesActive ? '#9F1239' : '#BE123C',
                 whiteSpace: 'nowrap'
               }}
             >
@@ -2224,7 +2438,7 @@ export default function FixedBottomNavBar({
             </span>
           </button>
 
-          {/* 4. સંદેશ (Messages / Live Chat Inbox with Unread Count Badge) */}
+          {/* 4. સંદેશ (Messages — Emerald Green Theme) */}
           <button
             type="button"
             onClick={() => {
@@ -2242,28 +2456,41 @@ export default function FixedBottomNavBar({
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              padding: '2px 2px',
-              border: 'none',
-              borderRight: '1px solid #e2e8f0',
-              background: 'transparent',
-              cursor: 'pointer'
+              padding: '4px 2px',
+              borderRadius: '12px',
+              border: isChatActive || unreadChatCount > 0 ? '1px solid #6EE7B7' : '1px solid transparent',
+              background: isChatActive || unreadChatCount > 0 ? '#D1FAE5' : 'rgba(255, 255, 255, 0.65)',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease'
             }}
           >
-            <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div
+              style={{
+                position: 'relative',
+                width: '32px',
+                height: '26px',
+                borderRadius: '9px',
+                backgroundColor: isChatActive || unreadChatCount > 0 ? '#059669' : '#D1FAE5',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: isChatActive || unreadChatCount > 0 ? '0 2px 6px rgba(5, 150, 105, 0.35)' : 'none'
+              }}
+            >
               <MessageSquare
                 style={{
-                  width: '20px',
-                  height: '20px',
-                  color: isChatActive ? '#2563EB' : unreadChatCount > 0 ? '#0D9488' : '#334155',
-                  strokeWidth: isChatActive || unreadChatCount > 0 ? 2.5 : 2
+                  width: '17px',
+                  height: '17px',
+                  color: isChatActive || unreadChatCount > 0 ? '#FFFFFF' : '#059669',
+                  strokeWidth: 2.4
                 }}
               />
               {unreadChatCount > 0 && (
                 <span
                   style={{
                     position: 'absolute',
-                    top: '-6px',
-                    right: '-10px',
+                    top: '-5px',
+                    right: '-8px',
                     minWidth: '17px',
                     height: '17px',
                     padding: '0 4px',
@@ -2286,11 +2513,11 @@ export default function FixedBottomNavBar({
             </div>
             <span
               style={{
-                fontSize: '11px',
-                marginTop: '2px',
-                lineHeight: 1.15,
-                fontWeight: isChatActive || unreadChatCount > 0 ? 900 : 700,
-                color: isChatActive ? '#2563EB' : unreadChatCount > 0 ? '#0D9488' : '#1E293B',
+                fontSize: '10.5px',
+                marginTop: '3px',
+                lineHeight: 1.1,
+                fontWeight: 900,
+                color: isChatActive || unreadChatCount > 0 ? '#065F46' : '#047857',
                 whiteSpace: 'nowrap'
               }}
             >
@@ -2298,7 +2525,7 @@ export default function FixedBottomNavBar({
             </span>
           </button>
 
-          {/* 6. પ્રોફાઈલ (Profile — opens the menu with Profile, Notifications, Settings, Login/Logout) */}
+          {/* 5. પ્રોફાઈલ (Profile — Indigo Purple Theme) */}
           <button
             type="button"
             onClick={() => {
@@ -2310,27 +2537,42 @@ export default function FixedBottomNavBar({
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              padding: '2px 2px',
-              border: 'none',
-              background: 'transparent',
-              cursor: 'pointer'
+              padding: '4px 2px',
+              borderRadius: '12px',
+              border: isMoreActive ? '1px solid #C4B5FD' : '1px solid transparent',
+              background: isMoreActive ? '#EDE9FE' : 'rgba(255, 255, 255, 0.65)',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease'
             }}
           >
-            <User
+            <div
               style={{
-                width: '20px',
-                height: '20px',
-                color: isMoreActive ? '#2563EB' : '#334155',
-                strokeWidth: isMoreActive ? 2.5 : 2
+                width: '32px',
+                height: '26px',
+                borderRadius: '9px',
+                backgroundColor: isMoreActive ? '#7C3AED' : '#EDE9FE',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: isMoreActive ? '0 2px 6px rgba(124, 58, 237, 0.35)' : 'none'
               }}
-            />
+            >
+              <User
+                style={{
+                  width: '17px',
+                  height: '17px',
+                  color: isMoreActive ? '#FFFFFF' : '#7C3AED',
+                  strokeWidth: 2.4
+                }}
+              />
+            </div>
             <span
               style={{
-                fontSize: '11px',
-                marginTop: '2px',
-                lineHeight: 1.15,
-                fontWeight: isMoreActive ? 900 : 700,
-                color: isMoreActive ? '#2563EB' : '#1E293B',
+                fontSize: '10.5px',
+                marginTop: '3px',
+                lineHeight: 1.1,
+                fontWeight: 900,
+                color: isMoreActive ? '#5B21B6' : '#6D28D9',
                 whiteSpace: 'nowrap'
               }}
             >

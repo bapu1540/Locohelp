@@ -281,37 +281,34 @@ const MAIN_CATS: MainCatConfig[] = [
   },
 
   // =========================================================================
-  // ROW 3 (9 to 12): Pest Control, Brokers & Agents, Transport & Shifting, Cab & Travel
+  // ROW 3 (9 to 12): Buy & Sell Used Items, Brokers & Agents, Transport & Shifting, Cab & Travel
   // =========================================================================
   {
-    key: 'pest_control_main',
-    masterId: 'pest_control_main',
+    key: 'buy_sell_main',
+    masterId: 'buy_sell_main',
     ...ROW_THEMES.row3,
     name: [
-      'Pest Control',
-      'पेस्ट कंट्रोल',
-      'જંતુનાશક સેવા',
+      'Buy & Sell Used Items',
+      'पुरानी चीज़ें खरीदें-बेचें',
+      'જૂની વસ્તુની લે-વેચ',
     ],
     cardLines: [
-      ['Pest', 'Control'],
-      ['पेस्ट', 'कंट्रोल'],
-      ['જંતુનાશક', 'સેવા'],
+      ['Buy & Sell', 'Used Items'],
+      ['पुरानी चीज़ें', 'खरीदें-बेचें'],
+      ['જૂની વસ્તુની', 'લે-વેચ'],
     ],
     iconPaths: (
       <>
-        <path d="m8 2 1.88 1.88" />
-        <path d="M14.12 3.88 16 2" />
-        <path d="M9 7.13v-1a3.003 3.003 0 1 1 6 0v1" />
-        <path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6" />
-        <path d="M12 20v-9" />
-        <path d="M6.53 9C4.6 8.8 3 7.1 3 5" />
-        <path d="M6 13H2" />
-        <path d="M17.47 9c1.93-.2 3.53-1.9 3.53-4" />
-        <path d="M18 13h4" />
+        <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" />
+        <path d="M3 6h18" />
+        <path d="M16 10a4 4 0 0 1-8 0" />
       </>
     ),
     subs: [
-      { id: 'pest_control', label: ['Pest Control', 'पेस्ट कंट्रोल', 'જંતુનાશક સેવા'] },
+      { id: 'used_vehicles', label: ['Used Vehicles (Bike, Scooter, Car)', 'पुराने वाहन (बाइक, एक्टिवा, कार, साइकिल)', 'જૂના વાહનો (બાઈક, એક્ટિવા, કાર, સાયકલ)'] },
+      { id: 'used_mobiles_electronics', label: ['Used Mobiles & Electronics', 'पुराने मोबाइल, टीवी, फ्रिज, AC व इलेक्ट्रॉनिक्स', 'જૂના મોબાઈલ, ટીવી, ફ્રિજ, AC અને ઈલેક્ટ્રોનિક્સ'] },
+      { id: 'used_furniture_home', label: ['Used Furniture & Home Items', 'पुराना फर्नीचर और घर का सामान', 'જૂનું ફર્નિચર અને ઘરવખરી'] },
+      { id: 'used_other_items', label: ['Other Used Items', 'अन्य पुरानी चीज़ें (किताबें, सामान आदि)', 'અન્ય જૂની વસ્તુઓ (પુસ્તકો, સાધનો વગેરે)'] },
     ],
   },
   {
@@ -526,6 +523,8 @@ const MAIN_CATS: MainCatConfig[] = [
       </>
     ),
     subs: [
+      // Pest Control (moved from main grid)
+      { id: 'pest_control', label: ['Pest Control & Tank Cleaning', 'पेस्ट कंट्रोल और टंकी सफाई', 'જંતુનાશક સેવા અને ટાંકી સફાઈ'] },
       // CCTV & Mobile
       { id: 'mobile_repair', label: ['Mobile Repair Technician', 'मोबाइल स्क्रीन और पार्ट्स रिपेयर', 'મોબાઇલ સ્ક્રીન અને પાર્ટ્સ રિપેર'] },
       { id: 'computer_laptop', label: ['Computer & Laptop Expert', 'कंप्यूटर और लैपटॉप रिपेयर', 'કમ્પ્યુટર અને લેપટોપ રિપેર'] },
