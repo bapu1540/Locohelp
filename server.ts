@@ -9513,6 +9513,48 @@ async function startServer() {
       }
     }
 
+    // 0b. Check if this postId is a Used Item Marketplace Chat (`used_item_chat_<usedItemId>`)
+    if (cleanPostId.toLowerCase().startsWith("used_item_chat_")) {
+      const strippedUsedItemId = cleanPostId.replace(/^used_item_chat_/i, "").trim();
+      if (strippedUsedItemId) {
+        let usedItemData: any = null;
+        if (dbPool && isDbConnected) {
+          try {
+            const uItemRes = await dbPool
+              .query(`SELECT data FROM used_items WHERE id = $1 LIMIT 1`, [strippedUsedItemId])
+              .catch(() => ({ rows: [] as any[] }));
+            if (uItemRes.rows.length > 0 && uItemRes.rows[0].data && typeof uItemRes.rows[0].data === "object") {
+              usedItemData = uItemRes.rows[0].data;
+            }
+          } catch {}
+        }
+        if (!usedItemData) {
+          try {
+            const localUsedItems = readJsonFile<any[]>(USED_ITEMS_FILE, []);
+            usedItemData = localUsedItems.find((it: any) => it && String(it.id || "").trim() === strippedUsedItemId) || null;
+          } catch {}
+        }
+        if (usedItemData) {
+          const itemPhoneDigits = normalizePhoneDigitsServer(usedItemData.phone || "");
+          posterId = String(usedItemData.userId || (itemPhoneDigits ? `phone_${itemPhoneDigits}` : strippedUsedItemId)).trim();
+          posterName = String(usedItemData.sellerName || "Seller").trim();
+          posterEmail = String(
+            usedItemData.email || (itemPhoneDigits ? `${itemPhoneDigits}@phone.locohelp.com` : "")
+          )
+            .trim()
+            .toLowerCase();
+          if (Array.isArray(usedItemData.photos) && usedItemData.photos.length > 0 && typeof usedItemData.photos[0] === "string") {
+            posterAvatar = String(usedItemData.photos[0]).trim();
+          }
+          const formattedPrice = Number.isFinite(Number(usedItemData.price))
+            ? `₹${Math.round(Number(usedItemData.price)).toLocaleString("en-IN")}`
+            : "";
+          const areaSuffix = usedItemData.area ? ` (${String(usedItemData.area).trim()})` : "";
+          postDescription = `${String(usedItemData.title || "Used Item").trim()}${formattedPrice ? ` — ${formattedPrice}` : ""}${areaSuffix}`;
+        }
+      }
+    }
+
     if (dbPool && isDbConnected && (!posterId || !posterEmail)) {
       try {
         const [pRes, bRes, cRes] = await Promise.all([
@@ -13755,6 +13797,7 @@ async function startServer() {
 
             if (userReportCount >= 3) {
               autoFlaggedUser = true;
+              userApprovalStateCache.clear();
               await dbPool.query(
                 `UPDATE users SET is_flagged = true, hidden = true WHERE id = $1 OR email = $1`,
                 [reportedUserId]
@@ -16036,6 +16079,7 @@ async function startServer() {
         } catch (e) {}
       }
 
+      userApprovalStateCache.clear();
       invalidatePublicCache(['public_helpers']);
       if (
         (updates.status === 'approved' || updates.isVerified === true) &&
@@ -16676,6 +16720,7 @@ async function startServer() {
         });
       }
 
+      userApprovalStateCache.clear();
       invalidatePublicCache(['public_helpers', 'public_shops']);
       res.json({ success: true, item: current });
     } catch (e: any) {
@@ -17755,6 +17800,7 @@ async function startServer() {
         }
       }
 
+      userApprovalStateCache.clear();
       invalidatePublicCache(['public_helpers', 'public_shops']);
       if (status === 'approved') {
         const targetUid = String(

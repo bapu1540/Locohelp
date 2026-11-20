@@ -2371,15 +2371,21 @@ export default function FixedBottomNavBar({
             </div>
             <span
               style={{
-                fontSize: '10.5px',
+                fontSize: '9.5px',
+                letterSpacing: '-0.2px',
                 marginTop: '3px',
                 lineHeight: 1.1,
                 fontWeight: 900,
                 color: isPostsActive || isBookingsActive ? '#9A3412' : '#C2410C',
-                whiteSpace: 'nowrap'
+                whiteSpace: 'nowrap',
+                maxWidth: '100%',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                display: 'block',
+                textAlign: 'center'
               }}
             >
-              {language === 'GU' ? 'પોસ્ટ / બુકિંગ' : language === 'HI' ? 'पोस्ट / बुकिंग' : 'Posts & Bookings'}
+              {language === 'GU' ? 'પોસ્ટ-બુકિંગ' : language === 'HI' ? 'पोस्ट-बुकिंग' : 'Posts'}
             </span>
           </button>
 
